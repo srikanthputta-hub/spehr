@@ -23,6 +23,10 @@ import {
   UserPlus,
   ShieldCheck,
   ShieldAlert,
+  Inbox,
+  Check,
+  X,
+  ArrowRightLeft,
 } from "lucide-react";
 import {
   Sheet,
@@ -71,6 +75,26 @@ interface StaffMember {
 }
 
 const STAFF_ROLES = ["RN", "MD", "PharmD", "RT", "CNA", "LPN"] as const;
+
+const IN_NETWORK_FACILITIES = new Set([
+  "Memorial Hospital",
+  "St. Jude Medical Center",
+  "City General Infirmary",
+  "County Health Pavilion",
+  "Mercy Childrens Hospital",
+]);
+
+interface TransferRequest {
+  id: string;
+  patient_mrn: string;
+  patient_name: string;
+  source_facility: string;
+  destination_facility: string;
+  requesting_physician: string;
+  reason_for_transfer: string | null;
+  status: string | null;
+  created_at: string | null;
+}
 
 function roleBadgeClass(role: string) {
   switch (role) {
@@ -136,6 +160,10 @@ function AdminDashboard() {
   const [newRate, setNewRate] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
+  const [transfers, setTransfers] = useState<TransferRequest[]>([]);
+  const [transfersLoading, setTransfersLoading] = useState(true);
+  const [actingOn, setActingOn] = useState<string | null>(null);
+
   useEffect(() => {
     (async () => {
       const [pRes, mRes] = await Promise.all([
@@ -166,6 +194,87 @@ function AdminDashboard() {
       setStaffLoading(false);
     })();
   }, []);
+
+  const loadTransfers = async () => {
+    const { data, error } = await supabase
+      .from("patient_transfers")
+      .select("*")
+      .eq("status", "Pending Approval")
+      .order("created_at", { ascending: false });
+    if (error) toast.error(error.message);
+    else setTransfers((data ?? []) as TransferRequest[]);
+    setTransfersLoading(false);
+  };
+
+  const reloadPatients = async () => {
+    const { data, error } = await supabase
+      .from("patients")
+      .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name")
+      .order("room", { ascending: true });
+    if (!error) setPatients((data ?? []) as Patient[]);
+  };
+
+  useEffect(() => {
+    loadTransfers();
+  }, []);
+
+  const facilityTransfers = useMemo(
+    () => transfers.filter((t) => t.source_facility === facility),
+    [transfers, facility],
+  );
+
+  const approveTransfer = async (t: TransferRequest) => {
+    setActingOn(t.id);
+    try {
+      const { error: updErr } = await supabase
+        .from("patient_transfers")
+        .update({ status: "Approved" })
+        .eq("id", t.id);
+      if (updErr) throw updErr;
+
+      if (IN_NETWORK_FACILITIES.has(t.destination_facility)) {
+        const { error: pErr } = await supabase
+          .from("patients")
+          .update({
+            facility_name: t.destination_facility,
+            room: "Holding/ER",
+          })
+          .eq("mrn", t.patient_mrn);
+        if (pErr) throw pErr;
+      } else {
+        const { error: dErr } = await supabase
+          .from("patients")
+          .delete()
+          .eq("mrn", t.patient_mrn);
+        if (dErr) throw dErr;
+      }
+
+      toast.success(
+        "Patient successfully transferred and rerouted across network servers.",
+      );
+      setTransfers((cur) => cur.filter((x) => x.id !== t.id));
+      await reloadPatients();
+    } catch (e: any) {
+      toast.error("Transfer failed", { description: e?.message });
+    } finally {
+      setActingOn(null);
+    }
+  };
+
+  const denyTransfer = async (t: TransferRequest) => {
+    setActingOn(t.id);
+    const { error } = await supabase
+      .from("patient_transfers")
+      .update({ status: "Denied" })
+      .eq("id", t.id);
+    setActingOn(null);
+    if (error) {
+      toast.error("Could not deny transfer", { description: error.message });
+      return;
+    }
+    setTransfers((cur) => cur.filter((x) => x.id !== t.id));
+    toast.success("Transfer request denied.");
+  };
 
   const facilityPatients = useMemo(
     () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
