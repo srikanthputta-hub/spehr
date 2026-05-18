@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FacilitySwitcher, useActiveNurse, FACILITIES, NURSES_BY_FACILITY, useFacility } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -47,6 +48,8 @@ const ROLES: { value: RoleRoute; label: string; abbrev: string }[] = [
 function LoginScreen() {
   const navigate = useNavigate();
   const [role, setRole] = useState<RoleRoute | "">("");
+  const nurse = useActiveNurse();
+  const { facility, setFacility } = useFacility();
 
   const handleLaunch = () => {
     if (!role) return;
@@ -137,6 +140,31 @@ function LoginScreen() {
               </SelectContent>
             </Select>
           </div>
+
+          {role === "/nursing-board" && (
+            <div className="mt-4 rounded-lg border border-[#5cbdb9]/25 bg-[#0a1220]/70 p-3 space-y-2">
+              <label className="block text-[10px] uppercase tracking-[0.18em] text-slate-400">
+                Facility Network · Auto-binds Nurse Identity
+              </label>
+              <select
+                value={facility}
+                onChange={(e) => setFacility(e.target.value as any)}
+                className="w-full h-10 rounded-md bg-[#0a1220] border border-white/10 text-slate-100 text-sm px-2 outline-none hover:border-[#5cbdb9]/40 focus:border-[#5cbdb9]/60 cursor-pointer"
+              >
+                {FACILITIES.map((f) => (
+                  <option key={f} value={f} className="text-slate-900">
+                    {f}
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center justify-between gap-2 pt-1 text-[11px]">
+                <span className="text-slate-400">Signing in as</span>
+                <span className="font-medium text-[#5cbdb9]">
+                  {nurse.name} · {nurse.ward}
+                </span>
+              </div>
+            </div>
+          )}
 
           <button
             type="button"
