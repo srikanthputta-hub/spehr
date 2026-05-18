@@ -10,6 +10,49 @@ export const FACILITIES = [
 
 export type Facility = (typeof FACILITIES)[number];
 
+export interface NurseProfile {
+  name: string;
+  facility: Facility;
+  ward: string;
+}
+
+export const NURSES_BY_FACILITY: Record<Facility, NurseProfile> = {
+  "Memorial Hospital": {
+    name: "Sarah Jenkins, RN",
+    facility: "Memorial Hospital",
+    ward: "Unit 4B - MedSurg",
+  },
+  "St. Jude Medical Center": {
+    name: "Michael Chang, RN",
+    facility: "St. Jude Medical Center",
+    ward: "ICU - Pod B",
+  },
+  "City General Infirmary": {
+    name: "Amanda Ross, RN",
+    facility: "City General Infirmary",
+    ward: "ER - Trauma Bay",
+  },
+  "County Health Pavilion": {
+    name: "Jordan Lee, RN",
+    facility: "County Health Pavilion",
+    ward: "Med-Surg Float",
+  },
+  "Mercy Childrens Hospital": {
+    name: "Priya Shah, RN",
+    facility: "Mercy Childrens Hospital",
+    ward: "Pediatrics - Wing C",
+  },
+};
+
+export function nurseForFacility(f: Facility): NurseProfile {
+  return NURSES_BY_FACILITY[f];
+}
+
+export function useActiveNurse(): NurseProfile {
+  const { facility } = useFacility();
+  return NURSES_BY_FACILITY[facility];
+}
+
 const STORAGE_KEY = "spehr.activeFacility";
 
 interface FacilityContextValue {
