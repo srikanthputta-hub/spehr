@@ -541,8 +541,9 @@ function PatientChart() {
         </section>
         </div>
 
-        {/* Right — Medication Administration Record */}
-        <section className="lg:col-span-2 rounded-xl border border-border bg-card overflow-hidden sticky top-[88px]">
+        {/* Right — MAR + AI Clinical Notes */}
+        <div className="lg:col-span-2 space-y-6">
+        <section className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="flex items-center justify-between px-5 h-12 bg-secondary/40 border-b border-border">
             <div className="flex items-center gap-2">
               <Pill className="h-4 w-4 text-[var(--teal)]" />
@@ -623,6 +624,81 @@ function PatientChart() {
             </ul>
           )}
         </section>
+
+        {/* AI Clinical Notes */}
+        <section className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 h-12 bg-secondary/40 border-b border-border">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-[var(--teal)]" />
+              <h3 className="text-sm font-semibold tracking-tight">Clinical Notes</h3>
+            </div>
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[var(--teal)] uppercase tracking-wider">
+              <Sparkles className="h-3 w-3" />
+              AI
+            </span>
+          </div>
+          <div className="p-4 border-b border-border bg-gradient-to-b from-[var(--teal-soft)]/30 to-transparent">
+            <button
+              onClick={generateShiftNote}
+              disabled={generating || !patient}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 text-white px-4 h-10 text-xs font-semibold transition shadow-sm disabled:opacity-70"
+            >
+              {generating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Synthesizing data...
+                </>
+              ) : (
+                <>
+                  <Sparkle className="h-4 w-4 text-[var(--teal)]" />
+                  Generate End-of-Shift Note
+                </>
+              )}
+            </button>
+          </div>
+          {notesLoading ? (
+            <div className="p-8 grid place-items-center">
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
+            </div>
+          ) : notes.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No clinical notes yet. Generate the first shift summary above.
+            </div>
+          ) : (
+            <ol className="relative">
+              {notes.map((n, idx) => {
+                const ts = n.created_at ? new Date(n.created_at) : null;
+                return (
+                  <li key={n.id} className="relative pl-12 pr-5 py-4 border-b border-border last:border-b-0">
+                    <span className="absolute left-5 top-5 grid place-items-center h-6 w-6 rounded-full bg-[var(--teal)] ring-4 ring-card text-white">
+                      <FileText className="h-3 w-3" />
+                    </span>
+                    {idx < notes.length - 1 && (
+                      <span className="absolute left-[31px] top-11 bottom-0 w-px bg-border" />
+                    )}
+                    <div className="flex items-baseline justify-between gap-2 mb-1">
+                      <div className="text-xs font-semibold text-foreground">{n.note_type}</div>
+                      <div className="text-[10px] tabular-nums text-muted-foreground shrink-0">
+                        {ts?.toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                        })}
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mb-2">{n.author}</div>
+                    <p className="text-xs leading-relaxed text-foreground/90 whitespace-pre-wrap">
+                      {n.content}
+                    </p>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
+        </div>
       </div>
     </main>
   );
