@@ -117,6 +117,8 @@ export type Database = {
         Row: {
           age: number | null
           bp: string | null
+          bp_diastolic: number | null
+          bp_systolic: number | null
           chief_complaint: string | null
           code_status: string | null
           diagnosis: string | null
@@ -135,6 +137,8 @@ export type Database = {
         Insert: {
           age?: number | null
           bp?: string | null
+          bp_diastolic?: number | null
+          bp_systolic?: number | null
           chief_complaint?: string | null
           code_status?: string | null
           diagnosis?: string | null
@@ -153,6 +157,8 @@ export type Database = {
         Update: {
           age?: number | null
           bp?: string | null
+          bp_diastolic?: number | null
+          bp_systolic?: number | null
           chief_complaint?: string | null
           code_status?: string | null
           diagnosis?: string | null
