@@ -287,6 +287,11 @@ function ChartPage() {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
+            <div className="hidden md:flex flex-col items-end text-[11px] leading-tight">
+              <span className="text-white/55 uppercase tracking-[0.18em] text-[9px]">Signed In</span>
+              <span className="text-white font-medium">RN: {nurse.name.replace(/, RN$/, "")}</span>
+              <span className="text-white/60">{nurse.facility} — {nurse.ward}</span>
+            </div>
             <div className="inline-flex items-center gap-2 rounded-md bg-red-500/15 ring-1 ring-red-400/40 px-3 h-9 text-xs">
               <AlertOctagon className="h-4 w-4 text-red-300" />
               <span className="font-semibold text-red-200 uppercase tracking-wider text-[10px]">
