@@ -44,13 +44,39 @@ function ChartPage() {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
   const [given, setGiven] = useState<Record<string, string>>({});
+  const [dbPatient, setDbPatient] = useState<any>(null);
+  const [lookupDone, setLookupDone] = useState(false);
 
   useEffect(() => {
     // Auth gate disabled — chart renders using mock demo session.
     setReady(true);
   }, [navigate]);
 
-  const patient = getPatient(mrn);
+  const staticPatient = getPatient(mrn);
+
+  useEffect(() => {
+    if (staticPatient) {
+      setLookupDone(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("patients")
+        .select("*")
+        .eq("mrn", mrn)
+        .maybeSingle();
+      if (!cancelled) {
+        setDbPatient(data);
+        setLookupDone(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mrn, staticPatient]);
+
+  const patient = staticPatient ?? buildFallbackPatient(mrn, dbPatient);
 
   if (!ready) {
     return (
@@ -60,21 +86,10 @@ function ChartPage() {
     );
   }
 
-  if (!patient) {
+  if (!staticPatient && !lookupDone) {
     return (
-      <div className="min-h-screen grid place-items-center p-6">
-        <div className="text-center max-w-sm">
-          <h1 className="text-lg font-semibold">Chart not found</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            MRN {mrn} is not on this unit.
-          </p>
-          <Link
-            to="/nursing-board"
-            className="inline-flex items-center gap-1 mt-4 text-sm text-[var(--teal)] hover:underline"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to Floor
-          </Link>
-        </div>
+      <div className="min-h-screen grid place-items-center">
+        <Loader2 className="h-5 w-5 animate-spin text-[var(--teal)]" />
       </div>
     );
   }
