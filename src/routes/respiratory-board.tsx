@@ -123,7 +123,7 @@ function RespiratoryBoard() {
             <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
               <Wind className="h-4 w-4 text-sky-600" /> Active Floor · Pulmonary Vitals
             </h2>
-            <span className="text-xs text-slate-500">{patients.length} patients</span>
+            <span className="text-xs text-slate-500">{visiblePatients.length} patients</span>
           </div>
 
           {loading ? (
@@ -132,7 +132,7 @@ function RespiratoryBoard() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {patients.map((p) => {
+              {visiblePatients.map((p) => {
                 const critical = (p.spo2 ?? 100) < 92;
                 const isSelected = selected?.id === p.id;
                 return (
