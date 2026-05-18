@@ -24,7 +24,7 @@ import {
   type CodeStatus,
 } from "@/lib/patients";
 
-export const Route = createFileRoute("/dashboard")({
+export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
 });
 
