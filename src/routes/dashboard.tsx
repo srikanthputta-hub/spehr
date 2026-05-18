@@ -418,7 +418,7 @@ function Dashboard() {
                       </td>
                       <td className="px-5 py-3.5 align-top text-right pr-5">
                         <Link
-                          to="/chart/$mrn"
+                          to="/patient/$mrn"
                           params={{ mrn: p.mrn }}
                           className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-8 text-xs font-medium text-foreground hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
                         >
