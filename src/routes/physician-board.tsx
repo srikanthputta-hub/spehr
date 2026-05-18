@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
+import { useFacility } from "@/lib/facility-context";
 
 type Patient = {
   mrn: string;
@@ -27,12 +28,14 @@ type Patient = {
   bp_systolic: number | null;
   bp_diastolic: number | null;
   spo2: number | null;
+  facility_name: string | null;
 };
 
 const ROUTES = ["PO", "IV", "IM", "SubQ", "Inh", "Neb", "Topical", "PR"];
 const FREQS = ["Once", "Daily", "BID", "TID", "QID", "Q4H", "Q6H", "Q8H", "Q12H", "PRN", "Continuous"];
 
 function PhysicianBoard() {
+  const { facility } = useFacility();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +58,7 @@ function PhysicianBoard() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2",
+          "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name",
         )
         .order("room", { ascending: true });
       if (!active) return;
@@ -77,7 +80,7 @@ function PhysicianBoard() {
           supabase
             .from("patients")
             .select(
-              "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2",
+              "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name",
             )
             .order("room", { ascending: true })
             .then(({ data }) => {
@@ -92,10 +95,24 @@ function PhysicianBoard() {
     };
   }, []);
 
-  const selected = useMemo(
-    () => patients.find((p) => p.mrn === selectedMrn) ?? null,
-    [patients, selectedMrn],
+  const visiblePatients = useMemo(
+    () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
+    [patients, facility],
   );
+
+  const selected = useMemo(
+    () => visiblePatients.find((p) => p.mrn === selectedMrn) ?? null,
+    [visiblePatients, selectedMrn],
+  );
+
+  useEffect(() => {
+    if (selected) return;
+    if (visiblePatients.length > 0) {
+      setSelectedMrn(visiblePatients[0].mrn);
+    } else {
+      setSelectedMrn(null);
+    }
+  }, [visiblePatients, selected]);
 
   // Reset side panels when patient changes
   useEffect(() => {
