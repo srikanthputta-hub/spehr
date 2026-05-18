@@ -41,6 +41,42 @@ export type Database = {
         }
         Relationships: []
       }
+      hospital_staff: {
+        Row: {
+          assigned_patients: number | null
+          avatar_url: string | null
+          created_at: string | null
+          hourly_rate: number | null
+          id: string
+          max_capacity: number | null
+          name: string
+          role: string
+          status: string | null
+        }
+        Insert: {
+          assigned_patients?: number | null
+          avatar_url?: string | null
+          created_at?: string | null
+          hourly_rate?: number | null
+          id?: string
+          max_capacity?: number | null
+          name: string
+          role: string
+          status?: string | null
+        }
+        Update: {
+          assigned_patients?: number | null
+          avatar_url?: string | null
+          created_at?: string | null
+          hourly_rate?: number | null
+          id?: string
+          max_capacity?: number | null
+          name?: string
+          role?: string
+          status?: string | null
+        }
+        Relationships: []
+      }
       lab_results: {
         Row: {
           flag: string | null

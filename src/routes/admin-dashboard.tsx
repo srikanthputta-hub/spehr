@@ -20,7 +20,20 @@ import {
   UserCog,
   Trash2,
   Loader2,
+  UserPlus,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetTrigger,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import { Progress } from "@/components/ui/progress";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -42,6 +55,33 @@ interface Assignment {
   id: string;
   nurse: string;
   cluster: string;
+}
+
+interface StaffMember {
+  id: string;
+  name: string;
+  role: string;
+  status: string | null;
+  assigned_patients: number | null;
+  max_capacity: number | null;
+  hourly_rate: number | null;
+}
+
+const STAFF_ROLES = ["RN", "MD", "PharmD", "RT", "CNA", "LPN"] as const;
+
+function roleBadgeClass(role: string) {
+  switch (role) {
+    case "RN":
+      return "bg-sky-50 text-sky-700 ring-1 ring-sky-600/20";
+    case "MD":
+      return "bg-violet-50 text-violet-700 ring-1 ring-violet-600/20";
+    case "PharmD":
+      return "bg-amber-50 text-amber-700 ring-1 ring-amber-600/20";
+    case "RT":
+      return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20";
+    default:
+      return "bg-slate-100 text-slate-700 ring-1 ring-slate-600/20";
+  }
 }
 
 const ROOM_CLUSTERS = [
@@ -83,6 +123,14 @@ function AdminDashboard() {
   const [cluster, setCluster] = useState("");
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [staffLoading, setStaffLoading] = useState(true);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newRole, setNewRole] = useState<string>("RN");
+  const [newRate, setNewRate] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     (async () => {
       const [pRes, mRes] = await Promise.all([
@@ -99,6 +147,18 @@ function AdminDashboard() {
       else setPatients((pRes.data ?? []) as Patient[]);
       if (!mRes.error) setPendingPharm(mRes.count ?? 0);
       setLoading(false);
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from("hospital_staff")
+        .select("id,name,role,status,assigned_patients,max_capacity,hourly_rate")
+        .order("role", { ascending: true });
+      if (error) toast.error(error.message);
+      else setStaff((data ?? []) as StaffMember[]);
+      setStaffLoading(false);
     })();
   }, []);
 
@@ -125,6 +185,50 @@ function AdminDashboard() {
 
   const removeAssignment = (id: string) =>
     setAssignments((a) => a.filter((x) => x.id !== id));
+
+  const onDutyRNs = useMemo(
+    () =>
+      staff.filter((s) => s.role === "RN" && s.status === "On Duty").length,
+    [staff],
+  );
+  const census = patients.length;
+  const ratio = onDutyRNs > 0 ? census / onDutyRNs : Infinity;
+  const safeRatio = onDutyRNs > 0 && ratio <= 5;
+
+  const clockInStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim() || !newRole) {
+      toast.error("Name and role are required");
+      return;
+    }
+    const rate = parseInt(newRate, 10);
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("hospital_staff")
+      .insert({
+        name: newName.trim(),
+        role: newRole,
+        hourly_rate: Number.isFinite(rate) ? rate : 45,
+        status: "On Duty",
+        assigned_patients: 0,
+        max_capacity: newRole === "RN" ? 5 : 10,
+      })
+      .select(
+        "id,name,role,status,assigned_patients,max_capacity,hourly_rate",
+      )
+      .single();
+    setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setStaff((s) => [data as StaffMember, ...s]);
+    toast.success(`${(data as StaffMember).name} clocked in.`);
+    setNewName("");
+    setNewRole("RN");
+    setNewRate("");
+    setSheetOpen(false);
+  };
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -158,6 +262,192 @@ function AdminDashboard() {
             sub="HR >100 or SpO₂ <92%"
             alert={acuity > 0}
           />
+        </div>
+
+        {/* Active Unit Staffing & Shift Roster */}
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              👥 Active Unit Staffing &amp; Shift Roster
+            </h2>
+            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+              <SheetTrigger asChild>
+                <Button
+                  size="sm"
+                  className="bg-[#0c2340] hover:bg-[#0c2340]/90"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  Clock-In New Staff
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="sm:max-w-md">
+                <SheetHeader>
+                  <SheetTitle>➕ Clock-In New Staff</SheetTitle>
+                  <SheetDescription>
+                    Add a clinician to the active shift roster.
+                  </SheetDescription>
+                </SheetHeader>
+                <form
+                  onSubmit={clockInStaff}
+                  className="space-y-4 px-4 py-6"
+                >
+                  <div className="space-y-1.5">
+                    <Label>Full Name</Label>
+                    <Input
+                      placeholder="e.g. Jordan Lee"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Role</Label>
+                    <Select value={newRole} onValueChange={setNewRole}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STAFF_ROLES.map((r) => (
+                          <SelectItem key={r} value={r}>
+                            {r}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Hourly Rate (USD)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="45"
+                      value={newRate}
+                      onChange={(e) => setNewRate(e.target.value)}
+                    />
+                  </div>
+                  <SheetFooter className="px-0">
+                    <Button
+                      type="submit"
+                      disabled={saving}
+                      className="bg-[#0c2340] hover:bg-[#0c2340]/90 w-full"
+                    >
+                      {saving ? "Saving…" : "Save & Clock In"}
+                    </Button>
+                  </SheetFooter>
+                </form>
+              </SheetContent>
+            </Sheet>
+          </div>
+
+          {/* Safety ratio card */}
+          <div className="p-5 border-b border-slate-100">
+            <div
+              className={`rounded-lg border p-4 flex items-center justify-between gap-4 ${
+                safeRatio
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-amber-300 bg-amber-50 animate-pulse"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                {safeRatio ? (
+                  <ShieldCheck className="h-6 w-6 text-emerald-600" />
+                ) : (
+                  <ShieldAlert className="h-6 w-6 text-amber-600" />
+                )}
+                <div>
+                  <div
+                    className={`text-sm font-semibold ${
+                      safeRatio ? "text-emerald-800" : "text-amber-800"
+                    }`}
+                  >
+                    {safeRatio
+                      ? "✅ Safe Staffing Ratios Maintained"
+                      : "⚠️ Understaffed: Nursing workload exceeds safety thresholds."}
+                  </div>
+                  <div className="text-xs text-slate-600 mt-0.5">
+                    {onDutyRNs} RN{onDutyRNs === 1 ? "" : "s"} on duty ·{" "}
+                    {census} patient census · Ratio{" "}
+                    {onDutyRNs > 0 ? `1 : ${(census / onDutyRNs).toFixed(1)}` : "n/a"}
+                  </div>
+                </div>
+              </div>
+              <div
+                className={`text-2xl font-bold ${
+                  safeRatio ? "text-emerald-700" : "text-amber-700"
+                }`}
+              >
+                {onDutyRNs > 0 ? `1:${Math.ceil(census / onDutyRNs)}` : "—"}
+              </div>
+            </div>
+          </div>
+
+          {/* Roster cards */}
+          <div className="p-5">
+            {staffLoading ? (
+              <div className="grid place-items-center h-32">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+              </div>
+            ) : staff.length === 0 ? (
+              <p className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-md py-6 text-center">
+                No staff clocked in yet.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {staff.map((s) => {
+                  const assigned = s.assigned_patients ?? 0;
+                  const cap = s.max_capacity ?? 5;
+                  const pct = Math.min(100, Math.round((assigned / cap) * 100));
+                  const onDuty = s.status === "On Duty";
+                  return (
+                    <div
+                      key={s.id}
+                      className="rounded-lg border border-slate-200 p-4 hover:border-slate-300 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-slate-900">
+                            {s.name}
+                          </span>
+                          <span
+                            className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${roleBadgeClass(
+                              s.role,
+                            )}`}
+                          >
+                            {s.role}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                          <span
+                            className={`h-2 w-2 rounded-full ${
+                              onDuty
+                                ? "bg-emerald-500 animate-pulse"
+                                : "bg-amber-500"
+                            }`}
+                          />
+                          {s.status ?? "—"}
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+                          <span>
+                            {assigned} / {cap} Patients Assigned
+                          </span>
+                          <span className="font-medium text-slate-700">
+                            {pct}%
+                          </span>
+                        </div>
+                        <Progress value={pct} />
+                      </div>
+                      {s.hourly_rate != null && (
+                        <div className="mt-2 text-[11px] text-slate-500">
+                          ${s.hourly_rate}/hr
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Staffing */}
