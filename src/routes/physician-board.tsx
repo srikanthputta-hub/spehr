@@ -150,9 +150,9 @@ function PhysicianBoard() {
         badge="Provider · MD"
         subtitle="Computerized Provider Order Entry"
       />
-      <div className="grid grid-cols-12 gap-4 p-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
         {/* Patient list */}
-        <aside className="col-span-12 lg:col-span-4 xl:col-span-3">
+        <aside className="lg:col-span-1">
           <div className="rounded-lg border border-slate-200 bg-white">
             <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
               <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
@@ -230,10 +230,10 @@ function PhysicianBoard() {
         </aside>
 
         {/* CPOE workspace */}
-        <section className="col-span-12 lg:col-span-8 xl:col-span-9 space-y-4">
+        <section className="lg:col-span-2 space-y-4">
           {!selected ? (
             <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">
-              Select a patient from the census to begin charting.
+              Select a patient from the census to open CPOE workspace.
             </div>
           ) : (
             <>
