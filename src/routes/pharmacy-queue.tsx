@@ -161,11 +161,9 @@ function PharmacyQueue() {
     // Optimistic remove
     setOrders((curr) => curr.filter((o) => o.id !== id));
     setActing(true);
-    const update: Record<string, unknown> = { status: newStatus };
-    if (newStatus === "DUE") update.time_administered = null;
     const { error } = await supabase
       .from("medication_orders")
-      .update(update)
+      .update({ status: newStatus })
       .eq("id", id);
     setActing(false);
     if (error) {
