@@ -275,6 +275,42 @@ export type Database = {
         }
         Relationships: []
       }
+      shift_notes: {
+        Row: {
+          author_nurse: string | null
+          created_at: string | null
+          id: string
+          note_text: string
+          patient_mrn: string
+          sbar_assessment: string | null
+          sbar_background: string | null
+          sbar_recommendation: string | null
+          sbar_situation: string | null
+        }
+        Insert: {
+          author_nurse?: string | null
+          created_at?: string | null
+          id?: string
+          note_text: string
+          patient_mrn: string
+          sbar_assessment?: string | null
+          sbar_background?: string | null
+          sbar_recommendation?: string | null
+          sbar_situation?: string | null
+        }
+        Update: {
+          author_nurse?: string | null
+          created_at?: string | null
+          id?: string
+          note_text?: string
+          patient_mrn?: string
+          sbar_assessment?: string | null
+          sbar_background?: string | null
+          sbar_recommendation?: string | null
+          sbar_situation?: string | null
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
