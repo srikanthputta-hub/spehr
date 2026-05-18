@@ -376,20 +376,20 @@ function Dashboard() {
           <StatCard
             icon={Users}
             label="Total Patients"
-            value={`${patients.length}`}
+            value={`${facilityPatients.length}`}
             tone="navy"
           />
           <StatCard
             icon={AlertTriangle}
             label="Critical Alerts"
-            value={`${patients.filter((p) => hrOutOfRange(p.hr) || bpOutOfRange(p.bp) || o2OutOfRange(p.o2)).length}`}
+            value={`${facilityPatients.filter((p) => hrOutOfRange(p.hr) || bpOutOfRange(p.bp) || o2OutOfRange(p.o2)).length}`}
             tone="red"
             sub="Vitals out of range"
           />
           <StatCard
             icon={Pill}
             label="Meds Due · Next Hour"
-            value={`${patients.reduce((sum, p) => sum + (p.medsDue ?? 0), 0)}`}
+            value={`${facilityPatients.reduce((sum, p) => sum + (p.medsDue ?? 0), 0)}`}
             tone="teal"
             sub="Across all patients"
             interactive
@@ -406,7 +406,7 @@ function Dashboard() {
                 Floor Overview — Unit 4B
               </h2>
               <span className="text-xs text-muted-foreground">
-                · {rows.length} of {patients.length} patients
+                · {rows.length} of {facilityPatients.length} patients
               </span>
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
