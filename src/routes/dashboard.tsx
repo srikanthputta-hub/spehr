@@ -347,6 +347,12 @@ function Dashboard() {
           >
             <LogOut className="h-3.5 w-3.5" /> Logout
           </button>
+          <button
+            onClick={() => setAdmitOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 px-3 h-9 text-xs font-semibold text-white shadow-sm transition"
+          >
+            <UserPlus className="h-3.5 w-3.5" /> Admit Patient
+          </button>
         </div>
       </header>
 
