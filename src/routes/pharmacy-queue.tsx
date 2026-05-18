@@ -125,9 +125,14 @@ function PharmacyQueue() {
     };
   }, []);
 
+  const visibleOrders = useMemo(
+    () => orders.filter((o) => !!o.mrn && facilityMrns.has(o.mrn)),
+    [orders, facilityMrns],
+  );
+
   const selected = useMemo(
-    () => orders.find((o) => o.id === selectedId) ?? null,
-    [orders, selectedId],
+    () => visibleOrders.find((o) => o.id === selectedId) ?? null,
+    [visibleOrders, selectedId],
   );
 
   // Load patient context + labs whenever selection changes
@@ -165,10 +170,10 @@ function PharmacyQueue() {
 
   // Always pick next pending after current selection disappears
   useEffect(() => {
-    if (selectedId && !orders.some((o) => o.id === selectedId)) {
-      setSelectedId(orders[0]?.id ?? null);
+    if (selectedId && !visibleOrders.some((o) => o.id === selectedId)) {
+      setSelectedId(visibleOrders[0]?.id ?? null);
     }
-  }, [orders, selectedId]);
+  }, [visibleOrders, selectedId]);
 
   const keyLabs = useMemo(() => {
     const result: Record<string, Lab> = {};
@@ -209,9 +214,9 @@ function PharmacyQueue() {
   return (
     <main className="min-h-screen bg-slate-50">
       <BoardHeader
-        title="Pharmacy Verification Queue"
+        title={`Pharmacy Workspace: ${pharm.name} | ${pharm.facility}`}
         badge="Pharmacy · PharmD"
-        subtitle="Order verification & clinical review"
+        subtitle={`${pharm.ward} · Order verification & clinical review`}
       />
       <div className="grid grid-cols-12 gap-4 p-4">
         {/* Inbox */}
@@ -224,7 +229,7 @@ function PharmacyQueue() {
                   Pending Verification
                 </div>
               </div>
-              <span className="text-[11px] font-mono text-slate-500">{orders.length}</span>
+              <span className="text-[11px] font-mono text-slate-500">{visibleOrders.length}</span>
             </div>
             <div className="max-h-[calc(100vh-160px)] overflow-y-auto divide-y divide-slate-100">
               {loading && (
@@ -233,13 +238,13 @@ function PharmacyQueue() {
               {error && (
                 <div className="p-4 text-xs text-red-600">Unable to load — {error}</div>
               )}
-              {!loading && orders.length === 0 && !error && (
+              {!loading && visibleOrders.length === 0 && !error && (
                 <div className="p-8 text-center text-xs text-slate-500">
                   <CheckCircle2 className="mx-auto h-6 w-6 text-emerald-500 mb-2" />
-                  Queue clear. No pending orders.
+                  Queue clear for {facility}.
                 </div>
               )}
-              {orders.map((o) => {
+              {visibleOrders.map((o) => {
                 const active = o.id === selectedId;
                 return (
                   <button
