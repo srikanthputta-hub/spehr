@@ -11,8 +11,12 @@ import {
   Pill,
   ChevronRight,
   Activity,
+  UserPlus,
+  X,
+  Trash2,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
 import {
   hrOutOfRange,
   bpOutOfRange,
@@ -53,6 +57,26 @@ function normalizeCode(s: string): CodeStatus {
   return "Full Code";
 }
 
+function toRow(p: any): PatientRow {
+  return {
+    mrn: p.mrn,
+    name: `${p.first_name} ${p.last_name}`,
+    room: p.room,
+    age: p.age,
+    sex: p.gender,
+    code: normalizeCode(p.code_status),
+    diagnosis: p.chief_complaint,
+    hr: p.hr,
+    bp: `${p.bp_systolic}/${p.bp_diastolic}`,
+    o2: p.spo2,
+    task: "—",
+  };
+}
+
+function genMRN() {
+  return `MRN-${Math.floor(100000 + Math.random() * 900000)}`;
+}
+
 function Dashboard() {
   const navigate = useNavigate();
   const [email, setEmail] = useState<string | null>(null);
@@ -64,6 +88,8 @@ function Dashboard() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [simulate, setSimulate] = useState(false);
+  const [admitOpen, setAdmitOpen] = useState(false);
+  const [discharging, setDischarging] = useState<PatientRow | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -100,19 +126,7 @@ function Dashboard() {
         return;
       }
       setPatients(
-        (data ?? []).map((p: any) => ({
-          mrn: p.mrn,
-          name: `${p.first_name} ${p.last_name}`,
-          room: p.room,
-          age: p.age,
-          sex: p.gender,
-          code: normalizeCode(p.code_status),
-          diagnosis: p.chief_complaint,
-          hr: p.hr,
-          bp: `${p.bp_systolic}/${p.bp_diastolic}`,
-          o2: p.spo2,
-          task: "—",
-        })),
+        (data ?? []).map(toRow),
       );
       setLoading(false);
     })();
@@ -148,6 +162,25 @@ function Dashboard() {
                 : row,
             ),
           );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "patients" },
+        (payload) => {
+          const row = toRow(payload.new);
+          setPatients((prev) =>
+            prev.some((p) => p.mrn === row.mrn) ? prev : [...prev, row],
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "patients" },
+        (payload) => {
+          const oldMrn = (payload.old as any)?.mrn;
+          if (!oldMrn) return;
+          setPatients((prev) => prev.filter((p) => p.mrn !== oldMrn));
         },
       )
       .subscribe((status) => {
@@ -216,6 +249,54 @@ function Dashboard() {
     day: "numeric",
   });
 
+  const handleAdmit = async (input: AdmitInput) => {
+    const mrn = input.mrn?.trim() || genMRN();
+    const [first_name, ...rest] = input.name.trim().split(/\s+/);
+    const last_name = rest.join(" ") || "—";
+    const payload = {
+      mrn,
+      first_name,
+      last_name,
+      age: input.age,
+      gender: input.gender,
+      dob: new Date(new Date().getFullYear() - input.age, 0, 1).toISOString().slice(0, 10),
+      room: input.room.trim() || null,
+      code_status: input.code_status,
+      chief_complaint: input.diagnosis.trim(),
+      hr: 76,
+      bp_systolic: 120,
+      bp_diastolic: 78,
+      temp_f: 98.6,
+      spo2: 98,
+    };
+    const { data, error } = await supabase
+      .from("patients")
+      .insert(payload)
+      .select()
+      .single();
+    if (error) {
+      toast.error("Could not admit patient", { description: error.message });
+      return false;
+    }
+    setPatients((prev) =>
+      prev.some((p) => p.mrn === mrn) ? prev : [...prev, toRow(data)],
+    );
+    toast.success("Patient admitted", { description: `${payload.first_name} ${payload.last_name} · ${mrn}` });
+    return true;
+  };
+
+  const handleDischarge = async (p: PatientRow) => {
+    const prev = patients;
+    setPatients((curr) => curr.filter((x) => x.mrn !== p.mrn));
+    const { error } = await supabase.from("patients").delete().eq("mrn", p.mrn);
+    if (error) {
+      setPatients(prev);
+      toast.error("Could not discharge", { description: error.message });
+      return;
+    }
+    toast.success("Patient discharged", { description: `${p.name} · ${p.mrn}` });
+  };
+
   return (
     <main className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b border-border bg-[var(--navy)] text-white">
@@ -265,6 +346,12 @@ function Dashboard() {
             className="inline-flex items-center gap-1.5 rounded-md bg-white/10 hover:bg-white/15 px-3 h-9 text-xs font-medium ring-1 ring-white/10 transition"
           >
             <LogOut className="h-3.5 w-3.5" /> Logout
+          </button>
+          <button
+            onClick={() => setAdmitOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 px-3 h-9 text-xs font-semibold text-white shadow-sm transition"
+          >
+            <UserPlus className="h-3.5 w-3.5" /> Admit Patient
           </button>
         </div>
       </header>
@@ -417,14 +504,24 @@ function Dashboard() {
                         {p.task}
                       </td>
                       <td className="px-5 py-3.5 align-top text-right pr-5">
-                        <Link
-                          to="/patient/$mrn"
-                          params={{ mrn: p.mrn }}
-                          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-8 text-xs font-medium text-foreground hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
-                        >
-                          Open Chart
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </Link>
+                        <div className="inline-flex items-center gap-1.5">
+                          <Link
+                            to="/patient/$mrn"
+                            params={{ mrn: p.mrn }}
+                            className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-8 text-xs font-medium text-foreground hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
+                          >
+                            Open Chart
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </Link>
+                          <button
+                            onClick={() => setDischarging(p)}
+                            title="Discharge patient"
+                            aria-label={`Discharge ${p.name}`}
+                            className="inline-grid place-items-center h-8 w-8 rounded-md border border-border bg-background text-muted-foreground hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -446,6 +543,22 @@ function Dashboard() {
           device telemetry will replace this feed.
         </p>
       </div>
+
+      {admitOpen && (
+        <AdmitModal onClose={() => setAdmitOpen(false)} onSubmit={handleAdmit} />
+      )}
+
+      {discharging && (
+        <ConfirmDischargeModal
+          patient={discharging}
+          onCancel={() => setDischarging(null)}
+          onConfirm={async () => {
+            const p = discharging;
+            setDischarging(null);
+            await handleDischarge(p);
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -499,6 +612,274 @@ function StatCard({
             {value}
           </div>
           {sub && <div className="text-xs text-muted-foreground truncate">{sub}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface AdmitInput {
+  name: string;
+  age: number;
+  gender: "M" | "F";
+  room: string;
+  code_status: CodeStatus;
+  diagnosis: string;
+  mrn?: string;
+}
+
+function AdmitModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (input: AdmitInput) => Promise<boolean>;
+}) {
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [gender, setGender] = useState<"M" | "F">("M");
+  const [room, setRoom] = useState("");
+  const [code, setCode] = useState<CodeStatus>("Full Code");
+  const [dx, setDx] = useState("");
+  const [mrn, setMrn] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const handle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    const trimmedName = name.trim();
+    const ageNum = Number(age);
+    if (trimmedName.length < 2 || trimmedName.length > 100) {
+      setErr("Name must be 2–100 characters.");
+      return;
+    }
+    if (!Number.isFinite(ageNum) || ageNum < 0 || ageNum > 120) {
+      setErr("Age must be between 0 and 120.");
+      return;
+    }
+    if (dx.trim().length < 2 || dx.trim().length > 500) {
+      setErr("Diagnosis must be 2–500 characters.");
+      return;
+    }
+    if (room.length > 20) {
+      setErr("Room must be at most 20 characters.");
+      return;
+    }
+    if (mrn && !/^MRN-[A-Za-z0-9-]{3,20}$/.test(mrn.trim())) {
+      setErr("MRN must look like 'MRN-XXXXXX'.");
+      return;
+    }
+    setSubmitting(true);
+    const ok = await onSubmit({
+      name: trimmedName,
+      age: Math.floor(ageNum),
+      gender,
+      room,
+      code_status: code,
+      diagnosis: dx,
+      mrn: mrn.trim() || undefined,
+    });
+    setSubmitting(false);
+    if (ok) onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[var(--navy)]/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl bg-card border border-border shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 h-12 bg-[var(--navy)] text-white">
+          <div className="flex items-center gap-2">
+            <UserPlus className="h-4 w-4 text-[var(--teal)]" />
+            <h2 className="text-sm font-semibold">Admit New Patient</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="grid place-items-center h-7 w-7 rounded-md hover:bg-white/10 transition"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <form onSubmit={handle} className="p-5 grid grid-cols-2 gap-4">
+          <Field label="Patient Name" full>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={100}
+              required
+              autoFocus
+              placeholder="John Doe"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
+            />
+          </Field>
+          <Field label="Age">
+            <input
+              value={age}
+              onChange={(e) => setAge(e.target.value.replace(/[^\d]/g, ""))}
+              maxLength={3}
+              required
+              placeholder="65"
+              inputMode="numeric"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
+            />
+          </Field>
+          <Field label="Gender">
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value as "M" | "F")}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
+            >
+              <option value="M">M</option>
+              <option value="F">F</option>
+            </select>
+          </Field>
+          <Field label="Room / Bed">
+            <input
+              value={room}
+              onChange={(e) => setRoom(e.target.value)}
+              maxLength={20}
+              placeholder="412-A"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
+            />
+          </Field>
+          <Field label="Code Status">
+            <select
+              value={code}
+              onChange={(e) => setCode(e.target.value as CodeStatus)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
+            >
+              <option>Full Code</option>
+              <option>DNR</option>
+              <option>DNI</option>
+              <option>Comfort</option>
+            </select>
+          </Field>
+          <Field label="Diagnosis / Chief Complaint" full>
+            <input
+              value={dx}
+              onChange={(e) => setDx(e.target.value)}
+              maxLength={500}
+              required
+              placeholder="CHF exacerbation"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
+            />
+          </Field>
+          <Field label="MRN (optional — auto-generated if blank)" full>
+            <input
+              value={mrn}
+              onChange={(e) => setMrn(e.target.value)}
+              maxLength={24}
+              placeholder="MRN-482910"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
+            />
+          </Field>
+
+          {err && (
+            <div className="col-span-2 text-xs text-red-600 inline-flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {err}
+            </div>
+          )}
+
+          <div className="col-span-2 flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border bg-background px-3 h-9 text-xs font-medium hover:bg-secondary transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-9 text-xs font-semibold shadow-sm transition disabled:opacity-60"
+            >
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+              Admit Patient
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  full,
+  children,
+}: {
+  label: string;
+  full?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={`flex flex-col gap-1.5 ${full ? "col-span-2" : ""}`}>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function ConfirmDischargeModal({
+  patient,
+  onCancel,
+  onConfirm,
+}: {
+  patient: PatientRow;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[var(--navy)]/70 backdrop-blur-sm p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm rounded-xl bg-card border border-border shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5">
+          <div className="grid place-items-center h-10 w-10 rounded-full bg-red-50 text-red-600 mb-3">
+            <Trash2 className="h-5 w-5" />
+          </div>
+          <h3 className="text-base font-semibold">Discharge patient?</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Are you sure you want to discharge{" "}
+            <span className="font-medium text-foreground">{patient.name}</span> (
+            {patient.mrn})? This will remove them from the floor census.
+          </p>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-secondary/30">
+          <button
+            onClick={onCancel}
+            className="rounded-md border border-border bg-background px-3 h-9 text-xs font-medium hover:bg-secondary transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-red-600 hover:bg-red-700 text-white px-3 h-9 text-xs font-semibold shadow-sm transition"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Discharge
+          </button>
         </div>
       </div>
     </div>
