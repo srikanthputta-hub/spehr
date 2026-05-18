@@ -391,7 +391,7 @@ function ChartPage() {
                       <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                         <span className="inline-flex items-center gap-1 font-medium text-foreground">
                           <User className="h-3 w-3 text-[var(--teal)]" />
-                          {n.author_nurse || "Sarah Jenkins, RN"}
+                          {n.author_nurse || nurse.name}
                         </span>
                         <span className="inline-flex items-center gap-1 tabular-nums">
                           <Clock className="h-3 w-3" />
@@ -486,7 +486,7 @@ function ChartPage() {
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-[11px] text-muted-foreground">
-                  Signing as <span className="font-medium text-foreground">Sarah Jenkins, RN</span>
+                  Signing as <span className="font-medium text-foreground">{nurse.name}</span> · {nurse.facility} — {nurse.ward}
                 </span>
                 <button
                   onClick={handleSaveNote}
