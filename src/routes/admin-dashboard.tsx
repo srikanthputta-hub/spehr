@@ -23,6 +23,10 @@ import {
   UserPlus,
   ShieldCheck,
   ShieldAlert,
+  Inbox,
+  Check,
+  X,
+  ArrowRightLeft,
 } from "lucide-react";
 import {
   Sheet,
@@ -71,6 +75,26 @@ interface StaffMember {
 }
 
 const STAFF_ROLES = ["RN", "MD", "PharmD", "RT", "CNA", "LPN"] as const;
+
+const IN_NETWORK_FACILITIES = new Set([
+  "Memorial Hospital",
+  "St. Jude Medical Center",
+  "City General Infirmary",
+  "County Health Pavilion",
+  "Mercy Childrens Hospital",
+]);
+
+interface TransferRequest {
+  id: string;
+  patient_mrn: string;
+  patient_name: string;
+  source_facility: string;
+  destination_facility: string;
+  requesting_physician: string;
+  reason_for_transfer: string | null;
+  status: string | null;
+  created_at: string | null;
+}
 
 function roleBadgeClass(role: string) {
   switch (role) {
@@ -136,6 +160,10 @@ function AdminDashboard() {
   const [newRate, setNewRate] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
+  const [transfers, setTransfers] = useState<TransferRequest[]>([]);
+  const [transfersLoading, setTransfersLoading] = useState(true);
+  const [actingOn, setActingOn] = useState<string | null>(null);
+
   useEffect(() => {
     (async () => {
       const [pRes, mRes] = await Promise.all([
@@ -166,6 +194,87 @@ function AdminDashboard() {
       setStaffLoading(false);
     })();
   }, []);
+
+  const loadTransfers = async () => {
+    const { data, error } = await supabase
+      .from("patient_transfers")
+      .select("*")
+      .eq("status", "Pending Approval")
+      .order("created_at", { ascending: false });
+    if (error) toast.error(error.message);
+    else setTransfers((data ?? []) as TransferRequest[]);
+    setTransfersLoading(false);
+  };
+
+  const reloadPatients = async () => {
+    const { data, error } = await supabase
+      .from("patients")
+      .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name")
+      .order("room", { ascending: true });
+    if (!error) setPatients((data ?? []) as Patient[]);
+  };
+
+  useEffect(() => {
+    loadTransfers();
+  }, []);
+
+  const facilityTransfers = useMemo(
+    () => transfers.filter((t) => t.source_facility === facility),
+    [transfers, facility],
+  );
+
+  const approveTransfer = async (t: TransferRequest) => {
+    setActingOn(t.id);
+    try {
+      const { error: updErr } = await supabase
+        .from("patient_transfers")
+        .update({ status: "Approved" })
+        .eq("id", t.id);
+      if (updErr) throw updErr;
+
+      if (IN_NETWORK_FACILITIES.has(t.destination_facility)) {
+        const { error: pErr } = await supabase
+          .from("patients")
+          .update({
+            facility_name: t.destination_facility,
+            room: "Holding/ER",
+          })
+          .eq("mrn", t.patient_mrn);
+        if (pErr) throw pErr;
+      } else {
+        const { error: dErr } = await supabase
+          .from("patients")
+          .delete()
+          .eq("mrn", t.patient_mrn);
+        if (dErr) throw dErr;
+      }
+
+      toast.success(
+        "Patient successfully transferred and rerouted across network servers.",
+      );
+      setTransfers((cur) => cur.filter((x) => x.id !== t.id));
+      await reloadPatients();
+    } catch (e: any) {
+      toast.error("Transfer failed", { description: e?.message });
+    } finally {
+      setActingOn(null);
+    }
+  };
+
+  const denyTransfer = async (t: TransferRequest) => {
+    setActingOn(t.id);
+    const { error } = await supabase
+      .from("patient_transfers")
+      .update({ status: "Denied" })
+      .eq("id", t.id);
+    setActingOn(null);
+    if (error) {
+      toast.error("Could not deny transfer", { description: error.message });
+      return;
+    }
+    setTransfers((cur) => cur.filter((x) => x.id !== t.id));
+    toast.success("Transfer request denied.");
+  };
 
   const facilityPatients = useMemo(
     () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
@@ -277,6 +386,102 @@ function AdminDashboard() {
             sub="HR >100 or SpO₂ <92%"
             alert={acuity > 0}
           />
+        </div>
+
+        {/* Pending Network Transfer Requests */}
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <Inbox className="h-4 w-4 text-[#0c2340]" />
+              📥 Pending Network Transfer Requests
+            </h2>
+            <span className="text-xs text-slate-500">
+              {facilityTransfers.length} awaiting review · {facility}
+            </span>
+          </div>
+          <div className="p-5">
+            {transfersLoading ? (
+              <div className="grid place-items-center h-24">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+              </div>
+            ) : facilityTransfers.length === 0 ? (
+              <p className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-md py-6 text-center">
+                No pending inter-facility transfer requests for {facility}.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {facilityTransfers.map((t) => {
+                  const busy = actingOn === t.id;
+                  const outside = !IN_NETWORK_FACILITIES.has(t.destination_facility);
+                  return (
+                    <li
+                      key={t.id}
+                      className="rounded-lg border border-slate-200 p-4 hover:border-slate-300 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-900">
+                              {t.patient_name}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-500">
+                              MRN {t.patient_mrn}
+                            </span>
+                            {outside && (
+                              <span className="inline-flex rounded-md bg-red-50 text-red-700 ring-1 ring-red-600/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wide">
+                                OUTSIDE NETWORK
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-600 flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{t.source_facility}</span>
+                            <ArrowRightLeft className="h-3 w-3 text-slate-400" />
+                            <span className="font-medium">{t.destination_facility}</span>
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            Requested by{" "}
+                            <span className="font-medium text-slate-700">
+                              {t.requesting_physician}
+                            </span>
+                          </div>
+                          {t.reason_for_transfer && (
+                            <p className="mt-2 text-xs text-slate-700 bg-slate-50 border border-slate-100 rounded-md px-3 py-2">
+                              {t.reason_for_transfer}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => approveTransfer(t)}
+                            className="bg-emerald-600 hover:bg-emerald-700"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" />
+                            )}
+                            ✅ Approve &amp; Transfer
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() => denyTransfer(t)}
+                            className="border-red-200 text-red-700 hover:bg-red-50"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            ❌ Deny
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </div>
 
         {/* Active Unit Staffing & Shift Roster */}
