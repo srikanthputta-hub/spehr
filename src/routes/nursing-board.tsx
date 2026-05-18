@@ -193,27 +193,23 @@ function Dashboard() {
 
   useEffect(() => {
     if (!ready || !simulate) return;
-    const jitter = (range: number) => Math.floor(Math.random() * (2 * range + 1)) - range;
-    const tick = async () => {
-      const { data, error } = await supabase
-        .from("patients")
-        .select("mrn, hr, bp_systolic, bp_diastolic, spo2, rr");
-      if (error || !data) return;
-      await Promise.all(
-        data.map((p: any) => {
-          const next = {
+    const jitter = (range: number) =>
+      Math.floor(Math.random() * (2 * range + 1)) - range;
+    const id = setInterval(() => {
+      setPatients((prev) =>
+        prev.map((p) => {
+          const [sysStr, diaStr] = p.bp.split("/");
+          const sys = Math.max(50, (parseInt(sysStr, 10) || 120) + jitter(2));
+          const dia = Math.max(30, (parseInt(diaStr, 10) || 80) + jitter(1));
+          return {
+            ...p,
             hr: Math.max(20, p.hr + jitter(2)),
-            bp_systolic: Math.max(50, p.bp_systolic + jitter(3)),
-            bp_diastolic: Math.max(30, p.bp_diastolic + jitter(2)),
-            spo2: Math.min(100, Math.max(70, p.spo2 + jitter(1))),
-            rr: Math.min(40, Math.max(8, (p.rr ?? 16) + jitter(1))),
+            bp: `${sys}/${dia}`,
+            o2: Math.min(100, Math.max(70, p.o2 + jitter(1))),
           };
-          return supabase.from("patients").update(next).eq("mrn", p.mrn);
         }),
       );
-    };
-    tick();
-    const id = setInterval(tick, 5000);
+    }, 1000);
     return () => clearInterval(id);
   }, [ready, simulate]);
 
