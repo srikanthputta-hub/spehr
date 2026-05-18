@@ -359,8 +359,9 @@ function PatientChart() {
 
       {/* Main: 2 columns */}
       <div className="max-w-[1400px] mx-auto px-5 py-6 grid lg:grid-cols-5 gap-6">
-        {/* Left — AI Clinical Summary */}
-        <section className="lg:col-span-3 rounded-xl border border-border bg-card overflow-hidden">
+        {/* Left — AI Clinical Summary + Labs */}
+        <div className="lg:col-span-3 space-y-6">
+        <section className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="flex items-center justify-between px-5 h-12 bg-secondary/40 border-b border-border">
             <div className="flex items-center gap-2">
               <ClipboardList className="h-4 w-4 text-[var(--teal)]" />
@@ -385,6 +386,72 @@ function PatientChart() {
             </div>
           </div>
         </section>
+
+        {/* Recent Labs */}
+        <section className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 h-12 bg-secondary/40 border-b border-border">
+            <div className="flex items-center gap-2">
+              <FlaskConical className="h-4 w-4 text-[var(--teal)]" />
+              <h3 className="text-sm font-semibold tracking-tight">Recent Labs</h3>
+              <span className="text-xs text-muted-foreground">· Last 24h</span>
+            </div>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              {labs.filter((l) => l.flag === "H" || l.flag === "L").length} abnormal
+            </span>
+          </div>
+          {labsLoading ? (
+            <div className="p-8 grid place-items-center">
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
+            </div>
+          ) : labs.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No recent lab results.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-secondary/20 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="text-left font-semibold px-5 py-2">Panel</th>
+                    <th className="text-left font-semibold px-3 py-2">Test</th>
+                    <th className="text-right font-semibold px-3 py-2">Result</th>
+                    <th className="text-left font-semibold px-3 py-2">Unit</th>
+                    <th className="text-left font-semibold px-5 py-2">Reference</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {labs.map((l) => {
+                    const abnormal = l.flag === "H" || l.flag === "L";
+                    return (
+                      <tr key={l.id} className={abnormal ? "bg-red-50/30" : ""}>
+                        <td className="px-5 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          {l.panel_name}
+                        </td>
+                        <td className="px-3 py-2.5 font-medium text-foreground">{l.test_name}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">
+                          <span
+                            className={`inline-flex items-center gap-1 ${
+                              abnormal ? "text-red-600 font-bold" : "text-foreground"
+                            }`}
+                          >
+                            {l.flag === "H" && <ArrowUp className="h-3.5 w-3.5" />}
+                            {l.flag === "L" && <ArrowDown className="h-3.5 w-3.5" />}
+                            {l.result_value}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground">{l.unit}</td>
+                        <td className="px-5 py-2.5 text-xs text-muted-foreground tabular-nums">
+                          {l.reference_range}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+        </div>
 
         {/* Right — Medication Administration Record */}
         <section className="lg:col-span-2 rounded-xl border border-border bg-card overflow-hidden sticky top-[88px]">
