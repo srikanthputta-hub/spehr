@@ -15,6 +15,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   Activity,
+  FlaskConical,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import {
   hrOutOfRange,
@@ -72,6 +75,18 @@ interface MedOrder {
   administered_by: string | null;
 }
 
+interface LabResult {
+  id: string;
+  mrn: string | null;
+  panel_name: string | null;
+  test_name: string | null;
+  result_value: number | null;
+  unit: string | null;
+  reference_range: string | null;
+  flag: string | null;
+  time_drawn: string | null;
+}
+
 function PatientChart() {
   const { mrn } = useParams({ from: "/patient/$mrn" });
   const navigate = useNavigate();
@@ -83,6 +98,8 @@ function PatientChart() {
   const [meds, setMeds] = useState<MedOrder[]>([]);
   const [medsLoading, setMedsLoading] = useState(true);
   const [administering, setAdministering] = useState<Record<string, boolean>>({});
+  const [labs, setLabs] = useState<LabResult[]>([]);
+  const [labsLoading, setLabsLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -154,6 +171,30 @@ function PatientChart() {
         setMeds((data ?? []) as MedOrder[]);
       }
       setMedsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, mrn]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    (async () => {
+      setLabsLoading(true);
+      const { data, error } = await supabase
+        .from("lab_results")
+        .select("*")
+        .eq("mrn", mrn)
+        .order("panel_name", { ascending: true })
+        .order("test_name", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        toast.error("Failed to load lab results");
+      } else {
+        setLabs((data ?? []) as LabResult[]);
+      }
+      setLabsLoading(false);
     })();
     return () => {
       cancelled = true;
