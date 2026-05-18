@@ -400,13 +400,13 @@ function AdminDashboard() {
               <div className="grid place-items-center h-32">
                 <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
               </div>
-            ) : staff.length === 0 ? (
+            ) : facilityStaff.length === 0 ? (
               <p className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-md py-6 text-center">
-                No staff clocked in yet.
+                No staff clocked in at {facility}.
               </p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {staff.map((s) => {
+                {facilityStaff.map((s) => {
                   const assigned = s.assigned_patients ?? 0;
                   const cap = s.max_capacity ?? 5;
                   const pct = Math.min(100, Math.round((assigned / cap) * 100));
