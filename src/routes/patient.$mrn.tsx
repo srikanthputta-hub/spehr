@@ -18,6 +18,8 @@ import {
   FlaskConical,
   ArrowUp,
   ArrowDown,
+  FileText,
+  Sparkle,
 } from "lucide-react";
 import {
   hrOutOfRange,
@@ -87,6 +89,15 @@ interface LabResult {
   time_drawn: string | null;
 }
 
+interface ClinicalNote {
+  id: string;
+  mrn: string | null;
+  note_type: string | null;
+  content: string | null;
+  author: string | null;
+  created_at: string | null;
+}
+
 function PatientChart() {
   const { mrn } = useParams({ from: "/patient/$mrn" });
   const navigate = useNavigate();
@@ -100,6 +111,9 @@ function PatientChart() {
   const [administering, setAdministering] = useState<Record<string, boolean>>({});
   const [labs, setLabs] = useState<LabResult[]>([]);
   const [labsLoading, setLabsLoading] = useState(true);
+  const [notes, setNotes] = useState<ClinicalNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -200,6 +214,80 @@ function PatientChart() {
       cancelled = true;
     };
   }, [ready, mrn]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    (async () => {
+      setNotesLoading(true);
+      const { data, error } = await supabase
+        .from("clinical_notes")
+        .select("*")
+        .eq("mrn", mrn)
+        .order("created_at", { ascending: false });
+      if (cancelled) return;
+      if (error) {
+        toast.error("Failed to load notes");
+      } else {
+        setNotes((data ?? []) as ClinicalNote[]);
+      }
+      setNotesLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, mrn]);
+
+  const generateShiftNote = async () => {
+    if (!patient || generating) return;
+    setGenerating(true);
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const fullName = `${patient.first_name} ${patient.last_name}`;
+    const bpStr = `${patient.bp_systolic}/${patient.bp_diastolic}`;
+    const givenMeds = meds.filter((m) => m.status === "GIVEN");
+    const medsStr = givenMeds.length
+      ? givenMeds.map((m) => `${m.drug_name} ${m.dose} ${m.route}`).join("; ")
+      : "none administered this shift";
+    const abnormal = labs.filter((l) => l.flag === "H" || l.flag === "L");
+    const labsStr = abnormal.length
+      ? abnormal.map((l) => `${l.test_name} ${l.result_value} ${l.unit} (${l.flag})`).join("; ")
+      : "all within reference range";
+
+    const content =
+      `Shift summary for ${fullName} (MRN ${patient.mrn}, ${patient.age}${patient.gender?.[0] ?? ""}, ${patient.code_status}). ` +
+      `Chief complaint: ${patient.chief_complaint}. ` +
+      `Latest vitals: HR ${patient.hr} bpm, BP ${bpStr} mmHg, Temp ${Number(patient.temp_f).toFixed(1)}°F, SpO₂ ${patient.spo2}%. ` +
+      `Labs reviewed — ${labsStr}. ` +
+      `Medications administered: ${medsStr}. ` +
+      `Patient resting comfortably, neuro intact, call light within reach. Continue current plan of care.`;
+
+    const optimistic: ClinicalNote = {
+      id: `tmp-${Date.now()}`,
+      mrn,
+      note_type: "Nursing Shift Note",
+      content,
+      author: "RN - S.P.E.H.R. Auto-Chart",
+      created_at: new Date().toISOString(),
+    };
+    setNotes((curr) => [optimistic, ...curr]);
+
+    const { data, error } = await supabase
+      .from("clinical_notes")
+      .insert({ mrn, note_type: "Nursing Shift Note", content })
+      .select()
+      .single();
+
+    setGenerating(false);
+
+    if (error) {
+      setNotes((curr) => curr.filter((n) => n.id !== optimistic.id));
+      toast.error("Could not save note", { description: error.message });
+      return;
+    }
+    setNotes((curr) => [data as ClinicalNote, ...curr.filter((n) => n.id !== optimistic.id)]);
+    toast.success("End-of-shift note generated");
+  };
 
   const administer = async (med: MedOrder) => {
     const now = new Date().toISOString();
