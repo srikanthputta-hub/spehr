@@ -79,37 +79,52 @@ export type Database = {
       }
       medication_orders: {
         Row: {
-          administered_by: string | null
+          created_at: string | null
           dose: string | null
+          drug: string | null
           drug_name: string | null
           frequency: string | null
           id: string
+          medication: string | null
+          medication_name: string | null
           mrn: string | null
+          name: string | null
+          patient_id: string | null
+          patient_name: string | null
           route: string | null
           status: string | null
-          time_administered: string | null
         }
         Insert: {
-          administered_by?: string | null
+          created_at?: string | null
           dose?: string | null
+          drug?: string | null
           drug_name?: string | null
           frequency?: string | null
           id?: string
+          medication?: string | null
+          medication_name?: string | null
           mrn?: string | null
+          name?: string | null
+          patient_id?: string | null
+          patient_name?: string | null
           route?: string | null
           status?: string | null
-          time_administered?: string | null
         }
         Update: {
-          administered_by?: string | null
+          created_at?: string | null
           dose?: string | null
+          drug?: string | null
           drug_name?: string | null
           frequency?: string | null
           id?: string
+          medication?: string | null
+          medication_name?: string | null
           mrn?: string | null
+          name?: string | null
+          patient_id?: string | null
+          patient_name?: string | null
           route?: string | null
           status?: string | null
-          time_administered?: string | null
         }
         Relationships: []
       }
