@@ -175,7 +175,7 @@ function PhysicianBoard() {
               <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                 Active Census
               </div>
-              <span className="text-[11px] text-slate-500">{patients.length}</span>
+              <span className="text-[11px] text-slate-500">{visiblePatients.length}</span>
             </div>
             <div className="max-h-[calc(100vh-160px)] overflow-y-auto divide-y divide-slate-100">
               {loading && (
@@ -184,10 +184,10 @@ function PhysicianBoard() {
               {error && (
                 <div className="p-4 text-xs text-red-600">Unable to load — {error}</div>
               )}
-              {!loading && patients.length === 0 && !error && (
-                <div className="p-4 text-xs text-slate-500">No active patients.</div>
+              {!loading && visiblePatients.length === 0 && !error && (
+                <div className="p-4 text-xs text-slate-500">No active patients at {facility}.</div>
               )}
-              {patients.map((p) => {
+              {visiblePatients.map((p) => {
                 const active = p.mrn === selectedMrn;
                 const alert =
                   (p.spo2 !== null && p.spo2 < 92) ||
