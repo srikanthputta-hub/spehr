@@ -13,7 +13,6 @@ import {
   Activity,
 } from "lucide-react";
 import {
-  PATIENTS,
   hrOutOfRange,
   bpOutOfRange,
   o2OutOfRange,
@@ -31,12 +30,37 @@ const codeBadge: Record<CodeStatus, string> = {
   Comfort: "bg-slate-100 text-slate-700 ring-1 ring-slate-600/20",
 };
 
+interface PatientRow {
+  mrn: string;
+  name: string;
+  room: string | null;
+  age: number;
+  sex: string;
+  code: CodeStatus;
+  diagnosis: string;
+  hr: number;
+  bp: string;
+  o2: number;
+  task: string;
+}
+
+function normalizeCode(s: string): CodeStatus {
+  const v = s.trim().toLowerCase();
+  if (v === "dnr") return "DNR";
+  if (v === "dni") return "DNI";
+  if (v === "comfort") return "Comfort";
+  return "Full Code";
+}
+
 function Dashboard() {
   const navigate = useNavigate();
   const [email, setEmail] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(new Date());
   const [query, setQuery] = useState("");
+  const [patients, setPatients] = useState<PatientRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -54,17 +78,57 @@ function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setFetchError(null);
+      const { data, error } = await supabase
+        .from("patients")
+        .select(
+          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2",
+        )
+        .order("room", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        setFetchError(error.message);
+        setLoading(false);
+        return;
+      }
+      setPatients(
+        (data ?? []).map((p: any) => ({
+          mrn: p.mrn,
+          name: `${p.first_name} ${p.last_name}`,
+          room: p.room,
+          age: p.age,
+          sex: p.gender,
+          code: normalizeCode(p.code_status),
+          diagnosis: p.chief_complaint,
+          hr: p.hr,
+          bp: `${p.bp_systolic}/${p.bp_diastolic}`,
+          o2: p.spo2,
+          task: "—",
+        })),
+      );
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
+
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return PATIENTS;
-    return PATIENTS.filter(
+    if (!q) return patients;
+    return patients.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.mrn.toLowerCase().includes(q) ||
-        p.room.toLowerCase().includes(q) ||
+        (p.room ?? "").toLowerCase().includes(q) ||
         p.diagnosis.toLowerCase().includes(q),
     );
-  }, [query]);
+  }, [query, patients]);
 
   if (!ready) {
     return (
@@ -141,13 +205,18 @@ function Dashboard() {
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-6">
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <StatCard icon={Users} label="Total Patients" value="10" tone="navy" />
+          <StatCard
+            icon={Users}
+            label="Total Patients"
+            value={`${patients.length}`}
+            tone="navy"
+          />
           <StatCard
             icon={AlertTriangle}
             label="Critical Alerts"
-            value="2"
+            value={`${patients.filter((p) => hrOutOfRange(p.hr) || bpOutOfRange(p.bp) || o2OutOfRange(p.o2)).length}`}
             tone="red"
-            sub="Sepsis · Hypoxia"
+            sub="Vitals out of range"
           />
           <StatCard
             icon={Pill}
@@ -166,7 +235,7 @@ function Dashboard() {
                 Floor Overview — Unit 4B
               </h2>
               <span className="text-xs text-muted-foreground">
-                · {rows.length} of {PATIENTS.length} patients
+                · {rows.length} of {patients.length} patients
               </span>
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -192,7 +261,27 @@ function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((p) => {
+                {loading && (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
+                        Loading floor census…
+                      </span>
+                    </td>
+                  </tr>
+                )}
+                {!loading && fetchError && (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-10 text-center text-sm">
+                      <div className="inline-flex items-center gap-2 text-red-600">
+                        <AlertTriangle className="h-4 w-4" />
+                        Unable to load patients — {fetchError}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {!loading && !fetchError && rows.map((p) => {
                   const hrAlert = hrOutOfRange(p.hr);
                   const bpAlert = bpOutOfRange(p.bp);
                   const o2Alert = o2OutOfRange(p.o2);
@@ -204,7 +293,7 @@ function Dashboard() {
                     >
                       <td className="px-5 py-3.5 align-top">
                         <div className="font-semibold text-foreground tabular-nums">
-                          {p.room}
+                          {p.room ?? "—"}
                         </div>
                         {anyAlert && (
                           <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-red-600">
@@ -230,10 +319,18 @@ function Dashboard() {
                         {p.diagnosis}
                       </td>
                       <td className="px-5 py-3.5 align-top">
-                        <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 tabular-nums">
-                          <Vital label="HR" value={`${p.hr}`} alert={hrAlert} />
-                          <Vital label="BP" value={p.bp} alert={bpAlert} />
-                          <Vital label="O₂" value={`${p.o2}%`} alert={o2Alert} />
+                        <div className="text-sm font-medium tabular-nums text-foreground/90">
+                          <span className={hrAlert ? "text-red-600 font-bold" : ""}>
+                            {p.hr} bpm
+                          </span>
+                          <span className="text-muted-foreground"> | </span>
+                          <span className={bpAlert ? "text-red-600 font-bold" : ""}>
+                            {p.bp} mmHg
+                          </span>
+                          <span className="text-muted-foreground"> | </span>
+                          <span className={o2Alert ? "text-red-600 font-bold" : ""}>
+                            {p.o2}%
+                          </span>
                         </div>
                       </td>
                       <td className="px-5 py-3.5 align-top text-foreground/90">
@@ -252,10 +349,10 @@ function Dashboard() {
                     </tr>
                   );
                 })}
-                {rows.length === 0 && (
+                {!loading && !fetchError && rows.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
-                      No charts match "{query}".
+                      {query ? `No charts match "${query}".` : "No patients on the floor."}
                     </td>
                   </tr>
                 )}
