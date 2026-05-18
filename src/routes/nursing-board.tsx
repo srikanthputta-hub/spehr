@@ -194,7 +194,7 @@ function Dashboard() {
     const tick = async () => {
       const { data, error } = await supabase
         .from("patients")
-        .select("mrn, hr, bp_systolic, bp_diastolic, spo2");
+        .select("mrn, hr, bp_systolic, bp_diastolic, spo2, rr");
       if (error || !data) return;
       await Promise.all(
         data.map((p: any) => {
@@ -203,6 +203,7 @@ function Dashboard() {
             bp_systolic: Math.max(50, p.bp_systolic + jitter(3)),
             bp_diastolic: Math.max(30, p.bp_diastolic + jitter(2)),
             spo2: Math.min(100, Math.max(70, p.spo2 + jitter(1))),
+            rr: Math.min(40, Math.max(8, (p.rr ?? 16) + jitter(1))),
           };
           return supabase.from("patients").update(next).eq("mrn", p.mrn);
         }),
@@ -501,7 +502,7 @@ function Dashboard() {
                       <td className="px-5 py-3.5 align-top text-right pr-5">
                         <div className="inline-flex items-center gap-1.5">
                           <Link
-                            to="/patient/$mrn"
+                            to="/chart/$mrn"
                             params={{ mrn: p.mrn }}
                             className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-8 text-xs font-medium text-foreground hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
                           >
