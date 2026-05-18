@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      clinical_notes: {
+        Row: {
+          author: string | null
+          content: string | null
+          created_at: string | null
+          id: string
+          mrn: string | null
+          note_type: string | null
+        }
+        Insert: {
+          author?: string | null
+          content?: string | null
+          created_at?: string | null
+          id?: string
+          mrn?: string | null
+          note_type?: string | null
+        }
+        Update: {
+          author?: string | null
+          content?: string | null
+          created_at?: string | null
+          id?: string
+          mrn?: string | null
+          note_type?: string | null
+        }
+        Relationships: []
+      }
       lab_results: {
         Row: {
           flag: string | null
