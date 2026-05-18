@@ -9,10 +9,31 @@ import {
   Send,
   Stethoscope,
   User,
+  ArrowRightLeft,
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+
+const TRANSFER_DESTINATIONS = [
+  "Memorial Hospital",
+  "St. Jude Medical Center",
+  "City General Infirmary",
+  "County Health Pavilion",
+  "Mercy Childrens Hospital",
+  "Outside Network",
+] as const;
 
 type Patient = {
   mrn: string;
@@ -52,6 +73,12 @@ function PhysicianBoard() {
   // AI DDx
   const [ddxLoading, setDdxLoading] = useState(false);
   const [ddx, setDdx] = useState<{ dx: string; likelihood: string; rationale: string }[] | null>(null);
+
+  // Referral / Transfer
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [destination, setDestination] = useState<string>("Memorial Hospital");
+  const [reason, setReason] = useState("");
+  const [transferring, setTransferring] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -122,6 +149,10 @@ function PhysicianBoard() {
     setDose("");
     setRoute("PO");
     setFreq("Daily");
+    setReason("");
+    setDestination(
+      TRANSFER_DESTINATIONS.find((d) => d !== facility) ?? "Outside Network",
+    );
   }, [selectedMrn]);
 
   const submitOrder = async (e: React.FormEvent) => {
@@ -159,6 +190,35 @@ function PhysicianBoard() {
     await new Promise((r) => setTimeout(r, 1400));
     setDdx(generateDdx(selected));
     setDdxLoading(false);
+  };
+
+  const submitTransfer = async () => {
+    if (!selected) return;
+    if (!reason.trim()) {
+      toast.error("Clinical reason is required");
+      return;
+    }
+    setTransferring(true);
+    const patientName =
+      [selected.first_name, selected.last_name].filter(Boolean).join(" ") ||
+      selected.mrn;
+    const { error } = await supabase.from("patient_transfers").insert({
+      patient_mrn: selected.mrn,
+      patient_name: patientName,
+      source_facility: md.facility,
+      destination_facility: destination,
+      requesting_physician: md.name,
+      reason_for_transfer: reason.trim(),
+      status: "Pending Approval",
+    });
+    setTransferring(false);
+    if (error) {
+      toast.error("Transfer request failed", { description: error.message });
+      return;
+    }
+    toast.success("Referral submitted for administrative approval.");
+    setReason("");
+    setTransferOpen(false);
   };
 
   return (
@@ -283,6 +343,14 @@ function PhysicianBoard() {
                     value={selected.diagnosis || selected.chief_complaint || "—"}
                     wide
                   />
+                      <button
+                        type="button"
+                        onClick={() => setTransferOpen(true)}
+                        className="ml-auto inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition"
+                      >
+                        <ArrowRightLeft className="h-4 w-4" />
+                        🔄 Refer / Transfer Patient
+                      </button>
                 </div>
               </div>
 
@@ -423,6 +491,81 @@ function PhysicianBoard() {
           )}
         </section>
       </div>
+
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>🔄 Inter-Facility Referral / Transfer</DialogTitle>
+            <DialogDescription>
+              Route this patient to another facility in the S.P.E.H.R. network or
+              an outside provider for continued care.
+            </DialogDescription>
+          </DialogHeader>
+          {selected && (
+            <div className="space-y-4">
+              <div className="rounded-md bg-slate-50 border border-slate-200 px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                  Patient
+                </div>
+                <div className="text-sm font-semibold text-slate-900">
+                  {selected.first_name} {selected.last_name}
+                </div>
+                <div className="text-xs font-mono text-slate-500">
+                  MRN {selected.mrn} · Source: {md.facility}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Destination Facility</Label>
+                <select
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value)}
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
+                >
+                  {TRANSFER_DESTINATIONS.map((d) => (
+                    <option key={d} value={d} disabled={d === md.facility}>
+                      {d}
+                      {d === md.facility ? " (current)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Clinical Reason for Referral</Label>
+                <Textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="e.g. Requires Level I trauma services unavailable at current facility…"
+                  rows={4}
+                />
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Requesting Physician: <span className="font-medium text-slate-700">{md.name}</span>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setTransferOpen(false)}
+              disabled={transferring}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitTransfer}
+              disabled={transferring || !selected || destination === md.facility}
+              className="bg-[#0c2340] hover:bg-[#0c2340]/90"
+            >
+              {transferring ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              Submit Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
