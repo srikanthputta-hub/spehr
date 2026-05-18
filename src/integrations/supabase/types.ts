@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      lab_results: {
+        Row: {
+          flag: string | null
+          id: string
+          mrn: string | null
+          panel_name: string | null
+          reference_range: string | null
+          result_value: number | null
+          test_name: string | null
+          time_drawn: string | null
+          unit: string | null
+        }
+        Insert: {
+          flag?: string | null
+          id?: string
+          mrn?: string | null
+          panel_name?: string | null
+          reference_range?: string | null
+          result_value?: number | null
+          test_name?: string | null
+          time_drawn?: string | null
+          unit?: string | null
+        }
+        Update: {
+          flag?: string | null
+          id?: string
+          mrn?: string | null
+          panel_name?: string | null
+          reference_range?: string | null
+          result_value?: number | null
+          test_name?: string | null
+          time_drawn?: string | null
+          unit?: string | null
+        }
+        Relationships: []
+      }
       medication_orders: {
         Row: {
           administered_by: string | null
