@@ -81,22 +81,31 @@ export type Database = {
         Row: {
           administered_at: string | null
           administered_by: string | null
+          given_at: string | null
+          given_by: string | null
           id: string
           medication_name: string | null
+          mrn: string | null
           patient_mrn: string | null
         }
         Insert: {
           administered_at?: string | null
           administered_by?: string | null
+          given_at?: string | null
+          given_by?: string | null
           id?: string
           medication_name?: string | null
+          mrn?: string | null
           patient_mrn?: string | null
         }
         Update: {
           administered_at?: string | null
           administered_by?: string | null
+          given_at?: string | null
+          given_by?: string | null
           id?: string
           medication_name?: string | null
+          mrn?: string | null
           patient_mrn?: string | null
         }
         Relationships: []
