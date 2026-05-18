@@ -336,7 +336,7 @@ function PatientChart() {
             {error ?? `No patient on this unit with MRN ${mrn}.`}
           </p>
           <Link
-            to="/dashboard"
+            to="/nursing-board"
             className="inline-flex items-center gap-1 mt-4 text-sm text-[var(--teal)] hover:underline"
           >
             <ArrowLeft className="h-4 w-4" /> Back to Status Board
@@ -356,7 +356,7 @@ function PatientChart() {
       <header className="sticky top-0 z-20 bg-[var(--navy)] text-white border-b border-black/20 shadow-md">
         <div className="max-w-[1400px] mx-auto px-5 py-3 flex flex-wrap items-center gap-x-6 gap-y-3">
           <Link
-            to="/dashboard"
+            to="/nursing-board"
             className="inline-flex items-center gap-1.5 rounded-md bg-white/10 hover:bg-white/15 ring-1 ring-white/10 px-3 h-9 text-xs font-medium transition shrink-0"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
