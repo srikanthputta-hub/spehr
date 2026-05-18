@@ -617,3 +617,271 @@ function StatCard({
     </div>
   );
 }
+
+interface AdmitInput {
+  name: string;
+  age: number;
+  gender: "M" | "F";
+  room: string;
+  code_status: CodeStatus;
+  diagnosis: string;
+  mrn?: string;
+}
+
+function AdmitModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (input: AdmitInput) => Promise<boolean>;
+}) {
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [gender, setGender] = useState<"M" | "F">("M");
+  const [room, setRoom] = useState("");
+  const [code, setCode] = useState<CodeStatus>("Full Code");
+  const [dx, setDx] = useState("");
+  const [mrn, setMrn] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const handle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    const trimmedName = name.trim();
+    const ageNum = Number(age);
+    if (trimmedName.length < 2 || trimmedName.length > 100) {
+      setErr("Name must be 2–100 characters.");
+      return;
+    }
+    if (!Number.isFinite(ageNum) || ageNum < 0 || ageNum > 120) {
+      setErr("Age must be between 0 and 120.");
+      return;
+    }
+    if (dx.trim().length < 2 || dx.trim().length > 500) {
+      setErr("Diagnosis must be 2–500 characters.");
+      return;
+    }
+    if (room.length > 20) {
+      setErr("Room must be at most 20 characters.");
+      return;
+    }
+    if (mrn && !/^MRN-[A-Za-z0-9-]{3,20}$/.test(mrn.trim())) {
+      setErr("MRN must look like 'MRN-XXXXXX'.");
+      return;
+    }
+    setSubmitting(true);
+    const ok = await onSubmit({
+      name: trimmedName,
+      age: Math.floor(ageNum),
+      gender,
+      room,
+      code_status: code,
+      diagnosis: dx,
+      mrn: mrn.trim() || undefined,
+    });
+    setSubmitting(false);
+    if (ok) onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[var(--navy)]/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl bg-card border border-border shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 h-12 bg-[var(--navy)] text-white">
+          <div className="flex items-center gap-2">
+            <UserPlus className="h-4 w-4 text-[var(--teal)]" />
+            <h2 className="text-sm font-semibold">Admit New Patient</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="grid place-items-center h-7 w-7 rounded-md hover:bg-white/10 transition"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <form onSubmit={handle} className="p-5 grid grid-cols-2 gap-4">
+          <Field label="Patient Name" full>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={100}
+              required
+              autoFocus
+              placeholder="John Doe"
+              className="input"
+            />
+          </Field>
+          <Field label="Age">
+            <input
+              value={age}
+              onChange={(e) => setAge(e.target.value.replace(/[^\d]/g, ""))}
+              maxLength={3}
+              required
+              placeholder="65"
+              inputMode="numeric"
+              className="input"
+            />
+          </Field>
+          <Field label="Gender">
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value as "M" | "F")}
+              className="input"
+            >
+              <option value="M">M</option>
+              <option value="F">F</option>
+            </select>
+          </Field>
+          <Field label="Room / Bed">
+            <input
+              value={room}
+              onChange={(e) => setRoom(e.target.value)}
+              maxLength={20}
+              placeholder="412-A"
+              className="input"
+            />
+          </Field>
+          <Field label="Code Status">
+            <select
+              value={code}
+              onChange={(e) => setCode(e.target.value as CodeStatus)}
+              className="input"
+            >
+              <option>Full Code</option>
+              <option>DNR</option>
+              <option>DNI</option>
+              <option>Comfort</option>
+            </select>
+          </Field>
+          <Field label="Diagnosis / Chief Complaint" full>
+            <input
+              value={dx}
+              onChange={(e) => setDx(e.target.value)}
+              maxLength={500}
+              required
+              placeholder="CHF exacerbation"
+              className="input"
+            />
+          </Field>
+          <Field label="MRN (optional — auto-generated if blank)" full>
+            <input
+              value={mrn}
+              onChange={(e) => setMrn(e.target.value)}
+              maxLength={24}
+              placeholder="MRN-482910"
+              className="input"
+            />
+          </Field>
+
+          {err && (
+            <div className="col-span-2 text-xs text-red-600 inline-flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {err}
+            </div>
+          )}
+
+          <div className="col-span-2 flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border bg-background px-3 h-9 text-xs font-medium hover:bg-secondary transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-9 text-xs font-semibold shadow-sm transition disabled:opacity-60"
+            >
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+              Admit Patient
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  full,
+  children,
+}: {
+  label: string;
+  full?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={`flex flex-col gap-1.5 ${full ? "col-span-2" : ""}`}>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function ConfirmDischargeModal({
+  patient,
+  onCancel,
+  onConfirm,
+}: {
+  patient: PatientRow;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[var(--navy)]/70 backdrop-blur-sm p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm rounded-xl bg-card border border-border shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5">
+          <div className="grid place-items-center h-10 w-10 rounded-full bg-red-50 text-red-600 mb-3">
+            <Trash2 className="h-5 w-5" />
+          </div>
+          <h3 className="text-base font-semibold">Discharge patient?</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Are you sure you want to discharge{" "}
+            <span className="font-medium text-foreground">{patient.name}</span> (
+            {patient.mrn})? This will remove them from the floor census.
+          </p>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-secondary/30">
+          <button
+            onClick={onCancel}
+            className="rounded-md border border-border bg-background px-3 h-9 text-xs font-medium hover:bg-secondary transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-red-600 hover:bg-red-700 text-white px-3 h-9 text-xs font-semibold shadow-sm transition"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Discharge
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
