@@ -61,6 +61,7 @@ function Dashboard() {
   const [patients, setPatients] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -115,6 +116,44 @@ function Dashboard() {
     })();
     return () => {
       cancelled = true;
+    };
+  }, [ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const channel = supabase
+      .channel("patients-live")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "patients" },
+        (payload) => {
+          const p: any = payload.new;
+          setPatients((prev) =>
+            prev.map((row) =>
+              row.mrn === p.mrn
+                ? {
+                    ...row,
+                    name: `${p.first_name} ${p.last_name}`,
+                    room: p.room,
+                    age: p.age,
+                    sex: p.gender,
+                    code: normalizeCode(p.code_status),
+                    diagnosis: p.chief_complaint,
+                    hr: p.hr,
+                    bp: `${p.bp_systolic}/${p.bp_diastolic}`,
+                    o2: p.spo2,
+                  }
+                : row,
+            ),
+          );
+        },
+      )
+      .subscribe((status) => {
+        setLiveConnected(status === "SUBSCRIBED");
+      });
+    return () => {
+      setLiveConnected(false);
+      supabase.removeChannel(channel);
     };
   }, [ready]);
 
@@ -239,11 +278,18 @@ function Dashboard() {
               </span>
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              </span>
+              {liveConnected ? (
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+              ) : (
+                <span className="inline-flex h-2 w-2 rounded-full bg-slate-300" />
+              )}
               Live · auto-refresh
+              <span className={liveConnected ? "text-emerald-600 font-medium" : "text-muted-foreground"}>
+                {liveConnected ? "· connected" : "· connecting…"}
+              </span>
             </div>
           </div>
 
