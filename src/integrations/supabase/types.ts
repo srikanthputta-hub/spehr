@@ -77,6 +77,30 @@ export type Database = {
         }
         Relationships: []
       }
+      mar_logs: {
+        Row: {
+          administered_at: string | null
+          administered_by: string | null
+          id: string
+          medication_name: string | null
+          patient_mrn: string | null
+        }
+        Insert: {
+          administered_at?: string | null
+          administered_by?: string | null
+          id?: string
+          medication_name?: string | null
+          patient_mrn?: string | null
+        }
+        Update: {
+          administered_at?: string | null
+          administered_by?: string | null
+          id?: string
+          medication_name?: string | null
+          patient_mrn?: string | null
+        }
+        Relationships: []
+      }
       medication_orders: {
         Row: {
           created_at: string | null
@@ -163,6 +187,7 @@ export type Database = {
           hr: number | null
           id: string
           last_name: string | null
+          meds_due_count: number | null
           mrn: string | null
           name: string | null
           patient_id: string | null
@@ -184,6 +209,7 @@ export type Database = {
           hr?: number | null
           id?: string
           last_name?: string | null
+          meds_due_count?: number | null
           mrn?: string | null
           name?: string | null
           patient_id?: string | null
@@ -205,6 +231,7 @@ export type Database = {
           hr?: number | null
           id?: string
           last_name?: string | null
+          meds_due_count?: number | null
           mrn?: string | null
           name?: string | null
           patient_id?: string | null
