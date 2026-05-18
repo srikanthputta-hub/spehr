@@ -17,6 +17,7 @@ export type Database = {
       patients: {
         Row: {
           age: number
+          ai_clinical_summary: string | null
           bp_diastolic: number
           bp_systolic: number
           chief_complaint: string
@@ -36,6 +37,7 @@ export type Database = {
         }
         Insert: {
           age: number
+          ai_clinical_summary?: string | null
           bp_diastolic: number
           bp_systolic: number
           chief_complaint: string
@@ -55,6 +57,7 @@ export type Database = {
         }
         Update: {
           age?: number
+          ai_clinical_summary?: string | null
           bp_diastolic?: number
           bp_systolic?: number
           chief_complaint?: string
