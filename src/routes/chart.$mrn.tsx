@@ -18,6 +18,7 @@ import {
   Loader2,
   ClipboardList,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   getPatient,
   hrOutOfRange,
@@ -90,6 +91,7 @@ function ChartPage() {
   const [given, setGiven] = useState<Record<string, string>>({});
   const [dbPatient, setDbPatient] = useState<any>(null);
   const [lookupDone, setLookupDone] = useState(false);
+  const [administering, setAdministering] = useState<string | null>(null);
 
   useEffect(() => {
     // Auth gate disabled — chart renders using mock demo session.
@@ -122,6 +124,21 @@ function ChartPage() {
 
   const patient = staticPatient ?? buildFallbackPatient(mrn, dbPatient);
 
+  // Ensure there's always at least one med to administer (mock fallback)
+  const medsList: MedOrder[] =
+    patient.meds.length > 0
+      ? patient.meds
+      : [
+          {
+            id: "mock-1",
+            name: "Furosemide (Lasix)",
+            dose: "40 mg",
+            route: "PO",
+            freq: "Q12H",
+            due: "Now",
+          },
+        ];
+
   if (!ready) {
     return (
       <div className="min-h-screen grid place-items-center">
@@ -138,11 +155,41 @@ function ChartPage() {
     );
   }
 
-  const handleAdminister = (id: string) => {
-    setGiven((g) => ({
-      ...g,
-      [id]: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
-    }));
+  const handleAdminister = async (med: MedOrder) => {
+    setAdministering(med.id);
+    try {
+      const { error: logErr } = await supabase.from("mar_logs").insert({
+        mrn: patient.mrn,
+        medication_name: `${med.name} ${med.dose} ${med.route}`,
+      });
+      if (logErr) throw logErr;
+
+      // Decrement meds_due_count on the patient (clamped at 0)
+      const { data: cur } = await supabase
+        .from("patients")
+        .select("meds_due_count")
+        .eq("mrn", patient.mrn)
+        .maybeSingle();
+      const next = Math.max(0, ((cur as any)?.meds_due_count ?? 1) - 1);
+      await supabase
+        .from("patients")
+        .update({ meds_due_count: next })
+        .eq("mrn", patient.mrn);
+
+      setGiven((g) => ({
+        ...g,
+        [med.id]: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }),
+      }));
+      toast.success("Medication successfully administered and signed off in MAR.");
+    } catch (e: any) {
+      toast.error("Failed to sign off medication", { description: e?.message });
+    } finally {
+      setAdministering(null);
+    }
   };
 
   return (
@@ -277,12 +324,13 @@ function ChartPage() {
               }
             />
             <ul className="divide-y divide-border">
-              {patient.meds.map((m) => (
+              {medsList.map((m) => (
                 <MedRow
                   key={m.id}
                   med={m}
                   givenAt={given[m.id]}
-                  onAdminister={() => handleAdminister(m.id)}
+                  busy={administering === m.id}
+                  onAdminister={() => handleAdminister(m)}
                 />
               ))}
             </ul>
@@ -393,10 +441,12 @@ function VitalCard({
 function MedRow({
   med,
   givenAt,
+  busy,
   onAdminister,
 }: {
   med: MedOrder;
   givenAt?: string;
+  busy?: boolean;
   onAdminister: () => void;
 }) {
   return (
@@ -432,10 +482,15 @@ function MedRow({
           ) : (
             <button
               onClick={onAdminister}
-              className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold transition shadow-sm"
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 h-9 text-xs font-semibold transition shadow-sm"
             >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Administer
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <span aria-hidden>💊</span>
+              )}
+              {busy ? "Signing off…" : "Administer Dose"}
             </button>
           )}
         </div>
