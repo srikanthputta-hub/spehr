@@ -26,11 +26,55 @@ import {
   tempOutOfRange,
   type CodeStatus,
   type MedOrder,
+  type Patient,
 } from "@/lib/patients";
 
 export const Route = createFileRoute("/chart/$mrn")({
   component: ChartPage,
 });
+
+function buildFallbackPatient(mrn: string, db: any): Patient {
+  const name =
+    db?.name ||
+    [db?.first_name, db?.last_name].filter(Boolean).join(" ") ||
+    `Patient ${mrn}`;
+  const bp =
+    db?.bp ||
+    (db?.bp_systolic && db?.bp_diastolic
+      ? `${db.bp_systolic}/${db.bp_diastolic}`
+      : "120/80");
+  const code: CodeStatus =
+    (["Full Code", "DNR", "DNI", "Comfort"] as CodeStatus[]).includes(db?.code_status)
+      ? (db.code_status as CodeStatus)
+      : "Full Code";
+  const hr = db?.hr ?? 80;
+  const temp = Number(db?.temp ?? 98.6);
+  const o2 = db?.spo2 ?? 98;
+  const sys = db?.bp_systolic ?? Number(String(bp).split("/")[0]) ?? 120;
+  return {
+    room: db?.room || "—",
+    name,
+    age: db?.age ?? 0,
+    sex: (db?.gender?.[0]?.toUpperCase() === "F" ? "F" : "M") as "M" | "F",
+    mrn,
+    dob: "—",
+    code,
+    allergies: ["No known allergies"],
+    diagnosis: db?.diagnosis || db?.chief_complaint || "Acute monitoring",
+    hr,
+    hrTrend: [hr, hr, hr, hr, hr, hr, hr],
+    bp,
+    bpTrend: [sys, sys, sys, sys, sys, sys, sys],
+    temp,
+    tempTrend: [temp, temp, temp, temp, temp, temp, temp],
+    o2,
+    o2Trend: [o2, o2, o2, o2, o2, o2, o2],
+    task: "Routine monitoring",
+    admitNote:
+      "Patient admitted for acute monitoring and dynamic clinical evaluation under the current unit protocol.",
+    meds: [],
+  };
+}
 
 const codeBadge: Record<CodeStatus, string> = {
   "Full Code": "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20",
