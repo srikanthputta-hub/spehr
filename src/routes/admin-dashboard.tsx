@@ -248,9 +248,9 @@ function AdminDashboard() {
   return (
     <main className="min-h-screen bg-slate-50">
       <BoardHeader
-        title="Unit Administrator Dashboard"
-        badge="Operations"
-        subtitle="Floor census, throughput, and staffing"
+        title={`Admin Workspace: ${admin.name} | ${admin.facility}`}
+        badge="Operations · Admin"
+        subtitle={`${admin.ward} · Floor census, throughput, and staffing`}
       />
 
       <section className="p-6 space-y-6 max-w-7xl mx-auto">
