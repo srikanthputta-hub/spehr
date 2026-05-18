@@ -11,8 +11,12 @@ import {
   Pill,
   ChevronRight,
   Activity,
+  UserPlus,
+  X,
+  Trash2,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
 import {
   hrOutOfRange,
   bpOutOfRange,
@@ -53,6 +57,26 @@ function normalizeCode(s: string): CodeStatus {
   return "Full Code";
 }
 
+function toRow(p: any): PatientRow {
+  return {
+    mrn: p.mrn,
+    name: `${p.first_name} ${p.last_name}`,
+    room: p.room,
+    age: p.age,
+    sex: p.gender,
+    code: normalizeCode(p.code_status),
+    diagnosis: p.chief_complaint,
+    hr: p.hr,
+    bp: `${p.bp_systolic}/${p.bp_diastolic}`,
+    o2: p.spo2,
+    task: "—",
+  };
+}
+
+function genMRN() {
+  return `MRN-${Math.floor(100000 + Math.random() * 900000)}`;
+}
+
 function Dashboard() {
   const navigate = useNavigate();
   const [email, setEmail] = useState<string | null>(null);
@@ -64,6 +88,8 @@ function Dashboard() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [simulate, setSimulate] = useState(false);
+  const [admitOpen, setAdmitOpen] = useState(false);
+  const [discharging, setDischarging] = useState<PatientRow | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -100,19 +126,7 @@ function Dashboard() {
         return;
       }
       setPatients(
-        (data ?? []).map((p: any) => ({
-          mrn: p.mrn,
-          name: `${p.first_name} ${p.last_name}`,
-          room: p.room,
-          age: p.age,
-          sex: p.gender,
-          code: normalizeCode(p.code_status),
-          diagnosis: p.chief_complaint,
-          hr: p.hr,
-          bp: `${p.bp_systolic}/${p.bp_diastolic}`,
-          o2: p.spo2,
-          task: "—",
-        })),
+        (data ?? []).map(toRow),
       );
       setLoading(false);
     })();
@@ -148,6 +162,25 @@ function Dashboard() {
                 : row,
             ),
           );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "patients" },
+        (payload) => {
+          const row = toRow(payload.new);
+          setPatients((prev) =>
+            prev.some((p) => p.mrn === row.mrn) ? prev : [...prev, row],
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "patients" },
+        (payload) => {
+          const oldMrn = (payload.old as any)?.mrn;
+          if (!oldMrn) return;
+          setPatients((prev) => prev.filter((p) => p.mrn !== oldMrn));
         },
       )
       .subscribe((status) => {
@@ -215,6 +248,54 @@ function Dashboard() {
     month: "short",
     day: "numeric",
   });
+
+  const handleAdmit = async (input: AdmitInput) => {
+    const mrn = input.mrn?.trim() || genMRN();
+    const [first_name, ...rest] = input.name.trim().split(/\s+/);
+    const last_name = rest.join(" ") || "—";
+    const payload = {
+      mrn,
+      first_name,
+      last_name,
+      age: input.age,
+      gender: input.gender,
+      dob: new Date(new Date().getFullYear() - input.age, 0, 1).toISOString().slice(0, 10),
+      room: input.room.trim() || null,
+      code_status: input.code_status,
+      chief_complaint: input.diagnosis.trim(),
+      hr: 76,
+      bp_systolic: 120,
+      bp_diastolic: 78,
+      temp_f: 98.6,
+      spo2: 98,
+    };
+    const { data, error } = await supabase
+      .from("patients")
+      .insert(payload)
+      .select()
+      .single();
+    if (error) {
+      toast.error("Could not admit patient", { description: error.message });
+      return false;
+    }
+    setPatients((prev) =>
+      prev.some((p) => p.mrn === mrn) ? prev : [...prev, toRow(data)],
+    );
+    toast.success("Patient admitted", { description: `${payload.first_name} ${payload.last_name} · ${mrn}` });
+    return true;
+  };
+
+  const handleDischarge = async (p: PatientRow) => {
+    const prev = patients;
+    setPatients((curr) => curr.filter((x) => x.mrn !== p.mrn));
+    const { error } = await supabase.from("patients").delete().eq("mrn", p.mrn);
+    if (error) {
+      setPatients(prev);
+      toast.error("Could not discharge", { description: error.message });
+      return;
+    }
+    toast.success("Patient discharged", { description: `${p.name} · ${p.mrn}` });
+  };
 
   return (
     <main className="min-h-screen bg-background">
@@ -417,14 +498,24 @@ function Dashboard() {
                         {p.task}
                       </td>
                       <td className="px-5 py-3.5 align-top text-right pr-5">
-                        <Link
-                          to="/patient/$mrn"
-                          params={{ mrn: p.mrn }}
-                          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-8 text-xs font-medium text-foreground hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
-                        >
-                          Open Chart
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </Link>
+                        <div className="inline-flex items-center gap-1.5">
+                          <Link
+                            to="/patient/$mrn"
+                            params={{ mrn: p.mrn }}
+                            className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-8 text-xs font-medium text-foreground hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
+                          >
+                            Open Chart
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </Link>
+                          <button
+                            onClick={() => setDischarging(p)}
+                            title="Discharge patient"
+                            aria-label={`Discharge ${p.name}`}
+                            className="inline-grid place-items-center h-8 w-8 rounded-md border border-border bg-background text-muted-foreground hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -446,6 +537,22 @@ function Dashboard() {
           device telemetry will replace this feed.
         </p>
       </div>
+
+      {admitOpen && (
+        <AdmitModal onClose={() => setAdmitOpen(false)} onSubmit={handleAdmit} />
+      )}
+
+      {discharging && (
+        <ConfirmDischargeModal
+          patient={discharging}
+          onCancel={() => setDischarging(null)}
+          onConfirm={async () => {
+            const p = discharging;
+            setDischarging(null);
+            await handleDischarge(p);
+          }}
+        />
+      )}
     </main>
   );
 }
