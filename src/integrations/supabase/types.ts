@@ -221,6 +221,42 @@ export type Database = {
         }
         Relationships: []
       }
+      patient_transfers: {
+        Row: {
+          created_at: string | null
+          destination_facility: string
+          id: string
+          patient_mrn: string
+          patient_name: string
+          reason_for_transfer: string | null
+          requesting_physician: string
+          source_facility: string
+          status: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          destination_facility: string
+          id?: string
+          patient_mrn: string
+          patient_name: string
+          reason_for_transfer?: string | null
+          requesting_physician: string
+          source_facility: string
+          status?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          destination_facility?: string
+          id?: string
+          patient_mrn?: string
+          patient_name?: string
+          reason_for_transfer?: string | null
+          requesting_physician?: string
+          source_facility?: string
+          status?: string | null
+        }
+        Relationships: []
+      }
       patients: {
         Row: {
           age: number | null
