@@ -9,6 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as UnitManagerRouteImport } from './routes/unit-manager'
+import { Route as RespiratoryBoardRouteImport } from './routes/respiratory-board'
 import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
@@ -16,6 +18,16 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
 
+const UnitManagerRoute = UnitManagerRouteImport.update({
+  id: '/unit-manager',
+  path: '/unit-manager',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RespiratoryBoardRoute = RespiratoryBoardRouteImport.update({
+  id: '/respiratory-board',
+  path: '/respiratory-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PhysicianBoardRoute = PhysicianBoardRouteImport.update({
   id: '/physician-board',
   path: '/physician-board',
@@ -52,6 +64,8 @@ export interface FileRoutesByFullPath {
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
+  '/respiratory-board': typeof RespiratoryBoardRoute
+  '/unit-manager': typeof UnitManagerRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
@@ -60,6 +74,8 @@ export interface FileRoutesByTo {
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
+  '/respiratory-board': typeof RespiratoryBoardRoute
+  '/unit-manager': typeof UnitManagerRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
@@ -69,6 +85,8 @@ export interface FileRoutesById {
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
+  '/respiratory-board': typeof RespiratoryBoardRoute
+  '/unit-manager': typeof UnitManagerRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
@@ -79,6 +97,8 @@ export interface FileRouteTypes {
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
+    | '/respiratory-board'
+    | '/unit-manager'
     | '/chart/$mrn'
     | '/patient/$mrn'
   fileRoutesByTo: FileRoutesByTo
@@ -87,6 +107,8 @@ export interface FileRouteTypes {
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
+    | '/respiratory-board'
+    | '/unit-manager'
     | '/chart/$mrn'
     | '/patient/$mrn'
   id:
@@ -95,6 +117,8 @@ export interface FileRouteTypes {
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
+    | '/respiratory-board'
+    | '/unit-manager'
     | '/chart/$mrn'
     | '/patient/$mrn'
   fileRoutesById: FileRoutesById
@@ -104,12 +128,28 @@ export interface RootRouteChildren {
   NursingBoardRoute: typeof NursingBoardRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
   PhysicianBoardRoute: typeof PhysicianBoardRoute
+  RespiratoryBoardRoute: typeof RespiratoryBoardRoute
+  UnitManagerRoute: typeof UnitManagerRoute
   ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/unit-manager': {
+      id: '/unit-manager'
+      path: '/unit-manager'
+      fullPath: '/unit-manager'
+      preLoaderRoute: typeof UnitManagerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/respiratory-board': {
+      id: '/respiratory-board'
+      path: '/respiratory-board'
+      fullPath: '/respiratory-board'
+      preLoaderRoute: typeof RespiratoryBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/physician-board': {
       id: '/physician-board'
       path: '/physician-board'
@@ -160,9 +200,21 @@ const rootRouteChildren: RootRouteChildren = {
   NursingBoardRoute: NursingBoardRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
   PhysicianBoardRoute: PhysicianBoardRoute,
+  RespiratoryBoardRoute: RespiratoryBoardRoute,
+  UnitManagerRoute: UnitManagerRoute,
   ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
