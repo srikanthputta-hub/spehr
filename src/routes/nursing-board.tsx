@@ -90,6 +90,9 @@ function Dashboard() {
   const [simulate, setSimulate] = useState(false);
   const [admitOpen, setAdmitOpen] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
+  const [showOnlyMedsDue, setShowOnlyMedsDue] = useState(false);
+
+  const MEDS_DUE_NAMES = ["margaret chen", "robert alvarez", "srujan patel", "marcus vance"];
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -216,15 +219,21 @@ function Dashboard() {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return patients;
-    return patients.filter(
+    let list = patients;
+    if (showOnlyMedsDue) {
+      list = list.filter((p) =>
+        MEDS_DUE_NAMES.some((n) => p.name.toLowerCase().includes(n)),
+      );
+    }
+    if (!q) return list;
+    return list.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.mrn.toLowerCase().includes(q) ||
         (p.room ?? "").toLowerCase().includes(q) ||
         p.diagnosis.toLowerCase().includes(q),
     );
-  }, [query, patients]);
+  }, [query, patients, showOnlyMedsDue]);
 
   if (!ready) {
     return (
@@ -373,6 +382,9 @@ function Dashboard() {
             value="4"
             tone="teal"
             sub="2 IV · 2 PO"
+            interactive
+            active={showOnlyMedsDue}
+            onClick={() => setShowOnlyMedsDue((v) => !v)}
           />
         </section>
 
@@ -582,26 +594,49 @@ function StatCard({
   value,
   sub,
   tone,
+  interactive,
+  active,
+  onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   sub?: string;
   tone: "navy" | "teal" | "red";
+  interactive?: boolean;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   const tones = {
     navy: "bg-[var(--navy)] text-white",
     teal: "bg-[var(--teal)] text-white",
     red: "bg-red-600 text-white",
   } as const;
+  const interactiveCls = interactive
+    ? "cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--teal)]/50"
+    : "";
+  const activeCls = active
+    ? "ring-2 ring-[var(--teal)] border-[var(--teal)] bg-[var(--teal-soft)]/40 shadow-[0_0_0_4px_rgba(20,184,166,0.12)]"
+    : "";
+  const Comp: any = interactive ? "button" : "div";
   return (
-    <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+    <Comp
+      type={interactive ? "button" : undefined}
+      onClick={onClick}
+      aria-pressed={interactive ? !!active : undefined}
+      className={`w-full text-left rounded-xl border border-border bg-card p-4 flex items-center gap-4 ${interactiveCls} ${activeCls}`}
+    >
       <div className={`h-11 w-11 rounded-lg grid place-items-center ${tones[tone]}`}>
         <Icon className="h-5 w-5" />
       </div>
       <div className="min-w-0">
         <div className="text-xs uppercase tracking-wider text-muted-foreground">
           {label}
+          {interactive && (
+            <span className={`ml-2 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold tracking-wider ${active ? "bg-[var(--teal)] text-white" : "bg-secondary text-muted-foreground"}`}>
+              {active ? "FILTER ON" : "FILTER"}
+            </span>
+          )}
         </div>
         <div className="flex items-baseline gap-2">
           <div className="text-2xl font-semibold tracking-tight tabular-nums">
@@ -610,7 +645,7 @@ function StatCard({
           {sub && <div className="text-xs text-muted-foreground truncate">{sub}</div>}
         </div>
       </div>
-    </div>
+    </Comp>
   );
 }
 
