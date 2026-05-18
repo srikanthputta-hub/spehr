@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useActiveNurse, FACILITIES, useFacility } from "@/lib/facility-context";
+import { FACILITIES, useFacility, STAFF_BY_FACILITY, type StaffRole } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -37,7 +37,7 @@ type RoleRoute =
   | "/respiratory-board"
   | "/admin-dashboard";
 
-const ROLES: { value: RoleRoute; label: string; abbrev: string }[] = [
+const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole }[] = [
   { value: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
   { value: "/physician-board", label: "Attending Physician", abbrev: "MD" },
   { value: "/pharmacy-queue", label: "Clinical Pharmacist", abbrev: "PharmD" },
@@ -48,8 +48,9 @@ const ROLES: { value: RoleRoute; label: string; abbrev: string }[] = [
 function LoginScreen() {
   const navigate = useNavigate();
   const [role, setRole] = useState<RoleRoute | "">("");
-  const nurse = useActiveNurse();
   const { facility, setFacility } = useFacility();
+  const selectedRole = ROLES.find((r) => r.value === role);
+  const activeStaff = selectedRole ? STAFF_BY_FACILITY[facility][selectedRole.abbrev] : null;
 
   const handleLaunch = () => {
     if (!role) return;
@@ -141,10 +142,10 @@ function LoginScreen() {
             </Select>
           </div>
 
-          {role === "/nursing-board" && (
+          {activeStaff && (
             <div className="mt-4 rounded-lg border border-[#5cbdb9]/25 bg-[#0a1220]/70 p-3 space-y-2">
               <label className="block text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                Facility Network · Auto-binds Nurse Identity
+                Facility Network · Auto-binds {activeStaff.roleLabel} Identity
               </label>
               <select
                 value={facility}
@@ -160,7 +161,7 @@ function LoginScreen() {
               <div className="flex items-center justify-between gap-2 pt-1 text-[11px]">
                 <span className="text-slate-400">Signing in as</span>
                 <span className="font-medium text-[#5cbdb9]">
-                  {nurse.name} · {nurse.ward}
+                  {activeStaff.name} · {activeStaff.ward}
                 </span>
               </div>
             </div>
