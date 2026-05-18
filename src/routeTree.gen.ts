@@ -9,11 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
 
+const PhysicianBoardRoute = PhysicianBoardRouteImport.update({
+  id: '/physician-board',
+  path: '/physician-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NursingBoardRoute = NursingBoardRouteImport.update({
   id: '/nursing-board',
   path: '/nursing-board',
@@ -38,12 +44,14 @@ const ChartMrnRoute = ChartMrnRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/nursing-board': typeof NursingBoardRoute
+  '/physician-board': typeof PhysicianBoardRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/nursing-board': typeof NursingBoardRoute
+  '/physician-board': typeof PhysicianBoardRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
@@ -51,26 +59,51 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/nursing-board': typeof NursingBoardRoute
+  '/physician-board': typeof PhysicianBoardRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/nursing-board' | '/chart/$mrn' | '/patient/$mrn'
+  fullPaths:
+    | '/'
+    | '/nursing-board'
+    | '/physician-board'
+    | '/chart/$mrn'
+    | '/patient/$mrn'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/nursing-board' | '/chart/$mrn' | '/patient/$mrn'
-  id: '__root__' | '/' | '/nursing-board' | '/chart/$mrn' | '/patient/$mrn'
+  to:
+    | '/'
+    | '/nursing-board'
+    | '/physician-board'
+    | '/chart/$mrn'
+    | '/patient/$mrn'
+  id:
+    | '__root__'
+    | '/'
+    | '/nursing-board'
+    | '/physician-board'
+    | '/chart/$mrn'
+    | '/patient/$mrn'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   NursingBoardRoute: typeof NursingBoardRoute
+  PhysicianBoardRoute: typeof PhysicianBoardRoute
   ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/physician-board': {
+      id: '/physician-board'
+      path: '/physician-board'
+      fullPath: '/physician-board'
+      preLoaderRoute: typeof PhysicianBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/nursing-board': {
       id: '/nursing-board'
       path: '/nursing-board'
@@ -105,9 +138,20 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   NursingBoardRoute: NursingBoardRoute,
+  PhysicianBoardRoute: PhysicianBoardRoute,
   ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
