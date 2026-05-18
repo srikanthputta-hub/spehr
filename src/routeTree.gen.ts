@@ -14,6 +14,7 @@ import { Route as RespiratoryBoardRouteImport } from './routes/respiratory-board
 import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
+import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
@@ -43,6 +44,11 @@ const NursingBoardRoute = NursingBoardRouteImport.update({
   path: '/nursing-board',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminDashboardRoute = AdminDashboardRouteImport.update({
+  id: '/admin-dashboard',
+  path: '/admin-dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -61,6 +67,7 @@ const ChartMrnRoute = ChartMrnRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin-dashboard': typeof AdminDashboardRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
@@ -71,6 +78,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin-dashboard': typeof AdminDashboardRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
@@ -82,6 +90,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin-dashboard': typeof AdminDashboardRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin-dashboard'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
@@ -104,6 +114,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin-dashboard'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
@@ -114,6 +125,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/admin-dashboard'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
@@ -125,6 +137,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminDashboardRoute: typeof AdminDashboardRoute
   NursingBoardRoute: typeof NursingBoardRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
   PhysicianBoardRoute: typeof PhysicianBoardRoute
@@ -171,6 +184,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NursingBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin-dashboard': {
+      id: '/admin-dashboard'
+      path: '/admin-dashboard'
+      fullPath: '/admin-dashboard'
+      preLoaderRoute: typeof AdminDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -197,6 +217,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminDashboardRoute: AdminDashboardRoute,
   NursingBoardRoute: NursingBoardRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
   PhysicianBoardRoute: PhysicianBoardRoute,
@@ -208,3 +229,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
