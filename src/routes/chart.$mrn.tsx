@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveNurse } from "@/lib/facility-context";
 import {
   getPatient,
   hrOutOfRange,
@@ -88,6 +89,7 @@ const codeBadge: Record<CodeStatus, string> = {
 function ChartPage() {
   const { mrn } = useParams({ from: "/chart/$mrn" });
   const navigate = useNavigate();
+  const nurse = useActiveNurse();
   const [ready, setReady] = useState(false);
   const [given, setGiven] = useState<Record<string, string>>({});
   const [dbPatient, setDbPatient] = useState<any>(null);
@@ -182,6 +184,8 @@ function ChartPage() {
       const { error: logErr } = await supabase.from("mar_logs").insert({
         mrn: patient.mrn,
         medication_name: `${med.name} ${med.dose} ${med.route}`,
+        administered_by: nurse.name,
+        given_by: nurse.name,
       });
       if (logErr) throw logErr;
 
@@ -223,7 +227,7 @@ function ChartPage() {
       const payload = {
         patient_mrn: patient.mrn,
         note_text: noteText.trim() || "(SBAR handoff — see structured fields)",
-        author_nurse: "Sarah Jenkins, RN",
+        author_nurse: nurse.name,
         sbar_situation: sbar.s || null,
         sbar_background: sbar.b || null,
         sbar_assessment: sbar.a || null,
@@ -283,6 +287,11 @@ function ChartPage() {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
+            <div className="hidden md:flex flex-col items-end text-[11px] leading-tight">
+              <span className="text-white/55 uppercase tracking-[0.18em] text-[9px]">Signed In</span>
+              <span className="text-white font-medium">RN: {nurse.name.replace(/, RN$/, "")}</span>
+              <span className="text-white/60">{nurse.facility} — {nurse.ward}</span>
+            </div>
             <div className="inline-flex items-center gap-2 rounded-md bg-red-500/15 ring-1 ring-red-400/40 px-3 h-9 text-xs">
               <AlertOctagon className="h-4 w-4 text-red-300" />
               <span className="font-semibold text-red-200 uppercase tracking-wider text-[10px]">
@@ -387,7 +396,7 @@ function ChartPage() {
                       <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                         <span className="inline-flex items-center gap-1 font-medium text-foreground">
                           <User className="h-3 w-3 text-[var(--teal)]" />
-                          {n.author_nurse || "Sarah Jenkins, RN"}
+                          {n.author_nurse || nurse.name}
                         </span>
                         <span className="inline-flex items-center gap-1 tabular-nums">
                           <Clock className="h-3 w-3" />
@@ -482,7 +491,7 @@ function ChartPage() {
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-[11px] text-muted-foreground">
-                  Signing as <span className="font-medium text-foreground">Sarah Jenkins, RN</span>
+                  Signing as <span className="font-medium text-foreground">{nurse.name}</span> · {nurse.facility} — {nurse.ward}
                 </span>
                 <button
                   onClick={handleSaveNote}

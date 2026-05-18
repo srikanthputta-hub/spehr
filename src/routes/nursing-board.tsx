@@ -23,7 +23,7 @@ import {
   o2OutOfRange,
   type CodeStatus,
 } from "@/lib/patients";
-import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
+import { FacilitySwitcher, useFacility, useActiveNurse } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -85,6 +85,7 @@ function genMRN() {
 function Dashboard() {
   const navigate = useNavigate();
   const { facility } = useFacility();
+  const nurse = useActiveNurse();
   const [email, setEmail] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(new Date());
@@ -328,8 +329,8 @@ function Dashboard() {
 
           <div className="hidden md:flex items-center gap-2 ml-2 pl-4 border-l border-white/10 text-xs">
             <div className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.18)]" />
-            <span className="text-white/80 font-medium">RN — {facility}</span>
-            <span className="text-white/50">· Unit 4B</span>
+            <span className="text-white/80 font-medium">RN: {nurse.name.replace(/, RN$/, "")}</span>
+            <span className="text-white/50">| {nurse.facility} — {nurse.ward}</span>
             <span className="mx-2 h-3 w-px bg-white/15" />
             <FacilitySwitcher variant="dark" />
           </div>
@@ -403,7 +404,7 @@ function Dashboard() {
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-[var(--teal)]" />
               <h2 className="text-sm font-semibold tracking-tight">
-                Floor Overview — Unit 4B
+                Floor Overview — {nurse.ward}
               </h2>
               <span className="text-xs text-muted-foreground">
                 · {rows.length} of {facilityPatients.length} patients
