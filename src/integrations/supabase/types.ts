@@ -14,6 +14,66 @@ export type Database = {
   }
   public: {
     Tables: {
+      patients: {
+        Row: {
+          age: number
+          bp_diastolic: number
+          bp_systolic: number
+          chief_complaint: string
+          code_status: string
+          created_at: string
+          dob: string
+          first_name: string
+          gender: string
+          hr: number
+          id: string
+          last_name: string
+          mrn: string
+          room: string | null
+          spo2: number
+          temp_f: number
+          updated_at: string
+        }
+        Insert: {
+          age: number
+          bp_diastolic: number
+          bp_systolic: number
+          chief_complaint: string
+          code_status: string
+          created_at?: string
+          dob: string
+          first_name: string
+          gender: string
+          hr: number
+          id?: string
+          last_name: string
+          mrn: string
+          room?: string | null
+          spo2: number
+          temp_f: number
+          updated_at?: string
+        }
+        Update: {
+          age?: number
+          bp_diastolic?: number
+          bp_systolic?: number
+          chief_complaint?: string
+          code_status?: string
+          created_at?: string
+          dob?: string
+          first_name?: string
+          gender?: string
+          hr?: number
+          id?: string
+          last_name?: string
+          mrn?: string
+          room?: string | null
+          spo2?: number
+          temp_f?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           branch: Database["public"]["Enums"]["branch"]
