@@ -89,6 +89,7 @@ const codeBadge: Record<CodeStatus, string> = {
 function ChartPage() {
   const { mrn } = useParams({ from: "/chart/$mrn" });
   const navigate = useNavigate();
+  const nurse = useActiveNurse();
   const [ready, setReady] = useState(false);
   const [given, setGiven] = useState<Record<string, string>>({});
   const [dbPatient, setDbPatient] = useState<any>(null);
