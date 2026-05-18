@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveNurse } from "@/lib/facility-context";
 import {
   getPatient,
   hrOutOfRange,
@@ -182,6 +183,8 @@ function ChartPage() {
       const { error: logErr } = await supabase.from("mar_logs").insert({
         mrn: patient.mrn,
         medication_name: `${med.name} ${med.dose} ${med.route}`,
+        administered_by: nurse.name,
+        given_by: nurse.name,
       });
       if (logErr) throw logErr;
 
@@ -223,7 +226,7 @@ function ChartPage() {
       const payload = {
         patient_mrn: patient.mrn,
         note_text: noteText.trim() || "(SBAR handoff — see structured fields)",
-        author_nurse: "Sarah Jenkins, RN",
+        author_nurse: nurse.name,
         sbar_situation: sbar.s || null,
         sbar_background: sbar.b || null,
         sbar_assessment: sbar.a || null,
