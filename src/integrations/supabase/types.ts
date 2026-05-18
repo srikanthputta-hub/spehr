@@ -115,64 +115,64 @@ export type Database = {
       }
       patients: {
         Row: {
-          age: number
-          ai_clinical_summary: string | null
-          bp_diastolic: number
-          bp_systolic: number
-          chief_complaint: string
-          code_status: string
-          created_at: string
-          dob: string
-          first_name: string
-          gender: string
-          hr: number
+          age: number | null
+          bp: string | null
+          bp_diastolic: number | null
+          bp_systolic: number | null
+          chief_complaint: string | null
+          code_status: string | null
+          diagnosis: string | null
+          first_name: string | null
+          gender: string | null
+          hr: number | null
           id: string
-          last_name: string
-          mrn: string
+          last_name: string | null
+          mrn: string | null
+          name: string | null
           room: string | null
-          spo2: number
-          temp_f: number
-          updated_at: string
+          rr: number | null
+          spo2: number | null
+          temp: number | null
         }
         Insert: {
-          age: number
-          ai_clinical_summary?: string | null
-          bp_diastolic: number
-          bp_systolic: number
-          chief_complaint: string
-          code_status: string
-          created_at?: string
-          dob: string
-          first_name: string
-          gender: string
-          hr: number
+          age?: number | null
+          bp?: string | null
+          bp_diastolic?: number | null
+          bp_systolic?: number | null
+          chief_complaint?: string | null
+          code_status?: string | null
+          diagnosis?: string | null
+          first_name?: string | null
+          gender?: string | null
+          hr?: number | null
           id?: string
-          last_name: string
-          mrn: string
+          last_name?: string | null
+          mrn?: string | null
+          name?: string | null
           room?: string | null
-          spo2: number
-          temp_f: number
-          updated_at?: string
+          rr?: number | null
+          spo2?: number | null
+          temp?: number | null
         }
         Update: {
-          age?: number
-          ai_clinical_summary?: string | null
-          bp_diastolic?: number
-          bp_systolic?: number
-          chief_complaint?: string
-          code_status?: string
-          created_at?: string
-          dob?: string
-          first_name?: string
-          gender?: string
-          hr?: number
+          age?: number | null
+          bp?: string | null
+          bp_diastolic?: number | null
+          bp_systolic?: number | null
+          chief_complaint?: string | null
+          code_status?: string | null
+          diagnosis?: string | null
+          first_name?: string | null
+          gender?: string | null
+          hr?: number | null
           id?: string
-          last_name?: string
-          mrn?: string
+          last_name?: string | null
+          mrn?: string | null
+          name?: string | null
           room?: string | null
-          spo2?: number
-          temp_f?: number
-          updated_at?: string
+          rr?: number | null
+          spo2?: number | null
+          temp?: number | null
         }
         Relationships: []
       }

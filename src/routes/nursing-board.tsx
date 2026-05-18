@@ -255,14 +255,13 @@ function Dashboard() {
       last_name,
       age: input.age,
       gender: input.gender,
-      dob: new Date(new Date().getFullYear() - input.age, 0, 1).toISOString().slice(0, 10),
       room: input.room.trim() || null,
       code_status: input.code_status,
       chief_complaint: input.diagnosis.trim(),
       hr: 76,
       bp_systolic: 120,
       bp_diastolic: 78,
-      temp_f: 98.6,
+      temp: 98.6,
       spo2: 98,
     };
     const { data, error } = await supabase
