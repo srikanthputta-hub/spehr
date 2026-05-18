@@ -18,6 +18,7 @@ import {
   Loader2,
   ClipboardList,
 } from "lucide-react";
+import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react";
 import { toast } from "sonner";
 import {
   getPatient,
@@ -92,6 +93,11 @@ function ChartPage() {
   const [dbPatient, setDbPatient] = useState<any>(null);
   const [lookupDone, setLookupDone] = useState(false);
   const [administering, setAdministering] = useState<string | null>(null);
+  const [shiftNotes, setShiftNotes] = useState<any[]>([]);
+  const [noteText, setNoteText] = useState("");
+  const [sbarOpen, setSbarOpen] = useState(false);
+  const [sbar, setSbar] = useState({ s: "", b: "", a: "", r: "" });
+  const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
     // Auth gate disabled — chart renders using mock demo session.
@@ -123,6 +129,21 @@ function ChartPage() {
   }, [mrn, staticPatient]);
 
   const patient = staticPatient ?? buildFallbackPatient(mrn, dbPatient);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("shift_notes")
+        .select("*")
+        .eq("patient_mrn", mrn)
+        .order("created_at", { ascending: false });
+      if (!cancelled && data) setShiftNotes(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mrn]);
 
   // Ensure there's always at least one med to administer (mock fallback)
   const medsList: MedOrder[] =
@@ -189,6 +210,40 @@ function ChartPage() {
       toast.error("Failed to sign off medication", { description: e?.message });
     } finally {
       setAdministering(null);
+    }
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteText.trim() && !sbar.s && !sbar.b && !sbar.a && !sbar.r) {
+      toast.error("Please enter a note before signing.");
+      return;
+    }
+    setSavingNote(true);
+    try {
+      const payload = {
+        patient_mrn: patient.mrn,
+        note_text: noteText.trim() || "(SBAR handoff — see structured fields)",
+        author_nurse: "Sarah Jenkins, RN",
+        sbar_situation: sbar.s || null,
+        sbar_background: sbar.b || null,
+        sbar_assessment: sbar.a || null,
+        sbar_recommendation: sbar.r || null,
+      };
+      const { data, error } = await supabase
+        .from("shift_notes")
+        .insert(payload)
+        .select()
+        .single();
+      if (error) throw error;
+      setShiftNotes((prev) => [data, ...prev]);
+      setNoteText("");
+      setSbar({ s: "", b: "", a: "", r: "" });
+      setSbarOpen(false);
+      toast.success("Shift note securely committed and stamped to patient electronic health record.");
+    } catch (e: any) {
+      toast.error("Failed to save note", { description: e?.message });
+    } finally {
+      setSavingNote(false);
     }
   };
 
@@ -304,6 +359,143 @@ function ChartPage() {
               <p>{patient.admitNote}</p>
               <div className="text-[11px] text-muted-foreground pt-2 border-t border-border">
                 Source: Admission H&P · Reviewed 06:42 · Tap to view full note
+              </div>
+            </div>
+          </section>
+
+          {/* Shift Handoff & Clinical Documentation */}
+          <section className="rounded-xl border border-border bg-card overflow-hidden">
+            <SectionHeader
+              icon={FileSignature}
+              title="📋 Shift Handoff & Clinical Documentation"
+              subtitle={`${shiftNotes.length} note${shiftNotes.length === 1 ? "" : "s"} on file`}
+            />
+
+            {/* Timeline */}
+            <div className="p-5 space-y-3">
+              {shiftNotes.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  No shift notes recorded yet. Be the first to document this shift.
+                </div>
+              ) : (
+                <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                  {shiftNotes.map((n) => (
+                    <li
+                      key={n.id}
+                      className="rounded-lg border border-border bg-secondary/30 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                          <User className="h-3 w-3 text-[var(--teal)]" />
+                          {n.author_nurse || "Sarah Jenkins, RN"}
+                        </span>
+                        <span className="inline-flex items-center gap-1 tabular-nums">
+                          <Clock className="h-3 w-3" />
+                          {n.created_at
+                            ? new Date(n.created_at).toLocaleString([], {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "—"}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
+                        {n.note_text}
+                      </p>
+                      {(n.sbar_situation ||
+                        n.sbar_background ||
+                        n.sbar_assessment ||
+                        n.sbar_recommendation) && (
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                          {n.sbar_situation && (
+                            <SbarPill label="S" text={n.sbar_situation} />
+                          )}
+                          {n.sbar_background && (
+                            <SbarPill label="B" text={n.sbar_background} />
+                          )}
+                          {n.sbar_assessment && (
+                            <SbarPill label="A" text={n.sbar_assessment} />
+                          )}
+                          {n.sbar_recommendation && (
+                            <SbarPill label="R" text={n.sbar_recommendation} />
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* New entry form */}
+            <div className="border-t border-border bg-secondary/20 p-5 space-y-3">
+              <label className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+                New Entry
+              </label>
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="General Nursing Shift Notes..."
+                rows={4}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 resize-y"
+              />
+
+              <button
+                type="button"
+                onClick={() => setSbarOpen((v) => !v)}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--teal)] hover:underline"
+              >
+                {sbarOpen ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+                SBAR Handoff (optional)
+              </button>
+
+              {sbarOpen && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-border bg-background p-3">
+                  <SbarInput
+                    label="Situation"
+                    value={sbar.s}
+                    onChange={(v) => setSbar((p) => ({ ...p, s: v }))}
+                  />
+                  <SbarInput
+                    label="Background"
+                    value={sbar.b}
+                    onChange={(v) => setSbar((p) => ({ ...p, b: v }))}
+                  />
+                  <SbarInput
+                    label="Assessment"
+                    value={sbar.a}
+                    onChange={(v) => setSbar((p) => ({ ...p, a: v }))}
+                  />
+                  <SbarInput
+                    label="Recommendation"
+                    value={sbar.r}
+                    onChange={(v) => setSbar((p) => ({ ...p, r: v }))}
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-muted-foreground">
+                  Signing as <span className="font-medium text-foreground">Sarah Jenkins, RN</span>
+                </span>
+                <button
+                  onClick={handleSaveNote}
+                  disabled={savingNote}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 disabled:opacity-60 disabled:cursor-not-allowed text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
+                >
+                  {savingNote ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <span aria-hidden>✍️</span>
+                  )}
+                  {savingNote ? "Saving…" : "Sign & Save Note"}
+                </button>
               </div>
             </div>
           </section>
