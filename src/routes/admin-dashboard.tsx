@@ -34,7 +34,7 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet";
 import { Progress } from "@/components/ui/progress";
-import { useFacility } from "@/lib/facility-context";
+import { useFacility, useActiveStaff } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -118,6 +118,7 @@ function codeColor(c: string | null) {
 }
 
 function AdminDashboard() {
+  const admin = useActiveStaff("Admin");
   const { facility } = useFacility();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [pendingPharm, setPendingPharm] = useState(0);

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
-import { useFacility } from "@/lib/facility-context";
+import { useFacility, useActiveStaff } from "@/lib/facility-context";
 
 type Patient = {
   mrn: string;
@@ -36,6 +36,7 @@ const FREQS = ["Once", "Daily", "BID", "TID", "QID", "Q4H", "Q6H", "Q8H", "Q12H"
 
 function PhysicianBoard() {
   const { facility } = useFacility();
+  const md = useActiveStaff("MD");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,9 +164,9 @@ function PhysicianBoard() {
   return (
     <main className="min-h-screen bg-slate-50">
       <BoardHeader
-        title="Attending Physician Board"
+        title={`Physician Workspace: ${md.name} | ${md.facility}`}
         badge="Provider · MD"
-        subtitle="Computerized Provider Order Entry"
+        subtitle={`${md.ward} · Computerized Provider Order Entry`}
       />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
         {/* Patient list */}
