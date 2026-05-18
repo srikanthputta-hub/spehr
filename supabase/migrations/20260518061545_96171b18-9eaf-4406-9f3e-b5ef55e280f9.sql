@@ -1,0 +1,1 @@
+CREATE POLICY "Authenticated users can insert medication orders" ON public.medication_orders FOR INSERT TO authenticated WITH CHECK (true);
