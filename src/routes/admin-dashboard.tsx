@@ -388,6 +388,102 @@ function AdminDashboard() {
           />
         </div>
 
+        {/* Pending Network Transfer Requests */}
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <Inbox className="h-4 w-4 text-[#0c2340]" />
+              📥 Pending Network Transfer Requests
+            </h2>
+            <span className="text-xs text-slate-500">
+              {facilityTransfers.length} awaiting review · {facility}
+            </span>
+          </div>
+          <div className="p-5">
+            {transfersLoading ? (
+              <div className="grid place-items-center h-24">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+              </div>
+            ) : facilityTransfers.length === 0 ? (
+              <p className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-md py-6 text-center">
+                No pending inter-facility transfer requests for {facility}.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {facilityTransfers.map((t) => {
+                  const busy = actingOn === t.id;
+                  const outside = !IN_NETWORK_FACILITIES.has(t.destination_facility);
+                  return (
+                    <li
+                      key={t.id}
+                      className="rounded-lg border border-slate-200 p-4 hover:border-slate-300 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-900">
+                              {t.patient_name}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-500">
+                              MRN {t.patient_mrn}
+                            </span>
+                            {outside && (
+                              <span className="inline-flex rounded-md bg-red-50 text-red-700 ring-1 ring-red-600/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wide">
+                                OUTSIDE NETWORK
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-600 flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{t.source_facility}</span>
+                            <ArrowRightLeft className="h-3 w-3 text-slate-400" />
+                            <span className="font-medium">{t.destination_facility}</span>
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            Requested by{" "}
+                            <span className="font-medium text-slate-700">
+                              {t.requesting_physician}
+                            </span>
+                          </div>
+                          {t.reason_for_transfer && (
+                            <p className="mt-2 text-xs text-slate-700 bg-slate-50 border border-slate-100 rounded-md px-3 py-2">
+                              {t.reason_for_transfer}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => approveTransfer(t)}
+                            className="bg-emerald-600 hover:bg-emerald-700"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" />
+                            )}
+                            ✅ Approve &amp; Transfer
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() => denyTransfer(t)}
+                            className="border-red-200 text-red-700 hover:bg-red-50"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            ❌ Deny
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+
         {/* Active Unit Staffing & Shift Roster */}
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
