@@ -11,8 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
+import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
@@ -24,14 +24,14 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PatientMrnRoute = PatientMrnRouteImport.update({
-  id: '/patient/$mrn',
-  path: '/patient/$mrn',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ChartMrnRoute = ChartMrnRouteImport.update({
   id: '/chart/$mrn',
   path: '/chart/$mrn',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PatientMrnRoute = PatientMrnRouteImport.update({
+  id: '/patient/$mrn',
+  path: '/patient/$mrn',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -85,18 +85,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/patient/$mrn': {
-      id: '/patient/$mrn'
-      path: '/patient/$mrn'
-      fullPath: '/patient/$mrn'
-      preLoaderRoute: typeof PatientMrnRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/chart/$mrn': {
       id: '/chart/$mrn'
       path: '/chart/$mrn'
       fullPath: '/chart/$mrn'
       preLoaderRoute: typeof ChartMrnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/patient/$mrn': {
+      id: '/patient/$mrn'
+      path: '/patient/$mrn'
+      fullPath: '/patient/$mrn'
+      preLoaderRoute: typeof PatientMrnRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
