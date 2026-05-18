@@ -46,13 +46,8 @@ function ChartPage() {
   const [given, setGiven] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        navigate({ to: "/" }).catch(() => {});
-        return;
-      }
-      setReady(true);
-    });
+    // Auth gate disabled — chart renders using mock demo session.
+    setReady(true);
   }, [navigate]);
 
   const patient = getPatient(mrn);
