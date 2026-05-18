@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
+import { useFacility, useActiveStaff } from "@/lib/facility-context";
 
 type Order = {
   id: string;
@@ -49,15 +50,38 @@ type Lab = {
 const KEY_LABS = ["creatinine", "potassium", "k+", "k ", "bun", "egfr", "inr", "platelet", "wbc", "hgb", "hemoglobin"];
 
 function PharmacyQueue() {
+  const { facility } = useFacility();
+  const pharm = useActiveStaff("PharmD");
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [facilityMrns, setFacilityMrns] = useState<Set<string>>(new Set());
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [labs, setLabs] = useState<Lab[]>([]);
   const [contextLoading, setContextLoading] = useState(false);
   const [acting, setActing] = useState(false);
+
+  // Load the set of MRNs for the active facility so we can ring-fence the queue
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from("patients")
+        .select("mrn, facility_name");
+      if (!active) return;
+      const set = new Set<string>();
+      for (const p of (data ?? []) as { mrn: string | null; facility_name: string | null }[]) {
+        if (!p.mrn) continue;
+        if ((p.facility_name ?? "Memorial Hospital") === facility) set.add(p.mrn);
+      }
+      setFacilityMrns(set);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [facility]);
 
   // Load pending queue
   useEffect(() => {
