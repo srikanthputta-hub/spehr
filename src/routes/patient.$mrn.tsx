@@ -345,74 +345,87 @@ function PatientChart() {
           </div>
         </section>
 
-        {/* Right — MAR Placeholder */}
+        {/* Right — Medication Administration Record */}
         <section className="lg:col-span-2 rounded-xl border border-border bg-card overflow-hidden sticky top-[88px]">
           <div className="flex items-center justify-between px-5 h-12 bg-secondary/40 border-b border-border">
             <div className="flex items-center gap-2">
               <Pill className="h-4 w-4 text-[var(--teal)]" />
               <h3 className="text-sm font-semibold tracking-tight">Medication Administration Record</h3>
             </div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
-              Placeholder
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              {meds.filter((m) => m.status === "DUE").length} due
             </span>
           </div>
-          <ul className="divide-y divide-border">
-            {PLACEHOLDER_MEDS.map((m) => {
-              const gv = given[m.id];
-              return (
-                <li key={m.id} className="p-4 flex items-start gap-3">
-                  <div className="grid place-items-center h-9 w-9 rounded-lg bg-secondary text-[var(--navy)] shrink-0">
-                    <Pill className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <div className="font-semibold text-sm text-foreground truncate">{m.name}</div>
-                      <div className="text-[11px] text-muted-foreground tabular-nums shrink-0">
-                        Due {m.due}
-                      </div>
+          {medsLoading ? (
+            <div className="p-8 grid place-items-center">
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
+            </div>
+          ) : meds.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No active medication orders.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {meds.map((m) => {
+                const isDue = m.status === "DUE";
+                const givenAt = m.time_administered
+                  ? new Date(m.time_administered).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    })
+                  : null;
+                const busy = !!administering[m.id];
+                return (
+                  <li key={m.id} className="p-4 flex items-start gap-3">
+                    <div className="grid place-items-center h-9 w-9 rounded-lg bg-secondary text-[var(--navy)] shrink-0">
+                      <Pill className="h-4 w-4" />
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      <span className="text-foreground font-medium">{m.dose}</span> · {m.route} · {m.freq}
-                    </div>
-                    {m.notes && (
-                      <div className="text-[11px] text-amber-700 mt-1 inline-flex items-center gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        {m.notes}
-                      </div>
-                    )}
-                    <div className="mt-3">
-                      {gv ? (
-                        <div className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 px-3 h-8 text-xs font-semibold">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Given · {gv}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <div className="font-semibold text-sm text-foreground truncate">
+                          {m.drug_name}
                         </div>
-                      ) : (
-                        <button
-                          onClick={() =>
-                            setGiven((g) => ({
-                              ...g,
-                              [m.id]: new Date().toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                                hour12: false,
-                              }),
-                            }))
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold transition shadow-sm"
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                            isDue
+                              ? "bg-amber-50 text-amber-700 ring-1 ring-amber-600/20"
+                              : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20"
+                          }`}
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Administer
-                        </button>
-                      )}
+                          {m.status}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        <span className="text-foreground font-medium">{m.dose}</span> · {m.route} · {m.frequency}
+                      </div>
+                      <div className="mt-3">
+                        {isDue ? (
+                          <button
+                            disabled={busy}
+                            onClick={() => administer(m)}
+                            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold transition shadow-sm disabled:opacity-60"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            )}
+                            Administer
+                          </button>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5 text-emerald-700 text-xs font-medium">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Given at {givenAt}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="px-5 py-3 border-t border-border bg-secondary/30 text-[11px] text-muted-foreground">
-            Placeholder data — real MAR table will be wired next.
-          </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
       </div>
     </main>
