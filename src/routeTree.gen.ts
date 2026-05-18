@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
 
 const DashboardRoute = DashboardRouteImport.update({
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PatientMrnRoute = PatientMrnRouteImport.update({
+  id: '/patient/$mrn',
+  path: '/patient/$mrn',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChartMrnRoute = ChartMrnRouteImport.update({
   id: '/chart/$mrn',
   path: '/chart/$mrn',
@@ -33,30 +39,34 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/chart/$mrn': typeof ChartMrnRoute
+  '/patient/$mrn': typeof PatientMrnRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/chart/$mrn': typeof ChartMrnRoute
+  '/patient/$mrn': typeof PatientMrnRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/chart/$mrn': typeof ChartMrnRoute
+  '/patient/$mrn': typeof PatientMrnRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/dashboard' | '/chart/$mrn'
+  fullPaths: '/' | '/dashboard' | '/chart/$mrn' | '/patient/$mrn'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dashboard' | '/chart/$mrn'
-  id: '__root__' | '/' | '/dashboard' | '/chart/$mrn'
+  to: '/' | '/dashboard' | '/chart/$mrn' | '/patient/$mrn'
+  id: '__root__' | '/' | '/dashboard' | '/chart/$mrn' | '/patient/$mrn'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRoute
   ChartMrnRoute: typeof ChartMrnRoute
+  PatientMrnRoute: typeof PatientMrnRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/patient/$mrn': {
+      id: '/patient/$mrn'
+      path: '/patient/$mrn'
+      fullPath: '/patient/$mrn'
+      preLoaderRoute: typeof PatientMrnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/chart/$mrn': {
       id: '/chart/$mrn'
       path: '/chart/$mrn'
@@ -89,6 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRoute,
   ChartMrnRoute: ChartMrnRoute,
+  PatientMrnRoute: PatientMrnRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
