@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   HeartPulse,
@@ -59,13 +60,17 @@ interface PatientRecord {
   ai_clinical_summary: string | null;
 }
 
-const PLACEHOLDER_MEDS = [
-  { id: "m1", name: "Lisinopril", dose: "10 mg", route: "PO", freq: "Daily", due: "08:00", notes: null as string | null },
-  { id: "m2", name: "Piperacillin-Tazobactam", dose: "3.375 g", route: "IV", freq: "q8h", due: "10:00", notes: "Infuse over 30 min" },
-  { id: "m3", name: "Acetaminophen", dose: "650 mg", route: "PO", freq: "q6h PRN", due: "PRN", notes: "Max 3g/24h" },
-  { id: "m4", name: "Heparin SC", dose: "5,000 units", route: "SubQ", freq: "q8h", due: "12:00", notes: "VTE prophylaxis" },
-  { id: "m5", name: "0.9% NaCl", dose: "125 mL/hr", route: "IV", freq: "Continuous", due: "Running", notes: null },
-];
+interface MedOrder {
+  id: string;
+  mrn: string | null;
+  drug_name: string | null;
+  dose: string | null;
+  route: string | null;
+  frequency: string | null;
+  status: string | null;
+  time_administered: string | null;
+  administered_by: string | null;
+}
 
 function PatientChart() {
   const { mrn } = useParams({ from: "/patient/$mrn" });
@@ -75,7 +80,9 @@ function PatientChart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pulse, setPulse] = useState(false);
-  const [given, setGiven] = useState<Record<string, string>>({});
+  const [meds, setMeds] = useState<MedOrder[]>([]);
+  const [medsLoading, setMedsLoading] = useState(true);
+  const [administering, setAdministering] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -129,6 +136,58 @@ function PatientChart() {
       supabase.removeChannel(channel);
     };
   }, [ready, mrn]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    (async () => {
+      setMedsLoading(true);
+      const { data, error } = await supabase
+        .from("medication_orders")
+        .select("*")
+        .eq("mrn", mrn)
+        .order("status", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        toast.error("Failed to load medications");
+      } else {
+        setMeds((data ?? []) as MedOrder[]);
+      }
+      setMedsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, mrn]);
+
+  const administer = async (med: MedOrder) => {
+    const now = new Date().toISOString();
+    const prev = meds;
+    // Optimistic update
+    setMeds((curr) =>
+      curr.map((m) =>
+        m.id === med.id ? { ...m, status: "GIVEN", time_administered: now } : m,
+      ),
+    );
+    setAdministering((a) => ({ ...a, [med.id]: true }));
+    const { error } = await supabase
+      .from("medication_orders")
+      .update({ status: "GIVEN", time_administered: now })
+      .eq("id", med.id);
+    setAdministering((a) => {
+      const next = { ...a };
+      delete next[med.id];
+      return next;
+    });
+    if (error) {
+      setMeds(prev);
+      toast.error("Could not log medication", { description: error.message });
+      return;
+    }
+    toast.success("Medication logged successfully", {
+      description: `${med.drug_name} · ${med.dose}`,
+    });
+  };
 
   if (!ready || loading) {
     return (
