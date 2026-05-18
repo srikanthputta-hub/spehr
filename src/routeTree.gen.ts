@@ -9,14 +9,38 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as UnitManagerRouteImport } from './routes/unit-manager'
+import { Route as RespiratoryBoardRouteImport } from './routes/respiratory-board'
+import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
+import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
+import { Route as NursingBoardRouteImport } from './routes/nursing-board'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
 
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
+const UnitManagerRoute = UnitManagerRouteImport.update({
+  id: '/unit-manager',
+  path: '/unit-manager',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RespiratoryBoardRoute = RespiratoryBoardRouteImport.update({
+  id: '/respiratory-board',
+  path: '/respiratory-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PhysicianBoardRoute = PhysicianBoardRouteImport.update({
+  id: '/physician-board',
+  path: '/physician-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PharmacyQueueRoute = PharmacyQueueRouteImport.update({
+  id: '/pharmacy-queue',
+  path: '/pharmacy-queue',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NursingBoardRoute = NursingBoardRouteImport.update({
+  id: '/nursing-board',
+  path: '/nursing-board',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -37,45 +61,114 @@ const ChartMrnRoute = ChartMrnRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
+  '/nursing-board': typeof NursingBoardRoute
+  '/pharmacy-queue': typeof PharmacyQueueRoute
+  '/physician-board': typeof PhysicianBoardRoute
+  '/respiratory-board': typeof RespiratoryBoardRoute
+  '/unit-manager': typeof UnitManagerRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
+  '/nursing-board': typeof NursingBoardRoute
+  '/pharmacy-queue': typeof PharmacyQueueRoute
+  '/physician-board': typeof PhysicianBoardRoute
+  '/respiratory-board': typeof RespiratoryBoardRoute
+  '/unit-manager': typeof UnitManagerRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
+  '/nursing-board': typeof NursingBoardRoute
+  '/pharmacy-queue': typeof PharmacyQueueRoute
+  '/physician-board': typeof PhysicianBoardRoute
+  '/respiratory-board': typeof RespiratoryBoardRoute
+  '/unit-manager': typeof UnitManagerRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/dashboard' | '/chart/$mrn' | '/patient/$mrn'
+  fullPaths:
+    | '/'
+    | '/nursing-board'
+    | '/pharmacy-queue'
+    | '/physician-board'
+    | '/respiratory-board'
+    | '/unit-manager'
+    | '/chart/$mrn'
+    | '/patient/$mrn'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dashboard' | '/chart/$mrn' | '/patient/$mrn'
-  id: '__root__' | '/' | '/dashboard' | '/chart/$mrn' | '/patient/$mrn'
+  to:
+    | '/'
+    | '/nursing-board'
+    | '/pharmacy-queue'
+    | '/physician-board'
+    | '/respiratory-board'
+    | '/unit-manager'
+    | '/chart/$mrn'
+    | '/patient/$mrn'
+  id:
+    | '__root__'
+    | '/'
+    | '/nursing-board'
+    | '/pharmacy-queue'
+    | '/physician-board'
+    | '/respiratory-board'
+    | '/unit-manager'
+    | '/chart/$mrn'
+    | '/patient/$mrn'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DashboardRoute: typeof DashboardRoute
+  NursingBoardRoute: typeof NursingBoardRoute
+  PharmacyQueueRoute: typeof PharmacyQueueRoute
+  PhysicianBoardRoute: typeof PhysicianBoardRoute
+  RespiratoryBoardRoute: typeof RespiratoryBoardRoute
+  UnitManagerRoute: typeof UnitManagerRoute
   ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
+    '/unit-manager': {
+      id: '/unit-manager'
+      path: '/unit-manager'
+      fullPath: '/unit-manager'
+      preLoaderRoute: typeof UnitManagerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/respiratory-board': {
+      id: '/respiratory-board'
+      path: '/respiratory-board'
+      fullPath: '/respiratory-board'
+      preLoaderRoute: typeof RespiratoryBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/physician-board': {
+      id: '/physician-board'
+      path: '/physician-board'
+      fullPath: '/physician-board'
+      preLoaderRoute: typeof PhysicianBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pharmacy-queue': {
+      id: '/pharmacy-queue'
+      path: '/pharmacy-queue'
+      fullPath: '/pharmacy-queue'
+      preLoaderRoute: typeof PharmacyQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/nursing-board': {
+      id: '/nursing-board'
+      path: '/nursing-board'
+      fullPath: '/nursing-board'
+      preLoaderRoute: typeof NursingBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -104,7 +197,11 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DashboardRoute: DashboardRoute,
+  NursingBoardRoute: NursingBoardRoute,
+  PharmacyQueueRoute: PharmacyQueueRoute,
+  PhysicianBoardRoute: PhysicianBoardRoute,
+  RespiratoryBoardRoute: RespiratoryBoardRoute,
+  UnitManagerRoute: UnitManagerRoute,
   ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
 }

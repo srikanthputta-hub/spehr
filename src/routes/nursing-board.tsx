@@ -24,7 +24,7 @@ import {
   type CodeStatus,
 } from "@/lib/patients";
 
-export const Route = createFileRoute("/dashboard")({
+export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
 });
 
@@ -93,14 +93,10 @@ function Dashboard() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        navigate({ to: "/" }).catch(() => {});
-        return;
-      }
-      setEmail(data.session.user.email ?? null);
+      setEmail(data.session?.user.email ?? "demo@sgroup.health");
       setReady(true);
     });
-  }, [navigate]);
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
