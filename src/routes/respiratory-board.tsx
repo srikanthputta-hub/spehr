@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2, Wind, AlertTriangle, Activity } from "lucide-react";
+import { useFacility } from "@/lib/facility-context";
+import { useMemo } from "react";
 
 export const Route = createFileRoute("/respiratory-board")({
   component: RespiratoryBoard,
@@ -29,6 +31,7 @@ interface Patient {
   spo2: number | null;
   rr: number | null;
   diagnosis: string | null;
+  facility_name: string | null;
 }
 
 const INTERVENTIONS = [
@@ -47,6 +50,7 @@ function displayName(p: Patient) {
 }
 
 function RespiratoryBoard() {
+  const { facility } = useFacility();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Patient | null>(null);
@@ -58,13 +62,18 @@ function RespiratoryBoard() {
     (async () => {
       const { data, error } = await supabase
         .from("patients")
-        .select("id,mrn,name,first_name,last_name,room,spo2,rr,diagnosis")
+        .select("id,mrn,name,first_name,last_name,room,spo2,rr,diagnosis,facility_name")
         .order("room", { ascending: true });
       if (error) toast.error(`Unable to load patients: ${error.message}`);
       else setPatients((data ?? []) as Patient[]);
       setLoading(false);
     })();
   }, []);
+
+  const visiblePatients = useMemo(
+    () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
+    [patients, facility],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
