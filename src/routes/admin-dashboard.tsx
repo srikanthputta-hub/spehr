@@ -34,6 +34,7 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet";
 import { Progress } from "@/components/ui/progress";
+import { useFacility } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -49,6 +50,7 @@ interface Patient {
   code_status: string | null;
   hr: number | null;
   spo2: number | null;
+  facility_name: string | null;
 }
 
 interface Assignment {
@@ -65,6 +67,7 @@ interface StaffMember {
   assigned_patients: number | null;
   max_capacity: number | null;
   hourly_rate: number | null;
+  facility_name: string | null;
 }
 
 const STAFF_ROLES = ["RN", "MD", "PharmD", "RT", "CNA", "LPN"] as const;
@@ -115,6 +118,7 @@ function codeColor(c: string | null) {
 }
 
 function AdminDashboard() {
+  const { facility } = useFacility();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [pendingPharm, setPendingPharm] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -136,7 +140,7 @@ function AdminDashboard() {
       const [pRes, mRes] = await Promise.all([
         supabase
           .from("patients")
-          .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2")
+          .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name")
           .order("room", { ascending: true }),
         supabase
           .from("medication_orders")
@@ -154,7 +158,7 @@ function AdminDashboard() {
     (async () => {
       const { data, error } = await supabase
         .from("hospital_staff")
-        .select("id,name,role,status,assigned_patients,max_capacity,hourly_rate")
+        .select("id,name,role,status,assigned_patients,max_capacity,hourly_rate,facility_name")
         .order("role", { ascending: true });
       if (error) toast.error(error.message);
       else setStaff((data ?? []) as StaffMember[]);
@@ -162,10 +166,19 @@ function AdminDashboard() {
     })();
   }, []);
 
+  const facilityPatients = useMemo(
+    () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
+    [patients, facility],
+  );
+  const facilityStaff = useMemo(
+    () => staff.filter((s) => (s.facility_name ?? "Memorial Hospital") === facility),
+    [staff, facility],
+  );
+
   const acuity = useMemo(
     () =>
-      patients.filter((p) => (p.hr ?? 0) > 100 || (p.spo2 ?? 100) < 92).length,
-    [patients],
+      facilityPatients.filter((p) => (p.hr ?? 0) > 100 || (p.spo2 ?? 100) < 92).length,
+    [facilityPatients],
   );
 
   const addAssignment = (e: React.FormEvent) => {
@@ -188,10 +201,10 @@ function AdminDashboard() {
 
   const onDutyRNs = useMemo(
     () =>
-      staff.filter((s) => s.role === "RN" && s.status === "On Duty").length,
-    [staff],
+      facilityStaff.filter((s) => s.role === "RN" && s.status === "On Duty").length,
+    [facilityStaff],
   );
-  const census = patients.length;
+  const census = facilityPatients.length;
   const ratio = onDutyRNs > 0 ? census / onDutyRNs : Infinity;
   const safeRatio = onDutyRNs > 0 && ratio <= 5;
 
@@ -212,9 +225,10 @@ function AdminDashboard() {
         status: "On Duty",
         assigned_patients: 0,
         max_capacity: newRole === "RN" ? 5 : 10,
+        facility_name: facility,
       })
       .select(
-        "id,name,role,status,assigned_patients,max_capacity,hourly_rate",
+        "id,name,role,status,assigned_patients,max_capacity,hourly_rate,facility_name",
       )
       .single();
     setSaving(false);
@@ -244,7 +258,7 @@ function AdminDashboard() {
           <MetricCard
             icon={<Users className="h-5 w-5" />}
             label="Total Active Census"
-            value={loading ? "…" : patients.length}
+            value={loading ? "…" : facilityPatients.length}
             tint="bg-sky-50 text-sky-700"
           />
           <MetricCard
@@ -386,13 +400,13 @@ function AdminDashboard() {
               <div className="grid place-items-center h-32">
                 <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
               </div>
-            ) : staff.length === 0 ? (
+            ) : facilityStaff.length === 0 ? (
               <p className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-md py-6 text-center">
-                No staff clocked in yet.
+                No staff clocked in at {facility}.
               </p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {staff.map((s) => {
+                {facilityStaff.map((s) => {
                   const assigned = s.assigned_patients ?? 0;
                   const cap = s.max_capacity ?? 5;
                   const pct = Math.min(100, Math.round((assigned / cap) * 100));

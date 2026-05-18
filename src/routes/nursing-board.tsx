@@ -23,6 +23,7 @@ import {
   o2OutOfRange,
   type CodeStatus,
 } from "@/lib/patients";
+import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -48,6 +49,7 @@ interface PatientRow {
   o2: number;
   task: string;
   medsDue: number;
+  facility: string;
 }
 
 function normalizeCode(s: string): CodeStatus {
@@ -72,6 +74,7 @@ function toRow(p: any): PatientRow {
     o2: p.spo2,
     task: "—",
     medsDue: p.meds_due_count ?? 1,
+    facility: p.facility_name ?? "Memorial Hospital",
   };
 }
 
@@ -81,6 +84,7 @@ function genMRN() {
 
 function Dashboard() {
   const navigate = useNavigate();
+  const { facility } = useFacility();
   const [email, setEmail] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(new Date());
@@ -117,7 +121,7 @@ function Dashboard() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count",
+          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name",
         )
         .order("room", { ascending: true });
       if (cancelled) return;
@@ -218,7 +222,7 @@ function Dashboard() {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = patients;
+    let list = patients.filter((p) => p.facility === facility);
     if (showOnlyMedsDue) {
       list = list.filter((p) =>
         MEDS_DUE_NAMES.some((n) => p.name.toLowerCase().includes(n)),
@@ -232,7 +236,12 @@ function Dashboard() {
         (p.room ?? "").toLowerCase().includes(q) ||
         p.diagnosis.toLowerCase().includes(q),
     );
-  }, [query, patients, showOnlyMedsDue]);
+  }, [query, patients, showOnlyMedsDue, facility]);
+
+  const facilityPatients = useMemo(
+    () => patients.filter((p) => p.facility === facility),
+    [patients, facility],
+  );
 
   if (!ready) {
     return (
@@ -319,8 +328,10 @@ function Dashboard() {
 
           <div className="hidden md:flex items-center gap-2 ml-2 pl-4 border-l border-white/10 text-xs">
             <div className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.18)]" />
-            <span className="text-white/80 font-medium">RN — Memorial Hospital</span>
+            <span className="text-white/80 font-medium">RN — {facility}</span>
             <span className="text-white/50">· Unit 4B</span>
+            <span className="mx-2 h-3 w-px bg-white/15" />
+            <FacilitySwitcher variant="dark" />
           </div>
 
           <div className="flex-1 max-w-md mx-auto">
@@ -365,20 +376,20 @@ function Dashboard() {
           <StatCard
             icon={Users}
             label="Total Patients"
-            value={`${patients.length}`}
+            value={`${facilityPatients.length}`}
             tone="navy"
           />
           <StatCard
             icon={AlertTriangle}
             label="Critical Alerts"
-            value={`${patients.filter((p) => hrOutOfRange(p.hr) || bpOutOfRange(p.bp) || o2OutOfRange(p.o2)).length}`}
+            value={`${facilityPatients.filter((p) => hrOutOfRange(p.hr) || bpOutOfRange(p.bp) || o2OutOfRange(p.o2)).length}`}
             tone="red"
             sub="Vitals out of range"
           />
           <StatCard
             icon={Pill}
             label="Meds Due · Next Hour"
-            value={`${patients.reduce((sum, p) => sum + (p.medsDue ?? 0), 0)}`}
+            value={`${facilityPatients.reduce((sum, p) => sum + (p.medsDue ?? 0), 0)}`}
             tone="teal"
             sub="Across all patients"
             interactive
@@ -395,7 +406,7 @@ function Dashboard() {
                 Floor Overview — Unit 4B
               </h2>
               <span className="text-xs text-muted-foreground">
-                · {rows.length} of {patients.length} patients
+                · {rows.length} of {facilityPatients.length} patients
               </span>
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">

@@ -46,6 +46,7 @@ export type Database = {
           assigned_patients: number | null
           avatar_url: string | null
           created_at: string | null
+          facility_name: string | null
           hourly_rate: number | null
           id: string
           max_capacity: number | null
@@ -57,6 +58,7 @@ export type Database = {
           assigned_patients?: number | null
           avatar_url?: string | null
           created_at?: string | null
+          facility_name?: string | null
           hourly_rate?: number | null
           id?: string
           max_capacity?: number | null
@@ -68,6 +70,7 @@ export type Database = {
           assigned_patients?: number | null
           avatar_url?: string | null
           created_at?: string | null
+          facility_name?: string | null
           hourly_rate?: number | null
           id?: string
           max_capacity?: number | null
@@ -227,6 +230,7 @@ export type Database = {
           chief_complaint: string | null
           code_status: string | null
           diagnosis: string | null
+          facility_name: string | null
           first_name: string | null
           gender: string | null
           hr: number | null
@@ -249,6 +253,7 @@ export type Database = {
           chief_complaint?: string | null
           code_status?: string | null
           diagnosis?: string | null
+          facility_name?: string | null
           first_name?: string | null
           gender?: string | null
           hr?: number | null
@@ -271,6 +276,7 @@ export type Database = {
           chief_complaint?: string | null
           code_status?: string | null
           diagnosis?: string | null
+          facility_name?: string | null
           first_name?: string | null
           gender?: string | null
           hr?: number | null

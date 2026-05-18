@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { HeartPulse, LogOut, Construction } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
 
 export function BoardHeader({
   title,
@@ -12,6 +13,7 @@ export function BoardHeader({
   badge?: string;
 }) {
   const navigate = useNavigate();
+  const { facility } = useFacility();
   const logout = async () => {
     await supabase.auth.signOut().catch(() => {});
     navigate({ to: "/" }).catch(() => {});
@@ -30,14 +32,21 @@ export function BoardHeader({
           {subtitle && (
             <div className="text-[11px] text-slate-500">{subtitle}</div>
           )}
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1 align-middle" />
+            {facility}
+          </div>
         </div>
       </div>
-      <button
-        onClick={logout}
-        className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-      >
-        <LogOut className="h-3.5 w-3.5" /> Log Out
-      </button>
+      <div className="flex items-center gap-3">
+        <FacilitySwitcher variant="light" />
+        <button
+          onClick={logout}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+        >
+          <LogOut className="h-3.5 w-3.5" /> Log Out
+        </button>
+      </div>
     </header>
   );
 }
