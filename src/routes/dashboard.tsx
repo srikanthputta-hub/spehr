@@ -723,7 +723,7 @@ function AdmitModal({
               required
               autoFocus
               placeholder="John Doe"
-              className="input"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
             />
           </Field>
           <Field label="Age">
@@ -734,14 +734,14 @@ function AdmitModal({
               required
               placeholder="65"
               inputMode="numeric"
-              className="input"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
             />
           </Field>
           <Field label="Gender">
             <select
               value={gender}
               onChange={(e) => setGender(e.target.value as "M" | "F")}
-              className="input"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
             >
               <option value="M">M</option>
               <option value="F">F</option>
@@ -753,14 +753,14 @@ function AdmitModal({
               onChange={(e) => setRoom(e.target.value)}
               maxLength={20}
               placeholder="412-A"
-              className="input"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
             />
           </Field>
           <Field label="Code Status">
             <select
               value={code}
               onChange={(e) => setCode(e.target.value as CodeStatus)}
-              className="input"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
             >
               <option>Full Code</option>
               <option>DNR</option>
@@ -775,7 +775,7 @@ function AdmitModal({
               maxLength={500}
               required
               placeholder="CHF exacerbation"
-              className="input"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
             />
           </Field>
           <Field label="MRN (optional — auto-generated if blank)" full>
@@ -784,7 +784,7 @@ function AdmitModal({
               onChange={(e) => setMrn(e.target.value)}
               maxLength={24}
               placeholder="MRN-482910"
-              className="input"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)] transition"
             />
           </Field>
 
