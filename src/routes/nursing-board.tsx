@@ -23,7 +23,7 @@ import {
   o2OutOfRange,
   type CodeStatus,
 } from "@/lib/patients";
-import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
+import { FacilitySwitcher, useFacility, useActiveNurse } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
