@@ -128,6 +128,27 @@ export type Database = {
         }
         Relationships: []
       }
+      nurse_assignments: {
+        Row: {
+          assigned_at: string | null
+          id: string
+          nurse_name: string | null
+          room_cluster: string | null
+        }
+        Insert: {
+          assigned_at?: string | null
+          id?: string
+          nurse_name?: string | null
+          room_cluster?: string | null
+        }
+        Update: {
+          assigned_at?: string | null
+          id?: string
+          nurse_name?: string | null
+          room_cluster?: string | null
+        }
+        Relationships: []
+      }
       patients: {
         Row: {
           age: number | null
@@ -144,6 +165,7 @@ export type Database = {
           last_name: string | null
           mrn: string | null
           name: string | null
+          patient_id: string | null
           room: string | null
           rr: number | null
           spo2: number | null
@@ -164,6 +186,7 @@ export type Database = {
           last_name?: string | null
           mrn?: string | null
           name?: string | null
+          patient_id?: string | null
           room?: string | null
           rr?: number | null
           spo2?: number | null
@@ -184,6 +207,7 @@ export type Database = {
           last_name?: string | null
           mrn?: string | null
           name?: string | null
+          patient_id?: string | null
           room?: string | null
           rr?: number | null
           spo2?: number | null
