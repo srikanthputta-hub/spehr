@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Activity,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import {
   hrOutOfRange,
   bpOutOfRange,
@@ -62,6 +63,7 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
+  const [simulate, setSimulate] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -156,6 +158,31 @@ function Dashboard() {
       supabase.removeChannel(channel);
     };
   }, [ready]);
+
+  useEffect(() => {
+    if (!ready || !simulate) return;
+    const jitter = (range: number) => Math.floor(Math.random() * (2 * range + 1)) - range;
+    const tick = async () => {
+      const { data, error } = await supabase
+        .from("patients")
+        .select("mrn, hr, bp_systolic, bp_diastolic, spo2");
+      if (error || !data) return;
+      await Promise.all(
+        data.map((p: any) => {
+          const next = {
+            hr: Math.max(20, p.hr + jitter(2)),
+            bp_systolic: Math.max(50, p.bp_systolic + jitter(3)),
+            bp_diastolic: Math.max(30, p.bp_diastolic + jitter(2)),
+            spo2: Math.min(100, Math.max(70, p.spo2 + jitter(1))),
+          };
+          return supabase.from("patients").update(next).eq("mrn", p.mrn);
+        }),
+      );
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => clearInterval(id);
+  }, [ready, simulate]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -290,6 +317,13 @@ function Dashboard() {
               <span className={liveConnected ? "text-emerald-600 font-medium" : "text-muted-foreground"}>
                 {liveConnected ? "· connected" : "· connecting…"}
               </span>
+              <span className="mx-2 h-3 w-px bg-border" />
+              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                <Switch checked={simulate} onCheckedChange={setSimulate} aria-label="Simulate vitals" />
+                <span className={simulate ? "text-[var(--teal)] font-medium" : ""}>
+                  Simulate Vitals
+                </span>
+              </label>
             </div>
           </div>
 
