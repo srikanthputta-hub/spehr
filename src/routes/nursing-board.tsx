@@ -47,6 +47,7 @@ interface PatientRow {
   bp: string;
   o2: number;
   task: string;
+  medsDue: number;
 }
 
 function normalizeCode(s: string): CodeStatus {
@@ -70,6 +71,7 @@ function toRow(p: any): PatientRow {
     bp: `${p.bp_systolic}/${p.bp_diastolic}`,
     o2: p.spo2,
     task: "—",
+    medsDue: p.meds_due_count ?? 1,
   };
 }
 
@@ -115,7 +117,7 @@ function Dashboard() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2",
+          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count",
         )
         .order("room", { ascending: true });
       if (cancelled) return;
@@ -157,6 +159,7 @@ function Dashboard() {
                     hr: p.hr,
                     bp: `${p.bp_systolic}/${p.bp_diastolic}`,
                     o2: p.spo2,
+                    medsDue: p.meds_due_count ?? row.medsDue,
                   }
                 : row,
             ),
@@ -375,9 +378,9 @@ function Dashboard() {
           <StatCard
             icon={Pill}
             label="Meds Due · Next Hour"
-            value="4"
+            value={`${patients.reduce((sum, p) => sum + (p.medsDue ?? 0), 0)}`}
             tone="teal"
-            sub="2 IV · 2 PO"
+            sub="Across all patients"
             interactive
             active={showOnlyMedsDue}
             onClick={() => setShowOnlyMedsDue((v) => !v)}
