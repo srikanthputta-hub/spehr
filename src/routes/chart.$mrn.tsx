@@ -26,11 +26,55 @@ import {
   tempOutOfRange,
   type CodeStatus,
   type MedOrder,
+  type Patient,
 } from "@/lib/patients";
 
 export const Route = createFileRoute("/chart/$mrn")({
   component: ChartPage,
 });
+
+function buildFallbackPatient(mrn: string, db: any): Patient {
+  const name =
+    db?.name ||
+    [db?.first_name, db?.last_name].filter(Boolean).join(" ") ||
+    `Patient ${mrn}`;
+  const bp =
+    db?.bp ||
+    (db?.bp_systolic && db?.bp_diastolic
+      ? `${db.bp_systolic}/${db.bp_diastolic}`
+      : "120/80");
+  const code: CodeStatus =
+    (["Full Code", "DNR", "DNI", "Comfort"] as CodeStatus[]).includes(db?.code_status)
+      ? (db.code_status as CodeStatus)
+      : "Full Code";
+  const hr = db?.hr ?? 80;
+  const temp = Number(db?.temp ?? 98.6);
+  const o2 = db?.spo2 ?? 98;
+  const sys = db?.bp_systolic ?? Number(String(bp).split("/")[0]) ?? 120;
+  return {
+    room: db?.room || "—",
+    name,
+    age: db?.age ?? 0,
+    sex: (db?.gender?.[0]?.toUpperCase() === "F" ? "F" : "M") as "M" | "F",
+    mrn,
+    dob: "—",
+    code,
+    allergies: ["No known allergies"],
+    diagnosis: db?.diagnosis || db?.chief_complaint || "Acute monitoring",
+    hr,
+    hrTrend: [hr, hr, hr, hr, hr, hr, hr],
+    bp,
+    bpTrend: [sys, sys, sys, sys, sys, sys, sys],
+    temp,
+    tempTrend: [temp, temp, temp, temp, temp, temp, temp],
+    o2,
+    o2Trend: [o2, o2, o2, o2, o2, o2, o2],
+    task: "Routine monitoring",
+    admitNote:
+      "Patient admitted for acute monitoring and dynamic clinical evaluation under the current unit protocol.",
+    meds: [],
+  };
+}
 
 const codeBadge: Record<CodeStatus, string> = {
   "Full Code": "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20",
@@ -44,13 +88,39 @@ function ChartPage() {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
   const [given, setGiven] = useState<Record<string, string>>({});
+  const [dbPatient, setDbPatient] = useState<any>(null);
+  const [lookupDone, setLookupDone] = useState(false);
 
   useEffect(() => {
     // Auth gate disabled — chart renders using mock demo session.
     setReady(true);
   }, [navigate]);
 
-  const patient = getPatient(mrn);
+  const staticPatient = getPatient(mrn);
+
+  useEffect(() => {
+    if (staticPatient) {
+      setLookupDone(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("patients")
+        .select("*")
+        .eq("mrn", mrn)
+        .maybeSingle();
+      if (!cancelled) {
+        setDbPatient(data);
+        setLookupDone(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mrn, staticPatient]);
+
+  const patient = staticPatient ?? buildFallbackPatient(mrn, dbPatient);
 
   if (!ready) {
     return (
@@ -60,21 +130,10 @@ function ChartPage() {
     );
   }
 
-  if (!patient) {
+  if (!staticPatient && !lookupDone) {
     return (
-      <div className="min-h-screen grid place-items-center p-6">
-        <div className="text-center max-w-sm">
-          <h1 className="text-lg font-semibold">Chart not found</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            MRN {mrn} is not on this unit.
-          </p>
-          <Link
-            to="/nursing-board"
-            className="inline-flex items-center gap-1 mt-4 text-sm text-[var(--teal)] hover:underline"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to Floor
-          </Link>
-        </div>
+      <div className="min-h-screen grid place-items-center">
+        <Loader2 className="h-5 w-5 animate-spin text-[var(--teal)]" />
       </div>
     );
   }
