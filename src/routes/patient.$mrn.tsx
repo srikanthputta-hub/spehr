@@ -182,7 +182,7 @@ function PatientChart() {
       if (error) {
         toast.error("Failed to load medications");
       } else {
-        setMeds((data ?? []) as MedOrder[]);
+        setMeds((data ?? []) as unknown as MedOrder[]);
       }
       setMedsLoading(false);
     })();
@@ -301,7 +301,7 @@ function PatientChart() {
     setAdministering((a) => ({ ...a, [med.id]: true }));
     const { error } = await supabase
       .from("medication_orders")
-      .update({ status: "GIVEN", time_administered: now })
+      .update({ status: "GIVEN", time_administered: now } as any)
       .eq("id", med.id);
     setAdministering((a) => {
       const next = { ...a };
