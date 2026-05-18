@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FacilitySwitcher, useActiveNurse, FACILITIES, NURSES_BY_FACILITY, useFacility } from "@/lib/facility-context";
+import { useActiveNurse, FACILITIES, useFacility } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/")({
   head: () => ({
