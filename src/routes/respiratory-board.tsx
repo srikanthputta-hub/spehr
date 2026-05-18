@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2, Wind, AlertTriangle, Activity } from "lucide-react";
-import { useFacility } from "@/lib/facility-context";
+import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useMemo } from "react";
 
 export const Route = createFileRoute("/respiratory-board")({
@@ -51,6 +51,7 @@ function displayName(p: Patient) {
 
 function RespiratoryBoard() {
   const { facility } = useFacility();
+  const rt = useActiveStaff("RT");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Patient | null>(null);
@@ -104,9 +105,9 @@ function RespiratoryBoard() {
   return (
     <main className="min-h-screen bg-slate-50">
       <BoardHeader
-        title="Pulmonary Command Center"
-        badge="Respiratory"
-        subtitle="Live ventilation & oxygenation monitoring"
+        title={`Respiratory Workspace: ${rt.name} | ${rt.facility}`}
+        badge="Respiratory · RT"
+        subtitle={`${rt.ward} · Live ventilation & oxygenation monitoring`}
       />
 
       <style>{`
