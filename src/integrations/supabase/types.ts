@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      medication_orders: {
+        Row: {
+          administered_by: string | null
+          dose: string | null
+          drug_name: string | null
+          frequency: string | null
+          id: string
+          mrn: string | null
+          route: string | null
+          status: string | null
+          time_administered: string | null
+        }
+        Insert: {
+          administered_by?: string | null
+          dose?: string | null
+          drug_name?: string | null
+          frequency?: string | null
+          id?: string
+          mrn?: string | null
+          route?: string | null
+          status?: string | null
+          time_administered?: string | null
+        }
+        Update: {
+          administered_by?: string | null
+          dose?: string | null
+          drug_name?: string | null
+          frequency?: string | null
+          id?: string
+          mrn?: string | null
+          route?: string | null
+          status?: string | null
+          time_administered?: string | null
+        }
+        Relationships: []
+      }
       patients: {
         Row: {
           age: number

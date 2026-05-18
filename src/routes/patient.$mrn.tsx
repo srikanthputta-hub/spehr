@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   HeartPulse,
@@ -59,13 +60,17 @@ interface PatientRecord {
   ai_clinical_summary: string | null;
 }
 
-const PLACEHOLDER_MEDS = [
-  { id: "m1", name: "Lisinopril", dose: "10 mg", route: "PO", freq: "Daily", due: "08:00", notes: null as string | null },
-  { id: "m2", name: "Piperacillin-Tazobactam", dose: "3.375 g", route: "IV", freq: "q8h", due: "10:00", notes: "Infuse over 30 min" },
-  { id: "m3", name: "Acetaminophen", dose: "650 mg", route: "PO", freq: "q6h PRN", due: "PRN", notes: "Max 3g/24h" },
-  { id: "m4", name: "Heparin SC", dose: "5,000 units", route: "SubQ", freq: "q8h", due: "12:00", notes: "VTE prophylaxis" },
-  { id: "m5", name: "0.9% NaCl", dose: "125 mL/hr", route: "IV", freq: "Continuous", due: "Running", notes: null },
-];
+interface MedOrder {
+  id: string;
+  mrn: string | null;
+  drug_name: string | null;
+  dose: string | null;
+  route: string | null;
+  frequency: string | null;
+  status: string | null;
+  time_administered: string | null;
+  administered_by: string | null;
+}
 
 function PatientChart() {
   const { mrn } = useParams({ from: "/patient/$mrn" });
@@ -75,7 +80,9 @@ function PatientChart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pulse, setPulse] = useState(false);
-  const [given, setGiven] = useState<Record<string, string>>({});
+  const [meds, setMeds] = useState<MedOrder[]>([]);
+  const [medsLoading, setMedsLoading] = useState(true);
+  const [administering, setAdministering] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -129,6 +136,58 @@ function PatientChart() {
       supabase.removeChannel(channel);
     };
   }, [ready, mrn]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    (async () => {
+      setMedsLoading(true);
+      const { data, error } = await supabase
+        .from("medication_orders")
+        .select("*")
+        .eq("mrn", mrn)
+        .order("status", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        toast.error("Failed to load medications");
+      } else {
+        setMeds((data ?? []) as MedOrder[]);
+      }
+      setMedsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, mrn]);
+
+  const administer = async (med: MedOrder) => {
+    const now = new Date().toISOString();
+    const prev = meds;
+    // Optimistic update
+    setMeds((curr) =>
+      curr.map((m) =>
+        m.id === med.id ? { ...m, status: "GIVEN", time_administered: now } : m,
+      ),
+    );
+    setAdministering((a) => ({ ...a, [med.id]: true }));
+    const { error } = await supabase
+      .from("medication_orders")
+      .update({ status: "GIVEN", time_administered: now })
+      .eq("id", med.id);
+    setAdministering((a) => {
+      const next = { ...a };
+      delete next[med.id];
+      return next;
+    });
+    if (error) {
+      setMeds(prev);
+      toast.error("Could not log medication", { description: error.message });
+      return;
+    }
+    toast.success("Medication logged successfully", {
+      description: `${med.drug_name} · ${med.dose}`,
+    });
+  };
 
   if (!ready || loading) {
     return (
@@ -286,74 +345,87 @@ function PatientChart() {
           </div>
         </section>
 
-        {/* Right — MAR Placeholder */}
+        {/* Right — Medication Administration Record */}
         <section className="lg:col-span-2 rounded-xl border border-border bg-card overflow-hidden sticky top-[88px]">
           <div className="flex items-center justify-between px-5 h-12 bg-secondary/40 border-b border-border">
             <div className="flex items-center gap-2">
               <Pill className="h-4 w-4 text-[var(--teal)]" />
               <h3 className="text-sm font-semibold tracking-tight">Medication Administration Record</h3>
             </div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
-              Placeholder
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              {meds.filter((m) => m.status === "DUE").length} due
             </span>
           </div>
-          <ul className="divide-y divide-border">
-            {PLACEHOLDER_MEDS.map((m) => {
-              const gv = given[m.id];
-              return (
-                <li key={m.id} className="p-4 flex items-start gap-3">
-                  <div className="grid place-items-center h-9 w-9 rounded-lg bg-secondary text-[var(--navy)] shrink-0">
-                    <Pill className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <div className="font-semibold text-sm text-foreground truncate">{m.name}</div>
-                      <div className="text-[11px] text-muted-foreground tabular-nums shrink-0">
-                        Due {m.due}
-                      </div>
+          {medsLoading ? (
+            <div className="p-8 grid place-items-center">
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
+            </div>
+          ) : meds.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No active medication orders.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {meds.map((m) => {
+                const isDue = m.status === "DUE";
+                const givenAt = m.time_administered
+                  ? new Date(m.time_administered).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    })
+                  : null;
+                const busy = !!administering[m.id];
+                return (
+                  <li key={m.id} className="p-4 flex items-start gap-3">
+                    <div className="grid place-items-center h-9 w-9 rounded-lg bg-secondary text-[var(--navy)] shrink-0">
+                      <Pill className="h-4 w-4" />
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      <span className="text-foreground font-medium">{m.dose}</span> · {m.route} · {m.freq}
-                    </div>
-                    {m.notes && (
-                      <div className="text-[11px] text-amber-700 mt-1 inline-flex items-center gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        {m.notes}
-                      </div>
-                    )}
-                    <div className="mt-3">
-                      {gv ? (
-                        <div className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 px-3 h-8 text-xs font-semibold">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Given · {gv}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <div className="font-semibold text-sm text-foreground truncate">
+                          {m.drug_name}
                         </div>
-                      ) : (
-                        <button
-                          onClick={() =>
-                            setGiven((g) => ({
-                              ...g,
-                              [m.id]: new Date().toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                                hour12: false,
-                              }),
-                            }))
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold transition shadow-sm"
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                            isDue
+                              ? "bg-amber-50 text-amber-700 ring-1 ring-amber-600/20"
+                              : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20"
+                          }`}
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Administer
-                        </button>
-                      )}
+                          {m.status}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        <span className="text-foreground font-medium">{m.dose}</span> · {m.route} · {m.frequency}
+                      </div>
+                      <div className="mt-3">
+                        {isDue ? (
+                          <button
+                            disabled={busy}
+                            onClick={() => administer(m)}
+                            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold transition shadow-sm disabled:opacity-60"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            )}
+                            Administer
+                          </button>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5 text-emerald-700 text-xs font-medium">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Given at {givenAt}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="px-5 py-3 border-t border-border bg-secondary/30 text-[11px] text-muted-foreground">
-            Placeholder data — real MAR table will be wired next.
-          </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
       </div>
     </main>
