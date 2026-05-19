@@ -19,6 +19,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react";
+import { FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
 import {
@@ -103,6 +104,8 @@ function ChartPage() {
   const [savingNote, setSavingNote] = useState(false);
   const [labTest, setLabTest] = useState<string>("CBC Pack");
   const [orderingLab, setOrderingLab] = useState(false);
+  const [activeTab, setActiveTab] = useState<"clinical" | "labs">("clinical");
+  const [completedLabs, setCompletedLabs] = useState<any[]>([]);
 
   useEffect(() => {
     // Auth gate disabled — chart renders using mock demo session.
@@ -159,6 +162,34 @@ function ChartPage() {
         .eq("mrn", mrn);
     })();
   }, [mrn]);
+
+  // Fetch completed historical lab reports for this patient
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("lab_orders")
+        .select("*")
+        .eq("patient_mrn", mrn)
+        .eq("status", "Completed")
+        .order("created_at", { ascending: false });
+      if (!cancelled && data) setCompletedLabs(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mrn, activeTab]);
+
+  // Re-clear alert when clinician opens the Lab Reports tab
+  useEffect(() => {
+    if (activeTab !== "labs") return;
+    (async () => {
+      await supabase
+        .from("patients")
+        .update({ unread_labs_alert: false })
+        .eq("mrn", mrn);
+    })();
+  }, [activeTab, mrn]);
 
   // Ensure there's always at least one med to administer (mock fallback)
   const medsList: MedOrder[] =
@@ -344,6 +375,45 @@ function ChartPage() {
       <div className="max-w-[1400px] mx-auto px-5 py-6 grid lg:grid-cols-5 gap-6">
         {/* LEFT — Clinical Context */}
         <div className="lg:col-span-3 space-y-6">
+          {/* View Tabs */}
+          <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab("clinical")}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 h-8 text-xs font-semibold transition ${
+                activeTab === "clinical"
+                  ? "bg-[var(--navy)] text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ClipboardList className="h-3.5 w-3.5" />
+              Clinical Workspace
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("labs")}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 h-8 text-xs font-semibold transition ${
+                activeTab === "labs"
+                  ? "bg-[var(--navy)] text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <span aria-hidden>🧪</span>
+              Lab Reports
+              {completedLabs.length > 0 && (
+                <span className={`ml-1 inline-flex items-center justify-center rounded-full px-1.5 h-4 text-[10px] font-bold tabular-nums ${
+                  activeTab === "labs" ? "bg-white/20 text-white" : "bg-[var(--teal-soft)] text-[var(--teal)]"
+                }`}>
+                  {completedLabs.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {activeTab === "labs" ? (
+            <LabReportsPanel reports={completedLabs} />
+          ) : (
+          <>
           {/* Live Vitals */}
           <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader icon={Activity} title="Live Vitals" subtitle="Streaming · last 7 readings" />
@@ -584,6 +654,8 @@ function ChartPage() {
               </div>
             </div>
           </section>
+          </>
+          )}
         </div>
 
         {/* RIGHT — MAR */}
@@ -809,5 +881,120 @@ function SbarInput({
         className="mt-1 w-full rounded-md border border-border bg-background px-2.5 h-9 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
       />
     </label>
+  );
+}
+
+function LabReportsPanel({ reports }: { reports: any[] }) {
+  return (
+    <section className="rounded-xl border border-border bg-card overflow-hidden">
+      <SectionHeader
+        icon={FlaskConical}
+        title="🧪 Lab Reports"
+        subtitle={`${reports.length} completed report${reports.length === 1 ? "" : "s"} · newest first`}
+      />
+      <div className="p-5 space-y-4">
+        {reports.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            No completed lab reports on file for this patient yet.
+          </div>
+        ) : (
+          reports.map((r) => <LabReportCard key={r.id} report={r} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+function LabReportCard({ report }: { report: any }) {
+  const ts = report.created_at
+    ? new Date(report.created_at).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+  const metrics: any[] = Array.isArray(report.results_data)
+    ? report.results_data
+    : Array.isArray(report.results_data?.metrics)
+      ? report.results_data.metrics
+      : [];
+  return (
+    <article className="rounded-lg border border-border bg-secondary/20 overflow-hidden">
+      <header className="flex flex-wrap items-start justify-between gap-2 px-4 py-3 bg-background border-b border-border">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <FlaskConical className="h-4 w-4 text-[var(--teal)]" />
+            <h4 className="text-sm font-bold tracking-tight text-foreground">
+              {report.test_type}
+            </h4>
+            <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
+              Completed
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-3 w-3" /> Completed: {ts}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <FileSignature className="h-3 w-3" /> Processed by:{" "}
+              <span className="font-medium text-foreground">{report.requested_by || "Lab Tech"}</span>
+            </span>
+          </div>
+        </div>
+      </header>
+      <div className="p-4">
+        {metrics.length === 0 ? (
+          <div className="text-xs text-muted-foreground italic">
+            Report data unavailable.
+          </div>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                <th className="text-left font-semibold py-1.5 pr-2">Analyte</th>
+                <th className="text-left font-semibold py-1.5 px-2">Value</th>
+                <th className="text-left font-semibold py-1.5 px-2">Reference Range</th>
+                <th className="text-left font-semibold py-1.5 pl-2">Flag</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {metrics.map((m, i) => {
+                const flag = String(m.flag || m.status || "").toUpperCase();
+                const abnormal = flag && flag !== "NORMAL" && flag !== "WNL";
+                return (
+                  <tr key={i} className={abnormal ? "bg-red-50/40" : ""}>
+                    <td className="py-1.5 pr-2 font-medium text-foreground">
+                      {m.name || m.test || m.analyte}
+                    </td>
+                    <td
+                      className={`py-1.5 px-2 tabular-nums font-semibold ${
+                        abnormal ? "text-red-600" : "text-foreground"
+                      }`}
+                    >
+                      {m.value} {m.unit || ""}
+                    </td>
+                    <td className="py-1.5 px-2 text-muted-foreground tabular-nums">
+                      {m.reference || m.range || m.normal || "—"}
+                    </td>
+                    <td className="py-1.5 pl-2">
+                      {abnormal ? (
+                        <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 ring-1 ring-red-600/20 px-2 py-0.5 text-[10px] font-bold uppercase">
+                          {flag}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-emerald-700 font-semibold uppercase">
+                          {flag || "Normal"}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </article>
   );
 }
