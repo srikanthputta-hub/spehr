@@ -106,6 +106,15 @@ function ChartPage() {
   const [orderingLab, setOrderingLab] = useState(false);
   const [activeTab, setActiveTab] = useState<"clinical" | "labs">("clinical");
   const [completedLabs, setCompletedLabs] = useState<any[]>([]);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [lockedNote, setLockedNote] = useState<any | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [esignOpen, setEsignOpen] = useState(false);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState(false);
+  const [shake, setShake] = useState(false);
+  const [esigning, setEsigning] = useState(false);
+  const isLocked = !!lockedNote;
 
   useEffect(() => {
     // Auth gate disabled — chart renders using mock demo session.
@@ -147,6 +156,27 @@ function ChartPage() {
         .eq("patient_mrn", mrn)
         .order("created_at", { ascending: false });
       if (!cancelled && data) setShiftNotes(data);
+      if (!cancelled && data) {
+        const signed = data.find((n: any) => n.status === "E-Signed");
+        if (signed) {
+          setLockedNote(signed);
+        } else {
+          const draft = data.find((n: any) => n.status === "Draft");
+          if (draft) {
+            setDraftId(draft.id);
+            setNoteText(draft.note_text === "(SBAR handoff — see structured fields)" ? "" : (draft.note_text || ""));
+            setSbar({
+              s: draft.sbar_situation || "",
+              b: draft.sbar_background || "",
+              a: draft.sbar_assessment || "",
+              r: draft.sbar_recommendation || "",
+            });
+            if (draft.sbar_situation || draft.sbar_background || draft.sbar_assessment || draft.sbar_recommendation) {
+              setSbarOpen(true);
+            }
+          }
+        }
+      }
     })();
     return () => {
       cancelled = true;
