@@ -264,6 +264,29 @@ function ChartPage() {
     }
   };
 
+  const handleOrderLab = async () => {
+    setOrderingLab(true);
+    try {
+      const { error } = await supabase.from("lab_orders").insert({
+        patient_mrn: patient.mrn,
+        patient_name: patient.name,
+        requested_by: nurse.name,
+        facility_name: facility,
+        test_type: labTest,
+        clinical_condition: patient.diagnosis,
+        status: "Pending Collection",
+      });
+      if (error) throw error;
+      toast.success(`Lab order routed to ${facility} lab queue.`, {
+        description: `${labTest} · ${patient.name}`,
+      });
+    } catch (e: any) {
+      toast.error("Failed to submit lab order", { description: e?.message });
+    } finally {
+      setOrderingLab(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-background pb-12">
       {/* Patient Banner */}
@@ -382,6 +405,46 @@ function ChartPage() {
               <div className="text-[11px] text-muted-foreground pt-2 border-t border-border">
                 Source: Admission H&P · Reviewed 06:42 · Tap to view full note
               </div>
+            </div>
+          </section>
+
+          {/* Lab Order */}
+          <section className="rounded-xl border border-border bg-card overflow-hidden">
+            <SectionHeader
+              icon={ClipboardList}
+              title="🧪 Order Laboratory Evaluation"
+              subtitle={`Routes to ${facility} lab queue`}
+            />
+            <div className="p-5 flex flex-wrap items-end gap-3">
+              <label className="flex-1 min-w-[220px]">
+                <span className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  Test Type
+                </span>
+                <select
+                  value={labTest}
+                  onChange={(e) => setLabTest(e.target.value)}
+                  className="w-full h-10 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 cursor-pointer"
+                >
+                  <option>CBC Pack</option>
+                  <option>Metabolic Panel CMP</option>
+                  <option>Arterial Blood Gas</option>
+                  <option>Cardiac Troponin</option>
+                  <option>Serum Lactate</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={handleOrderLab}
+                disabled={orderingLab}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 disabled:opacity-60 disabled:cursor-not-allowed text-white px-4 h-10 text-xs font-semibold transition shadow-sm"
+              >
+                {orderingLab ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <span aria-hidden>🧪</span>
+                )}
+                {orderingLab ? "Submitting…" : "Submit Lab Request"}
+              </button>
             </div>
           </section>
 
