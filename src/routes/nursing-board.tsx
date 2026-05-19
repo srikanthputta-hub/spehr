@@ -50,6 +50,7 @@ interface PatientRow {
   task: string;
   medsDue: number;
   facility: string;
+  unreadLabs: boolean;
 }
 
 function normalizeCode(s: string): CodeStatus {
@@ -75,6 +76,7 @@ function toRow(p: any): PatientRow {
     task: "—",
     medsDue: p.meds_due_count ?? 1,
     facility: p.facility_name ?? "Memorial Hospital",
+    unreadLabs: !!p.unread_labs_alert,
   };
 }
 
