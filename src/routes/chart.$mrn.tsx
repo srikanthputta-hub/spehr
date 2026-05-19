@@ -291,37 +291,104 @@ function ChartPage() {
     }
   };
 
-  const handleSaveNote = async () => {
+  const buildNotePayload = (status: "Draft" | "E-Signed") => ({
+    patient_mrn: patient.mrn,
+    note_text: noteText.trim() || "(SBAR handoff — see structured fields)",
+    author_nurse: nurse.name,
+    sbar_situation: sbar.s || null,
+    sbar_background: sbar.b || null,
+    sbar_assessment: sbar.a || null,
+    sbar_recommendation: sbar.r || null,
+    status,
+    esigned_at: status === "E-Signed" ? new Date().toISOString() : null,
+  });
+
+  const handleSaveDraft = async () => {
+    if (isLocked) return;
     if (!noteText.trim() && !sbar.s && !sbar.b && !sbar.a && !sbar.r) {
-      toast.error("Please enter a note before signing.");
+      toast.error("Please enter a note before saving.");
       return;
     }
     setSavingNote(true);
     try {
-      const payload = {
-        patient_mrn: patient.mrn,
-        note_text: noteText.trim() || "(SBAR handoff — see structured fields)",
-        author_nurse: nurse.name,
-        sbar_situation: sbar.s || null,
-        sbar_background: sbar.b || null,
-        sbar_assessment: sbar.a || null,
-        sbar_recommendation: sbar.r || null,
-      };
-      const { data, error } = await supabase
-        .from("shift_notes")
-        .insert(payload)
-        .select()
-        .single();
-      if (error) throw error;
-      setShiftNotes((prev) => [data, ...prev]);
-      setNoteText("");
-      setSbar({ s: "", b: "", a: "", r: "" });
-      setSbarOpen(false);
-      toast.success("Shift note securely committed and stamped to patient electronic health record.");
+      const payload = buildNotePayload("Draft");
+      if (draftId) {
+        const { data, error } = await supabase
+          .from("shift_notes")
+          .update(payload)
+          .eq("id", draftId)
+          .select()
+          .single();
+        if (error) throw error;
+        setShiftNotes((prev) => [data, ...prev.filter((n) => n.id !== draftId)]);
+      } else {
+        const { data, error } = await supabase
+          .from("shift_notes")
+          .insert(payload)
+          .select()
+          .single();
+        if (error) throw error;
+        setDraftId(data.id);
+        setShiftNotes((prev) => [data, ...prev]);
+      }
+      setDraftSavedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+      toast.success("Draft Saved Successfully");
     } catch (e: any) {
-      toast.error("Failed to save note", { description: e?.message });
+      toast.error("Failed to save draft", { description: e?.message });
     } finally {
       setSavingNote(false);
+    }
+  };
+
+  const openEsignModal = () => {
+    if (isLocked) return;
+    if (!noteText.trim() && !sbar.s && !sbar.b && !sbar.a && !sbar.r) {
+      toast.error("Please enter a note before signing.");
+      return;
+    }
+    setPin("");
+    setPinError(false);
+    setEsignOpen(true);
+  };
+
+  const handleEsignConfirm = async () => {
+    if (pin !== "1234") {
+      setPinError(true);
+      setShake(true);
+      setTimeout(() => setShake(false), 500);
+      return;
+    }
+    setEsigning(true);
+    try {
+      const payload = buildNotePayload("E-Signed");
+      let signed: any;
+      if (draftId) {
+        const { data, error } = await supabase
+          .from("shift_notes")
+          .update(payload)
+          .eq("id", draftId)
+          .select()
+          .single();
+        if (error) throw error;
+        signed = data;
+      } else {
+        const { data, error } = await supabase
+          .from("shift_notes")
+          .insert(payload)
+          .select()
+          .single();
+        if (error) throw error;
+        signed = data;
+      }
+      setLockedNote(signed);
+      setShiftNotes((prev) => [signed, ...prev.filter((n) => n.id !== signed.id)]);
+      setEsignOpen(false);
+      setPin("");
+      toast.success("Document locked and permanently stamped to electronic medical legal registry.");
+    } catch (e: any) {
+      toast.error("Failed to E-Sign note", { description: e?.message });
+    } finally {
+      setEsigning(false);
     }
   };
 
