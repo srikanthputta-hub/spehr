@@ -124,7 +124,7 @@ function Dashboard() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name",
+          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert",
         )
         .order("room", { ascending: true });
       if (cancelled) return;
@@ -495,6 +495,11 @@ function Dashboard() {
                         <div className="text-xs text-muted-foreground mt-0.5">
                           {p.age}{p.sex} · {p.mrn}
                         </div>
+                        {p.unreadLabs && (
+                          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 ring-1 ring-amber-600/30 px-2 py-0.5 text-[10px] font-semibold animate-pulse">
+                            🧪 New Labs Ready
+                          </div>
+                        )}
                       </td>
                       <td className="px-5 py-3.5 align-top">
                         <span
