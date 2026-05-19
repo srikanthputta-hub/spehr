@@ -19,6 +19,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react";
+import { FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
 import {
@@ -103,6 +104,8 @@ function ChartPage() {
   const [savingNote, setSavingNote] = useState(false);
   const [labTest, setLabTest] = useState<string>("CBC Pack");
   const [orderingLab, setOrderingLab] = useState(false);
+  const [activeTab, setActiveTab] = useState<"clinical" | "labs">("clinical");
+  const [completedLabs, setCompletedLabs] = useState<any[]>([]);
 
   useEffect(() => {
     // Auth gate disabled — chart renders using mock demo session.
@@ -159,6 +162,34 @@ function ChartPage() {
         .eq("mrn", mrn);
     })();
   }, [mrn]);
+
+  // Fetch completed historical lab reports for this patient
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("lab_orders")
+        .select("*")
+        .eq("patient_mrn", mrn)
+        .eq("status", "Completed")
+        .order("created_at", { ascending: false });
+      if (!cancelled && data) setCompletedLabs(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mrn, activeTab]);
+
+  // Re-clear alert when clinician opens the Lab Reports tab
+  useEffect(() => {
+    if (activeTab !== "labs") return;
+    (async () => {
+      await supabase
+        .from("patients")
+        .update({ unread_labs_alert: false })
+        .eq("mrn", mrn);
+    })();
+  }, [activeTab, mrn]);
 
   // Ensure there's always at least one med to administer (mock fallback)
   const medsList: MedOrder[] =
@@ -344,6 +375,45 @@ function ChartPage() {
       <div className="max-w-[1400px] mx-auto px-5 py-6 grid lg:grid-cols-5 gap-6">
         {/* LEFT — Clinical Context */}
         <div className="lg:col-span-3 space-y-6">
+          {/* View Tabs */}
+          <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab("clinical")}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 h-8 text-xs font-semibold transition ${
+                activeTab === "clinical"
+                  ? "bg-[var(--navy)] text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ClipboardList className="h-3.5 w-3.5" />
+              Clinical Workspace
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("labs")}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 h-8 text-xs font-semibold transition ${
+                activeTab === "labs"
+                  ? "bg-[var(--navy)] text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <span aria-hidden>🧪</span>
+              Lab Reports
+              {completedLabs.length > 0 && (
+                <span className={`ml-1 inline-flex items-center justify-center rounded-full px-1.5 h-4 text-[10px] font-bold tabular-nums ${
+                  activeTab === "labs" ? "bg-white/20 text-white" : "bg-[var(--teal-soft)] text-[var(--teal)]"
+                }`}>
+                  {completedLabs.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {activeTab === "labs" ? (
+            <LabReportsPanel reports={completedLabs} />
+          ) : (
+          <>
           {/* Live Vitals */}
           <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader icon={Activity} title="Live Vitals" subtitle="Streaming · last 7 readings" />
@@ -584,6 +654,8 @@ function ChartPage() {
               </div>
             </div>
           </section>
+          </>
+          )}
         </div>
 
         {/* RIGHT — MAR */}
