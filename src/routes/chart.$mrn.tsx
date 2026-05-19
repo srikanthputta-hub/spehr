@@ -684,14 +684,34 @@ function ChartPage() {
             {/* New entry form */}
             <div className="border-t border-border bg-secondary/20 p-5 space-y-3">
               <label className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
-                New Entry
+                {isLocked ? "Finalized Documentation" : "New Entry"}
               </label>
+              {isLocked && (
+                <div className="rounded-lg border border-amber-400/40 bg-amber-50 px-3 py-2.5 text-xs font-medium text-amber-900 flex items-start gap-2">
+                  <span aria-hidden>🔒</span>
+                  <span>
+                    This medical record has been officially finalized and E-Signed. It is locked against future edits to preserve regulatory compliance.
+                    {lockedNote?.esigned_at && (
+                      <span className="block mt-0.5 text-[10px] font-normal text-amber-800/80">
+                        Signed by {lockedNote.author_nurse} · {new Date(lockedNote.esigned_at).toLocaleString()}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+              {!isLocked && draftSavedAt && (
+                <div className="rounded-lg border border-emerald-400/40 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Draft Saved Successfully · {draftSavedAt}
+                </div>
+              )}
               <textarea
                 value={noteText}
                 onChange={(e) => setNoteText(e.target.value)}
+                disabled={isLocked}
                 placeholder="General Nursing Shift Notes..."
                 rows={4}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 resize-y"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 resize-y disabled:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground"
               />
 
               <button
@@ -713,44 +733,135 @@ function ChartPage() {
                     label="Situation"
                     value={sbar.s}
                     onChange={(v) => setSbar((p) => ({ ...p, s: v }))}
+                    disabled={isLocked}
                   />
                   <SbarInput
                     label="Background"
                     value={sbar.b}
                     onChange={(v) => setSbar((p) => ({ ...p, b: v }))}
+                    disabled={isLocked}
                   />
                   <SbarInput
                     label="Assessment"
                     value={sbar.a}
                     onChange={(v) => setSbar((p) => ({ ...p, a: v }))}
+                    disabled={isLocked}
                   />
                   <SbarInput
                     label="Recommendation"
                     value={sbar.r}
                     onChange={(v) => setSbar((p) => ({ ...p, r: v }))}
+                    disabled={isLocked}
                   />
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-1">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
                 <span className="text-[11px] text-muted-foreground">
                   Signing as <span className="font-medium text-foreground">{nurse.name}</span> · {nurse.facility} — {nurse.ward}
                 </span>
-                <button
-                  onClick={handleSaveNote}
-                  disabled={savingNote}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 disabled:opacity-60 disabled:cursor-not-allowed text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
-                >
-                  {savingNote ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <span aria-hidden>✍️</span>
-                  )}
-                  {savingNote ? "Saving…" : "Sign & Save Note"}
-                </button>
+                {!isLocked && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveDraft}
+                      disabled={savingNote}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed px-4 h-9 text-xs font-semibold transition"
+                    >
+                      {savingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span aria-hidden>💾</span>}
+                      Save As Draft
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openEsignModal}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
+                    >
+                      <span aria-hidden>✍️</span>
+                      E-Sign & Lock Note
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </section>
+
+          {esignOpen && (
+            <div
+              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => !esigning && setEsignOpen(false)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className={`w-full max-w-md rounded-2xl bg-card border border-border shadow-2xl overflow-hidden ${shake ? "animate-[shake_0.4s_ease-in-out]" : ""}`}
+                style={{
+                  animation: shake ? "shake 0.4s ease-in-out" : undefined,
+                }}
+              >
+                <div className="px-6 pt-5 pb-4 border-b border-border bg-gradient-to-br from-[var(--navy)]/5 to-transparent">
+                  <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                    <span aria-hidden>🔐</span> Electronic Signature Verification
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Signing clinician:{" "}
+                    <span className="font-medium text-foreground">{nurse.name}</span> ·{" "}
+                    {nurse.facility} — {nurse.ward}
+                  </p>
+                </div>
+                <div className="px-6 py-5 space-y-3">
+                  <label className="block">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Enter Clinical Signature PIN
+                    </span>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={4}
+                      autoFocus
+                      value={pin}
+                      onChange={(e) => {
+                        setPin(e.target.value.replace(/\D/g, "").slice(0, 4));
+                        setPinError(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && pin.length === 4 && !esigning) handleEsignConfirm();
+                      }}
+                      placeholder="••••"
+                      className={`mt-1.5 w-full text-center tracking-[0.6em] text-2xl font-semibold rounded-lg border bg-background px-3 h-14 focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 ${
+                        pinError ? "border-red-500 ring-2 ring-red-500/30" : "border-border"
+                      }`}
+                    />
+                  </label>
+                  {pinError && (
+                    <p className="text-xs font-medium text-red-600">
+                      ❌ Invalid Signature PIN. Authorization denied.
+                    </p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground">
+                    Your PIN cryptographically binds this note to your clinical credentials in the EMR legal registry.
+                  </p>
+                </div>
+                <div className="px-6 py-4 border-t border-border bg-secondary/30 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEsignOpen(false)}
+                    disabled={esigning}
+                    className="rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 px-4 h-9 text-xs font-semibold transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleEsignConfirm}
+                    disabled={esigning || pin.length !== 4}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 disabled:opacity-60 disabled:cursor-not-allowed text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
+                  >
+                    {esigning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span aria-hidden>🔏</span>}
+                    Verify & Lock
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           </>
           )}
         </div>
