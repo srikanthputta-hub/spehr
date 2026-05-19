@@ -35,7 +35,8 @@ type RoleRoute =
   | "/physician-board"
   | "/pharmacy-queue"
   | "/respiratory-board"
-  | "/admin-dashboard";
+  | "/admin-dashboard"
+  | "/lab-board";
 
 const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole }[] = [
   { value: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
@@ -43,6 +44,7 @@ const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole }[] = [
   { value: "/pharmacy-queue", label: "Clinical Pharmacist", abbrev: "PharmD" },
   { value: "/respiratory-board", label: "Respiratory Therapist", abbrev: "RT" },
   { value: "/admin-dashboard", label: "Unit Administrator", abbrev: "Admin" },
+  { value: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
 ];
 
 function LoginScreen() {
