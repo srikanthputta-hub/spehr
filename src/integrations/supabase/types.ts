@@ -399,6 +399,7 @@ export type Database = {
         Row: {
           author_nurse: string | null
           created_at: string | null
+          esigned_at: string | null
           id: string
           note_text: string
           patient_mrn: string
@@ -406,10 +407,12 @@ export type Database = {
           sbar_background: string | null
           sbar_recommendation: string | null
           sbar_situation: string | null
+          status: string
         }
         Insert: {
           author_nurse?: string | null
           created_at?: string | null
+          esigned_at?: string | null
           id?: string
           note_text: string
           patient_mrn: string
@@ -417,10 +420,12 @@ export type Database = {
           sbar_background?: string | null
           sbar_recommendation?: string | null
           sbar_situation?: string | null
+          status?: string
         }
         Update: {
           author_nurse?: string | null
           created_at?: string | null
+          esigned_at?: string | null
           id?: string
           note_text?: string
           patient_mrn?: string
@@ -428,6 +433,7 @@ export type Database = {
           sbar_background?: string | null
           sbar_recommendation?: string | null
           sbar_situation?: string | null
+          status?: string
         }
         Relationships: []
       }
