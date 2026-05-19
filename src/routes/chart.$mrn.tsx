@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react";
 import { toast } from "sonner";
-import { useActiveNurse } from "@/lib/facility-context";
+import { useActiveNurse, useFacility } from "@/lib/facility-context";
 import {
   getPatient,
   hrOutOfRange,
@@ -90,6 +90,7 @@ function ChartPage() {
   const { mrn } = useParams({ from: "/chart/$mrn" });
   const navigate = useNavigate();
   const nurse = useActiveNurse();
+  const { facility } = useFacility();
   const [ready, setReady] = useState(false);
   const [given, setGiven] = useState<Record<string, string>>({});
   const [dbPatient, setDbPatient] = useState<any>(null);
@@ -100,6 +101,8 @@ function ChartPage() {
   const [sbarOpen, setSbarOpen] = useState(false);
   const [sbar, setSbar] = useState({ s: "", b: "", a: "", r: "" });
   const [savingNote, setSavingNote] = useState(false);
+  const [labTest, setLabTest] = useState<string>("CBC Pack");
+  const [orderingLab, setOrderingLab] = useState(false);
 
   useEffect(() => {
     // Auth gate disabled — chart renders using mock demo session.
@@ -145,6 +148,16 @@ function ChartPage() {
     return () => {
       cancelled = true;
     };
+  }, [mrn]);
+
+  // Clear unread labs alert when nurse opens the chart
+  useEffect(() => {
+    (async () => {
+      await supabase
+        .from("patients")
+        .update({ unread_labs_alert: false })
+        .eq("mrn", mrn);
+    })();
   }, [mrn]);
 
   // Ensure there's always at least one med to administer (mock fallback)
