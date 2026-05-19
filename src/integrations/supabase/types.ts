@@ -80,6 +80,45 @@ export type Database = {
         }
         Relationships: []
       }
+      lab_orders: {
+        Row: {
+          clinical_condition: string | null
+          created_at: string | null
+          facility_name: string
+          id: string
+          patient_mrn: string
+          patient_name: string
+          requested_by: string
+          results_data: Json | null
+          status: string | null
+          test_type: string
+        }
+        Insert: {
+          clinical_condition?: string | null
+          created_at?: string | null
+          facility_name: string
+          id?: string
+          patient_mrn: string
+          patient_name: string
+          requested_by: string
+          results_data?: Json | null
+          status?: string | null
+          test_type: string
+        }
+        Update: {
+          clinical_condition?: string | null
+          created_at?: string | null
+          facility_name?: string
+          id?: string
+          patient_mrn?: string
+          patient_name?: string
+          requested_by?: string
+          results_data?: Json | null
+          status?: string | null
+          test_type?: string
+        }
+        Relationships: []
+      }
       lab_results: {
         Row: {
           flag: string | null
@@ -280,6 +319,7 @@ export type Database = {
           rr: number | null
           spo2: number | null
           temp: number | null
+          unread_labs_alert: boolean | null
         }
         Insert: {
           age?: number | null
@@ -303,6 +343,7 @@ export type Database = {
           rr?: number | null
           spo2?: number | null
           temp?: number | null
+          unread_labs_alert?: boolean | null
         }
         Update: {
           age?: number | null
@@ -326,6 +367,7 @@ export type Database = {
           rr?: number | null
           spo2?: number | null
           temp?: number | null
+          unread_labs_alert?: boolean | null
         }
         Relationships: []
       }
