@@ -883,3 +883,118 @@ function SbarInput({
     </label>
   );
 }
+
+function LabReportsPanel({ reports }: { reports: any[] }) {
+  return (
+    <section className="rounded-xl border border-border bg-card overflow-hidden">
+      <SectionHeader
+        icon={FlaskConical}
+        title="🧪 Lab Reports"
+        subtitle={`${reports.length} completed report${reports.length === 1 ? "" : "s"} · newest first`}
+      />
+      <div className="p-5 space-y-4">
+        {reports.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            No completed lab reports on file for this patient yet.
+          </div>
+        ) : (
+          reports.map((r) => <LabReportCard key={r.id} report={r} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+function LabReportCard({ report }: { report: any }) {
+  const ts = report.created_at
+    ? new Date(report.created_at).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+  const metrics: any[] = Array.isArray(report.results_data)
+    ? report.results_data
+    : Array.isArray(report.results_data?.metrics)
+      ? report.results_data.metrics
+      : [];
+  return (
+    <article className="rounded-lg border border-border bg-secondary/20 overflow-hidden">
+      <header className="flex flex-wrap items-start justify-between gap-2 px-4 py-3 bg-background border-b border-border">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <FlaskConical className="h-4 w-4 text-[var(--teal)]" />
+            <h4 className="text-sm font-bold tracking-tight text-foreground">
+              {report.test_type}
+            </h4>
+            <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
+              Completed
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-3 w-3" /> Completed: {ts}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <FileSignature className="h-3 w-3" /> Processed by:{" "}
+              <span className="font-medium text-foreground">{report.requested_by || "Lab Tech"}</span>
+            </span>
+          </div>
+        </div>
+      </header>
+      <div className="p-4">
+        {metrics.length === 0 ? (
+          <div className="text-xs text-muted-foreground italic">
+            Report data unavailable.
+          </div>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                <th className="text-left font-semibold py-1.5 pr-2">Analyte</th>
+                <th className="text-left font-semibold py-1.5 px-2">Value</th>
+                <th className="text-left font-semibold py-1.5 px-2">Reference Range</th>
+                <th className="text-left font-semibold py-1.5 pl-2">Flag</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {metrics.map((m, i) => {
+                const flag = String(m.flag || m.status || "").toUpperCase();
+                const abnormal = flag && flag !== "NORMAL" && flag !== "WNL";
+                return (
+                  <tr key={i} className={abnormal ? "bg-red-50/40" : ""}>
+                    <td className="py-1.5 pr-2 font-medium text-foreground">
+                      {m.name || m.test || m.analyte}
+                    </td>
+                    <td
+                      className={`py-1.5 px-2 tabular-nums font-semibold ${
+                        abnormal ? "text-red-600" : "text-foreground"
+                      }`}
+                    >
+                      {m.value} {m.unit || ""}
+                    </td>
+                    <td className="py-1.5 px-2 text-muted-foreground tabular-nums">
+                      {m.reference || m.range || m.normal || "—"}
+                    </td>
+                    <td className="py-1.5 pl-2">
+                      {abnormal ? (
+                        <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 ring-1 ring-red-600/20 px-2 py-0.5 text-[10px] font-bold uppercase">
+                          {flag}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-emerald-700 font-semibold uppercase">
+                          {flag || "Normal"}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </article>
+  );
+}
