@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2, Brain } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/patient/$mrn")({
@@ -333,6 +333,39 @@ function MarView({ patientId }: { patientId: string }) {
 function NotesView({ mrn }: { mrn: string }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [rows] = useNotes(mrn, refreshKey);
+  const [aiNote, setAiNote] = useState<{ content: string; created_at: string | null } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      supabase
+        .from("clinical_notes")
+        .select("content, created_at")
+        .eq("mrn", mrn)
+        .eq("note_type", "AI_DIFFERENTIAL")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!cancelled) setAiNote((data as any) ?? null);
+        });
+    load();
+    const ch = supabase
+      .channel(`ai-note-chart-${mrn}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "clinical_notes", filter: `mrn=eq.${mrn}` },
+        (payload: any) => {
+          if (payload.new?.note_type === "AI_DIFFERENTIAL") {
+            setAiNote({ content: payload.new.content, created_at: payload.new.created_at });
+          }
+        },
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(ch);
+    };
+  }, [mrn]);
   const [showForm, setShowForm] = useState(false);
   const [noteType, setNoteType] = useState("Progress Note");
   const [content, setContent] = useState("");
@@ -377,6 +410,27 @@ function NotesView({ mrn }: { mrn: string }) {
 
   return (
     <div className="space-y-3">
+      {/* AI Differential — Provider Notes feed for nursing awareness */}
+      <div className="rounded-md border border-purple-300 bg-purple-50/70 p-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+            <Brain className="h-3 w-3" /> AI Consult · Provider Notes
+          </span>
+          <span className="text-[10px] font-mono text-purple-700/80">
+            {aiNote?.created_at ? fmtTime(aiNote.created_at) : "Pending"}
+          </span>
+        </div>
+        {aiNote ? (
+          <p className="text-[12.5px] leading-relaxed text-purple-950 whitespace-pre-wrap">
+            {aiNote.content}
+          </p>
+        ) : (
+          <p className="text-[12px] italic text-purple-700/70">
+            No AI differential posted yet — Ghost AI Engine analyzes within 10s of admission.
+          </p>
+        )}
+      </div>
+
       <div className="flex justify-end">
         <button
           onClick={() => setShowForm((v) => !v)}
