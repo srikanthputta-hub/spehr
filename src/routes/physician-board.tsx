@@ -114,6 +114,9 @@ function PhysicianBoard() {
   const [reason, setReason] = useState("");
   const [transferring, setTransferring] = useState(false);
 
+  // Clinical Actions modal
+  const [actionsMrn, setActionsMrn] = useState<string | null>(null);
+
   useEffect(() => {
     let active = true;
     (async () => {
@@ -295,9 +298,12 @@ function PhysicianBoard() {
                 return (
                   <button
                     key={p.mrn}
-                    onClick={() => setSelectedMrn(p.mrn)}
-                    className={`w-full text-left px-3 py-2.5 transition ${
-                      active ? "bg-[#0c2340] text-white" : "hover:bg-slate-50"
+                    onClick={() => {
+                      setSelectedMrn(p.mrn);
+                      setActionsMrn(p.mrn);
+                    }}
+                    className={`w-full text-left px-3 py-2.5 transition cursor-pointer ${
+                      active ? "bg-[#0c2340] text-white hover:bg-[#0c2340]/95" : "hover:bg-slate-100"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -607,6 +613,132 @@ function PhysicianBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Clinical Actions Modal */}
+      <Dialog
+        open={!!actionsMrn}
+        onOpenChange={(o) => {
+          if (!o) setActionsMrn(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          {(() => {
+            const p = filteredPatients.find((x) => x.mrn === actionsMrn);
+            if (!p) return null;
+            const fullName =
+              [p.first_name, p.last_name].filter(Boolean).join(" ") || p.mrn;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-lg">
+                    Clinical Actions: {fullName}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Select a clinical action to perform for this patient.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {/* Context Header */}
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                        MRN
+                      </div>
+                      <div className="font-mono text-slate-900">{p.mrn}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                        Room
+                      </div>
+                      <div className="text-slate-900">{p.room ?? "—"}</div>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                        Chief Complaint
+                      </div>
+                      <div className="text-slate-900">
+                        {p.chief_complaint || p.diagnosis || "—"}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-200 pt-3">
+                    <VitalChip label="HR" value={p.hr !== null ? `${p.hr} bpm` : "—"} />
+                    <VitalChip
+                      label="BP"
+                      value={
+                        p.bp_systolic !== null && p.bp_diastolic !== null
+                          ? `${p.bp_systolic}/${p.bp_diastolic}`
+                          : "—"
+                      }
+                    />
+                    <VitalChip
+                      label="SpO₂"
+                      value={p.spo2 !== null ? `${p.spo2}%` : "—"}
+                    />
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toast.info("Laboratory order workflow coming soon", {
+                        description: `For ${fullName} (${p.mrn})`,
+                      })
+                    }
+                    className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                  >
+                    <span className="text-xl">🧪</span>
+                    <span className="text-center leading-tight">
+                      Order Laboratory Evaluation
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toast.info("Progress note workflow coming soon", {
+                        description: `For ${fullName} (${p.mrn})`,
+                      })
+                    }
+                    className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                  >
+                    <span className="text-xl">✍️</span>
+                    <span className="text-center leading-tight">
+                      Write & E-Sign Progress Note
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toast.info("Discharge / transfer workflow coming soon", {
+                        description: `For ${fullName} (${p.mrn})`,
+                      })
+                    }
+                    className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                  >
+                    <span className="text-xl">🚪</span>
+                    <span className="text-center leading-tight">
+                      Discharge / Transfer Patient
+                    </span>
+                  </button>
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setActionsMrn(null)}
+                  >
+                    Cancel
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
@@ -627,6 +759,17 @@ function Field({
       </div>
       {children}
     </label>
+  );
+}
+
+function VitalChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-center">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+        {label}
+      </div>
+      <div className="text-sm font-semibold text-slate-900">{value}</div>
+    </div>
   );
 }
 
