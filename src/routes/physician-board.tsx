@@ -25,6 +25,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 const TRANSFER_DESTINATIONS = [
   "Memorial Hospital",
@@ -116,6 +118,22 @@ function PhysicianBoard() {
 
   // Clinical Actions modal
   const [actionsMrn, setActionsMrn] = useState<string | null>(null);
+  const [actionsView, setActionsView] = useState<"menu" | "lab" | "note" | "discharge">("menu");
+  const [labTest, setLabTest] = useState("Complete Blood Count (CBC)");
+  const [labStat, setLabStat] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [notePin, setNotePin] = useState("");
+  const [disposition, setDisposition] = useState("Discharge to Home");
+
+  useEffect(() => {
+    if (!actionsMrn) return;
+    setActionsView("menu");
+    setLabTest("Complete Blood Count (CBC)");
+    setLabStat(false);
+    setNoteText("");
+    setNotePin("");
+    setDisposition("Discharge to Home");
+  }, [actionsMrn]);
 
   useEffect(() => {
     let active = true;
