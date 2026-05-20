@@ -756,59 +756,6 @@ function AdminDashboard() {
           </div>
         </div>
 
-        {/* Census */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
-            <h2 className="text-sm font-semibold text-slate-900">
-              Live Census Audit
-            </h2>
-            <span className="text-xs text-slate-500">
-              {patients.length} active patients
-            </span>
-          </div>
-          {loading ? (
-            <div className="grid place-items-center h-40">
-              <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-[11px] uppercase tracking-widest text-slate-500">
-                  <tr>
-                    <th className="text-left px-5 py-2.5">MRN</th>
-                    <th className="text-left px-5 py-2.5">Patient</th>
-                    <th className="text-left px-5 py-2.5">Room</th>
-                    <th className="text-left px-5 py-2.5">Code Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {patients.map((p) => (
-                    <tr key={p.id}>
-                      <td className="px-5 py-2.5 font-mono text-xs text-slate-700">
-                        {p.mrn ?? "—"}
-                      </td>
-                      <td className="px-5 py-2.5 text-slate-900">
-                        {fullName(p)}
-                      </td>
-                      <td className="px-5 py-2.5 text-slate-700">
-                        {p.room ?? "—"}
-                      </td>
-                      <td className="px-5 py-2.5">
-                        <span
-                          className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${codeColor(
-                            p.code_status,
-                          )}`}
-                        >
-                          {p.code_status ?? "Full Code"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
       </section>
       <section className="max-w-[1400px] mx-auto px-6 pb-10">
         <PatientFlowCensusLog />
