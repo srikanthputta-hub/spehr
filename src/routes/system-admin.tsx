@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ShieldCheck, ToggleRight, Users, Activity, Loader2 } from "lucide-react";
+import { FACILITIES, type Facility } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -37,12 +38,14 @@ function SystemAdminPage() {
   const [perms, setPerms] = useState<Perm[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [selectedFacility, setSelectedFacility] = useState<Facility>("Memorial Hospital");
 
   const load = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("role_permissions")
       .select("id, target_role, feature_key, feature_name, is_active")
+      .eq("facility_name", selectedFacility)
       .order("target_role")
       .order("feature_key");
     if (error) {
@@ -55,7 +58,8 @@ function SystemAdminPage() {
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFacility]);
 
   const toggle = async (p: Perm, next: boolean) => {
     setUpdating(p.id);
@@ -64,7 +68,9 @@ function SystemAdminPage() {
     const { error } = await supabase
       .from("role_permissions")
       .update({ is_active: next })
-      .eq("id", p.id);
+      .eq("feature_key", p.feature_key)
+      .eq("target_role", p.target_role)
+      .eq("facility_name", selectedFacility);
     setUpdating(null);
     if (error) {
       setPerms(prev);
@@ -72,7 +78,7 @@ function SystemAdminPage() {
       return;
     }
     toast.success(
-      `${p.feature_name} ${next ? "enabled" : "disabled"} for ${ROLE_LABELS[p.target_role] ?? p.target_role}`,
+      `${p.feature_name} ${next ? "enabled" : "disabled"} for ${ROLE_LABELS[p.target_role] ?? p.target_role} · ${selectedFacility}`,
     );
   };
 
@@ -131,8 +137,29 @@ function SystemAdminPage() {
                 🎛️ UI &amp; Feature Controls
               </h1>
               <p className="text-sm text-slate-600 mt-1">
-                Master switches for in-app actions. Toggling any switch instantly updates
-                button visibility for every user of that role across the network.
+                Master switches for in-app actions, scoped per hospital. Toggling a switch
+                instantly updates button visibility for users of that role at the selected facility.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-5 py-4">
+              <label className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 mb-1.5">
+                🏥 Select Network Facility to Configure
+              </label>
+              <select
+                value={selectedFacility}
+                onChange={(e) => setSelectedFacility(e.target.value as Facility)}
+                className="w-full md:w-96 h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none hover:border-[#2d8a9e] focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30 cursor-pointer"
+              >
+                {FACILITIES.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Permissions below apply only to staff logged in at{" "}
+                <span className="font-semibold text-slate-700">{selectedFacility}</span>.
               </p>
             </div>
 
