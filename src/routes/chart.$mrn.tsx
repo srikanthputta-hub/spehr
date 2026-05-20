@@ -611,6 +611,7 @@ function ChartPage() {
           </section>
 
           {/* Lab Order */}
+          {can("btn_order_labs") && (
           <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader
               icon={ClipboardList}
@@ -649,6 +650,7 @@ function ChartPage() {
               </button>
             </div>
           </section>
+          )}
 
           {/* Shift Handoff & Clinical Documentation */}
           <section className="rounded-xl border border-border bg-card overflow-hidden">
