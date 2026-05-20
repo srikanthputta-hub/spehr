@@ -91,7 +91,7 @@ function ChartPage() {
   const { mrn } = useParams({ from: "/chart/$mrn" });
   const navigate = useNavigate();
   const nurse = useActiveNurse();
-  const { facility } = useFacility();
+  const { facility, activeRole } = useFacility();
   const [ready, setReady] = useState(false);
   const [given, setGiven] = useState<Record<string, string>>({});
   const [dbPatient, setDbPatient] = useState<any>(null);
@@ -106,7 +106,6 @@ function ChartPage() {
   const [orderingLab, setOrderingLab] = useState(false);
   const [activeTab, setActiveTab] = useState<"clinical" | "labs">("clinical");
   const [completedLabs, setCompletedLabs] = useState<any[]>([]);
-  const { activeRole } = useFacility();
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
