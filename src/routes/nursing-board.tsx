@@ -118,6 +118,67 @@ function ClinicalAlertPill({ dx }: { dx: string | null | undefined }) {
   }
 }
 
+function baselineVitals(dx: string | null | undefined): { hr: number; sys: number; dia: number; spo2: number } {
+  const d = (dx ?? "").toLowerCase();
+  if (d.includes("sepsis")) return { hr: 112, sys: 88, dia: 55, spo2: 95 };
+  if (d.includes("dka")) return { hr: 105, sys: 100, dia: 65, spo2: 97 };
+  if (d.includes("stemi")) return { hr: 98, sys: 138, dia: 88, spo2: 96 };
+  if (d.includes("stroke")) return { hr: 92, sys: 165, dia: 95, spo2: 96 };
+  return { hr: 75, sys: 120, dia: 80, spo2: 98 };
+}
+
+function LiveVitals({ dx }: { dx: string | null | undefined }) {
+  const base = useMemo(() => baselineVitals(dx), [dx]);
+  const [hr, setHr] = useState(base.hr);
+  const [sys, setSys] = useState(base.sys);
+  const [dia, setDia] = useState(base.dia);
+  const [spo2, setSpo2] = useState(base.spo2);
+
+  useEffect(() => {
+    setHr(base.hr);
+    setSys(base.sys);
+    setDia(base.dia);
+    setSpo2(base.spo2);
+  }, [base]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const j = (r: number) => Math.floor(Math.random() * (2 * r + 1)) - r;
+      setHr((v) => Math.max(30, Math.min(200, v + j(2))));
+      setSpo2((v) => Math.max(70, Math.min(100, v + (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.5 ? 0 : 1))));
+      setSys((v) => Math.max(50, Math.min(220, v + j(1))));
+      setDia((v) => Math.max(30, Math.min(140, v + (Math.random() < 0.5 ? -1 : 0))));
+    }, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  const hrCritical = hr > 100;
+  const sysCritical = sys < 90;
+  return (
+    <div className="font-mono text-[11.5px] leading-tight tabular-nums">
+      <div>
+        <span className="text-slate-400">HR </span>
+        <span className={hrCritical ? "text-red-600 font-extrabold animate-pulse" : "text-emerald-600 font-bold"}>
+          {hr}
+        </span>
+        <span className="text-slate-400"> bpm</span>
+      </div>
+      <div>
+        <span className="text-slate-400">BP </span>
+        <span className={sysCritical ? "text-red-600 font-extrabold animate-pulse" : "text-slate-800 font-semibold"}>
+          {sys}
+        </span>
+        <span className="text-slate-500">/{dia}</span>
+      </div>
+      <div>
+        <span className="text-slate-400">SpO₂ </span>
+        <span className="text-cyan-600 font-bold">{spo2}</span>
+        <span className="text-slate-400">%</span>
+      </div>
+    </div>
+  );
+}
+
 function toRow(p: any): PatientRow {
   return {
     mrn: p.mrn,
@@ -501,6 +562,7 @@ function Dashboard() {
                   <th className="px-3 py-2 font-bold">MRN</th>
                   <th className="px-3 py-2 font-bold">Patient Name</th>
                   <th className="px-3 py-2 font-bold">Diagnosis</th>
+                  <th className="px-3 py-2 font-bold">Live Vitals</th>
                   <th className="px-3 py-2 font-bold">Clinical Alerts</th>
                   <th className="px-3 py-2 font-bold text-right pr-4">Action</th>
                 </tr>
@@ -508,7 +570,7 @@ function Dashboard() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
                       <span className="inline-flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
                         Loading floor census…
@@ -518,7 +580,7 @@ function Dashboard() {
                 )}
                 {!loading && fetchError && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-10 text-center text-sm">
+                    <td colSpan={7} className="px-5 py-10 text-center text-sm">
                       <div className="inline-flex items-center gap-2 text-red-600">
                         <AlertTriangle className="h-4 w-4" />
                         Unable to load patients — {fetchError}
@@ -528,7 +590,7 @@ function Dashboard() {
                 )}
                 {!loading && !fetchError && rows.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-16 text-center">
+                    <td colSpan={7} className="px-5 py-16 text-center">
                       <div className="flex flex-col items-center gap-2 text-slate-500">
                         <div className="text-3xl">🛏️</div>
                         <div className="text-sm font-semibold text-slate-700">
@@ -568,6 +630,9 @@ function Dashboard() {
                         <div className="truncate" title={p.diagnosis}>
                           {p.diagnosis || "—"}
                         </div>
+                      </td>
+                      <td className="px-3 py-2 align-middle">
+                        <LiveVitals dx={p.diagnosis} />
                       </td>
                       <td className="px-3 py-2 align-middle">
                         <ClinicalAlertPill dx={p.diagnosis} />
