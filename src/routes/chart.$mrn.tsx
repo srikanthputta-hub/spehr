@@ -114,7 +114,8 @@ function ChartPage() {
       const { data } = await supabase
         .from("role_permissions")
         .select("feature_key, is_active")
-        .eq("target_role", activeRole);
+        .eq("target_role", activeRole)
+        .eq("facility_name", facility);
       if (!cancelled && data) {
         const map: Record<string, boolean> = {};
         for (const row of data as any[]) map[row.feature_key] = !!row.is_active;
@@ -123,13 +124,14 @@ function ChartPage() {
     })();
     // Realtime subscription so toggles flip immediately
     const channel = supabase
-      .channel(`role_perms_${activeRole}`)
+      .channel(`role_perms_${activeRole}_${facility}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "role_permissions", filter: `target_role=eq.${activeRole}` },
         (payload: any) => {
           const row = payload.new ?? payload.old;
           if (!row?.feature_key) return;
+          if (row.facility_name && row.facility_name !== facility) return;
           setPermissions((prev) => ({ ...prev, [row.feature_key]: !!payload.new?.is_active }));
         },
       )
@@ -138,7 +140,7 @@ function ChartPage() {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [activeRole]);
+  }, [activeRole, facility]);
 
   const can = (key: string) => permissions[key] !== false;
   const [draftId, setDraftId] = useState<string | null>(null);
