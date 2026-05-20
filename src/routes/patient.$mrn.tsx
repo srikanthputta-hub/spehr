@@ -593,7 +593,7 @@ function PatientChart() {
   const [patient, setPatient] = useState<PatientRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabKey | null>(null);
+  const [tab, setTab] = useState<TabKey | null>("summary");
 
   useEffect(() => {
     let cancelled = false;
@@ -772,15 +772,20 @@ function PatientChart() {
               ))}
             </div>
           </div>
-        ) : (
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-8">
-            <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
-              {TABS.find((t) => t.key === tab)?.label}
-            </div>
-            <p className="mt-2 text-sm text-slate-500 italic">
-              Section module pending integration.
-            </p>
+        ) : tab === "summary" ? (
+          <SummaryView mrn={patient.mrn} patient={patient} />
+        ) : tab === "labs" ? (
+          <div className={panelClass + " overflow-hidden"}>
+            <header className={sectionHeader}>Laboratory Results</header>
+            <LabsView mrn={patient.mrn} />
           </div>
+        ) : tab === "mar" ? (
+          <div className={panelClass + " overflow-hidden"}>
+            <header className={sectionHeader}>Medication Administration Record</header>
+            <MarView mrn={patient.mrn} />
+          </div>
+        ) : (
+          <NotesView mrn={patient.mrn} />
         )}
       </section>
     </main>
