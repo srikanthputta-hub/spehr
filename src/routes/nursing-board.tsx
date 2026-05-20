@@ -562,6 +562,7 @@ function Dashboard() {
                   <th className="px-3 py-2 font-bold">MRN</th>
                   <th className="px-3 py-2 font-bold">Patient Name</th>
                   <th className="px-3 py-2 font-bold">Diagnosis</th>
+                  <th className="px-3 py-2 font-bold">Live Vitals</th>
                   <th className="px-3 py-2 font-bold">Clinical Alerts</th>
                   <th className="px-3 py-2 font-bold text-right pr-4">Action</th>
                 </tr>
@@ -629,6 +630,9 @@ function Dashboard() {
                         <div className="truncate" title={p.diagnosis}>
                           {p.diagnosis || "—"}
                         </div>
+                      </td>
+                      <td className="px-3 py-2 align-middle">
+                        <LiveVitals dx={p.diagnosis} />
                       </td>
                       <td className="px-3 py-2 align-middle">
                         <ClinicalAlertPill dx={p.diagnosis} />
