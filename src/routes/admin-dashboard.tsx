@@ -29,6 +29,15 @@ import {
   ArrowRightLeft,
 } from "lucide-react";
 import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -56,6 +65,9 @@ interface Patient {
   hr: number | null;
   spo2: number | null;
   facility_name: string | null;
+  status?: string | null;
+  chief_complaint?: string | null;
+  admission_time?: string | null;
 }
 
 interface Assignment {
@@ -170,8 +182,8 @@ function AdminDashboard() {
       const [pRes, mRes] = await Promise.all([
         supabase
           .from("patients")
-          .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name")
-          .order("room", { ascending: true }),
+          .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time")
+          .order("admission_time", { ascending: false }),
         supabase
           .from("medication_orders")
           .select("id", { count: "exact", head: true })
