@@ -473,6 +473,36 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_notes: {
+        Row: {
+          author_name: string | null
+          author_role: string | null
+          content: string
+          id: string
+          note_type: string
+          patient_mrn: string
+          signed_at: string | null
+        }
+        Insert: {
+          author_name?: string | null
+          author_role?: string | null
+          content: string
+          id?: string
+          note_type: string
+          patient_mrn: string
+          signed_at?: string | null
+        }
+        Update: {
+          author_name?: string | null
+          author_role?: string | null
+          content?: string
+          id?: string
+          note_type?: string
+          patient_mrn?: string
+          signed_at?: string | null
+        }
+        Relationships: []
+      }
       role_permissions: {
         Row: {
           facility_name: string
