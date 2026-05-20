@@ -111,8 +111,8 @@ function ClinicalAlertPill({ dx }: { dx: string | null | undefined }) {
       );
     default:
       return (
-        <span className={`${base} bg-slate-100 text-slate-600 ring-slate-300`}>
-          ⏳ Pending Orders
+        <span className={`${base} bg-green-100 text-green-800 ring-green-400`}>
+          🟢 Stable
         </span>
       );
   }
