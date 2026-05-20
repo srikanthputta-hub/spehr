@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ShieldCheck, ToggleRight, Users, Activity, Loader2, Zap } from "lucide-react";
+import { ShieldCheck, ToggleRight, Users, Activity, Loader2, Zap, Pencil } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/system-admin")({
@@ -199,7 +199,7 @@ function SystemAdminPage() {
       </header>
 
       <section className="max-w-6xl mx-auto px-6 py-8">
-        {isAdmin && (
+        {isAdmin && tab === "feature_controls" && (
         <div
           className={`mb-6 rounded-xl border shadow-sm overflow-hidden ${
             automation
@@ -361,9 +361,7 @@ function SystemAdminPage() {
         )}
 
         {tab === "users" && (
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-500">
-            User directory module — connect to identity registry to manage staff accounts.
-          </div>
+          <UserDirectory />
         )}
         {tab === "audit" && (
           <div className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-500">
