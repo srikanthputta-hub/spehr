@@ -86,9 +86,11 @@ export type Database = {
       lab_orders: {
         Row: {
           clinical_condition: string | null
+          collected_at: string | null
           created_at: string | null
           facility_name: string
           id: string
+          ordered_by: string | null
           patient_mrn: string
           patient_name: string
           requested_by: string
@@ -99,9 +101,11 @@ export type Database = {
         }
         Insert: {
           clinical_condition?: string | null
+          collected_at?: string | null
           created_at?: string | null
           facility_name: string
           id?: string
+          ordered_by?: string | null
           patient_mrn: string
           patient_name: string
           requested_by: string
@@ -112,9 +116,11 @@ export type Database = {
         }
         Update: {
           clinical_condition?: string | null
+          collected_at?: string | null
           created_at?: string | null
           facility_name?: string
           id?: string
+          ordered_by?: string | null
           patient_mrn?: string
           patient_name?: string
           requested_by?: string
@@ -197,6 +203,7 @@ export type Database = {
       medication_orders: {
         Row: {
           administered_at: string | null
+          approved_at: string | null
           created_at: string | null
           dose: string | null
           drug: string | null
@@ -207,6 +214,7 @@ export type Database = {
           medication_name: string | null
           mrn: string | null
           name: string | null
+          ordered_by: string | null
           patient_id: string | null
           patient_name: string | null
           route: string | null
@@ -214,6 +222,7 @@ export type Database = {
         }
         Insert: {
           administered_at?: string | null
+          approved_at?: string | null
           created_at?: string | null
           dose?: string | null
           drug?: string | null
@@ -224,6 +233,7 @@ export type Database = {
           medication_name?: string | null
           mrn?: string | null
           name?: string | null
+          ordered_by?: string | null
           patient_id?: string | null
           patient_name?: string | null
           route?: string | null
@@ -231,6 +241,7 @@ export type Database = {
         }
         Update: {
           administered_at?: string | null
+          approved_at?: string | null
           created_at?: string | null
           dose?: string | null
           drug?: string | null
@@ -241,6 +252,7 @@ export type Database = {
           medication_name?: string | null
           mrn?: string | null
           name?: string | null
+          ordered_by?: string | null
           patient_id?: string | null
           patient_name?: string | null
           route?: string | null
@@ -564,6 +576,7 @@ export type Database = {
       auto_discharge_ghost_patients: { Args: never; Returns: undefined }
       auto_order_ghost_labs: { Args: never; Returns: undefined }
       auto_result_ghost_labs: { Args: never; Returns: undefined }
+      cascade_clinical_automation: { Args: never; Returns: undefined }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
