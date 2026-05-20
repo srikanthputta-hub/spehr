@@ -164,7 +164,7 @@ function PhysicianBoard() {
   const activeFacilityName = facility ?? "Memorial Hospital";
   const allPatients = patients;
   const filteredPatients = allPatients.filter(
-    (p) => p.facility_name === activeFacilityName && p.status === "Admitted",
+    (p) => p.facility_name === activeFacilityName,
   );
 
   const selected = useMemo(
