@@ -570,7 +570,7 @@ function Dashboard() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
                       <span className="inline-flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
                         Loading floor census…
@@ -580,7 +580,7 @@ function Dashboard() {
                 )}
                 {!loading && fetchError && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-10 text-center text-sm">
+                    <td colSpan={7} className="px-5 py-10 text-center text-sm">
                       <div className="inline-flex items-center gap-2 text-red-600">
                         <AlertTriangle className="h-4 w-4" />
                         Unable to load patients — {fetchError}
@@ -590,7 +590,7 @@ function Dashboard() {
                 )}
                 {!loading && !fetchError && rows.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-16 text-center">
+                    <td colSpan={7} className="px-5 py-16 text-center">
                       <div className="flex flex-col items-center gap-2 text-slate-500">
                         <div className="text-3xl">🛏️</div>
                         <div className="text-sm font-semibold text-slate-700">
