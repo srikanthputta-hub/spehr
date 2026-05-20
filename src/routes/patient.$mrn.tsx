@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Loader2, AlertTriangle, Activity } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
