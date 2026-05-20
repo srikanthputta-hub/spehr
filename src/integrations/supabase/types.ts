@@ -92,6 +92,7 @@ export type Database = {
           patient_mrn: string
           patient_name: string
           requested_by: string
+          result_value: string | null
           results_data: Json | null
           status: string | null
           test_type: string
@@ -104,6 +105,7 @@ export type Database = {
           patient_mrn: string
           patient_name: string
           requested_by: string
+          result_value?: string | null
           results_data?: Json | null
           status?: string | null
           test_type: string
@@ -116,6 +118,7 @@ export type Database = {
           patient_mrn?: string
           patient_name?: string
           requested_by?: string
+          result_value?: string | null
           results_data?: Json | null
           status?: string | null
           test_type?: string
@@ -193,6 +196,7 @@ export type Database = {
       }
       medication_orders: {
         Row: {
+          administered_at: string | null
           created_at: string | null
           dose: string | null
           drug: string | null
@@ -209,6 +213,7 @@ export type Database = {
           status: string | null
         }
         Insert: {
+          administered_at?: string | null
           created_at?: string | null
           dose?: string | null
           drug?: string | null
@@ -225,6 +230,7 @@ export type Database = {
           status?: string | null
         }
         Update: {
+          administered_at?: string | null
           created_at?: string | null
           dose?: string | null
           drug?: string | null
@@ -553,9 +559,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      auto_administer_ghost_meds: { Args: never; Returns: undefined }
       auto_admit_ghost_patient: { Args: never; Returns: undefined }
       auto_discharge_ghost_patients: { Args: never; Returns: undefined }
       auto_order_ghost_labs: { Args: never; Returns: undefined }
+      auto_result_ghost_labs: { Args: never; Returns: undefined }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
