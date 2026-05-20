@@ -204,6 +204,14 @@ function genMRN() {
   return `MRN-${Math.floor(100000 + Math.random() * 900000)}`;
 }
 
+function fmtAdmitted(ts: string | null | undefined): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${String(d.getFullYear()).slice(-2)} - ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function Dashboard() {
   const navigate = useNavigate();
   const { facility } = useFacility();
