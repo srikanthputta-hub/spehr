@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ShieldCheck, ToggleRight, Users, Activity, Loader2, Zap, Pencil } from "lucide-react";
+import { ShieldCheck, ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -381,9 +381,7 @@ function SystemAdminPage() {
           <UserDirectory />
         )}
         {tab === "audit" && (
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-500">
-            Audit log stream — surfaced from MAR, e-sign, and transfer registries.
-          </div>
+          <AuditLog />
         )}
       </section>
     </main>
@@ -593,6 +591,112 @@ function UserDirectory() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+type AuditCategory = "SECURITY" | "CLINICAL" | "AUTOMATION" | "SYSTEM";
+type AuditEvent = {
+  ts: string;
+  category: AuditCategory;
+  actor: string;
+  facility: string;
+  details: string;
+};
+
+const AUDIT_EVENTS: AuditEvent[] = [
+  { ts: "20-May-2026, 07:42:11", category: "SECURITY",  actor: "Diane Whitaker (Admin)",  facility: "Global Network",          details: "Suspended user access for Evelyn Park, MD" },
+  { ts: "20-May-2026, 07:38:47", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "St. Jude Medical Center", details: "Auto-admitted patient MRN-481204 (Chest Pain)" },
+  { ts: "20-May-2026, 07:36:02", category: "CLINICAL",  actor: "Marcus Lin, MD",          facility: "Memorial Hospital",       details: "E-Signed & locked progress note for MRN-392811" },
+  { ts: "20-May-2026, 07:33:18", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "Memorial Hospital",       details: "Auto-resulted CBC lab for MRN-39281 (WBC 12.4, Hgb 11.2)" },
+  { ts: "20-May-2026, 07:29:54", category: "SYSTEM",    actor: "Diane Whitaker (Admin)",  facility: "Global Network",          details: "Toggled Master AI Switch to ON" },
+  { ts: "20-May-2026, 07:25:09", category: "CLINICAL",  actor: "Sarah Jenkins, RN",       facility: "St. Jude Medical Center", details: "Administered Acetaminophen 650mg PO to MRN-558102" },
+  { ts: "20-May-2026, 07:21:33", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "City General Infirmary",  details: "Cascaded medication order Pending → Approved (MRN-661923)" },
+  { ts: "20-May-2026, 07:18:47", category: "SECURITY",  actor: "Diane Whitaker (Admin)",  facility: "Memorial Hospital",       details: "Disabled feature flag 'btn_discharge_patient' for role MD" },
+  { ts: "20-May-2026, 07:15:22", category: "CLINICAL",  actor: "Priya Raman, PharmD",     facility: "City General Infirmary",  details: "Verified medication order for Vancomycin 1g IV (MRN-770451)" },
+  { ts: "20-May-2026, 07:11:08", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "Mercy Childrens Hospital",details: "Auto-discharged 3 patients (census protection rule applied)" },
+  { ts: "20-May-2026, 07:07:44", category: "CLINICAL",  actor: "Jordan Alvarez, CLT",     facility: "Memorial Hospital",       details: "Submitted official lab report for Troponin panel (MRN-204517)" },
+  { ts: "20-May-2026, 07:02:19", category: "SECURITY",  actor: "Diane Whitaker (Admin)",  facility: "Global Network",          details: "Reassigned Hannah O'Connor, RN to Memorial Hospital" },
+  { ts: "20-May-2026, 06:58:55", category: "SYSTEM",    actor: "Ghost AI (System)",       facility: "Global Network",          details: "Scheduled automation cycle completed in 412ms" },
+  { ts: "20-May-2026, 06:54:12", category: "CLINICAL",  actor: "Brian Yamamoto, MD",      facility: "St. Jude Medical Center", details: "Ordered Lactic Acid + CMP panel for MRN-883102" },
+  { ts: "20-May-2026, 06:49:38", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "County Health Pavilion",  details: "Auto-resulted CMP lab (Glucose 450 [CRITICAL])" },
+];
+
+const CATEGORY_STYLES: Record<AuditCategory, string> = {
+  SECURITY:   "bg-red-900/10 text-red-700 border-red-200",
+  CLINICAL:   "bg-sky-900/10 text-sky-700 border-sky-200",
+  AUTOMATION: "bg-emerald-900/10 text-emerald-700 border-emerald-200",
+  SYSTEM:     "bg-slate-900/10 text-slate-700 border-slate-300",
+};
+
+function AuditLog() {
+  const downloadCsv = () => {
+    const header = ["Timestamp", "Category", "Actor", "Facility", "Details"];
+    const rows = AUDIT_EVENTS.map((e) =>
+      [e.ts, e.category, e.actor, e.facility, e.details]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(","),
+    );
+    const csv = [header.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Audit log exported", { description: `${AUDIT_EVENTS.length} events · CSV` });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">📜 Enterprise Event Ledger</h1>
+          <p className="text-sm text-slate-600 mt-1">
+            Immutable record of clinical, automation, security, and system events across the network. Newest first.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={downloadCsv}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#2d8a9e] hover:text-[#0c2340] hover:bg-slate-50 cursor-pointer transition shrink-0"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Download CSV
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-900 text-slate-100">
+              <tr>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Timestamp</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Category</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Actor</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Facility Scoped</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Action Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {AUDIT_EVENTS.map((e, i) => (
+                <tr key={i} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="px-4 py-2.5 font-mono text-[12px] text-slate-700 whitespace-nowrap">{e.ts}</td>
+                  <td className="px-4 py-2.5">
+                    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${CATEGORY_STYLES[e.category]}`}>
+                      [{e.category}]
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap">{e.actor}</td>
+                  <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap">{e.facility}</td>
+                  <td className="px-4 py-2.5 text-slate-700">{e.details}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
