@@ -349,6 +349,7 @@ export type Database = {
       }
       patients: {
         Row: {
+          admission_time: string | null
           age: number | null
           bp: string | null
           bp_diastolic: number | null
@@ -370,10 +371,12 @@ export type Database = {
           room: string | null
           rr: number | null
           spo2: number | null
+          status: string | null
           temp: number | null
           unread_labs_alert: boolean | null
         }
         Insert: {
+          admission_time?: string | null
           age?: number | null
           bp?: string | null
           bp_diastolic?: number | null
@@ -395,10 +398,12 @@ export type Database = {
           room?: string | null
           rr?: number | null
           spo2?: number | null
+          status?: string | null
           temp?: number | null
           unread_labs_alert?: boolean | null
         }
         Update: {
+          admission_time?: string | null
           age?: number | null
           bp?: string | null
           bp_diastolic?: number | null
@@ -420,6 +425,7 @@ export type Database = {
           room?: string | null
           rr?: number | null
           spo2?: number | null
+          status?: string | null
           temp?: number | null
           unread_labs_alert?: boolean | null
         }
