@@ -53,12 +53,69 @@ interface PatientRow {
   unreadLabs: boolean;
 }
 
-function normalizeCode(s: string): CodeStatus {
-  const v = s.trim().toLowerCase();
+function normalizeCode(s: string | null | undefined): CodeStatus {
+  const v = (s ?? "").trim().toLowerCase();
   if (v === "dnr") return "DNR";
   if (v === "dni") return "DNI";
   if (v === "comfort") return "Comfort";
   return "Full Code";
+}
+
+// Deterministic mock room from MRN so it stays stable across renders.
+function mockRoom(mrn: string): string {
+  let h = 0;
+  for (let i = 0; i < mrn.length; i++) h = (h * 31 + mrn.charCodeAt(i)) >>> 0;
+  const num = 400 + (h % 60); // 400 – 459
+  const bed = ["A", "B", "C", "D"][h % 4];
+  return `${num}-${bed}`;
+}
+
+type AlertKind = "sepsis" | "stemi" | "dka" | "stroke" | "pending";
+function classifyAlert(dx: string | null | undefined): AlertKind {
+  const d = (dx ?? "").toLowerCase();
+  if (d.includes("sepsis")) return "sepsis";
+  if (d.includes("stemi")) return "stemi";
+  if (d.includes("dka")) return "dka";
+  if (d.includes("stroke")) return "stroke";
+  return "pending";
+}
+
+function ClinicalAlertPill({ dx }: { dx: string | null | undefined }) {
+  const kind = classifyAlert(dx);
+  const base =
+    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 font-sans tracking-tight whitespace-nowrap";
+  switch (kind) {
+    case "sepsis":
+      return (
+        <span className={`${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`}>
+          🚨 Sepsis Watch
+        </span>
+      );
+    case "stemi":
+      return (
+        <span className={`${base} bg-red-100 text-red-800 ring-red-400`}>
+          ❤️ Cath Lab Alert
+        </span>
+      );
+    case "dka":
+      return (
+        <span className={`${base} bg-purple-100 text-purple-800 ring-purple-400`}>
+          🩸 ABG / Insulin Protocol
+        </span>
+      );
+    case "stroke":
+      return (
+        <span className={`${base} bg-orange-100 text-orange-800 ring-orange-400`}>
+          🧠 Stroke Alert
+        </span>
+      );
+    default:
+      return (
+        <span className={`${base} bg-slate-100 text-slate-600 ring-slate-300`}>
+          ⏳ Pending Orders
+        </span>
+      );
+  }
 }
 
 function toRow(p: any): PatientRow {
