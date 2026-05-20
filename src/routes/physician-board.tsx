@@ -114,6 +114,9 @@ function PhysicianBoard() {
   const [reason, setReason] = useState("");
   const [transferring, setTransferring] = useState(false);
 
+  // Clinical Actions modal
+  const [actionsMrn, setActionsMrn] = useState<string | null>(null);
+
   useEffect(() => {
     let active = true;
     (async () => {
@@ -295,9 +298,12 @@ function PhysicianBoard() {
                 return (
                   <button
                     key={p.mrn}
-                    onClick={() => setSelectedMrn(p.mrn)}
-                    className={`w-full text-left px-3 py-2.5 transition ${
-                      active ? "bg-[#0c2340] text-white" : "hover:bg-slate-50"
+                    onClick={() => {
+                      setSelectedMrn(p.mrn);
+                      setActionsMrn(p.mrn);
+                    }}
+                    className={`w-full text-left px-3 py-2.5 transition cursor-pointer ${
+                      active ? "bg-[#0c2340] text-white hover:bg-[#0c2340]/95" : "hover:bg-slate-100"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
