@@ -372,3 +372,83 @@ function SystemAdminPage() {
     </main>
   );
 }
+
+type StaffMember = {
+  name: string;
+  role: string;
+  facility: string;
+  status: "Active" | "Suspended";
+};
+
+const STAFF_DIRECTORY: StaffMember[] = [
+  { name: "Diane Whitaker", role: "System Administrator", facility: "Memorial Hospital", status: "Active" },
+  { name: "Marcus Lin, MD", role: "Attending Physician", facility: "Memorial Hospital", status: "Active" },
+  { name: "Sarah Jenkins, RN", role: "Registered Nurse", facility: "St. Jude Medical Center", status: "Active" },
+  { name: "Priya Raman, PharmD", role: "Clinical Pharmacist", facility: "City General Infirmary", status: "Active" },
+  { name: "Jordan Alvarez, CLT", role: "Clinical Lab Tech", facility: "Memorial Hospital", status: "Active" },
+  { name: "Evelyn Park, MD", role: "Attending Physician", facility: "Mercy Childrens Hospital", status: "Suspended" },
+  { name: "Tomás Reyes, RT", role: "Respiratory Therapist", facility: "County Health Pavilion", status: "Active" },
+  { name: "Hannah O'Connor, RN", role: "Registered Nurse", facility: "Memorial Hospital", status: "Active" },
+  { name: "Brian Yamamoto, MD", role: "Attending Physician", facility: "St. Jude Medical Center", status: "Active" },
+  { name: "Lena Kowalski, CLT", role: "Clinical Lab Tech", facility: "City General Infirmary", status: "Suspended" },
+];
+
+function UserDirectory() {
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-xl font-semibold text-slate-900">👥 User Directory</h1>
+        <p className="text-sm text-slate-600 mt-1">
+          Network-wide staff accounts with assigned clinical role, primary facility, and current access status.
+        </p>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-900 text-slate-100">
+            <tr>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Staff Name</th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Clinical Role</th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Primary Facility</th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Status</th>
+              <th className="text-right font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {STAFF_DIRECTORY.map((s) => (
+              <tr key={s.name} className="hover:bg-slate-50/70 transition-colors">
+                <td className="px-5 py-3 font-medium text-slate-900">{s.name}</td>
+                <td className="px-5 py-3 text-slate-700">{s.role}</td>
+                <td className="px-5 py-3 text-slate-700">{s.facility}</td>
+                <td className="px-5 py-3">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                      s.status === "Active"
+                        ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                        : "bg-red-100 text-red-700 border border-red-200"
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        s.status === "Active" ? "bg-emerald-500" : "bg-red-500"
+                      }`}
+                    />
+                    {s.status}
+                  </span>
+                </td>
+                <td className="px-5 py-3 text-right">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-[#2d8a9e] hover:text-[#0c2340] hover:bg-slate-50 cursor-pointer transition"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Edit Access
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
