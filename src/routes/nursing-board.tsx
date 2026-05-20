@@ -181,24 +181,25 @@ function Dashboard() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert",
+          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status",
         )
-        .order("room", { ascending: true });
+        .eq("status", "Admitted")
+        .eq("facility_name", facility)
+        .order("admission_time", { ascending: false })
+        .limit(200);
       if (cancelled) return;
       if (error) {
         setFetchError(error.message);
         setLoading(false);
         return;
       }
-      setPatients(
-        (data ?? []).map(toRow),
-      );
+      setPatients((data ?? []).map(toRow));
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [ready]);
+  }, [ready, facility]);
 
   useEffect(() => {
     if (!ready) return;
