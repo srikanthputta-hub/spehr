@@ -50,6 +50,7 @@ type Patient = {
   bp_diastolic: number | null;
   spo2: number | null;
   facility_name: string | null;
+  status: string | null;
 };
 
 const ROUTES = ["PO", "IV", "IM", "SubQ", "Inh", "Neb", "Topical", "PR"];
@@ -119,8 +120,10 @@ function PhysicianBoard() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name",
+          "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
         )
+        .eq("status", "Admitted")
+        .eq("facility_name", facility ?? "Memorial Hospital")
         .order("room", { ascending: true });
       if (!active) return;
       if (error) {
@@ -141,8 +144,10 @@ function PhysicianBoard() {
           supabase
             .from("patients")
             .select(
-              "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name",
+              "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
             )
+            .eq("status", "Admitted")
+            .eq("facility_name", facility ?? "Memorial Hospital")
             .order("room", { ascending: true })
             .then(({ data }) => {
               if (data) setPatients(data as Patient[]);
@@ -154,26 +159,27 @@ function PhysicianBoard() {
       active = false;
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [facility]);
 
-  const visiblePatients = useMemo(
-    () => patients.filter((p) => p.facility_name === facility),
-    [patients, facility],
+  const activeFacilityName = facility ?? "Memorial Hospital";
+  const allPatients = patients;
+  const filteredPatients = allPatients.filter(
+    (p) => p.facility_name === activeFacilityName,
   );
 
   const selected = useMemo(
-    () => visiblePatients.find((p) => p.mrn === selectedMrn) ?? null,
-    [visiblePatients, selectedMrn],
+    () => filteredPatients.find((p) => p.mrn === selectedMrn) ?? null,
+    [filteredPatients, selectedMrn],
   );
 
   useEffect(() => {
     if (selected) return;
-    if (visiblePatients.length > 0) {
-      setSelectedMrn(visiblePatients[0].mrn);
+    if (filteredPatients.length > 0) {
+      setSelectedMrn(filteredPatients[0].mrn);
     } else {
       setSelectedMrn(null);
     }
-  }, [visiblePatients, selected]);
+  }, [filteredPatients, selected]);
 
   // Reset side panels when patient changes
   useEffect(() => {
@@ -253,12 +259,6 @@ function PhysicianBoard() {
     setReason("");
     setTransferOpen(false);
   };
-
-  const activeFacilityName = facility;
-  const allPatients = patients;
-  const filteredPatients = allPatients.filter(
-    (patient) => patient.facility_name === activeFacilityName,
-  );
 
   return (
     <main className="min-h-screen bg-slate-50">
