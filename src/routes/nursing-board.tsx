@@ -464,6 +464,12 @@ function Dashboard() {
             <span className="text-white/50">| {nurse.facility} — {nurse.ward}</span>
             <span className="mx-2 h-3 w-px bg-white/15" />
             <FacilitySwitcher variant="dark" />
+            <Link
+              to="/tasks"
+              className="ml-2 inline-flex items-center gap-1 rounded-md bg-amber-400 px-2.5 py-1 text-[11px] font-semibold text-slate-900 hover:bg-amber-300"
+            >
+              📋 Task List
+            </Link>
           </div>
 
           <div className="flex-1 max-w-md mx-auto">
