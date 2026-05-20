@@ -698,60 +698,174 @@ function PhysicianBoard() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      toast.info("Laboratory order workflow coming soon", {
-                        description: `For ${fullName} (${p.mrn})`,
-                      })
-                    }
-                    className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
-                  >
-                    <span className="text-xl">🧪</span>
-                    <span className="text-center leading-tight">
-                      Order Laboratory Evaluation
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      toast.info("Progress note workflow coming soon", {
-                        description: `For ${fullName} (${p.mrn})`,
-                      })
-                    }
-                    className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
-                  >
-                    <span className="text-xl">✍️</span>
-                    <span className="text-center leading-tight">
-                      Write & E-Sign Progress Note
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      toast.info("Discharge / transfer workflow coming soon", {
-                        description: `For ${fullName} (${p.mrn})`,
-                      })
-                    }
-                    className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
-                  >
-                    <span className="text-xl">🚪</span>
-                    <span className="text-center leading-tight">
-                      Discharge / Transfer Patient
-                    </span>
-                  </button>
-                </div>
+                {actionsView === "menu" && (
+                  <>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <button
+                        type="button"
+                        onClick={() => setActionsView("lab")}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                      >
+                        <span className="text-xl">🧪</span>
+                        <span className="text-center leading-tight">Order Laboratory Evaluation</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActionsView("note")}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                      >
+                        <span className="text-xl">✍️</span>
+                        <span className="text-center leading-tight">Write & E-Sign Progress Note</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActionsView("discharge")}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                      >
+                        <span className="text-xl">🚪</span>
+                        <span className="text-center leading-tight">Discharge / Transfer Patient</span>
+                      </button>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setActionsMrn(null)}>
+                        Cancel
+                      </Button>
+                    </DialogFooter>
+                  </>
+                )}
 
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setActionsMrn(null)}
-                  >
-                    Cancel
-                  </Button>
-                </DialogFooter>
+                {actionsView === "lab" && (
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs uppercase tracking-wider text-slate-500">
+                        Test Type
+                      </Label>
+                      <select
+                        value={labTest}
+                        onChange={(e) => setLabTest(e.target.value)}
+                        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
+                      >
+                        <option>Complete Blood Count (CBC)</option>
+                        <option>Basic Metabolic Panel (BMP)</option>
+                        <option>Troponin</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2.5">
+                      <div>
+                        <Label className="text-sm font-medium text-slate-900">STAT Priority</Label>
+                        <p className="text-[11px] text-slate-500">Routes order to lab immediately.</p>
+                      </div>
+                      <Switch checked={labStat} onCheckedChange={setLabStat} />
+                    </div>
+                    <DialogFooter className="gap-2">
+                      <Button type="button" variant="outline" onClick={() => setActionsView("menu")}>
+                        Back
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          toast.success(`${labTest} ordered${labStat ? " — STAT" : ""}`, {
+                            description: `For ${fullName} (${p.mrn})`,
+                          });
+                          setActionsMrn(null);
+                        }}
+                      >
+                        Submit Order
+                      </Button>
+                    </DialogFooter>
+                  </div>
+                )}
+
+                {actionsView === "note" && (
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs uppercase tracking-wider text-slate-500">
+                        Progress Note
+                      </Label>
+                      <Textarea
+                        value={noteText}
+                        onChange={(e) => setNoteText(e.target.value)}
+                        rows={5}
+                        placeholder="Subjective, objective, assessment, plan…"
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs uppercase tracking-wider text-slate-500">
+                        Master PIN (1234)
+                      </Label>
+                      <Input
+                        type="password"
+                        value={notePin}
+                        onChange={(e) => setNotePin(e.target.value)}
+                        placeholder="••••"
+                        className="mt-1"
+                      />
+                    </div>
+                    <DialogFooter className="gap-2">
+                      <Button type="button" variant="outline" onClick={() => setActionsView("menu")}>
+                        Back
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          if (!noteText.trim()) {
+                            toast.error("Note body is required");
+                            return;
+                          }
+                          if (notePin !== "1234") {
+                            toast.error("Invalid Master PIN");
+                            return;
+                          }
+                          toast.success("Progress note signed & locked", {
+                            description: `For ${fullName} (${p.mrn})`,
+                          });
+                          setActionsMrn(null);
+                        }}
+                      >
+                        Sign & Lock Note
+                      </Button>
+                    </DialogFooter>
+                  </div>
+                )}
+
+                {actionsView === "discharge" && (
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs uppercase tracking-wider text-slate-500">
+                        Disposition
+                      </Label>
+                      <select
+                        value={disposition}
+                        onChange={(e) => setDisposition(e.target.value)}
+                        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
+                      >
+                        <option>Discharge to Home</option>
+                        <option>Transfer to ICU</option>
+                        <option>Transfer to SNF</option>
+                      </select>
+                    </div>
+                    <DialogFooter className="gap-2">
+                      <Button type="button" variant="outline" onClick={() => setActionsView("menu")}>
+                        Back
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          const mrn = p.mrn;
+                          setPatients((prev) => prev.filter((x) => x.mrn !== mrn));
+                          if (selectedMrn === mrn) setSelectedMrn(null);
+                          toast.success(`Disposition processed: ${disposition}`, {
+                            description: `${fullName} removed from active census.`,
+                          });
+                          setActionsMrn(null);
+                        }}
+                      >
+                        Process Disposition
+                      </Button>
+                    </DialogFooter>
+                  </div>
+                )}
               </>
             );
           })()}
