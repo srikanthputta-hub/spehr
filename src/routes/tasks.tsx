@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
+import { useFacility } from "@/lib/facility-context";
 import { toast } from "sonner";
 import { Loader2, CheckCircle2, ShieldCheck } from "lucide-react";
 
@@ -32,16 +33,36 @@ function mrnOf(t: TaskRow) {
 }
 
 function TasksPage() {
+  const { facility } = useFacility();
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    // Strict facility scoping: resolve MRNs for the selected facility first,
+    // then fetch only medication orders for those patients.
+    const { data: facPatients, error: pErr } = await supabase
+      .from("patients")
+      .select("mrn")
+      .eq("facility_name", facility);
+    if (pErr) {
+      toast.error("Failed to load tasks");
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+    const mrns = (facPatients ?? []).map((p: any) => p.mrn).filter(Boolean);
+    if (mrns.length === 0) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
     const { data, error } = await supabase
       .from("medication_orders")
       .select("*")
       .in("status", ["Pending Verification", "Approved"])
+      .in("patient_mrn", mrns)
       .order("created_at", { ascending: false });
     if (error) {
       toast.error("Failed to load tasks");
@@ -50,7 +71,7 @@ function TasksPage() {
       setTasks((data ?? []) as TaskRow[]);
     }
     setLoading(false);
-  }, []);
+  }, [facility]);
 
   useEffect(() => {
     load();
@@ -82,7 +103,11 @@ function TasksPage() {
 
   return (
     <main className="min-h-screen bg-slate-50">
-      <BoardHeader title="Active Task List" badge="Nursing" subtitle="Pending verifications & administrations" />
+      <BoardHeader
+        title={`Active Task List — ${facility}`}
+        badge="Nursing"
+        subtitle={`Pending verifications & administrations · ${facility}`}
+      />
       <section className="max-w-7xl mx-auto px-6 py-6">
         <div className="rounded-md border border-slate-200 bg-white">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
