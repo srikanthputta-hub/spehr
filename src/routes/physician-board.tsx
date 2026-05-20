@@ -157,7 +157,7 @@ function PhysicianBoard() {
   }, []);
 
   const visiblePatients = useMemo(
-    () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
+    () => patients.filter((p) => p.facility_name === facility),
     [patients, facility],
   );
 
