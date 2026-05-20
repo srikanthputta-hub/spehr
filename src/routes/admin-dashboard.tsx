@@ -851,3 +851,217 @@ function MetricCard({
     </div>
   );
 }
+
+function fmtTs(ts: string | null | undefined) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "—";
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}/${dd}/${yy} ${hh}:${mi}`;
+}
+
+function FacilityAnalytics({
+  patients,
+  facility,
+  loading,
+}: {
+  patients: Patient[];
+  facility: string;
+  loading: boolean;
+}) {
+  const totals = useMemo(() => {
+    let admitted = 0;
+    let discharged = 0;
+    for (const p of patients) {
+      if (p.status === "Admitted") admitted++;
+      else if (p.status === "Discharged") discharged++;
+    }
+    return { total: patients.length, admitted, discharged };
+  }, [patients]);
+
+  const chartData = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of patients) {
+      if (p.status !== "Admitted") continue;
+      const k = (p.chief_complaint ?? "Unspecified").trim() || "Unspecified";
+      map.set(k, (map.get(k) ?? 0) + 1);
+    }
+    return Array.from(map.entries())
+      .map(([complaint, count]) => ({ complaint, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [patients]);
+
+  const feed = useMemo(
+    () =>
+      [...patients]
+        .sort(
+          (a, b) =>
+            new Date(b.admission_time ?? 0).getTime() -
+            new Date(a.admission_time ?? 0).getTime(),
+        )
+        .slice(0, 50),
+    [patients],
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+          📊 Analytics Overview — {facility}
+        </h2>
+        <span className="text-[11px] text-slate-500 font-mono">
+          Scoped to selected facility
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <KpiCard label="Facility Admissions (All Time)" value={totals.total} tone="navy" />
+        <KpiCard label="Currently Admitted" value={totals.admitted} tone="emerald" />
+        <KpiCard label="Discharges" value={totals.discharged} tone="slate" />
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Acuity Mix
+            </div>
+            <div className="text-sm font-semibold text-slate-900">
+              Active Census by Chief Complaint — {facility}
+            </div>
+          </div>
+          <div className="text-[11px] text-slate-500 font-mono">
+            {loading ? "loading…" : `${totals.admitted} active`}
+          </div>
+        </div>
+        <div className="h-72 px-3 py-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="2 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis
+                dataKey="complaint"
+                tick={{ fontSize: 11, fill: "#475569" }}
+                axisLine={{ stroke: "#cbd5e1" }}
+                tickLine={false}
+                interval={0}
+                angle={-15}
+                textAnchor="end"
+                height={60}
+              />
+              <YAxis
+                allowDecimals={false}
+                tick={{ fontSize: 11, fill: "#475569" }}
+                axisLine={{ stroke: "#cbd5e1" }}
+                tickLine={false}
+              />
+              <Tooltip
+                cursor={{ fill: "rgba(13,148,136,0.06)" }}
+                contentStyle={{
+                  fontSize: 12,
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                  boxShadow: "0 4px 12px rgba(15,23,42,0.08)",
+                }}
+                formatter={(v: number) => [v, "Active"]}
+              />
+              <Bar dataKey="count" fill="#0d9488" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Live Feed
+            </div>
+            <div className="text-sm font-semibold text-slate-900">
+              Live Admissions Feed — {facility}
+            </div>
+          </div>
+          <span className="text-[11px] text-slate-500">{feed.length} latest</span>
+        </div>
+        <div className="max-h-[420px] overflow-auto">
+          <table className="w-full text-[12px]">
+            <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.14em] text-slate-500 sticky top-0">
+              <tr className="border-b border-slate-200">
+                <th className="text-left px-4 py-2 font-semibold">Timestamp</th>
+                <th className="text-left px-4 py-2 font-semibold">MRN</th>
+                <th className="text-left px-4 py-2 font-semibold">Patient</th>
+                <th className="text-left px-4 py-2 font-semibold">Chief Complaint</th>
+                <th className="text-left px-4 py-2 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {feed.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    No admissions on record for {facility}.
+                  </td>
+                </tr>
+              )}
+              {feed.map((p) => (
+                <tr key={p.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-2 font-mono text-slate-600 whitespace-nowrap">
+                    {fmtTs(p.admission_time)}
+                  </td>
+                  <td className="px-4 py-2 font-mono text-slate-900">{p.mrn ?? "—"}</td>
+                  <td className="px-4 py-2 text-slate-900">{fullName(p)}</td>
+                  <td className="px-4 py-2 text-slate-700">{p.chief_complaint ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    <span
+                      className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                        p.status === "Admitted"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : p.status === "Discharged"
+                            ? "bg-slate-100 text-slate-600 border-slate-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                      }`}
+                    >
+                      {p.status ?? "Unknown"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "navy" | "emerald" | "slate";
+}) {
+  const tones: Record<string, string> = {
+    navy: "bg-[#0c2340] text-white",
+    emerald: "bg-emerald-500 text-white",
+    slate: "bg-slate-200 text-slate-700",
+  };
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-5 py-4">
+      <div className="flex items-start justify-between">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          {label}
+        </div>
+        <div className={`h-2.5 w-2.5 rounded-full ${tones[tone]}`} />
+      </div>
+      <div className="mt-2 font-mono text-3xl font-semibold text-slate-900 tabular-nums">
+        {value.toLocaleString()}
+      </div>
+    </div>
+  );
+}
