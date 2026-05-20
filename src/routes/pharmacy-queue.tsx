@@ -49,6 +49,34 @@ type Lab = {
 
 const KEY_LABS = ["creatinine", "potassium", "k+", "k ", "bun", "egfr", "inr", "platelet", "wbc", "hgb", "hemoglobin"];
 
+type DispatchedMed = {
+  id: string;
+  ts: string;
+  patient_name: string;
+  mrn: string;
+  order: string;
+  pharmacist: string;
+  facility_name: string;
+};
+
+const DISPATCHED_MEDS: DispatchedMed[] = [
+  { id: "d1", ts: "20-May-2026, 07:42:11", patient_name: "Marcus Reyes", mrn: "MRN-39281", order: "Vancomycin 1g IV q12h", pharmacist: "Priya Raman, PharmD", facility_name: "Memorial Hospital" },
+  { id: "d2", ts: "20-May-2026, 07:38:02", patient_name: "Eleanor Pham", mrn: "MRN-39114", order: "Lisinopril 10mg PO daily", pharmacist: "Priya Raman, PharmD", facility_name: "Memorial Hospital" },
+  { id: "d3", ts: "20-May-2026, 07:31:47", patient_name: "Devon Brooks", mrn: "MRN-39022", order: "Piperacillin-Tazobactam 4.5g IV q8h", pharmacist: "Priya Raman, PharmD", facility_name: "Memorial Hospital" },
+  { id: "d4", ts: "20-May-2026, 07:24:18", patient_name: "Hannah Liu", mrn: "MRN-38997", order: "Enoxaparin 40mg SC daily", pharmacist: "Priya Raman, PharmD", facility_name: "Memorial Hospital" },
+  { id: "d5", ts: "20-May-2026, 07:19:50", patient_name: "Robert Castellano", mrn: "MRN-72104", order: "Metoprolol Tartrate 25mg PO BID", pharmacist: "Anil Mehta, PharmD", facility_name: "St. Jude Medical Center" },
+  { id: "d6", ts: "20-May-2026, 07:12:33", patient_name: "Sofia Alvarez", mrn: "MRN-72088", order: "Ceftriaxone 2g IV q24h", pharmacist: "Anil Mehta, PharmD", facility_name: "St. Jude Medical Center" },
+  { id: "d7", ts: "20-May-2026, 07:05:21", patient_name: "Theodore Banks", mrn: "MRN-72031", order: "Atorvastatin 40mg PO QHS", pharmacist: "Anil Mehta, PharmD", facility_name: "St. Jude Medical Center" },
+  { id: "d8", ts: "20-May-2026, 06:58:04", patient_name: "Naomi Tate", mrn: "MRN-54812", order: "Insulin Glargine 18 units SC QHS", pharmacist: "Karen Schultz, PharmD", facility_name: "City General Infirmary" },
+  { id: "d9", ts: "20-May-2026, 06:51:47", patient_name: "Idris Mensah", mrn: "MRN-54790", order: "Furosemide 40mg IV push", pharmacist: "Karen Schultz, PharmD", facility_name: "City General Infirmary" },
+  { id: "d10", ts: "20-May-2026, 06:44:12", patient_name: "Grace Whitman", mrn: "MRN-54744", order: "Pantoprazole 40mg IV daily", pharmacist: "Karen Schultz, PharmD", facility_name: "City General Infirmary" },
+  { id: "d11", ts: "20-May-2026, 06:37:55", patient_name: "Jacob Sterling", mrn: "MRN-66201", order: "Hydromorphone 0.5mg IV q4h PRN", pharmacist: "Linda Park, PharmD", facility_name: "County Health Pavilion" },
+  { id: "d12", ts: "20-May-2026, 06:30:18", patient_name: "Maya Okafor", mrn: "MRN-66188", order: "Levothyroxine 75mcg PO daily", pharmacist: "Linda Park, PharmD", facility_name: "County Health Pavilion" },
+  { id: "d13", ts: "20-May-2026, 06:22:41", patient_name: "Aiden Park (peds)", mrn: "MRN-81044", order: "Amoxicillin 250mg/5mL PO TID", pharmacist: "Rosa Delgado, PharmD", facility_name: "Mercy Childrens Hospital" },
+  { id: "d14", ts: "20-May-2026, 06:15:09", patient_name: "Lily Tanaka (peds)", mrn: "MRN-81029", order: "Albuterol 2.5mg Neb q4h PRN", pharmacist: "Rosa Delgado, PharmD", facility_name: "Mercy Childrens Hospital" },
+  { id: "d15", ts: "20-May-2026, 06:07:33", patient_name: "Noah Bennett (peds)", mrn: "MRN-81015", order: "Acetaminophen 160mg/5mL PO q6h PRN", pharmacist: "Rosa Delgado, PharmD", facility_name: "Mercy Childrens Hospital" },
+];
+
 function PharmacyQueue() {
   const { facility } = useFacility();
   const pharm = useActiveStaff("PharmD");
@@ -455,6 +483,62 @@ function PharmacyQueue() {
               </div>
             </>
           )}
+
+          {/* Recent dispatched medications feed */}
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+              💊 Recent Dispatched Medications — {facility}
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Latest verified &amp; dispensed orders at {facility}, newest first.
+            </p>
+            <div className="mt-3 rounded-xl border border-slate-300 bg-white overflow-hidden shadow-sm">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-900 text-slate-100">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Timestamp</th>
+                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Patient Name</th>
+                    <th className="text-left px-3 py-2 font-semibold tracking-wide">MRN</th>
+                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Medication Order</th>
+                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Status</th>
+                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Verifying Pharmacist</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const rows = DISPATCHED_MEDS.filter((m) => m.facility_name === facility);
+                    if (rows.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                            No dispatches recorded for {facility}.
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return rows.map((m, i) => (
+                      <tr
+                        key={m.id}
+                        className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
+                      >
+                        <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">{m.ts}</td>
+                        <td className="px-3 py-2 font-medium text-slate-900">{m.patient_name}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600">{m.mrn}</td>
+                        <td className="px-3 py-2 text-slate-800">{m.order}</td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Dispensed
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-slate-700">{m.pharmacist}</td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </section>
       </div>
     </main>
