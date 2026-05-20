@@ -136,7 +136,11 @@ function LabBoard() {
     (o) => o.status === "Completed" || o.status === "Resulted",
   );
   const recentResulted = orders
-    .filter((o) => o.status === "Resulted" || o.status === "Completed")
+    .filter(
+      (o) =>
+        (o.status === "Resulted" || o.status === "Completed") &&
+        o.facility_name === facility,
+    )
     .slice(0, 50);
 
   const runSample = async (order: LabOrderRow) => {
@@ -313,10 +317,10 @@ function LabBoard() {
         <div>
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             🗄️ Recent Completed Labs Feed
-            <span className="text-xs font-normal text-slate-500">(Auto-Updating · Network-wide)</span>
+            <span className="text-xs font-normal text-slate-500">(Auto-Updating · {facility})</span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Latest {recentResulted.length} resulted labs across the network, newest first.
+            Latest {recentResulted.length} resulted labs at {facility}, newest first.
           </p>
           <div className="mt-3 rounded-xl border border-slate-300 bg-white overflow-hidden shadow-sm">
             <table className="w-full text-xs">
