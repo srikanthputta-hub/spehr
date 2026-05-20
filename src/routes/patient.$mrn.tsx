@@ -9,6 +9,7 @@ export const Route = createFileRoute("/patient/$mrn")({
 });
 
 interface PatientRecord {
+  id: string;
   mrn: string;
   first_name: string | null;
   last_name: string | null;
@@ -187,17 +188,18 @@ function useLabs(mrn: string) {
   return rows;
 }
 
-function useMeds(mrn: string) {
+function useMeds(patientId: string | null | undefined) {
   const [rows, setRows] = useState<MedRow[] | null>(null);
   useEffect(() => {
+    if (!patientId) { setRows([]); return; }
     let c = false;
     supabase.from("medication_orders")
       .select("id, medication_name, drug_name, medication, dose, route, status, administered_at, created_at")
-      .eq("mrn", mrn)
+      .eq("patient_id", patientId)
       .order("created_at", { ascending: false })
       .then(({ data }) => { if (!c) setRows((data as MedRow[]) ?? []); });
     return () => { c = true; };
-  }, [mrn]);
+  }, [patientId]);
   return rows;
 }
 
@@ -298,8 +300,8 @@ function LabsView({ mrn }: { mrn: string }) {
   );
 }
 
-function MarView({ mrn }: { mrn: string }) {
-  const rows = useMeds(mrn);
+function MarView({ patientId }: { patientId: string }) {
+  const rows = useMeds(patientId);
   if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
   if (rows.length === 0) return emptyMsg;
   return (
@@ -495,7 +497,7 @@ function NotesView({ mrn }: { mrn: string }) {
 
 function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
   const labs = useLabs(mrn);
-  const meds = useMeds(mrn);
+  const meds = useMeds(patient.id);
   const [notes] = useNotes(mrn, 0);
 
   const topMeds = (meds ?? []).slice(0, 3);
@@ -603,7 +605,7 @@ function PatientChart() {
       setError(null);
       const { data, error } = await supabase
         .from("patients")
-        .select("mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time")
+        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time")
         .eq("mrn", mrn)
         .maybeSingle();
       if (cancelled) return;
@@ -783,7 +785,7 @@ function PatientChart() {
         ) : tab === "mar" ? (
           <div className={panelClass + " overflow-hidden"}>
             <header className={sectionHeader}>Medication Administration Record</header>
-            <MarView mrn={patient.mrn} />
+            <MarView patientId={patient.id} />
           </div>
         ) : (
           <NotesView mrn={patient.mrn} />
