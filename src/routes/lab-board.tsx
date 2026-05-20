@@ -129,8 +129,15 @@ function LabBoard() {
     () => orders.filter((o) => o.facility_name === facility),
     [orders, facility],
   );
-  const pending = visible.filter((o) => o.status !== "Completed");
-  const completed = visible.filter((o) => o.status === "Completed");
+  const pending = visible.filter(
+    (o) => o.status === "Pending" || o.status === "In Progress" || o.status === "Pending Collection",
+  );
+  const completed = visible.filter(
+    (o) => o.status === "Completed" || o.status === "Resulted",
+  );
+  const recentResulted = orders
+    .filter((o) => o.status === "Resulted" || o.status === "Completed")
+    .slice(0, 50);
 
   const runSample = async (order: LabOrderRow) => {
     setProcessing(order.id);
@@ -303,27 +310,67 @@ function LabBoard() {
           </div>
         </div>
 
-        {completed.length > 0 && (
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Recently Resulted</h2>
-            <ul className="mt-3 grid gap-2">
-              {completed.slice(0, 8).map((o) => (
-                <li
-                  key={o.id}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 flex items-center justify-between text-sm"
-                >
-                  <span className="text-slate-800">
-                    <span className="font-medium">{o.patient_name}</span>
-                    <span className="text-slate-500"> · {o.test_type}</span>
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Completed
-                  </span>
-                </li>
-              ))}
-            </ul>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            🗄️ Recent Completed Labs Feed
+            <span className="text-xs font-normal text-slate-500">(Auto-Updating · Network-wide)</span>
+          </h2>
+          <p className="text-xs text-slate-500 mt-1">
+            Latest {recentResulted.length} resulted labs across the network, newest first.
+          </p>
+          <div className="mt-3 rounded-xl border border-slate-300 bg-white overflow-hidden shadow-sm">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-900 text-slate-100">
+                <tr>
+                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Timestamp</th>
+                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Patient Name</th>
+                  <th className="text-left px-3 py-2 font-semibold tracking-wide">MRN</th>
+                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Test Type</th>
+                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Status</th>
+                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Ordering Physician</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentResulted.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                      No resulted labs yet.
+                    </td>
+                  </tr>
+                ) : (
+                  recentResulted.map((o, i) => (
+                    <tr
+                      key={o.id}
+                      className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
+                    >
+                      <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
+                        {o.created_at
+                          ? new Date(o.created_at).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            })
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2 font-medium text-slate-900">{o.patient_name}</td>
+                      <td className="px-3 py-2 font-mono text-slate-600">{o.patient_mrn}</td>
+                      <td className="px-3 py-2 text-slate-800">{o.test_type}</td>
+                      <td className="px-3 py-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          {o.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-slate-700">{o.requested_by}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
       </section>
     </main>
   );
