@@ -51,6 +51,7 @@ interface PatientRow {
   medsDue: number;
   facility: string;
   unreadLabs: boolean;
+  admittedAt: string | null;
 }
 
 function normalizeCode(s: string | null | undefined): CodeStatus {
@@ -195,6 +196,7 @@ function toRow(p: any): PatientRow {
     medsDue: p.meds_due_count ?? 1,
     facility: p.facility_name ?? "Memorial Hospital",
     unreadLabs: !!p.unread_labs_alert,
+    admittedAt: p.admission_time ?? null,
   };
 }
 
@@ -242,7 +244,7 @@ function Dashboard() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status",
+          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
         )
         .eq("status", "Admitted")
         .eq("facility_name", facility)
