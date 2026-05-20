@@ -118,7 +118,9 @@ function PhysicianBoard() {
 
   // Clinical Actions modal
   const [actionsMrn, setActionsMrn] = useState<string | null>(null);
-  const [actionsView, setActionsView] = useState<"menu" | "lab" | "note" | "discharge">("menu");
+  const [actionsView, setActionsView] = useState<
+    "menu" | "orders" | "lab" | "note" | "discharge"
+  >("menu");
   const [labTest, setLabTest] = useState("Complete Blood Count (CBC)");
   const [labStat, setLabStat] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -223,24 +225,38 @@ function PhysicianBoard() {
       return;
     }
     setSubmitting(true);
-    const { error } = await supabase.from("medication_orders").insert({
-      mrn: selected.mrn,
-      drug_name: drug.trim(),
-      dose: dose.trim(),
-      route,
-      frequency: freq,
-      status: "PENDING_PHARMACY",
-    });
-    setSubmitting(false);
-    if (error) {
-      toast.error("Order failed", { description: error.message });
-      return;
+    const patientName =
+      [selected.first_name, selected.last_name].filter(Boolean).join(" ") ||
+      selected.mrn;
+    try {
+      const { error } = await supabase.from("medication_orders").insert({
+        patient_name: patientName,
+        mrn: selected.mrn,
+        patient_mrn: selected.mrn,
+        facility_name: facility ?? "Memorial Hospital",
+        drug_name: drug.trim(),
+        medication_name: drug.trim(),
+        dose: dose.trim(),
+        route,
+        frequency: freq,
+        status: "PENDING_VERIFICATION",
+        ordering_physician: md.name,
+        ordered_by: md.name,
+      });
+      if (error) throw error;
+      toast.success("Order routed to Pharmacy queue", {
+        description: `${drug.trim()} ${dose.trim()} ${route} ${freq}`,
+      });
+      setDrug("");
+      setDose("");
+      setRoute("PO");
+      setFreq("Daily");
+      if (actionsMrn) setActionsMrn(null);
+    } catch (err: any) {
+      toast.error("Order failed", { description: err?.message ?? "Unknown error" });
+    } finally {
+      setSubmitting(false);
     }
-    toast.success("Order routed to Pharmacy", {
-      description: `${drug.trim()} ${dose.trim()} ${route} ${freq}`,
-    });
-    setDrug("");
-    setDose("");
   };
 
   const runDdx = async () => {
@@ -700,7 +716,15 @@ function PhysicianBoard() {
                 {/* Action Buttons */}
                 {actionsView === "menu" && (
                   <>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <button
+                        type="button"
+                        onClick={() => setActionsView("orders")}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                      >
+                        <span className="text-xl">💊</span>
+                        <span className="text-center leading-tight">Order Medication</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => setActionsView("lab")}
@@ -732,6 +756,76 @@ function PhysicianBoard() {
                       </Button>
                     </DialogFooter>
                   </>
+                )}
+
+                {actionsView === "orders" && (
+                  <form onSubmit={submitOrder} className="space-y-4">
+                    <div className="grid grid-cols-12 gap-3">
+                      <Field label="Drug Name" className="col-span-12 md:col-span-6">
+                        <input
+                          value={drug}
+                          onChange={(e) => setDrug(e.target.value)}
+                          placeholder="e.g. Vancomycin"
+                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
+                        />
+                      </Field>
+                      <Field label="Dose" className="col-span-6 md:col-span-2">
+                        <input
+                          value={dose}
+                          onChange={(e) => setDose(e.target.value)}
+                          placeholder="1 g"
+                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
+                        />
+                      </Field>
+                      <Field label="Route" className="col-span-6 md:col-span-2">
+                        <select
+                          value={route}
+                          onChange={(e) => setRoute(e.target.value)}
+                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
+                        >
+                          {ROUTES.map((r) => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Frequency" className="col-span-12 md:col-span-2">
+                        <select
+                          value={freq}
+                          onChange={(e) => setFreq(e.target.value)}
+                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
+                        >
+                          {FREQS.map((f) => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                      Routes to Pharmacy at <span className="font-semibold">{facility ?? "Memorial Hospital"}</span> as{" "}
+                      <span className="font-mono">PENDING_VERIFICATION</span> by{" "}
+                      <span className="font-semibold">{md.name}</span>.
+                    </div>
+                    <DialogFooter className="gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setActionsView("menu")}
+                        disabled={submitting}
+                      >
+                        Back
+                      </Button>
+                      <Button type="submit" disabled={submitting}>
+                        {submitting ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Submitting…
+                          </>
+                        ) : (
+                          "Submit & Route to Pharmacy"
+                        )}
+                      </Button>
+                    </DialogFooter>
+                  </form>
                 )}
 
                 {actionsView === "lab" && (

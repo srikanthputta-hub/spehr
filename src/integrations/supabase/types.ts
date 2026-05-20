@@ -208,6 +208,7 @@ export type Database = {
           dose: string | null
           drug: string | null
           drug_name: string | null
+          facility_name: string | null
           frequency: string | null
           id: string
           medication: string | null
@@ -215,6 +216,7 @@ export type Database = {
           mrn: string | null
           name: string | null
           ordered_by: string | null
+          ordering_physician: string | null
           patient_id: string | null
           patient_mrn: string | null
           patient_name: string | null
@@ -228,6 +230,7 @@ export type Database = {
           dose?: string | null
           drug?: string | null
           drug_name?: string | null
+          facility_name?: string | null
           frequency?: string | null
           id?: string
           medication?: string | null
@@ -235,6 +238,7 @@ export type Database = {
           mrn?: string | null
           name?: string | null
           ordered_by?: string | null
+          ordering_physician?: string | null
           patient_id?: string | null
           patient_mrn?: string | null
           patient_name?: string | null
@@ -248,6 +252,7 @@ export type Database = {
           dose?: string | null
           drug?: string | null
           drug_name?: string | null
+          facility_name?: string | null
           frequency?: string | null
           id?: string
           medication?: string | null
@@ -255,6 +260,7 @@ export type Database = {
           mrn?: string | null
           name?: string | null
           ordered_by?: string | null
+          ordering_physician?: string | null
           patient_id?: string | null
           patient_mrn?: string | null
           patient_name?: string | null

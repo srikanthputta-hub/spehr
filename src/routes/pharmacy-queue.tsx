@@ -118,7 +118,7 @@ function PharmacyQueue() {
       const { data, error } = await supabase
         .from("medication_orders")
         .select("id, mrn, drug_name, dose, route, frequency, status")
-        .eq("status", "PENDING_PHARMACY");
+        .in("status", ["PENDING_PHARMACY", "PENDING_VERIFICATION"]);
       if (!active) return;
       if (error) setError(error.message);
       else {
@@ -139,7 +139,11 @@ function PharmacyQueue() {
           if (!row) return;
           setOrders((prev) => {
             const without = prev.filter((o) => o.id !== row.id);
-            if (payload.eventType !== "DELETE" && (payload.new as Order)?.status === "PENDING_PHARMACY") {
+            const newStatus = (payload.new as Order)?.status;
+            if (
+              payload.eventType !== "DELETE" &&
+              (newStatus === "PENDING_PHARMACY" || newStatus === "PENDING_VERIFICATION")
+            ) {
               return [...without, payload.new as Order];
             }
             return without;
