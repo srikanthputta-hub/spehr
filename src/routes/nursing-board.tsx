@@ -494,22 +494,21 @@ function Dashboard() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-[12.5px] font-sans border-collapse">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground bg-secondary/30">
-                  <Th>Room / Bed</Th>
-                  <Th>Patient</Th>
-                  <Th>Code</Th>
-                  <Th>Diagnosis</Th>
-                  <Th>Live Vitals</Th>
-                  <Th>Next Task</Th>
-                  <Th className="text-right pr-5">Action</Th>
+                <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-slate-600 bg-slate-100 border-b border-slate-300">
+                  <th className="px-3 py-2 font-bold">Room / Bed</th>
+                  <th className="px-3 py-2 font-bold">MRN</th>
+                  <th className="px-3 py-2 font-bold">Patient Name</th>
+                  <th className="px-3 py-2 font-bold">Diagnosis</th>
+                  <th className="px-3 py-2 font-bold">Clinical Alerts</th>
+                  <th className="px-3 py-2 font-bold text-right pr-4">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={6} className="px-5 py-10 text-center text-sm text-muted-foreground">
                       <span className="inline-flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
                         Loading floor census…
@@ -519,7 +518,7 @@ function Dashboard() {
                 )}
                 {!loading && fetchError && (
                   <tr>
-                    <td colSpan={7} className="px-5 py-10 text-center text-sm">
+                    <td colSpan={6} className="px-5 py-10 text-center text-sm">
                       <div className="inline-flex items-center gap-2 text-red-600">
                         <AlertTriangle className="h-4 w-4" />
                         Unable to load patients — {fetchError}
@@ -527,96 +526,75 @@ function Dashboard() {
                     </td>
                   </tr>
                 )}
-                {!loading && !fetchError && rows.map((p) => {
-                  const hrAlert = hrOutOfRange(p.hr);
-                  const bpAlert = bpOutOfRange(p.bp);
-                  const o2Alert = o2OutOfRange(p.o2);
-                  const anyAlert = hrAlert || bpAlert || o2Alert;
+                {!loading && !fetchError && rows.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-16 text-center">
+                      <div className="flex flex-col items-center gap-2 text-slate-500">
+                        <div className="text-3xl">🛏️</div>
+                        <div className="text-sm font-semibold text-slate-700">
+                          Floor Census Empty — Waiting for Triage Admissions.
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          {facility} · Live monitoring active
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {!loading && !fetchError && rows.map((p, i) => {
+                  const room = p.room?.trim() || mockRoom(p.mrn);
                   return (
                     <tr
                       key={p.mrn}
-                      className="border-t border-border group hover:bg-[var(--teal-soft)]/40 transition"
+                      className={`border-b border-slate-200 hover:bg-[var(--teal-soft)]/40 transition ${
+                        i % 2 === 1 ? "bg-slate-50/60" : "bg-white"
+                      }`}
                     >
-                      <td className="px-5 py-3.5 align-top">
-                        <div className="font-semibold text-foreground tabular-nums">
-                          {p.room ?? "—"}
-                        </div>
-                        {anyAlert && (
-                          <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-red-600">
-                            <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-                            ALERT
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5 align-top">
-                        <div className="font-medium text-foreground">{p.name}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {p.age}{p.sex} · {p.mrn}
-                        </div>
-                        {p.unreadLabs && (
-                          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 ring-1 ring-amber-600/30 px-2 py-0.5 text-[10px] font-semibold animate-pulse">
-                            🧪 New Labs Ready
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5 align-top">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${codeBadge[p.code]}`}
-                        >
-                          {p.code}
+                      <td className="px-3 py-2 align-middle">
+                        <span className="font-mono font-bold text-slate-900 tabular-nums text-[12.5px]">
+                          {room}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 align-top text-foreground/90 max-w-[220px]">
-                        {p.diagnosis}
+                      <td className="px-3 py-2 align-middle font-mono text-slate-600 text-[12px]">
+                        {p.mrn}
                       </td>
-                      <td className="px-5 py-3.5 align-top">
-                        <div className="text-sm font-medium tabular-nums text-foreground/90">
-                          <span className={hrAlert ? "text-red-600 font-bold" : ""}>
-                            {p.hr} bpm
-                          </span>
-                          <span className="text-muted-foreground"> | </span>
-                          <span className={bpAlert ? "text-red-600 font-bold" : ""}>
-                            {p.bp} mmHg
-                          </span>
-                          <span className="text-muted-foreground"> | </span>
-                          <span className={o2Alert ? "text-red-600 font-bold" : ""}>
-                            {p.o2}%
-                          </span>
+                      <td className="px-3 py-2 align-middle font-semibold text-slate-900">
+                        {p.name}
+                        <span className="ml-1.5 text-[11px] font-normal text-slate-500">
+                          {p.age ? `${p.age}${p.sex ?? ""}` : ""}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 align-middle text-slate-700 max-w-[260px]">
+                        <div className="truncate" title={p.diagnosis}>
+                          {p.diagnosis || "—"}
                         </div>
                       </td>
-                      <td className="px-5 py-3.5 align-top text-foreground/90">
-                        {p.task}
+                      <td className="px-3 py-2 align-middle">
+                        <ClinicalAlertPill dx={p.diagnosis} />
                       </td>
-                      <td className="px-5 py-3.5 align-top text-right pr-5">
+                      <td className="px-3 py-2 align-middle text-right pr-4">
                         <div className="inline-flex items-center gap-1.5">
                           <Link
                             to="/chart/$mrn"
                             params={{ mrn: p.mrn }}
-                            className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 h-8 text-xs font-medium text-foreground hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 h-7 text-[11px] font-semibold text-slate-700 hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
                           >
                             Open Chart
-                            <ChevronRight className="h-3.5 w-3.5" />
+                            <ChevronRight className="h-3 w-3" />
                           </Link>
                           <button
                             onClick={() => setDischarging(p)}
                             title="Discharge patient"
                             aria-label={`Discharge ${p.name}`}
-                            className="inline-grid place-items-center h-8 w-8 rounded-md border border-border bg-background text-muted-foreground hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                            className="inline-grid place-items-center h-7 w-7 rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-3 w-3" />
                           </button>
                         </div>
                       </td>
                     </tr>
                   );
                 })}
-                {!loading && !fetchError && rows.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
-                      {query ? `No charts match "${query}".` : "No patients on the floor."}
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
