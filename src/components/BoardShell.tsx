@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { HeartPulse, LogOut, Construction, ClipboardList, BarChart3 } from "lucide-react";
+import { HeartPulse, LogOut, Construction, ClipboardList } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
 
@@ -40,12 +40,6 @@ export function BoardHeader({
       </div>
       <div className="flex items-center gap-3">
         <FacilitySwitcher variant="light" />
-        <Link
-          to="/analytics"
-          className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100"
-        >
-          <BarChart3 className="h-3.5 w-3.5" /> 📊 Analytics
-        </Link>
         <Link
           to="/tasks"
           className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
