@@ -218,10 +218,10 @@ function SystemAdminPage() {
               </div>
               <div className="min-w-0">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Master Switch
+                  ⚙️ Global System Controls
                 </div>
                 <div className="text-base font-semibold text-slate-900">
-                  Automate Hospital Network
+                  Automate Hospital Network (AI Engines)
                 </div>
                 <div className="text-xs text-slate-600 mt-0.5">
                   Controls all background engines: ghost admissions, discharges, lab
