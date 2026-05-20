@@ -116,6 +116,7 @@ function LabBoard() {
     const { data } = await supabase
       .from("lab_orders")
       .select("*")
+      .eq("facility_name", facility)
       .order("created_at", { ascending: false });
     setOrders((data as LabOrderRow[]) ?? []);
     setLoading(false);
@@ -123,7 +124,7 @@ function LabBoard() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [facility]);
 
   const visible = useMemo(
     () => orders.filter((o) => o.facility_name === facility),
