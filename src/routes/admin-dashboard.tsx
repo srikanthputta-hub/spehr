@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/sheet";
 import { Progress } from "@/components/ui/progress";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -794,6 +795,9 @@ function AdminDashboard() {
             </div>
           )}
         </div>
+      </section>
+      <section className="max-w-[1400px] mx-auto px-6 pb-10">
+        <PatientFlowCensusLog />
       </section>
     </main>
   );
