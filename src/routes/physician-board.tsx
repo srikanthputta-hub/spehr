@@ -118,7 +118,9 @@ function PhysicianBoard() {
 
   // Clinical Actions modal
   const [actionsMrn, setActionsMrn] = useState<string | null>(null);
-  const [actionsView, setActionsView] = useState<"menu" | "lab" | "note" | "discharge">("menu");
+  const [actionsView, setActionsView] = useState<
+    "menu" | "orders" | "lab" | "note" | "discharge"
+  >("menu");
   const [labTest, setLabTest] = useState("Complete Blood Count (CBC)");
   const [labStat, setLabStat] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -223,24 +225,38 @@ function PhysicianBoard() {
       return;
     }
     setSubmitting(true);
-    const { error } = await supabase.from("medication_orders").insert({
-      mrn: selected.mrn,
-      drug_name: drug.trim(),
-      dose: dose.trim(),
-      route,
-      frequency: freq,
-      status: "PENDING_PHARMACY",
-    });
-    setSubmitting(false);
-    if (error) {
-      toast.error("Order failed", { description: error.message });
-      return;
+    const patientName =
+      [selected.first_name, selected.last_name].filter(Boolean).join(" ") ||
+      selected.mrn;
+    try {
+      const { error } = await supabase.from("medication_orders").insert({
+        patient_name: patientName,
+        mrn: selected.mrn,
+        patient_mrn: selected.mrn,
+        facility_name: facility ?? "Memorial Hospital",
+        drug_name: drug.trim(),
+        medication_name: drug.trim(),
+        dose: dose.trim(),
+        route,
+        frequency: freq,
+        status: "PENDING_VERIFICATION",
+        ordering_physician: md.name,
+        ordered_by: md.name,
+      });
+      if (error) throw error;
+      toast.success("Order routed to Pharmacy queue", {
+        description: `${drug.trim()} ${dose.trim()} ${route} ${freq}`,
+      });
+      setDrug("");
+      setDose("");
+      setRoute("PO");
+      setFreq("Daily");
+      if (actionsMrn) setActionsMrn(null);
+    } catch (err: any) {
+      toast.error("Order failed", { description: err?.message ?? "Unknown error" });
+    } finally {
+      setSubmitting(false);
     }
-    toast.success("Order routed to Pharmacy", {
-      description: `${drug.trim()} ${dose.trim()} ${route} ${freq}`,
-    });
-    setDrug("");
-    setDose("");
   };
 
   const runDdx = async () => {
