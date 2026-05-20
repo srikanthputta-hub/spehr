@@ -808,14 +808,16 @@ function ChartPage() {
                       {savingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span aria-hidden>💾</span>}
                       Save As Draft
                     </button>
-                    <button
-                      type="button"
-                      onClick={openEsignModal}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
-                    >
-                      <span aria-hidden>✍️</span>
-                      E-Sign & Lock Note
-                    </button>
+                    {can("btn_esign_note") && (
+                      <button
+                        type="button"
+                        onClick={openEsignModal}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
+                      >
+                        <span aria-hidden>✍️</span>
+                        E-Sign & Lock Note
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
