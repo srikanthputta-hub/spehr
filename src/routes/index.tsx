@@ -36,15 +36,17 @@ type RoleRoute =
   | "/pharmacy-queue"
   | "/respiratory-board"
   | "/admin-dashboard"
-  | "/lab-board";
+  | "/lab-board"
+  | "/system-admin";
 
-const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole }[] = [
+const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = [
   { value: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
   { value: "/physician-board", label: "Attending Physician", abbrev: "MD" },
   { value: "/pharmacy-queue", label: "Clinical Pharmacist", abbrev: "PharmD" },
   { value: "/respiratory-board", label: "Respiratory Therapist", abbrev: "RT" },
   { value: "/admin-dashboard", label: "Unit Administrator", abbrev: "Admin" },
   { value: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
+  { value: "/system-admin", label: "EHR Specialist", abbrev: "EHR" },
 ];
 
 function LoginScreen() {
@@ -52,11 +54,18 @@ function LoginScreen() {
   const [role, setRole] = useState<RoleRoute | "">("");
   const { facility, setFacility, setActiveRole } = useFacility();
   const selectedRole = ROLES.find((r) => r.value === role);
-  const activeStaff = selectedRole ? STAFF_BY_FACILITY[facility][selectedRole.abbrev] : null;
+  const isEhr = selectedRole?.abbrev === "EHR";
+  const activeStaff =
+    selectedRole && !isEhr ? STAFF_BY_FACILITY[facility][selectedRole.abbrev as StaffRole] : null;
 
   const handleLaunch = () => {
     if (!role) return;
-    if (selectedRole) setActiveRole(selectedRole.abbrev);
+    if (selectedRole && !isEhr) setActiveRole(selectedRole.abbrev as StaffRole);
+    if (isEhr) {
+      try {
+        localStorage.setItem("spehr.activeRole", "EHR");
+      } catch {}
+    }
     navigate({ to: role });
   };
 
@@ -145,7 +154,7 @@ function LoginScreen() {
             </Select>
           </div>
 
-          {activeStaff && (
+          {activeStaff && !isEhr && (
             <div className="mt-4 rounded-lg border border-[#5cbdb9]/25 bg-[#0a1220]/70 p-3 space-y-2">
               <label className="block text-[10px] uppercase tracking-[0.18em] text-slate-400">
                 Facility Network · Auto-binds {activeStaff.roleLabel} Identity

@@ -448,6 +448,7 @@ export type Database = {
       }
       role_permissions: {
         Row: {
+          facility_name: string
           feature_key: string
           feature_name: string
           id: string
@@ -456,6 +457,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          facility_name: string
           feature_key: string
           feature_name: string
           id?: string
@@ -464,6 +466,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          facility_name?: string
           feature_key?: string
           feature_name?: string
           id?: string

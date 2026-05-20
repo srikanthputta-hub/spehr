@@ -66,16 +66,22 @@ function PhysicianBoard() {
         .select("is_active")
         .eq("target_role", activeRole)
         .eq("feature_key", "btn_refer_patient")
+        .eq("facility_name", facility)
         .maybeSingle();
       if (!cancelled && data) setRefPerm(!!(data as any).is_active);
     })();
     const channel = supabase
-      .channel(`md_refer_${activeRole}`)
+      .channel(`md_refer_${activeRole}_${facility}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "role_permissions", filter: `target_role=eq.${activeRole}` },
         (payload: any) => {
-          if (payload.new?.feature_key === "btn_refer_patient") setRefPerm(!!payload.new.is_active);
+          if (
+            payload.new?.feature_key === "btn_refer_patient" &&
+            payload.new?.facility_name === facility
+          ) {
+            setRefPerm(!!payload.new.is_active);
+          }
         },
       )
       .subscribe();
@@ -83,7 +89,7 @@ function PhysicianBoard() {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [activeRole]);
+  }, [activeRole, facility]);
   const md = useActiveStaff("MD");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
