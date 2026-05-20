@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as UnitManagerRouteImport } from './routes/unit-manager'
 import { Route as SystemAdminRouteImport } from './routes/system-admin'
 import { Route as RespiratoryBoardRouteImport } from './routes/respiratory-board'
 import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
@@ -21,11 +20,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
 
-const UnitManagerRoute = UnitManagerRouteImport.update({
-  id: '/unit-manager',
-  path: '/unit-manager',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SystemAdminRoute = SystemAdminRouteImport.update({
   id: '/system-admin',
   path: '/system-admin',
@@ -86,7 +80,6 @@ export interface FileRoutesByFullPath {
   '/physician-board': typeof PhysicianBoardRoute
   '/respiratory-board': typeof RespiratoryBoardRoute
   '/system-admin': typeof SystemAdminRoute
-  '/unit-manager': typeof UnitManagerRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
@@ -99,7 +92,6 @@ export interface FileRoutesByTo {
   '/physician-board': typeof PhysicianBoardRoute
   '/respiratory-board': typeof RespiratoryBoardRoute
   '/system-admin': typeof SystemAdminRoute
-  '/unit-manager': typeof UnitManagerRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
@@ -113,7 +105,6 @@ export interface FileRoutesById {
   '/physician-board': typeof PhysicianBoardRoute
   '/respiratory-board': typeof RespiratoryBoardRoute
   '/system-admin': typeof SystemAdminRoute
-  '/unit-manager': typeof UnitManagerRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
 }
@@ -128,7 +119,6 @@ export interface FileRouteTypes {
     | '/physician-board'
     | '/respiratory-board'
     | '/system-admin'
-    | '/unit-manager'
     | '/chart/$mrn'
     | '/patient/$mrn'
   fileRoutesByTo: FileRoutesByTo
@@ -141,7 +131,6 @@ export interface FileRouteTypes {
     | '/physician-board'
     | '/respiratory-board'
     | '/system-admin'
-    | '/unit-manager'
     | '/chart/$mrn'
     | '/patient/$mrn'
   id:
@@ -154,7 +143,6 @@ export interface FileRouteTypes {
     | '/physician-board'
     | '/respiratory-board'
     | '/system-admin'
-    | '/unit-manager'
     | '/chart/$mrn'
     | '/patient/$mrn'
   fileRoutesById: FileRoutesById
@@ -168,20 +156,12 @@ export interface RootRouteChildren {
   PhysicianBoardRoute: typeof PhysicianBoardRoute
   RespiratoryBoardRoute: typeof RespiratoryBoardRoute
   SystemAdminRoute: typeof SystemAdminRoute
-  UnitManagerRoute: typeof UnitManagerRoute
   ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/unit-manager': {
-      id: '/unit-manager'
-      path: '/unit-manager'
-      fullPath: '/unit-manager'
-      preLoaderRoute: typeof UnitManagerRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/system-admin': {
       id: '/system-admin'
       path: '/system-admin'
@@ -264,10 +244,19 @@ const rootRouteChildren: RootRouteChildren = {
   PhysicianBoardRoute: PhysicianBoardRoute,
   RespiratoryBoardRoute: RespiratoryBoardRoute,
   SystemAdminRoute: SystemAdminRoute,
-  UnitManagerRoute: UnitManagerRoute,
   ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
