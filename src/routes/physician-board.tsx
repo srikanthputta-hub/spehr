@@ -613,6 +613,132 @@ function PhysicianBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Clinical Actions Modal */}
+      <Dialog
+        open={!!actionsMrn}
+        onOpenChange={(o) => {
+          if (!o) setActionsMrn(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          {(() => {
+            const p = filteredPatients.find((x) => x.mrn === actionsMrn);
+            if (!p) return null;
+            const fullName =
+              [p.first_name, p.last_name].filter(Boolean).join(" ") || p.mrn;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-lg">
+                    Clinical Actions: {fullName}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Select a clinical action to perform for this patient.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {/* Context Header */}
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                        MRN
+                      </div>
+                      <div className="font-mono text-slate-900">{p.mrn}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                        Room
+                      </div>
+                      <div className="text-slate-900">{p.room ?? "—"}</div>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                        Chief Complaint
+                      </div>
+                      <div className="text-slate-900">
+                        {p.chief_complaint || p.diagnosis || "—"}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-200 pt-3">
+                    <VitalChip label="HR" value={p.hr !== null ? `${p.hr} bpm` : "—"} />
+                    <VitalChip
+                      label="BP"
+                      value={
+                        p.bp_systolic !== null && p.bp_diastolic !== null
+                          ? `${p.bp_systolic}/${p.bp_diastolic}`
+                          : "—"
+                      }
+                    />
+                    <VitalChip
+                      label="SpO₂"
+                      value={p.spo2 !== null ? `${p.spo2}%` : "—"}
+                    />
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toast.info("Laboratory order workflow coming soon", {
+                        description: `For ${fullName} (${p.mrn})`,
+                      })
+                    }
+                    className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                  >
+                    <span className="text-xl">🧪</span>
+                    <span className="text-center leading-tight">
+                      Order Laboratory Evaluation
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toast.info("Progress note workflow coming soon", {
+                        description: `For ${fullName} (${p.mrn})`,
+                      })
+                    }
+                    className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                  >
+                    <span className="text-xl">✍️</span>
+                    <span className="text-center leading-tight">
+                      Write & E-Sign Progress Note
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toast.info("Discharge / transfer workflow coming soon", {
+                        description: `For ${fullName} (${p.mrn})`,
+                      })
+                    }
+                    className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                  >
+                    <span className="text-xl">🚪</span>
+                    <span className="text-center leading-tight">
+                      Discharge / Transfer Patient
+                    </span>
+                  </button>
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setActionsMrn(null)}
+                  >
+                    Cancel
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
