@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ShieldCheck, ToggleRight, Users, Activity, Loader2 } from "lucide-react";
+import { ShieldCheck, ToggleRight, Users, Activity, Loader2, Zap } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/system-admin")({
@@ -39,6 +39,55 @@ function SystemAdminPage() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [selectedFacility, setSelectedFacility] = useState<Facility>("Memorial Hospital");
+  const [automation, setAutomation] = useState<boolean | null>(null);
+  const [automationSaving, setAutomationSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from("system_settings")
+        .select("automation_enabled")
+        .eq("id", 1)
+        .maybeSingle();
+      if (!active) return;
+      if (error) {
+        toast.error("Failed to load automation state", { description: error.message });
+        setAutomation(false);
+      } else {
+        setAutomation(Boolean((data as any)?.automation_enabled));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggleAutomation = async () => {
+    if (automation === null || automationSaving) return;
+    const next = !automation;
+    setAutomation(next);
+    setAutomationSaving(true);
+    const { error } = await supabase
+      .from("system_settings")
+      .update({ automation_enabled: next })
+      .eq("id", 1);
+    setAutomationSaving(false);
+    if (error) {
+      setAutomation(!next);
+      toast.error("Could not update automation", { description: error.message });
+      return;
+    }
+    if (next) {
+      toast.success("System Automation Engaged", {
+        description: "Background engines active.",
+      });
+    } else {
+      toast("System Automation Paused", {
+        description: "Manual mode active.",
+      });
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -130,6 +179,75 @@ function SystemAdminPage() {
       </header>
 
       <section className="max-w-6xl mx-auto px-6 py-8">
+        <div
+          className={`mb-6 rounded-xl border shadow-sm overflow-hidden ${
+            automation
+              ? "border-emerald-300 bg-gradient-to-r from-emerald-50 to-white"
+              : "border-slate-200 bg-white"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-6 px-6 py-5">
+            <div className="flex items-center gap-4 min-w-0">
+              <div
+                className={`grid place-items-center h-12 w-12 rounded-lg ${
+                  automation ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-500"
+                }`}
+              >
+                <Zap className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Master Switch
+                </div>
+                <div className="text-base font-semibold text-slate-900">
+                  Automate Hospital Network
+                </div>
+                <div className="text-xs text-slate-600 mt-0.5">
+                  Controls all background engines: ghost admissions, discharges, lab
+                  ordering/results, and medication cascades across every facility.
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  {automation && (
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  )}
+                  <span
+                    className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
+                      automation ? "bg-emerald-500" : "bg-slate-400"
+                    }`}
+                  />
+                </span>
+                <span
+                  className={`text-[11px] font-bold uppercase tracking-wider ${
+                    automation ? "text-emerald-700" : "text-slate-500"
+                  }`}
+                >
+                  {automation === null ? "Loading…" : automation ? "Engines Active" : "Paused"}
+                </span>
+              </div>
+              <button
+                onClick={toggleAutomation}
+                disabled={automation === null || automationSaving}
+                className={`relative inline-flex h-7 w-14 items-center rounded-full border transition-colors disabled:opacity-50 cursor-pointer ${
+                  automation
+                    ? "bg-emerald-500 border-emerald-600"
+                    : "bg-slate-200 border-slate-300"
+                }`}
+                aria-pressed={!!automation}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                    automation ? "translate-x-8" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+
         {tab === "feature_controls" && (
           <div className="space-y-6">
             <div>
