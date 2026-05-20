@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Printer, FileText } from "lucide-react";
+import { Printer, FileText, Brain } from "lucide-react";
 
 interface PatientRow {
   id: string;
@@ -284,6 +284,7 @@ export function PatientFlowCensusLog() {
   const [rows, setRows] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<PatientRow | null>(null);
+  const [aiMrns, setAiMrns] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -314,6 +315,39 @@ export function PatientFlowCensusLog() {
       supabase.removeChannel(ch);
     };
   }, [facility]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAi = async () => {
+      const { data } = await supabase
+        .from("clinical_notes")
+        .select("mrn")
+        .eq("note_type", "AI_DIFFERENTIAL");
+      if (cancelled || !data) return;
+      setAiMrns(new Set((data as Array<{ mrn: string | null }>).map((r) => r.mrn ?? "").filter(Boolean)));
+    };
+    loadAi();
+    const ch = supabase
+      .channel("patient-flow-ai-notes")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "clinical_notes" },
+        (payload: any) => {
+          if (payload.new?.note_type === "AI_DIFFERENTIAL" && payload.new?.mrn) {
+            setAiMrns((prev) => {
+              const next = new Set(prev);
+              next.add(payload.new.mrn);
+              return next;
+            });
+          }
+        },
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(ch);
+    };
+  }, []);
 
   const admittedCount = rows.filter((r) => r.status === "Admitted").length;
   const dischargedCount = rows.filter((r) => r.status === "Discharged").length;
@@ -383,7 +417,20 @@ export function PatientFlowCensusLog() {
                         {fullName(p)}
                       </td>
                       <td className="px-3 py-1.5 text-slate-700 font-sans">
-                        {p.chief_complaint ?? "—"}
+                        <div className="flex flex-col gap-0.5">
+                          <span>{p.chief_complaint ?? "—"}</span>
+                          {p.mrn && aiMrns.has(p.mrn) ? (
+                            <span className="inline-flex items-center gap-1 self-start rounded-full bg-purple-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider text-purple-700 ring-1 ring-purple-300">
+                              <Brain className="h-2.5 w-2.5" />
+                              AI Differential Complete
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 self-start rounded-full bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-medium uppercase tracking-wider text-slate-500 ring-1 ring-slate-200">
+                              <Brain className="h-2.5 w-2.5" />
+                              AI Pending
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-1.5">
                         {active ? (

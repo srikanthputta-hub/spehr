@@ -60,6 +60,7 @@ const FREQS = ["Once", "Daily", "BID", "TID", "QID", "Q4H", "Q6H", "Q8H", "Q12H"
 
 function PhysicianBoard() {
   const { facility, activeRole } = useFacility();
+  const [aiNote, setAiNote] = useState<{ content: string; created_at: string | null } | null>(null);
   const [refPerm, setRefPerm] = useState<boolean>(true);
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +136,44 @@ function PhysicianBoard() {
     setNoteText("");
     setNotePin("");
     setDisposition("Discharge to Home");
+  }, [actionsMrn]);
+
+  // Fetch + subscribe to the AI_DIFFERENTIAL note for the patient open in the
+  // Clinical Actions modal so the physician sees the Ghost AI consult live.
+  useEffect(() => {
+    if (!actionsMrn) {
+      setAiNote(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("clinical_notes")
+        .select("content, created_at")
+        .eq("mrn", actionsMrn)
+        .eq("note_type", "AI_DIFFERENTIAL")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled) setAiNote((data as any) ?? null);
+    };
+    load();
+    const ch = supabase
+      .channel(`ai-note-${actionsMrn}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "clinical_notes", filter: `mrn=eq.${actionsMrn}` },
+        (payload: any) => {
+          if (payload.new?.note_type === "AI_DIFFERENTIAL") {
+            setAiNote({ content: payload.new.content, created_at: payload.new.created_at });
+          }
+        },
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(ch);
+    };
   }, [actionsMrn]);
 
   useEffect(() => {
@@ -711,6 +750,29 @@ function PhysicianBoard() {
                       value={p.spo2 !== null ? `${p.spo2}%` : "—"}
                     />
                   </div>
+                </div>
+
+                {/* AI Differential Consult — Ghost AI background engine */}
+                <div className="rounded-md border border-purple-300 bg-purple-50/70 p-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                      <Brain className="h-3 w-3" /> AI Consult
+                    </span>
+                    <span className="text-[10px] font-mono text-purple-700/80">
+                      {aiNote?.created_at
+                        ? new Date(aiNote.created_at).toLocaleTimeString()
+                        : "Generating…"}
+                    </span>
+                  </div>
+                  {aiNote ? (
+                    <p className="text-[12px] leading-relaxed text-purple-950 whitespace-pre-wrap">
+                      {aiNote.content}
+                    </p>
+                  ) : (
+                    <p className="text-[12px] italic text-purple-700/70">
+                      Ghost AI Differential Engine is analyzing presentation… (auto-posts within 10s of admission)
+                    </p>
+                  )}
                 </div>
 
                 {/* Action Buttons */}

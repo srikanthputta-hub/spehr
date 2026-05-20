@@ -10,6 +10,7 @@ import {
 
 import appCss from "../styles.css?url";
 import { FacilityProvider } from "@/lib/facility-context";
+import { useAIAutomation } from "@/hooks/useAIAutomation";
 
 function NotFoundComponent() {
   return (
@@ -115,6 +116,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useAIAutomation();
 
   return (
     <QueryClientProvider client={queryClient}>
