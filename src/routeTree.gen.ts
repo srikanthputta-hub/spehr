@@ -16,6 +16,7 @@ import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
 import { Route as LabBoardRouteImport } from './routes/lab-board'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
@@ -56,6 +57,11 @@ const LabBoardRoute = LabBoardRouteImport.update({
   path: '/lab-board',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminDashboardRoute = AdminDashboardRouteImport.update({
   id: '/admin-dashboard',
   path: '/admin-dashboard',
@@ -80,6 +86,7 @@ const ChartMrnRoute = ChartMrnRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
+  '/analytics': typeof AnalyticsRoute
   '/lab-board': typeof LabBoardRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
@@ -93,6 +100,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
+  '/analytics': typeof AnalyticsRoute
   '/lab-board': typeof LabBoardRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
+  '/analytics': typeof AnalyticsRoute
   '/lab-board': typeof LabBoardRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
@@ -122,6 +131,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin-dashboard'
+    | '/analytics'
     | '/lab-board'
     | '/nursing-board'
     | '/pharmacy-queue'
@@ -135,6 +145,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin-dashboard'
+    | '/analytics'
     | '/lab-board'
     | '/nursing-board'
     | '/pharmacy-queue'
@@ -148,6 +159,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin-dashboard'
+    | '/analytics'
     | '/lab-board'
     | '/nursing-board'
     | '/pharmacy-queue'
@@ -162,6 +174,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminDashboardRoute: typeof AdminDashboardRoute
+  AnalyticsRoute: typeof AnalyticsRoute
   LabBoardRoute: typeof LabBoardRoute
   NursingBoardRoute: typeof NursingBoardRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
@@ -224,6 +237,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LabBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin-dashboard': {
       id: '/admin-dashboard'
       path: '/admin-dashboard'
@@ -258,6 +278,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminDashboardRoute: AdminDashboardRoute,
+  AnalyticsRoute: AnalyticsRoute,
   LabBoardRoute: LabBoardRoute,
   NursingBoardRoute: NursingBoardRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
@@ -271,3 +292,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
