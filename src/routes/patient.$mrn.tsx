@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Loader2, AlertTriangle, Activity } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
@@ -121,12 +122,478 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "notes", label: "Provider Notes" },
 ];
 
+// ============= shared styles ============================================
+const panelClass =
+  "rounded-md border border-slate-300 bg-white shadow-sm";
+const sectionHeader =
+  "px-3 py-2 border-b border-slate-300 bg-slate-50 text-[10px] uppercase tracking-widest text-slate-600 font-bold flex items-center justify-between";
+const thClass =
+  "h-8 px-2 text-left text-[10px] uppercase tracking-wider text-slate-500 font-bold border-b border-slate-300 bg-slate-100";
+const tdClass = "px-2 py-1.5 text-[12px] text-slate-800 border-b border-slate-200 align-top";
+const emptyMsg = (
+  <div className="px-3 py-6 text-center text-[12px] text-slate-500 italic">No records found.</div>
+);
+
+function fmtTime(t: string | null | undefined) {
+  if (!t) return "—";
+  try {
+    return new Date(t).toLocaleString(undefined, {
+      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    });
+  } catch { return "—"; }
+}
+
+// ============= data hooks ==============================================
+interface LabRow {
+  id: string;
+  test_type: string | null;
+  status: string | null;
+  result_value: string | null;
+  ordered_by: string | null;
+  created_at: string | null;
+}
+interface MedRow {
+  id: string;
+  medication_name: string | null;
+  drug_name: string | null;
+  medication: string | null;
+  dose: string | null;
+  route: string | null;
+  status: string | null;
+  administered_at: string | null;
+  created_at: string | null;
+}
+interface NoteRow {
+  id: string;
+  author_name: string | null;
+  author_role: string | null;
+  note_type: string | null;
+  content: string | null;
+  signed_at: string | null;
+}
+
+function useLabs(mrn: string) {
+  const [rows, setRows] = useState<LabRow[] | null>(null);
+  useEffect(() => {
+    let c = false;
+    supabase.from("lab_orders")
+      .select("id, test_type, status, result_value, ordered_by, created_at")
+      .eq("patient_mrn", mrn)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => { if (!c) setRows((data as LabRow[]) ?? []); });
+    return () => { c = true; };
+  }, [mrn]);
+  return rows;
+}
+
+function useMeds(mrn: string) {
+  const [rows, setRows] = useState<MedRow[] | null>(null);
+  useEffect(() => {
+    let c = false;
+    supabase.from("medication_orders")
+      .select("id, medication_name, drug_name, medication, dose, route, status, administered_at, created_at")
+      .eq("mrn", mrn)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => { if (!c) setRows((data as MedRow[]) ?? []); });
+    return () => { c = true; };
+  }, [mrn]);
+  return rows;
+}
+
+function useNotes(mrn: string, refreshKey: number) {
+  const [rows, setRows] = useState<NoteRow[] | null>(null);
+  useEffect(() => {
+    let c = false;
+    supabase.from("provider_notes")
+      .select("id, author_name, author_role, note_type, content, signed_at")
+      .eq("patient_mrn", mrn)
+      .order("signed_at", { ascending: false })
+      .then(({ data }) => { if (!c) setRows((data as NoteRow[]) ?? []); });
+    return () => { c = true; };
+  }, [mrn, refreshKey]);
+  return [rows, setRows] as const;
+}
+
+// ============= badges ==================================================
+function LabStatusBadge({ status }: { status: string | null }) {
+  const s = (status ?? "").toLowerCase();
+  const cls =
+    s === "resulted"
+      ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
+      : s.includes("processing")
+      ? "bg-blue-100 text-blue-800 ring-blue-300"
+      : "bg-slate-100 text-slate-700 ring-slate-300";
+  return (
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${cls}`}>
+      {status ?? "—"}
+    </span>
+  );
+}
+function MedStatusBadge({ status }: { status: string | null }) {
+  const s = (status ?? "").toLowerCase();
+  if (s === "administered") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300">
+        <CheckCircle2 className="h-3 w-3" /> Administered
+      </span>
+    );
+  }
+  if (s.includes("approved")) {
+    return <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-800 ring-1 ring-amber-300">⚠ Approved</span>;
+  }
+  if (s.includes("pending")) {
+    return <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-slate-200 text-slate-700 ring-1 ring-slate-300">⚠ {status}</span>;
+  }
+  return <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-slate-100 text-slate-700 ring-1 ring-slate-300">{status ?? "—"}</span>;
+}
+
+function ResultValueCell({ value }: { value: string | null }) {
+  if (!value) return <span className="text-slate-400">—</span>;
+  if (/\[CRITICAL[^\]]*\]/i.test(value)) {
+    const parts = value.split(/(\[CRITICAL[^\]]*\])/i);
+    return (
+      <span className="font-mono text-[11.5px]">
+        {parts.map((p, i) =>
+          /\[CRITICAL/i.test(p) ? (
+            <span key={i} className="font-extrabold text-red-600 animate-pulse">{p}</span>
+          ) : (
+            <span key={i}>{p}</span>
+          )
+        )}
+      </span>
+    );
+  }
+  return <span className="font-mono text-[11.5px]">{value}</span>;
+}
+
+// ============= tab views ===============================================
+function LabsView({ mrn }: { mrn: string }) {
+  const rows = useLabs(mrn);
+  if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
+  if (rows.length === 0) return emptyMsg;
+  return (
+    <table className="w-full">
+      <thead>
+        <tr>
+          <th className={thClass}>Test Type</th>
+          <th className={thClass}>Status</th>
+          <th className={thClass}>Result Value</th>
+          <th className={thClass}>Ordered By</th>
+          <th className={thClass}>Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.id} className="hover:bg-slate-50">
+            <td className={`${tdClass} font-semibold`}>{r.test_type}</td>
+            <td className={tdClass}><LabStatusBadge status={r.status} /></td>
+            <td className={tdClass}><ResultValueCell value={r.result_value} /></td>
+            <td className={`${tdClass} text-slate-600`}>{r.ordered_by ?? "—"}</td>
+            <td className={`${tdClass} font-mono text-[11px] text-slate-600`}>{fmtTime(r.created_at)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function MarView({ mrn }: { mrn: string }) {
+  const rows = useMeds(mrn);
+  if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
+  if (rows.length === 0) return emptyMsg;
+  return (
+    <table className="w-full">
+      <thead>
+        <tr>
+          <th className={thClass}>Medication</th>
+          <th className={thClass}>Dose</th>
+          <th className={thClass}>Route</th>
+          <th className={thClass}>Status</th>
+          <th className={thClass}>Administered At</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.id} className="hover:bg-slate-50">
+            <td className={`${tdClass} font-semibold`}>{r.medication_name ?? r.drug_name ?? r.medication ?? "—"}</td>
+            <td className={`${tdClass} font-mono`}>{r.dose ?? "—"}</td>
+            <td className={`${tdClass} font-mono`}>{r.route ?? "—"}</td>
+            <td className={tdClass}><MedStatusBadge status={r.status} /></td>
+            <td className={`${tdClass} font-mono text-[11px] text-slate-600`}>{fmtTime(r.administered_at)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function NotesView({ mrn }: { mrn: string }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [rows] = useNotes(mrn, refreshKey);
+  const [showForm, setShowForm] = useState(false);
+  const [noteType, setNoteType] = useState("Progress Note");
+  const [content, setContent] = useState("");
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const tryOpenPin = () => {
+    if (!content.trim()) {
+      toast.error("Note content is required");
+      return;
+    }
+    setPin(""); setPinError(null); setPinOpen(true);
+  };
+
+  const verifyAndSubmit = async () => {
+    if (pin !== "1234") {
+      setPinError("Invalid Signature PIN.");
+      return;
+    }
+    setSubmitting(true);
+    const { error } = await supabase.from("provider_notes").insert({
+      patient_mrn: mrn,
+      note_type: noteType,
+      content: content.trim(),
+      author_name: "Sarah Jenkins",
+      author_role: "RN, BSN",
+    });
+    setSubmitting(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Note signed and submitted");
+    setPinOpen(false);
+    setShowForm(false);
+    setContent("");
+    setNoteType("Progress Note");
+    setRefreshKey((k) => k + 1);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <button
+          onClick={() => setShowForm((v) => !v)}
+          className="inline-flex items-center gap-1.5 rounded bg-[var(--navy,#0b2545)] text-white px-3 h-8 text-[11px] font-bold uppercase tracking-wider hover:bg-[var(--teal,#13b5b1)] transition"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add Clinical Note
+        </button>
+      </div>
+
+      {showForm ? (
+        <div className={`${panelClass} p-3 space-y-2`}>
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold w-24">Note Type</label>
+            <select
+              value={noteType}
+              onChange={(e) => setNoteType(e.target.value)}
+              className="flex-1 h-8 rounded border border-slate-300 px-2 text-[12px] bg-white"
+            >
+              <option>Progress Note</option>
+              <option>Nursing Shift Note</option>
+              <option>SBAR Handoff</option>
+              <option>Care Plan Update</option>
+              <option>Discharge Note</option>
+            </select>
+          </div>
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            rows={6}
+            placeholder="Document clinical observations, interventions, and patient response…"
+            className="w-full rounded border border-slate-300 p-2 text-[12px] font-sans focus:outline-none focus:ring-1 focus:ring-[var(--teal,#13b5b1)]"
+          />
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setShowForm(false)} className="rounded border border-slate-300 bg-white px-3 h-8 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
+              Cancel
+            </button>
+            <button
+              onClick={tryOpenPin}
+              className="inline-flex items-center gap-1.5 rounded bg-emerald-700 text-white px-3 h-8 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-800"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" /> Sign & Submit
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {rows === null ? (
+        <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>
+      ) : rows.length === 0 ? (
+        <div className={panelClass}>{emptyMsg}</div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((n) => (
+            <article key={n.id} className={`${panelClass} p-3`}>
+              <header className="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="rounded bg-[var(--navy,#0b2545)] text-white px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                    {n.note_type ?? "Note"}
+                  </span>
+                  <span className="text-[12px] font-semibold text-slate-800 truncate">{n.author_name ?? "Unknown"}</span>
+                  <span className="text-[10.5px] text-slate-500">{n.author_role ?? ""}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10.5px] text-slate-500 font-mono shrink-0">
+                  <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                  Signed {fmtTime(n.signed_at)}
+                </div>
+              </header>
+              <p className="text-[12.5px] text-slate-800 whitespace-pre-wrap leading-relaxed">{n.content}</p>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {pinOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white shadow-2xl border-t-4 border-[var(--teal,#13b5b1)]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-[var(--navy,#0b2545)]" />
+                <h3 className="text-[12px] font-bold uppercase tracking-wider text-slate-800">
+                  Digital Signature Verification
+                </h3>
+              </div>
+              <button onClick={() => setPinOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-[12px] text-slate-600">
+                Enter your 4-digit clinician PIN to electronically sign this note.
+              </p>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                value={pin}
+                onChange={(e) => { setPin(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinError(null); }}
+                onKeyDown={(e) => e.key === "Enter" && verifyAndSubmit()}
+                autoFocus
+                placeholder="••••"
+                className="w-full h-12 rounded border-2 border-slate-300 px-3 text-center font-mono text-2xl tracking-[0.6em] focus:outline-none focus:border-[var(--teal,#13b5b1)]"
+              />
+              {pinError ? (
+                <p className="text-[11.5px] font-bold text-red-600 text-center">{pinError}</p>
+              ) : null}
+              <button
+                onClick={verifyAndSubmit}
+                disabled={submitting || pin.length !== 4}
+                className="w-full rounded bg-emerald-700 text-white px-3 h-9 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-800 disabled:opacity-50"
+              >
+                {submitting ? "Signing…" : "Verify & Sign"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
+  const labs = useLabs(mrn);
+  const meds = useMeds(mrn);
+  const [notes] = useNotes(mrn, 0);
+
+  const topMeds = (meds ?? []).slice(0, 3);
+  const topLabs = (labs ?? []).slice(0, 3);
+  const latestNote = (notes ?? [])[0];
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {/* LEFT */}
+      <div className="space-y-3">
+        <section className={panelClass}>
+          <header className={sectionHeader}>Encounter Details</header>
+          <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 p-3 text-[12px]">
+            <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Admission</dt>
+            <dd className="col-span-2 font-mono">—</dd>
+            <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Chief Complaint</dt>
+            <dd className="col-span-2 font-semibold text-slate-800">{patient.chief_complaint ?? "—"}</dd>
+            <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Diagnosis</dt>
+            <dd className="col-span-2 text-slate-800">{patient.diagnosis ?? "—"}</dd>
+            <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Room</dt>
+            <dd className="col-span-2 font-mono">{patient.room ?? "—"}</dd>
+          </dl>
+        </section>
+
+        <section className={panelClass}>
+          <header className={sectionHeader}>Active Medications</header>
+          {meds === null ? (
+            <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+          ) : topMeds.length === 0 ? emptyMsg : (
+            <ul className="divide-y divide-slate-200">
+              {topMeds.map((m) => (
+                <li key={m.id} className="px-3 py-2 flex items-center justify-between text-[12px]">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-800 truncate">
+                      {m.medication_name ?? m.drug_name ?? m.medication ?? "—"}
+                    </div>
+                    <div className="font-mono text-[11px] text-slate-500">
+                      {m.dose ?? "—"} · {m.route ?? "—"}
+                    </div>
+                  </div>
+                  <MedStatusBadge status={m.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      {/* RIGHT */}
+      <div className="space-y-3">
+        <section className={panelClass}>
+          <header className={sectionHeader}>Recent Labs</header>
+          {labs === null ? (
+            <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+          ) : topLabs.length === 0 ? emptyMsg : (
+            <ul className="divide-y divide-slate-200">
+              {topLabs.map((l) => (
+                <li key={l.id} className="px-3 py-2 text-[12px]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-800 truncate">{l.test_type}</span>
+                    <LabStatusBadge status={l.status} />
+                  </div>
+                  <div className="mt-0.5"><ResultValueCell value={l.result_value} /></div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className={panelClass}>
+          <header className={sectionHeader}>Latest Clinical Note</header>
+          {notes === null ? (
+            <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+          ) : !latestNote ? emptyMsg : (
+            <div className="p-3 text-[12px]">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-1.5">
+                <span className="rounded bg-[var(--navy,#0b2545)] text-white px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                  {latestNote.note_type ?? "Note"}
+                </span>
+                <span className="font-mono text-[10.5px] text-slate-500">{fmtTime(latestNote.signed_at)}</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mb-1">
+                {latestNote.author_name} · {latestNote.author_role}
+              </div>
+              <p className="text-slate-800 whitespace-pre-wrap line-clamp-6">{latestNote.content}</p>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function PatientChart() {
   const { mrn } = useParams({ from: "/patient/$mrn" });
   const [patient, setPatient] = useState<PatientRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabKey | null>(null);
+  const [tab, setTab] = useState<TabKey | null>("summary");
 
   useEffect(() => {
     let cancelled = false;
@@ -305,15 +772,20 @@ function PatientChart() {
               ))}
             </div>
           </div>
-        ) : (
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-8">
-            <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
-              {TABS.find((t) => t.key === tab)?.label}
-            </div>
-            <p className="mt-2 text-sm text-slate-500 italic">
-              Section module pending integration.
-            </p>
+        ) : tab === "summary" ? (
+          <SummaryView mrn={patient.mrn} patient={patient} />
+        ) : tab === "labs" ? (
+          <div className={panelClass + " overflow-hidden"}>
+            <header className={sectionHeader}>Laboratory Results</header>
+            <LabsView mrn={patient.mrn} />
           </div>
+        ) : tab === "mar" ? (
+          <div className={panelClass + " overflow-hidden"}>
+            <header className={sectionHeader}>Medication Administration Record</header>
+            <MarView mrn={patient.mrn} />
+          </div>
+        ) : (
+          <NotesView mrn={patient.mrn} />
         )}
       </section>
     </main>
