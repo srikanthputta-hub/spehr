@@ -56,7 +56,34 @@ const ROUTES = ["PO", "IV", "IM", "SubQ", "Inh", "Neb", "Topical", "PR"];
 const FREQS = ["Once", "Daily", "BID", "TID", "QID", "Q4H", "Q6H", "Q8H", "Q12H", "PRN", "Continuous"];
 
 function PhysicianBoard() {
-  const { facility } = useFacility();
+  const { facility, activeRole } = useFacility();
+  const [refPerm, setRefPerm] = useState<boolean>(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("role_permissions")
+        .select("is_active")
+        .eq("target_role", activeRole)
+        .eq("feature_key", "btn_refer_patient")
+        .maybeSingle();
+      if (!cancelled && data) setRefPerm(!!(data as any).is_active);
+    })();
+    const channel = supabase
+      .channel(`md_refer_${activeRole}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "role_permissions", filter: `target_role=eq.${activeRole}` },
+        (payload: any) => {
+          if (payload.new?.feature_key === "btn_refer_patient") setRefPerm(!!payload.new.is_active);
+        },
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [activeRole]);
   const md = useActiveStaff("MD");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -343,14 +370,16 @@ function PhysicianBoard() {
                     value={selected.diagnosis || selected.chief_complaint || "—"}
                     wide
                   />
-                      <button
-                        type="button"
-                        onClick={() => setTransferOpen(true)}
-                        className="ml-auto inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition"
-                      >
-                        <ArrowRightLeft className="h-4 w-4" />
-                        🔄 Refer / Transfer Patient
-                      </button>
+                      {refPerm && (
+                        <button
+                          type="button"
+                          onClick={() => setTransferOpen(true)}
+                          className="ml-auto inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition"
+                        >
+                          <ArrowRightLeft className="h-4 w-4" />
+                          🔄 Refer / Transfer Patient
+                        </button>
+                      )}
                 </div>
               </div>
 

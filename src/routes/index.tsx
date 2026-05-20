@@ -50,12 +50,13 @@ const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole }[] = [
 function LoginScreen() {
   const navigate = useNavigate();
   const [role, setRole] = useState<RoleRoute | "">("");
-  const { facility, setFacility } = useFacility();
+  const { facility, setFacility, setActiveRole } = useFacility();
   const selectedRole = ROLES.find((r) => r.value === role);
   const activeStaff = selectedRole ? STAFF_BY_FACILITY[facility][selectedRole.abbrev] : null;
 
   const handleLaunch = () => {
     if (!role) return;
+    if (selectedRole) setActiveRole(selectedRole.abbrev);
     navigate({ to: role });
   };
 

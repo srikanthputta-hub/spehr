@@ -52,6 +52,7 @@ export type Database = {
           max_capacity: number | null
           name: string
           role: string
+          signature_pin: string | null
           status: string | null
         }
         Insert: {
@@ -64,6 +65,7 @@ export type Database = {
           max_capacity?: number | null
           name: string
           role: string
+          signature_pin?: string | null
           status?: string | null
         }
         Update: {
@@ -76,6 +78,7 @@ export type Database = {
           max_capacity?: number | null
           name?: string
           role?: string
+          signature_pin?: string | null
           status?: string | null
         }
         Relationships: []
@@ -260,6 +263,54 @@ export type Database = {
         }
         Relationships: []
       }
+      patient_notes: {
+        Row: {
+          assessment: string | null
+          author_name: string
+          background: string | null
+          created_at: string | null
+          esigned_at: string | null
+          facility_name: string
+          id: string
+          patient_mrn: string
+          patient_name: string
+          recommendation: string | null
+          situation: string | null
+          status: string | null
+          verification_pin_hash: string | null
+        }
+        Insert: {
+          assessment?: string | null
+          author_name: string
+          background?: string | null
+          created_at?: string | null
+          esigned_at?: string | null
+          facility_name: string
+          id?: string
+          patient_mrn: string
+          patient_name: string
+          recommendation?: string | null
+          situation?: string | null
+          status?: string | null
+          verification_pin_hash?: string | null
+        }
+        Update: {
+          assessment?: string | null
+          author_name?: string
+          background?: string | null
+          created_at?: string | null
+          esigned_at?: string | null
+          facility_name?: string
+          id?: string
+          patient_mrn?: string
+          patient_name?: string
+          recommendation?: string | null
+          situation?: string | null
+          status?: string | null
+          verification_pin_hash?: string | null
+        }
+        Relationships: []
+      }
       patient_transfers: {
         Row: {
           created_at: string | null
@@ -392,6 +443,33 @@ export type Database = {
           email?: string
           id?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      role_permissions: {
+        Row: {
+          feature_key: string
+          feature_name: string
+          id: string
+          is_active: boolean | null
+          target_role: string
+          updated_at: string | null
+        }
+        Insert: {
+          feature_key: string
+          feature_name: string
+          id?: string
+          is_active?: boolean | null
+          target_role: string
+          updated_at?: string | null
+        }
+        Update: {
+          feature_key?: string
+          feature_name?: string
+          id?: string
+          is_active?: boolean | null
+          target_role?: string
+          updated_at?: string | null
         }
         Relationships: []
       }

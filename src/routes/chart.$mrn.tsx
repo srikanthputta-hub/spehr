@@ -91,7 +91,7 @@ function ChartPage() {
   const { mrn } = useParams({ from: "/chart/$mrn" });
   const navigate = useNavigate();
   const nurse = useActiveNurse();
-  const { facility } = useFacility();
+  const { facility, activeRole } = useFacility();
   const [ready, setReady] = useState(false);
   const [given, setGiven] = useState<Record<string, string>>({});
   const [dbPatient, setDbPatient] = useState<any>(null);
@@ -106,6 +106,41 @@ function ChartPage() {
   const [orderingLab, setOrderingLab] = useState(false);
   const [activeTab, setActiveTab] = useState<"clinical" | "labs">("clinical");
   const [completedLabs, setCompletedLabs] = useState<any[]>([]);
+  const [permissions, setPermissions] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("role_permissions")
+        .select("feature_key, is_active")
+        .eq("target_role", activeRole);
+      if (!cancelled && data) {
+        const map: Record<string, boolean> = {};
+        for (const row of data as any[]) map[row.feature_key] = !!row.is_active;
+        setPermissions(map);
+      }
+    })();
+    // Realtime subscription so toggles flip immediately
+    const channel = supabase
+      .channel(`role_perms_${activeRole}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "role_permissions", filter: `target_role=eq.${activeRole}` },
+        (payload: any) => {
+          const row = payload.new ?? payload.old;
+          if (!row?.feature_key) return;
+          setPermissions((prev) => ({ ...prev, [row.feature_key]: !!payload.new?.is_active }));
+        },
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [activeRole]);
+
+  const can = (key: string) => permissions[key] !== false;
   const [draftId, setDraftId] = useState<string | null>(null);
   const [lockedNote, setLockedNote] = useState<any | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
@@ -576,6 +611,7 @@ function ChartPage() {
           </section>
 
           {/* Lab Order */}
+          {can("btn_order_labs") && (
           <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader
               icon={ClipboardList}
@@ -614,6 +650,7 @@ function ChartPage() {
               </button>
             </div>
           </section>
+          )}
 
           {/* Shift Handoff & Clinical Documentation */}
           <section className="rounded-xl border border-border bg-card overflow-hidden">
@@ -771,14 +808,16 @@ function ChartPage() {
                       {savingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span aria-hidden>💾</span>}
                       Save As Draft
                     </button>
-                    <button
-                      type="button"
-                      onClick={openEsignModal}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
-                    >
-                      <span aria-hidden>✍️</span>
-                      E-Sign & Lock Note
-                    </button>
+                    {can("btn_esign_note") && (
+                      <button
+                        type="button"
+                        onClick={openEsignModal}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
+                      >
+                        <span aria-hidden>✍️</span>
+                        E-Sign & Lock Note
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

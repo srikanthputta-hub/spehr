@@ -116,22 +116,30 @@ export function useActiveNurse(): NurseProfile {
 }
 
 const STORAGE_KEY = "spehr.activeFacility";
+const ROLE_STORAGE_KEY = "spehr.activeRole";
 
 interface FacilityContextValue {
   facility: Facility;
   setFacility: (f: Facility) => void;
+  activeRole: StaffRole;
+  setActiveRole: (r: StaffRole) => void;
 }
 
 const FacilityContext = createContext<FacilityContextValue | null>(null);
 
 export function FacilityProvider({ children }: { children: ReactNode }) {
   const [facility, setFacilityState] = useState<Facility>("Memorial Hospital");
+  const [activeRole, setActiveRoleState] = useState<StaffRole>("RN");
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored && (FACILITIES as readonly string[]).includes(stored)) {
         setFacilityState(stored as Facility);
+      }
+      const r = localStorage.getItem(ROLE_STORAGE_KEY);
+      if (r && ["RN", "MD", "PharmD", "RT", "Admin", "Lab"].includes(r)) {
+        setActiveRoleState(r as StaffRole);
       }
     } catch {}
   }, []);
@@ -143,8 +151,15 @@ export function FacilityProvider({ children }: { children: ReactNode }) {
     } catch {}
   };
 
+  const setActiveRole = (r: StaffRole) => {
+    setActiveRoleState(r);
+    try {
+      localStorage.setItem(ROLE_STORAGE_KEY, r);
+    } catch {}
+  };
+
   return (
-    <FacilityContext.Provider value={{ facility, setFacility }}>
+    <FacilityContext.Provider value={{ facility, setFacility, activeRole, setActiveRole }}>
       {children}
     </FacilityContext.Provider>
   );
@@ -154,7 +169,7 @@ export function useFacility(): FacilityContextValue {
   const ctx = useContext(FacilityContext);
   if (!ctx) {
     // Safe fallback so components outside provider still render.
-    return { facility: "Memorial Hospital", setFacility: () => {} };
+    return { facility: "Memorial Hospital", setFacility: () => {}, activeRole: "RN", setActiveRole: () => {} };
   }
   return ctx;
 }
