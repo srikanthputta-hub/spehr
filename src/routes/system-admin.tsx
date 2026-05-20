@@ -5,6 +5,23 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ShieldCheck, ToggleRight, Users, Activity, Loader2, Zap, Pencil } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -394,6 +411,27 @@ const STAFF_DIRECTORY: StaffMember[] = [
 ];
 
 function UserDirectory() {
+  const [staff, setStaff] = useState<StaffMember[]>(STAFF_DIRECTORY);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState<StaffMember | null>(null);
+
+  const openEdit = (idx: number) => {
+    setEditingIndex(idx);
+    setDraft({ ...staff[idx] });
+  };
+
+  const closeEdit = () => {
+    setEditingIndex(null);
+    setDraft(null);
+  };
+
+  const saveEdit = () => {
+    if (editingIndex === null || !draft) return;
+    setStaff((rows) => rows.map((r, i) => (i === editingIndex ? draft : r)));
+    closeEdit();
+    toast.success("Staff access updated successfully.");
+  };
+
   return (
     <div className="space-y-5">
       <div>
@@ -414,7 +452,7 @@ function UserDirectory() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {STAFF_DIRECTORY.map((s) => (
+            {staff.map((s, idx) => (
               <tr key={s.name} className="hover:bg-slate-50/70 transition-colors">
                 <td className="px-5 py-3 font-medium text-slate-900">{s.name}</td>
                 <td className="px-5 py-3 text-slate-700">{s.role}</td>
@@ -438,6 +476,7 @@ function UserDirectory() {
                 <td className="px-5 py-3 text-right">
                   <button
                     type="button"
+                    onClick={() => openEdit(idx)}
                     className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-[#2d8a9e] hover:text-[#0c2340] hover:bg-slate-50 cursor-pointer transition"
                   >
                     <Pencil className="h-3 w-3" />
@@ -449,6 +488,111 @@ function UserDirectory() {
           </tbody>
         </table>
       </div>
+
+      <Dialog open={editingIndex !== null} onOpenChange={(o) => !o && closeEdit()}>
+        <DialogContent className="sm:max-w-md">
+          {draft && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Modify Staff Access: {draft.name}</DialogTitle>
+                <DialogDescription>
+                  Update clinical role, facility assignment, and account status.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-2">
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Staff Name
+                  </Label>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-900">
+                    {draft.name}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Clinical Role
+                  </Label>
+                  <Select
+                    value={draft.role}
+                    onValueChange={(v) => setDraft({ ...draft, role: v })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {[
+                        "System Administrator",
+                        "Attending Physician",
+                        "Registered Nurse",
+                        "Clinical Lab Tech",
+                        "Clinical Pharmacist",
+                      ].map((r) => (
+                        <SelectItem key={r} value={r}>{r}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Primary Facility
+                  </Label>
+                  <Select
+                    value={draft.facility}
+                    onValueChange={(v) => setDraft({ ...draft, facility: v })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {FACILITIES.map((f) => (
+                        <SelectItem key={f} value={f}>{f}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Account Status
+                  </Label>
+                  <div
+                    className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
+                      draft.status === "Active"
+                        ? "border-emerald-200 bg-emerald-50"
+                        : "border-red-200 bg-red-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-2.5 w-2.5 rounded-full ${
+                          draft.status === "Active" ? "bg-emerald-500" : "bg-red-500"
+                        }`}
+                      />
+                      <span
+                        className={`text-sm font-semibold ${
+                          draft.status === "Active" ? "text-emerald-700" : "text-red-700"
+                        }`}
+                      >
+                        {draft.status}
+                      </span>
+                    </div>
+                    <Switch
+                      checked={draft.status === "Active"}
+                      onCheckedChange={(v) =>
+                        setDraft({ ...draft, status: v ? "Active" : "Suspended" })
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={closeEdit}>Cancel</Button>
+                <Button onClick={saveEdit}>Save Changes</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
