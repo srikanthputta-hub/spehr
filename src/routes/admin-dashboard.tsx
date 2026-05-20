@@ -222,8 +222,8 @@ function AdminDashboard() {
   const reloadPatients = async () => {
     const { data, error } = await supabase
       .from("patients")
-      .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name")
-      .order("room", { ascending: true });
+      .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time")
+      .order("admission_time", { ascending: false });
     if (!error) setPatients((data ?? []) as Patient[]);
   };
 
