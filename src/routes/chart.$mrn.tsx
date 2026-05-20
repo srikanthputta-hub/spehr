@@ -106,6 +106,42 @@ function ChartPage() {
   const [orderingLab, setOrderingLab] = useState(false);
   const [activeTab, setActiveTab] = useState<"clinical" | "labs">("clinical");
   const [completedLabs, setCompletedLabs] = useState<any[]>([]);
+  const { activeRole } = useFacility();
+  const [permissions, setPermissions] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("role_permissions")
+        .select("feature_key, is_active")
+        .eq("target_role", activeRole);
+      if (!cancelled && data) {
+        const map: Record<string, boolean> = {};
+        for (const row of data as any[]) map[row.feature_key] = !!row.is_active;
+        setPermissions(map);
+      }
+    })();
+    // Realtime subscription so toggles flip immediately
+    const channel = supabase
+      .channel(`role_perms_${activeRole}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "role_permissions", filter: `target_role=eq.${activeRole}` },
+        (payload: any) => {
+          const row = payload.new ?? payload.old;
+          if (!row?.feature_key) return;
+          setPermissions((prev) => ({ ...prev, [row.feature_key]: !!payload.new?.is_active }));
+        },
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [activeRole]);
+
+  const can = (key: string) => permissions[key] !== false;
   const [draftId, setDraftId] = useState<string | null>(null);
   const [lockedNote, setLockedNote] = useState<any | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
