@@ -379,7 +379,7 @@ export type Database = {
           code_status: string | null
           diagnosis: string | null
           discharge_time: string | null
-          facility_name: string | null
+          facility_name: string
           first_name: string | null
           gender: string | null
           hr: number | null
@@ -392,7 +392,7 @@ export type Database = {
           room: string | null
           rr: number | null
           spo2: number | null
-          status: string | null
+          status: string
           temp: number | null
           unread_labs_alert: boolean | null
         }
@@ -406,7 +406,7 @@ export type Database = {
           code_status?: string | null
           diagnosis?: string | null
           discharge_time?: string | null
-          facility_name?: string | null
+          facility_name?: string
           first_name?: string | null
           gender?: string | null
           hr?: number | null
@@ -419,7 +419,7 @@ export type Database = {
           room?: string | null
           rr?: number | null
           spo2?: number | null
-          status?: string | null
+          status?: string
           temp?: number | null
           unread_labs_alert?: boolean | null
         }
@@ -433,7 +433,7 @@ export type Database = {
           code_status?: string | null
           diagnosis?: string | null
           discharge_time?: string | null
-          facility_name?: string | null
+          facility_name?: string
           first_name?: string | null
           gender?: string | null
           hr?: number | null
@@ -446,7 +446,7 @@ export type Database = {
           room?: string | null
           rr?: number | null
           spo2?: number | null
-          status?: string | null
+          status?: string
           temp?: number | null
           unread_labs_alert?: boolean | null
         }
