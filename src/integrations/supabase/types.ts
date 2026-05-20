@@ -349,6 +349,7 @@ export type Database = {
       }
       patients: {
         Row: {
+          admission_time: string | null
           age: number | null
           bp: string | null
           bp_diastolic: number | null
@@ -356,6 +357,7 @@ export type Database = {
           chief_complaint: string | null
           code_status: string | null
           diagnosis: string | null
+          discharge_time: string | null
           facility_name: string | null
           first_name: string | null
           gender: string | null
@@ -369,10 +371,12 @@ export type Database = {
           room: string | null
           rr: number | null
           spo2: number | null
+          status: string | null
           temp: number | null
           unread_labs_alert: boolean | null
         }
         Insert: {
+          admission_time?: string | null
           age?: number | null
           bp?: string | null
           bp_diastolic?: number | null
@@ -380,6 +384,7 @@ export type Database = {
           chief_complaint?: string | null
           code_status?: string | null
           diagnosis?: string | null
+          discharge_time?: string | null
           facility_name?: string | null
           first_name?: string | null
           gender?: string | null
@@ -393,10 +398,12 @@ export type Database = {
           room?: string | null
           rr?: number | null
           spo2?: number | null
+          status?: string | null
           temp?: number | null
           unread_labs_alert?: boolean | null
         }
         Update: {
+          admission_time?: string | null
           age?: number | null
           bp?: string | null
           bp_diastolic?: number | null
@@ -404,6 +411,7 @@ export type Database = {
           chief_complaint?: string | null
           code_status?: string | null
           diagnosis?: string | null
+          discharge_time?: string | null
           facility_name?: string | null
           first_name?: string | null
           gender?: string | null
@@ -417,6 +425,7 @@ export type Database = {
           room?: string | null
           rr?: number | null
           spo2?: number | null
+          status?: string | null
           temp?: number | null
           unread_labs_alert?: boolean | null
         }
@@ -544,6 +553,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      auto_admit_ghost_patient: { Args: never; Returns: undefined }
+      auto_discharge_ghost_patients: { Args: never; Returns: undefined }
+      auto_order_ghost_labs: { Args: never; Returns: undefined }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
