@@ -578,6 +578,21 @@ export type Database = {
         }
         Relationships: []
       }
+      system_settings: {
+        Row: {
+          automation_enabled: boolean | null
+          id: number
+        }
+        Insert: {
+          automation_enabled?: boolean | null
+          id: number
+        }
+        Update: {
+          automation_enabled?: boolean | null
+          id?: number
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
