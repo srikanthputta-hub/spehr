@@ -216,6 +216,7 @@ export type Database = {
           name: string | null
           ordered_by: string | null
           patient_id: string | null
+          patient_mrn: string | null
           patient_name: string | null
           route: string | null
           status: string | null
@@ -235,6 +236,7 @@ export type Database = {
           name?: string | null
           ordered_by?: string | null
           patient_id?: string | null
+          patient_mrn?: string | null
           patient_name?: string | null
           route?: string | null
           status?: string | null
@@ -254,6 +256,7 @@ export type Database = {
           name?: string | null
           ordered_by?: string | null
           patient_id?: string | null
+          patient_mrn?: string | null
           patient_name?: string | null
           route?: string | null
           status?: string | null
