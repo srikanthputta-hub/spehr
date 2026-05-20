@@ -41,6 +41,25 @@ function SystemAdminPage() {
   const [selectedFacility, setSelectedFacility] = useState<Facility>("Memorial Hospital");
   const [automation, setAutomation] = useState<boolean | null>(null);
   const [automationSaving, setAutomationSaving] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!active || !user) return;
+      const { data } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id);
+      if (!active) return;
+      const roles = (data ?? []).map((r: any) => r.role);
+      setIsAdmin(roles.includes("it_admin"));
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -127,7 +146,8 @@ function SystemAdminPage() {
       return;
     }
     toast.success(
-      `${p.feature_name} ${next ? "enabled" : "disabled"} for ${ROLE_LABELS[p.target_role] ?? p.target_role} · ${selectedFacility}`,
+      `Updated '${p.feature_name}' for ${p.target_role}`,
+      { description: `${next ? "Enabled" : "Disabled"} · ${selectedFacility}` },
     );
   };
 
@@ -179,6 +199,7 @@ function SystemAdminPage() {
       </header>
 
       <section className="max-w-6xl mx-auto px-6 py-8">
+        {isAdmin && (
         <div
           className={`mb-6 rounded-xl border shadow-sm overflow-hidden ${
             automation
@@ -247,6 +268,7 @@ function SystemAdminPage() {
             </div>
           </div>
         </div>
+        )}
 
         {tab === "feature_controls" && (
           <div className="space-y-6">
