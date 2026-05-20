@@ -752,6 +752,29 @@ function PhysicianBoard() {
                   </div>
                 </div>
 
+                {/* AI Differential Consult — Ghost AI background engine */}
+                <div className="rounded-md border border-purple-300 bg-purple-50/70 p-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                      <Brain className="h-3 w-3" /> AI Consult
+                    </span>
+                    <span className="text-[10px] font-mono text-purple-700/80">
+                      {aiNote?.created_at
+                        ? new Date(aiNote.created_at).toLocaleTimeString()
+                        : "Generating…"}
+                    </span>
+                  </div>
+                  {aiNote ? (
+                    <p className="text-[12px] leading-relaxed text-purple-950 whitespace-pre-wrap">
+                      {aiNote.content}
+                    </p>
+                  ) : (
+                    <p className="text-[12px] italic text-purple-700/70">
+                      Ghost AI Differential Engine is analyzing presentation… (auto-posts within 10s of admission)
+                    </p>
+                  )}
+                </div>
+
                 {/* Action Buttons */}
                 {actionsView === "menu" && (
                   <>
