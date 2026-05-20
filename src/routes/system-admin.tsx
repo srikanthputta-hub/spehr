@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ShieldCheck, ToggleRight, Users, Activity, Loader2, Zap, Pencil } from "lucide-react";
+import { ShieldCheck, ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -381,9 +381,7 @@ function SystemAdminPage() {
           <UserDirectory />
         )}
         {tab === "audit" && (
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-500">
-            Audit log stream — surfaced from MAR, e-sign, and transfer registries.
-          </div>
+          <AuditLog />
         )}
       </section>
     </main>
