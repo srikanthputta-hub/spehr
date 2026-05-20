@@ -51,6 +51,7 @@ interface PatientRow {
   medsDue: number;
   facility: string;
   unreadLabs: boolean;
+  admittedAt: string | null;
 }
 
 function normalizeCode(s: string | null | undefined): CodeStatus {
@@ -195,11 +196,20 @@ function toRow(p: any): PatientRow {
     medsDue: p.meds_due_count ?? 1,
     facility: p.facility_name ?? "Memorial Hospital",
     unreadLabs: !!p.unread_labs_alert,
+    admittedAt: p.admission_time ?? null,
   };
 }
 
 function genMRN() {
   return `MRN-${Math.floor(100000 + Math.random() * 900000)}`;
+}
+
+function fmtAdmitted(ts: string | null | undefined): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${String(d.getFullYear()).slice(-2)} - ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function Dashboard() {
@@ -242,7 +252,7 @@ function Dashboard() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status",
+          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
         )
         .eq("status", "Admitted")
         .eq("facility_name", facility)
@@ -562,6 +572,7 @@ function Dashboard() {
                   <th className="px-3 py-2 font-bold">MRN</th>
                   <th className="px-3 py-2 font-bold">Patient Name</th>
                   <th className="px-3 py-2 font-bold">Diagnosis</th>
+                  <th className="px-3 py-2 font-bold">Admitted</th>
                   <th className="px-3 py-2 font-bold">Live Vitals</th>
                   <th className="px-3 py-2 font-bold">Clinical Alerts</th>
                   <th className="px-3 py-2 font-bold text-right pr-4">Action</th>
@@ -570,7 +581,7 @@ function Dashboard() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={8} className="px-5 py-10 text-center text-sm text-muted-foreground">
                       <span className="inline-flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
                         Loading floor census…
@@ -580,7 +591,7 @@ function Dashboard() {
                 )}
                 {!loading && fetchError && (
                   <tr>
-                    <td colSpan={7} className="px-5 py-10 text-center text-sm">
+                    <td colSpan={8} className="px-5 py-10 text-center text-sm">
                       <div className="inline-flex items-center gap-2 text-red-600">
                         <AlertTriangle className="h-4 w-4" />
                         Unable to load patients — {fetchError}
@@ -590,7 +601,7 @@ function Dashboard() {
                 )}
                 {!loading && !fetchError && rows.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-5 py-16 text-center">
+                    <td colSpan={8} className="px-5 py-16 text-center">
                       <div className="flex flex-col items-center gap-2 text-slate-500">
                         <div className="text-3xl">🛏️</div>
                         <div className="text-sm font-semibold text-slate-700">
@@ -630,6 +641,9 @@ function Dashboard() {
                         <div className="truncate" title={p.diagnosis}>
                           {p.diagnosis || "—"}
                         </div>
+                      </td>
+                      <td className="px-3 py-2 align-middle font-mono tabular-nums text-[11.5px] text-slate-500 whitespace-nowrap">
+                        {fmtAdmitted(p.admittedAt)}
                       </td>
                       <td className="px-3 py-2 align-middle">
                         <LiveVitals dx={p.diagnosis} />
