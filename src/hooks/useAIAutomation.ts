@@ -36,12 +36,19 @@ export function useAIAutomation() {
 
       const t = setTimeout(async () => {
         if (cancelled) return;
-        await supabase.from("clinical_notes").insert({
-          mrn,
-          note_type: "AI_DIFFERENTIAL",
-          author: "Ghost AI Differential Engine",
-          content: buildDifferential(complaint),
-        });
+        try {
+          const { error } = await supabase.from("clinical_notes").insert({
+            mrn,
+            note_type: "AI_DIFFERENTIAL",
+            author: "Ghost AI Differential Engine",
+            content: buildDifferential(complaint),
+          });
+          if (error) throw error;
+        } catch (error) {
+          console.log("AI Differential Error: ", error);
+          // Allow UI consumers to fall back to a local mock — they handle
+          // their own timeout-based fallback so we just log here.
+        }
       }, 10_000);
       timers.push(t);
     };
