@@ -22,6 +22,7 @@ interface PatientRecord {
   bp_systolic: number | null;
   bp_diastolic: number | null;
   spo2: number | null;
+  admission_time: string | null;
 }
 
 function mockAgeFromName(first: string | null | undefined, fallback: number | null): number {
@@ -509,7 +510,7 @@ function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) 
           <header className={sectionHeader}>Encounter Details</header>
           <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 p-3 text-[12px]">
             <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Admission</dt>
-            <dd className="col-span-2 font-mono">—</dd>
+            <dd className="col-span-2 font-mono">{fmtTime(patient.admission_time)}</dd>
             <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Chief Complaint</dt>
             <dd className="col-span-2 font-semibold text-slate-800">{patient.chief_complaint ?? "—"}</dd>
             <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Diagnosis</dt>
@@ -602,7 +603,7 @@ function PatientChart() {
       setError(null);
       const { data, error } = await supabase
         .from("patients")
-        .select("mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2")
+        .select("mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time")
         .eq("mrn", mrn)
         .maybeSingle();
       if (cancelled) return;
