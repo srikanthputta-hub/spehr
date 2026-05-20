@@ -60,6 +60,7 @@ const FREQS = ["Once", "Daily", "BID", "TID", "QID", "Q4H", "Q6H", "Q8H", "Q12H"
 
 function PhysicianBoard() {
   const { facility, activeRole } = useFacility();
+  const [aiNote, setAiNote] = useState<{ content: string; created_at: string | null } | null>(null);
   const [refPerm, setRefPerm] = useState<boolean>(true);
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +136,44 @@ function PhysicianBoard() {
     setNoteText("");
     setNotePin("");
     setDisposition("Discharge to Home");
+  }, [actionsMrn]);
+
+  // Fetch + subscribe to the AI_DIFFERENTIAL note for the patient open in the
+  // Clinical Actions modal so the physician sees the Ghost AI consult live.
+  useEffect(() => {
+    if (!actionsMrn) {
+      setAiNote(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("clinical_notes")
+        .select("content, created_at")
+        .eq("mrn", actionsMrn)
+        .eq("note_type", "AI_DIFFERENTIAL")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled) setAiNote((data as any) ?? null);
+    };
+    load();
+    const ch = supabase
+      .channel(`ai-note-${actionsMrn}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "clinical_notes", filter: `mrn=eq.${actionsMrn}` },
+        (payload: any) => {
+          if (payload.new?.note_type === "AI_DIFFERENTIAL") {
+            setAiNote({ content: payload.new.content, created_at: payload.new.created_at });
+          }
+        },
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(ch);
+    };
   }, [actionsMrn]);
 
   useEffect(() => {
