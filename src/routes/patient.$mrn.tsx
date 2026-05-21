@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { getMockAiNote } from "@/lib/mockAiNotes";
 import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2, Brain } from "lucide-react";
 import { toast } from "sonner";
 
@@ -333,62 +334,15 @@ function MarView({ patientId }: { patientId: string }) {
 function NotesView({ mrn }: { mrn: string }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [rows] = useNotes(mrn, refreshKey);
-  const [aiNote, setAiNote] = useState<{ content: string; created_at: string | null } | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    const load = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("clinical_notes")
-          .select("content, created_at")
-          .eq("mrn", mrn)
-          .eq("note_type", "AI_DIFFERENTIAL")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (error) throw error;
-        if (!cancelled) setAiNote((data as any) ?? null);
-      } catch (error) {
-        console.log("AI Differential Error: ", error);
-        if (!cancelled) {
-          setAiNote({
-            content:
-              "AI Consult [Local Mock]: Database insert failed, but differential generated. Rule out ACS, PE, and Aortic Dissection.",
-            created_at: new Date().toISOString(),
-          });
-        }
-      }
-    };
-    load();
-    fallbackTimer = setTimeout(() => {
-      if (cancelled) return;
-      setAiNote((prev) =>
-        prev ?? {
-          content:
-            "AI Consult [Local Mock]: Live differential not received in time. Rule out ACS, PE, and Aortic Dissection.",
-          created_at: new Date().toISOString(),
-        },
-      );
-    }, 12_000);
-    const ch = supabase
-      .channel(`ai-note-chart-${mrn}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "clinical_notes", filter: `mrn=eq.${mrn}` },
-        (payload: any) => {
-          if (payload.new?.note_type === "AI_DIFFERENTIAL") {
-            setAiNote({ content: payload.new.content, created_at: payload.new.created_at });
-          }
-        },
-      )
-      .subscribe();
-    return () => {
-      cancelled = true;
-      if (fallbackTimer) clearTimeout(fallbackTimer);
-      supabase.removeChannel(ch);
-    };
-  }, [mrn]);
+  // SYNCHRONOUS BYPASS: read from global mock store. No timers, no DB.
+  const mockAi = getMockAiNote(mrn);
+  const aiNote = mockAi
+    ? { content: mockAi.text, created_at: mockAi.created_at }
+    : {
+        content:
+          "AI Consult [Local Mock]: Based on presentation, rule out ACS, Pulmonary Embolism, and Aortic Dissection.",
+        created_at: new Date().toISOString(),
+      };
   const [showForm, setShowForm] = useState(false);
   const [noteType, setNoteType] = useState("Progress Note");
   const [content, setContent] = useState("");
