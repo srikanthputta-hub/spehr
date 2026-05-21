@@ -96,7 +96,7 @@ async function seedAdmission(p: NewPatient) {
   const labRows = labs.map((l: LabCatalogEntry) => ({
     patient_mrn: mrn,
     patient_name: patientName,
-    facility_name: p.facility_name ?? "Srik Health Clinic",
+    facility_name: p.facility_name ?? "Memorial Hospital",
     requested_by: "Ghost AI - Admission Randomizer",
     test_type: l.name,
     status: "Resulted",

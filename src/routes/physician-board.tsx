@@ -34,7 +34,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 
-const TRANSFER_DESTINATIONS = ["Srik Health Clinic", "Outside Network"] as const;
+const TRANSFER_DESTINATIONS = [
+  "Memorial Hospital",
+  "St. Jude Medical Center",
+  "City General Infirmary",
+  "County Health Pavilion",
+  "Srik Health Clinic",
+  "Outside Network",
+] as const;
 
 type Patient = {
   mrn: string;
@@ -144,7 +151,7 @@ function PhysicianBoard() {
 
   // Referral / Transfer
   const [transferOpen, setTransferOpen] = useState(false);
-  const [destination, setDestination] = useState<string>("Srik Health Clinic");
+  const [destination, setDestination] = useState<string>("Memorial Hospital");
   const [reason, setReason] = useState("");
   const [transferring, setTransferring] = useState(false);
 
@@ -200,7 +207,7 @@ function PhysicianBoard() {
           "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
         )
         .eq("status", "Admitted")
-        .eq("facility_name", facility ?? "Srik Health Clinic")
+        .eq("facility_name", facility ?? "Memorial Hospital")
         .order("room", { ascending: true });
       if (!active) return;
       if (error) {
@@ -224,7 +231,7 @@ function PhysicianBoard() {
               "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
             )
             .eq("status", "Admitted")
-            .eq("facility_name", facility ?? "Srik Health Clinic")
+            .eq("facility_name", facility ?? "Memorial Hospital")
             .order("room", { ascending: true })
             .then(({ data }) => {
               if (data) setPatients(data as Patient[]);
@@ -238,7 +245,7 @@ function PhysicianBoard() {
     };
   }, [facility]);
 
-  const activeFacilityName = facility ?? "Srik Health Clinic";
+  const activeFacilityName = facility ?? "Memorial Hospital";
   const allPatients = patients;
   const filteredPatients = allPatients.filter(
     (p) => p.facility_name === activeFacilityName,
@@ -287,7 +294,7 @@ function PhysicianBoard() {
         patient_name: patientName,
         mrn: selected.mrn,
         patient_mrn: selected.mrn,
-        facility_name: facility ?? "Srik Health Clinic",
+        facility_name: facility ?? "Memorial Hospital",
         drug_name: drug.trim(),
         medication_name: drug.trim(),
         dose: dose.trim(),
@@ -878,7 +885,7 @@ function PhysicianBoard() {
                       </Field>
                     </div>
                     <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-                      Routes to Pharmacy at <span className="font-semibold">{facility ?? "Srik Health Clinic"}</span> as{" "}
+                      Routes to Pharmacy at <span className="font-semibold">{facility ?? "Memorial Hospital"}</span> as{" "}
                       <span className="font-mono">PENDING_VERIFICATION</span> by{" "}
                       <span className="font-semibold">{md.name}</span>.
                     </div>

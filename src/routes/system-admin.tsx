@@ -56,7 +56,7 @@ function SystemAdminPage() {
   const [perms, setPerms] = useState<Perm[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
-  const [selectedFacility, setSelectedFacility] = useState<Facility>("Srik Health Clinic");
+  const [selectedFacility, setSelectedFacility] = useState<Facility>("Memorial Hospital");
   const [automation, setAutomation] = useState<boolean | null>(null);
   const [automationSaving, setAutomationSaving] = useState(false);
   const [isAdmin, setIsAdmin] = useState(true);
@@ -385,16 +385,16 @@ type StaffMember = {
 };
 
 const STAFF_DIRECTORY: StaffMember[] = [
-  { name: "Diane Whitaker", role: "System Administrator", facility: "Srik Health Clinic", status: "Active" },
-  { name: "Marcus Lin, MD", role: "Attending Physician", facility: "Srik Health Clinic", status: "Active" },
-  { name: "Sarah Jenkins, RN", role: "Registered Nurse", facility: "Srik Health Clinic", status: "Active" },
-  { name: "Priya Raman, PharmD", role: "Clinical Pharmacist", facility: "Srik Health Clinic", status: "Active" },
-  { name: "Jordan Alvarez, CLT", role: "Clinical Lab Tech", facility: "Srik Health Clinic", status: "Active" },
+  { name: "Diane Whitaker", role: "System Administrator", facility: "Memorial Hospital", status: "Active" },
+  { name: "Marcus Lin, MD", role: "Attending Physician", facility: "Memorial Hospital", status: "Active" },
+  { name: "Sarah Jenkins, RN", role: "Registered Nurse", facility: "St. Jude Medical Center", status: "Active" },
+  { name: "Priya Raman, PharmD", role: "Clinical Pharmacist", facility: "City General Infirmary", status: "Active" },
+  { name: "Jordan Alvarez, CLT", role: "Clinical Lab Tech", facility: "Memorial Hospital", status: "Active" },
   { name: "Evelyn Park, MD", role: "Attending Physician", facility: "Srik Health Clinic", status: "Suspended" },
-  { name: "Tomás Reyes, RT", role: "Respiratory Therapist", facility: "Srik Health Clinic", status: "Active" },
-  { name: "Hannah O'Connor, RN", role: "Registered Nurse", facility: "Srik Health Clinic", status: "Active" },
-  { name: "Brian Yamamoto, MD", role: "Attending Physician", facility: "Srik Health Clinic", status: "Active" },
-  { name: "Lena Kowalski, CLT", role: "Clinical Lab Tech", facility: "Srik Health Clinic", status: "Suspended" },
+  { name: "Tomás Reyes, RT", role: "Respiratory Therapist", facility: "County Health Pavilion", status: "Active" },
+  { name: "Hannah O'Connor, RN", role: "Registered Nurse", facility: "Memorial Hospital", status: "Active" },
+  { name: "Brian Yamamoto, MD", role: "Attending Physician", facility: "St. Jude Medical Center", status: "Active" },
+  { name: "Lena Kowalski, CLT", role: "Clinical Lab Tech", facility: "City General Infirmary", status: "Suspended" },
 ];
 
 function UserDirectory() {
@@ -595,20 +595,20 @@ type AuditEvent = {
 
 const AUDIT_EVENTS: AuditEvent[] = [
   { ts: "20-May-2026, 07:42:11", category: "SECURITY",  actor: "Diane Whitaker (Admin)",  facility: "Global Network",          details: "Suspended user access for Evelyn Park, MD" },
-  { ts: "20-May-2026, 07:38:47", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "Srik Health Clinic", details: "Auto-admitted patient MRN-481204 (Chest Pain)" },
-  { ts: "20-May-2026, 07:36:02", category: "CLINICAL",  actor: "Marcus Lin, MD",          facility: "Srik Health Clinic",       details: "E-Signed & locked progress note for MRN-392811" },
-  { ts: "20-May-2026, 07:33:18", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "Srik Health Clinic",       details: "Auto-resulted CBC lab for MRN-39281 (WBC 12.4, Hgb 11.2)" },
+  { ts: "20-May-2026, 07:38:47", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "St. Jude Medical Center", details: "Auto-admitted patient MRN-481204 (Chest Pain)" },
+  { ts: "20-May-2026, 07:36:02", category: "CLINICAL",  actor: "Marcus Lin, MD",          facility: "Memorial Hospital",       details: "E-Signed & locked progress note for MRN-392811" },
+  { ts: "20-May-2026, 07:33:18", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "Memorial Hospital",       details: "Auto-resulted CBC lab for MRN-39281 (WBC 12.4, Hgb 11.2)" },
   { ts: "20-May-2026, 07:29:54", category: "SYSTEM",    actor: "Diane Whitaker (Admin)",  facility: "Global Network",          details: "Toggled Master AI Switch to ON" },
-  { ts: "20-May-2026, 07:25:09", category: "CLINICAL",  actor: "Sarah Jenkins, RN",       facility: "Srik Health Clinic", details: "Administered Acetaminophen 650mg PO to MRN-558102" },
-  { ts: "20-May-2026, 07:21:33", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "Srik Health Clinic",  details: "Cascaded medication order Pending → Approved (MRN-661923)" },
-  { ts: "20-May-2026, 07:18:47", category: "SECURITY",  actor: "Diane Whitaker (Admin)",  facility: "Srik Health Clinic",       details: "Disabled feature flag 'btn_discharge_patient' for role MD" },
-  { ts: "20-May-2026, 07:15:22", category: "CLINICAL",  actor: "Priya Raman, PharmD",     facility: "Srik Health Clinic",  details: "Verified medication order for Vancomycin 1g IV (MRN-770451)" },
+  { ts: "20-May-2026, 07:25:09", category: "CLINICAL",  actor: "Sarah Jenkins, RN",       facility: "St. Jude Medical Center", details: "Administered Acetaminophen 650mg PO to MRN-558102" },
+  { ts: "20-May-2026, 07:21:33", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "City General Infirmary",  details: "Cascaded medication order Pending → Approved (MRN-661923)" },
+  { ts: "20-May-2026, 07:18:47", category: "SECURITY",  actor: "Diane Whitaker (Admin)",  facility: "Memorial Hospital",       details: "Disabled feature flag 'btn_discharge_patient' for role MD" },
+  { ts: "20-May-2026, 07:15:22", category: "CLINICAL",  actor: "Priya Raman, PharmD",     facility: "City General Infirmary",  details: "Verified medication order for Vancomycin 1g IV (MRN-770451)" },
   { ts: "20-May-2026, 07:11:08", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "Srik Health Clinic",details: "Auto-discharged 3 patients (census protection rule applied)" },
-  { ts: "20-May-2026, 07:07:44", category: "CLINICAL",  actor: "Jordan Alvarez, CLT",     facility: "Srik Health Clinic",       details: "Submitted official lab report for Troponin panel (MRN-204517)" },
-  { ts: "20-May-2026, 07:02:19", category: "SECURITY",  actor: "Diane Whitaker (Admin)",  facility: "Global Network",          details: "Reassigned Hannah O'Connor, RN to Srik Health Clinic" },
+  { ts: "20-May-2026, 07:07:44", category: "CLINICAL",  actor: "Jordan Alvarez, CLT",     facility: "Memorial Hospital",       details: "Submitted official lab report for Troponin panel (MRN-204517)" },
+  { ts: "20-May-2026, 07:02:19", category: "SECURITY",  actor: "Diane Whitaker (Admin)",  facility: "Global Network",          details: "Reassigned Hannah O'Connor, RN to Memorial Hospital" },
   { ts: "20-May-2026, 06:58:55", category: "SYSTEM",    actor: "Ghost AI (System)",       facility: "Global Network",          details: "Scheduled automation cycle completed in 412ms" },
-  { ts: "20-May-2026, 06:54:12", category: "CLINICAL",  actor: "Brian Yamamoto, MD",      facility: "Srik Health Clinic", details: "Ordered Lactic Acid + CMP panel for MRN-883102" },
-  { ts: "20-May-2026, 06:49:38", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "Srik Health Clinic",  details: "Auto-resulted CMP lab (Glucose 450 [CRITICAL])" },
+  { ts: "20-May-2026, 06:54:12", category: "CLINICAL",  actor: "Brian Yamamoto, MD",      facility: "St. Jude Medical Center", details: "Ordered Lactic Acid + CMP panel for MRN-883102" },
+  { ts: "20-May-2026, 06:49:38", category: "AUTOMATION", actor: "Ghost AI (System)",       facility: "County Health Pavilion",  details: "Auto-resulted CMP lab (Glucose 450 [CRITICAL])" },
 ];
 
 const CATEGORY_STYLES: Record<AuditCategory, string> = {
