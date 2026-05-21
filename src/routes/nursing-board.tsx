@@ -358,21 +358,23 @@ function Dashboard() {
     if (!ready || !simulate) return;
     const jitter = (range: number) =>
       Math.floor(Math.random() * (2 * range + 1)) - range;
+    const clamp = (v: number, lo: number, hi: number) =>
+      Math.min(hi, Math.max(lo, v));
     const id = setInterval(() => {
       setPatients((prev) =>
         prev.map((p) => {
           const [sysStr, diaStr] = p.bp.split("/");
-          const sys = Math.max(50, (parseInt(sysStr, 10) || 120) + jitter(2));
-          const dia = Math.max(30, (parseInt(diaStr, 10) || 80) + jitter(1));
+          const sys = clamp((parseInt(sysStr, 10) || 120) + jitter(4), 80, 200);
+          const dia = clamp((parseInt(diaStr, 10) || 80) + jitter(4), 40, 120);
           return {
             ...p,
-            hr: Math.max(20, p.hr + jitter(2)),
+            hr: clamp(p.hr + jitter(5), 60, 130),
             bp: `${sys}/${dia}`,
-            o2: Math.min(100, Math.max(70, p.o2 + jitter(1))),
+            o2: clamp(p.o2 + jitter(2), 92, 100),
           };
         }),
       );
-    }, 1000);
+    }, 4000);
     return () => clearInterval(id);
   }, [ready, simulate]);
 
