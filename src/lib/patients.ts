@@ -1,4 +1,9 @@
-import { MEDICATION_CATALOG, LAB_CATALOG } from "@/constants/clinical-catalog";
+import {
+  MEDICATION_CATALOG,
+  LAB_CATALOG,
+  type MedicationCatalogEntry,
+  type LabCatalogEntry,
+} from "@/constants/clinical-catalog";
 
 // Re-export the Master Clinical Catalog so patient generation / admission
 // randomizer logic can pull diverse meds + labs from a single source of truth.
@@ -14,6 +19,15 @@ export interface MedOrder {
   freq: string;
   due: string;
   notes?: string;
+}
+
+export interface LabResult {
+  id: string;
+  name: string;
+  value: string;
+  unit: string;
+  referenceRange: string;
+  status: "RESULTED";
 }
 
 export interface Patient {
@@ -37,6 +51,7 @@ export interface Patient {
   task: string;
   admitNote: string;
   meds: MedOrder[];
+  labs?: LabResult[];
 }
 
 export const PATIENTS: Patient[] = [
@@ -253,6 +268,88 @@ export const PATIENTS: Patient[] = [
     ],
   },
 ];
+
+/* ------------------------------------------------------------------ */
+/* Clinical Randomizer — applied to the initial mock census so every  */
+/* starting patient ships with 3 random meds + 2 random labs drawn    */
+/* from the Master Clinical Catalog (mirrors the admission flow).     */
+/* ------------------------------------------------------------------ */
+function pickUnique<T>(arr: readonly T[], n: number): T[] {
+  const copy = [...arr];
+  const out: T[] = [];
+  for (let i = 0; i < n && copy.length; i++) {
+    out.push(copy.splice(Math.floor(Math.random() * copy.length), 1)[0]);
+  }
+  return out;
+}
+
+function mockLabValue(lab: LabCatalogEntry): string {
+  const rng = lab.referenceRange.trim();
+  if (/negative/i.test(rng)) return "Negative";
+  const lt = rng.match(/^<\s*([\d.]+)/);
+  if (lt) return (Math.random() * parseFloat(lt[1])).toFixed(2);
+  const range = rng.match(/([\d.]+)\s*[–-]\s*([\d.]+)/);
+  if (range) {
+    const lo = parseFloat(range[1]);
+    const hi = parseFloat(range[2]);
+    const decimals = (range[1].split(".")[1]?.length ?? 0) || 1;
+    return (lo + Math.random() * (hi - lo)).toFixed(decimals);
+  }
+  return (Math.random() * 10).toFixed(1);
+}
+
+function randomMedsFor(mrn: string): MedOrder[] {
+  return pickUnique(MEDICATION_CATALOG, 3).map(
+    (m: MedicationCatalogEntry, i): MedOrder => ({
+      id: `${mrn}-m${i + 1}`,
+      name: m.name,
+      dose: m.dose,
+      route: m.route,
+      freq: "Q8H",
+      due: ["08:00", "12:00", "14:00", "18:00", "22:00"][
+        Math.floor(Math.random() * 5)
+      ],
+    }),
+  );
+}
+
+function randomLabsFor(mrn: string): LabResult[] {
+  return pickUnique(LAB_CATALOG, 2).map(
+    (l: LabCatalogEntry, i): LabResult => ({
+      id: `${mrn}-l${i + 1}`,
+      name: l.name,
+      value: mockLabValue(l),
+      unit: l.unit,
+      referenceRange: l.referenceRange,
+      status: "RESULTED",
+    }),
+  );
+}
+
+// Map over every seed patient and inject the randomized clinical payload.
+PATIENTS.forEach((p) => {
+  p.meds = randomMedsFor(p.mrn);
+  p.labs = randomLabsFor(p.mrn);
+});
+
+// One-time stale-cache flush: prior builds may have persisted the census
+// to localStorage, which would shadow the freshly randomized seed data.
+// Bump CENSUS_CACHE_VERSION to force-clear any future stale entries.
+const CENSUS_CACHE_VERSION = "v2-randomizer";
+const CENSUS_CACHE_FLAG = "spehr.censusCacheVersion";
+if (typeof window !== "undefined") {
+  try {
+    if (localStorage.getItem(CENSUS_CACHE_FLAG) !== CENSUS_CACHE_VERSION) {
+      ["spehr.patients", "spehr.census", "patients", "census"].forEach((k) => {
+        localStorage.removeItem(k);
+        sessionStorage.removeItem(k);
+      });
+      localStorage.setItem(CENSUS_CACHE_FLAG, CENSUS_CACHE_VERSION);
+    }
+  } catch {
+    /* storage unavailable — ignore */
+  }
+}
 
 export function getPatient(mrn: string): Patient | undefined {
   return PATIENTS.find((p) => p.mrn === mrn);
