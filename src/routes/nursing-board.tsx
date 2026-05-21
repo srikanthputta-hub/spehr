@@ -80,10 +80,35 @@ function classifyAlert(dx: string | null | undefined): AlertKind {
   return "pending";
 }
 
-function ClinicalAlertPill({ dx }: { dx: string | null | undefined }) {
-  const kind = classifyAlert(dx);
+function ClinicalAlertPill({
+  dx,
+  hr,
+  o2,
+}: {
+  dx: string | null | undefined;
+  hr?: number;
+  o2?: number;
+}) {
   const base =
     "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 font-sans tracking-tight whitespace-nowrap";
+
+  // Vitals-driven alerts take precedence over the diagnosis pill.
+  if (typeof o2 === "number" && o2 < 94) {
+    return (
+      <span className={`${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`}>
+        🫁 Hypoxia Alert
+      </span>
+    );
+  }
+  if (typeof hr === "number" && hr > 110) {
+    return (
+      <span className={`${base} bg-amber-100 text-amber-900 ring-amber-400`}>
+        ⚡ Tachycardia Alert
+      </span>
+    );
+  }
+
+  const kind = classifyAlert(dx);
   switch (kind) {
     case "sepsis":
       return (
@@ -333,21 +358,23 @@ function Dashboard() {
     if (!ready || !simulate) return;
     const jitter = (range: number) =>
       Math.floor(Math.random() * (2 * range + 1)) - range;
+    const clamp = (v: number, lo: number, hi: number) =>
+      Math.min(hi, Math.max(lo, v));
     const id = setInterval(() => {
       setPatients((prev) =>
         prev.map((p) => {
           const [sysStr, diaStr] = p.bp.split("/");
-          const sys = Math.max(50, (parseInt(sysStr, 10) || 120) + jitter(2));
-          const dia = Math.max(30, (parseInt(diaStr, 10) || 80) + jitter(1));
+          const sys = clamp((parseInt(sysStr, 10) || 120) + jitter(4), 80, 200);
+          const dia = clamp((parseInt(diaStr, 10) || 80) + jitter(4), 40, 120);
           return {
             ...p,
-            hr: Math.max(20, p.hr + jitter(2)),
+            hr: clamp(p.hr + jitter(5), 60, 130),
             bp: `${sys}/${dia}`,
-            o2: Math.min(100, Math.max(70, p.o2 + jitter(1))),
+            o2: clamp(p.o2 + jitter(2), 92, 100),
           };
         }),
       );
-    }, 1000);
+    }, 4000);
     return () => clearInterval(id);
   }, [ready, simulate]);
 
@@ -622,7 +649,7 @@ function Dashboard() {
                         <LiveVitals dx={p.diagnosis} />
                       </td>
                       <td className="px-3 py-2 align-middle">
-                        <ClinicalAlertPill dx={p.diagnosis} />
+                        <ClinicalAlertPill dx={p.diagnosis} hr={p.hr} o2={p.o2} />
                       </td>
                       <td className="px-3 py-2 align-middle text-right pr-4">
                         <div className="inline-flex items-center gap-1.5">
