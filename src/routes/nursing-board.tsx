@@ -1,9 +1,8 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { BoardHeader } from "@/components/BoardShell";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  HeartPulse,
-  LogOut,
   Loader2,
   Search,
   Users,
@@ -23,7 +22,7 @@ import {
   o2OutOfRange,
   type CodeStatus,
 } from "@/lib/patients";
-import { FacilitySwitcher, useFacility, useActiveNurse } from "@/lib/facility-context";
+import { useFacility, useActiveNurse } from "@/lib/facility-context";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -444,35 +443,14 @@ function Dashboard() {
 
   return (
     <main className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b border-border bg-[var(--navy)] text-white">
-        <div className="max-w-[1400px] mx-auto px-5 h-14 flex items-center gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="grid place-items-center h-8 w-8 rounded-md bg-[var(--teal)]">
-              <HeartPulse className="h-4.5 w-4.5" strokeWidth={2.4} />
-            </div>
-            <div className="leading-tight">
-              <div className="text-[10px] uppercase tracking-[0.22em] text-white/55">
-                S.P.E.H.R.
-              </div>
-              <div className="text-sm font-semibold">Status Board</div>
-            </div>
-          </div>
-
-          <div className="hidden md:flex items-center gap-2 ml-2 pl-4 border-l border-white/10 text-xs">
-            <div className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.18)]" />
-            <span className="text-white/80 font-medium">RN: {nurse.name.replace(/, RN$/, "")}</span>
-            <span className="text-white/50">| {nurse.facility} — {nurse.ward}</span>
-            <span className="mx-2 h-3 w-px bg-white/15" />
-            <FacilitySwitcher variant="dark" />
-            <Link
-              to="/tasks"
-              className="ml-2 inline-flex items-center gap-1 rounded-md bg-amber-400 px-2.5 py-1 text-[11px] font-semibold text-slate-900 hover:bg-amber-300"
-            >
-              📋 Task List
-            </Link>
-          </div>
-
-          <div className="flex-1 max-w-md mx-auto">
+      <BoardHeader
+        title="Status Board"
+        subtitle={`RN: ${nurse.name.replace(/, RN$/, "")} · ${nurse.facility} — ${nurse.ward}`}
+        badge="RN"
+      />
+      <div className="sticky top-0 z-10 border-b border-border bg-[var(--navy)] text-white">
+        <div className="max-w-[1400px] mx-auto px-5 h-12 flex items-center gap-4">
+          <div className="flex-1 max-w-md">
             <div className="flex items-center gap-2 h-9 rounded-md bg-white/10 ring-1 ring-white/10 px-3 focus-within:bg-white/15 focus-within:ring-[var(--teal)]/40 transition">
               <Search className="h-4 w-4 text-white/60" />
               <input
@@ -483,23 +461,12 @@ function Dashboard() {
               />
             </div>
           </div>
-
           <div className="hidden sm:flex flex-col items-end leading-tight tabular-nums">
             <div className="text-sm font-semibold tracking-tight">{clock}</div>
             <div className="text-[10px] uppercase tracking-wider text-white/55">
               {dateStr}
             </div>
           </div>
-
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut();
-              navigate({ to: "/" }).catch(() => {});
-            }}
-            className="inline-flex items-center gap-1.5 rounded-md bg-white/10 hover:bg-white/15 px-3 h-9 text-xs font-medium ring-1 ring-white/10 transition"
-          >
-            <LogOut className="h-3.5 w-3.5" /> Logout
-          </button>
           <button
             onClick={() => setAdmitOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 px-3 h-9 text-xs font-semibold text-white shadow-sm transition"
@@ -507,7 +474,7 @@ function Dashboard() {
             <UserPlus className="h-3.5 w-3.5" /> Admit Patient
           </button>
         </div>
-      </header>
+      </div>
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-6">
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
