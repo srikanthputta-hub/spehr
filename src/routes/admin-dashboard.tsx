@@ -98,8 +98,8 @@ const SAFETY_THRESHOLDS = {
   MAX_SHIFT_HOURS: 12,
 } as const;
 
-// Simulation tick: every 7s = +1 simulated hour worked for On Duty staff
-const TICK_MS = 7000;
+// Simulation tick: every 1s — fast deploy loop so Ghost HR can visibly stabilize ratios
+const TICK_MS = 1000;
 const HOURS_PER_TICK = 1;
 
 const IN_NETWORK_FACILITIES = new Set([
