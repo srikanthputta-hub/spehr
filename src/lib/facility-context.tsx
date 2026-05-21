@@ -1,6 +1,12 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-export const FACILITIES = ["Memorial Hospital"] as const;
+export const FACILITIES = [
+  "Memorial Hospital",
+  "St. Jude Medical Center",
+  "City General Infirmary",
+  "County Health Pavilion",
+  "Srik Health Clinic",
+] as const;
 
 export type Facility = (typeof FACILITIES)[number];
 
@@ -29,6 +35,38 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     Admin: { name: "Diane Whitaker", role: "Admin", roleLabel: "Unit Administrator", facility: "Memorial Hospital", ward: "Operations" },
     Lab: { name: "Sarah Collins, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "Memorial Hospital", ward: "Central Lab" },
   },
+  "St. Jude Medical Center": {
+    RN: { name: "Michael Chang, RN", role: "RN", roleLabel: "Registered Nurse", facility: "St. Jude Medical Center", ward: "ICU - Pod B" },
+    MD: { name: "Dr. Jonathan Vance", role: "MD", roleLabel: "Attending Physician", facility: "St. Jude Medical Center", ward: "Critical Care" },
+    PharmD: { name: "Amina Diop, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "St. Jude Medical Center", ward: "ICU Pharmacy" },
+    RT: { name: "Thomas Wright, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "St. Jude Medical Center", ward: "Critical Care RT" },
+    Admin: { name: "Harold Pierce", role: "Admin", roleLabel: "Unit Administrator", facility: "St. Jude Medical Center", ward: "Operations" },
+    Lab: { name: "Alex Wong, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "St. Jude Medical Center", ward: "ICU Diagnostic Lab" },
+  },
+  "City General Infirmary": {
+    RN: { name: "Amanda Ross, RN", role: "RN", roleLabel: "Registered Nurse", facility: "City General Infirmary", ward: "ER - Trauma Bay" },
+    MD: { name: "Dr. Carlos Mendez", role: "MD", roleLabel: "Attending Physician", facility: "City General Infirmary", ward: "Emergency Medicine" },
+    PharmD: { name: "Chloe Kim, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "City General Infirmary", ward: "ER Pharmacy" },
+    RT: { name: "David Goldstein, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "City General Infirmary", ward: "Emergency RT" },
+    Admin: { name: "Renee Cabrera", role: "Admin", roleLabel: "Unit Administrator", facility: "City General Infirmary", ward: "Operations" },
+    Lab: { name: "Maya Lin, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "City General Infirmary", ward: "ER STAT Lab" },
+  },
+  "County Health Pavilion": {
+    RN: { name: "Jordan Lee, RN", role: "RN", roleLabel: "Registered Nurse", facility: "County Health Pavilion", ward: "Med-Surg Float" },
+    MD: { name: "Dr. Arjun Mehta", role: "MD", roleLabel: "Attending Physician", facility: "County Health Pavilion", ward: "Hospitalist Service" },
+    PharmD: { name: "Fatima Al-Sayed, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "County Health Pavilion", ward: "Inpatient Pharmacy" },
+    RT: { name: "Grace Mulligan, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "County Health Pavilion", ward: "Pulmonary Services" },
+    Admin: { name: "Marcus Hadley", role: "Admin", roleLabel: "Unit Administrator", facility: "County Health Pavilion", ward: "Operations" },
+    Lab: { name: "James Carter, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "County Health Pavilion", ward: "Diagnostic Lab" },
+  },
+  "Srik Health Clinic": {
+    RN: { name: "Priya Shah, RN", role: "RN", roleLabel: "Registered Nurse", facility: "Srik Health Clinic", ward: "Pediatrics - Wing C" },
+    MD: { name: "Dr. William Bradshaw", role: "MD", roleLabel: "Attending Physician", facility: "Srik Health Clinic", ward: "Pediatrics" },
+    PharmD: { name: "Xavier Dupont, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "Srik Health Clinic", ward: "Pediatric Pharmacy" },
+    RT: { name: "Jackson Brooks, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "Srik Health Clinic", ward: "Pediatric RT" },
+    Admin: { name: "Olivia Sterling", role: "Admin", roleLabel: "Unit Administrator", facility: "Srik Health Clinic", ward: "Operations" },
+    Lab: { name: "Nisha Patel, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "Srik Health Clinic", ward: "Pediatric Lab" },
+  },
 };
 
 export function staffForFacility(f: Facility, role: StaffRole): StaffProfile {
@@ -45,6 +83,26 @@ export const NURSES_BY_FACILITY: Record<Facility, NurseProfile> = {
     name: "Sarah Jenkins, RN",
     facility: "Memorial Hospital",
     ward: "Unit 4B - MedSurg",
+  },
+  "St. Jude Medical Center": {
+    name: "Michael Chang, RN",
+    facility: "St. Jude Medical Center",
+    ward: "ICU - Pod B",
+  },
+  "City General Infirmary": {
+    name: "Amanda Ross, RN",
+    facility: "City General Infirmary",
+    ward: "ER - Trauma Bay",
+  },
+  "County Health Pavilion": {
+    name: "Jordan Lee, RN",
+    facility: "County Health Pavilion",
+    ward: "Med-Surg Float",
+  },
+  "Srik Health Clinic": {
+    name: "Priya Shah, RN",
+    facility: "Srik Health Clinic",
+    ward: "Pediatrics - Wing C",
   },
 };
 
