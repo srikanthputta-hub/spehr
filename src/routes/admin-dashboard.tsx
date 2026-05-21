@@ -85,9 +85,22 @@ interface StaffMember {
   max_capacity: number | null;
   hourly_rate: number | null;
   facility_name: string | null;
+  hours_worked?: number;
 }
 
 const STAFF_ROLES = ["RN", "MD", "PharmD", "RT", "CNA", "LPN"] as const;
+
+// Ghost HR — auto-scaling safety thresholds
+const SAFETY_THRESHOLDS = {
+  RN: 5,
+  MD: 15,
+  PharmD: 50,
+  MAX_SHIFT_HOURS: 12,
+} as const;
+
+// Simulation tick: every 7s = +1 simulated hour worked for On Duty staff
+const TICK_MS = 7000;
+const HOURS_PER_TICK = 1;
 
 const IN_NETWORK_FACILITIES = new Set([
   "Memorial Hospital",
@@ -167,6 +180,9 @@ function AdminDashboard() {
 
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [staffLoading, setStaffLoading] = useState(true);
+  // Ghost HR local overlay (UI-only sim; never written to DB)
+  const [hoursMap, setHoursMap] = useState<Record<string, number>>({});
+  const [statusMap, setStatusMap] = useState<Record<string, string>>({});
   const [sheetOpen, setSheetOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState<string>("RN");
@@ -294,8 +310,15 @@ function AdminDashboard() {
     [patients, facility],
   );
   const facilityStaff = useMemo(
-    () => staff.filter((s) => (s.facility_name ?? "Memorial Hospital") === facility),
-    [staff, facility],
+    () =>
+      staff
+        .filter((s) => (s.facility_name ?? "Memorial Hospital") === facility)
+        .map((s) => ({
+          ...s,
+          status: statusMap[s.id] ?? s.status,
+          hours_worked: hoursMap[s.id] ?? 0,
+        })),
+    [staff, facility, statusMap, hoursMap],
   );
 
   const acuity = useMemo(
@@ -329,7 +352,84 @@ function AdminDashboard() {
   );
   const census = facilityPatients.length;
   const ratio = onDutyRNs > 0 ? census / onDutyRNs : Infinity;
-  const safeRatio = onDutyRNs > 0 && ratio <= 5;
+  const safeRatio = onDutyRNs > 0 && ratio <= SAFETY_THRESHOLDS.RN;
+
+  // ============ Ghost HR Auto-Scaling Engine ============
+  useEffect(() => {
+    if (staffLoading) return;
+    const interval = setInterval(() => {
+      const currentStaff = staff
+        .filter((s) => (s.facility_name ?? "Memorial Hospital") === facility)
+        .map((s) => ({
+          ...s,
+          effStatus: statusMap[s.id] ?? s.status,
+          effHours: hoursMap[s.id] ?? 0,
+        }));
+
+      const nextHours: Record<string, number> = { ...hoursMap };
+      const nextStatus: Record<string, string> = { ...statusMap };
+      let clockedOut = 0;
+      let clockedIn = 0;
+
+      // 1) Increment hours for On Duty staff
+      for (const s of currentStaff) {
+        if (s.effStatus === "On Duty") {
+          nextHours[s.id] = (nextHours[s.id] ?? s.effHours) + HOURS_PER_TICK;
+        }
+      }
+
+      // 2) Work-life balance: clock out anyone > MAX_SHIFT_HOURS
+      //    but ONLY if there's a replacement available (another On Duty same-role)
+      for (const s of currentStaff) {
+        const h = nextHours[s.id] ?? s.effHours;
+        const stat = nextStatus[s.id] ?? s.effStatus;
+        if (stat !== "On Duty" || h <= SAFETY_THRESHOLDS.MAX_SHIFT_HOURS) continue;
+        const sameRoleOnDuty = currentStaff.filter(
+          (x) =>
+            x.role === s.role &&
+            x.id !== s.id &&
+            (nextStatus[x.id] ?? x.effStatus) === "On Duty",
+        ).length;
+        if (sameRoleOnDuty >= 1) {
+          nextStatus[s.id] = "Off Duty";
+          clockedOut++;
+        }
+      }
+
+      // 3) Acuity scaling: if RN ratio > 5, auto clock-in Off Duty RNs
+      const censusCount = facilityPatients.length;
+      let onDutyRNCount = currentStaff.filter(
+        (s) => s.role === "RN" && (nextStatus[s.id] ?? s.effStatus) === "On Duty",
+      ).length;
+      const offDutyRNs = currentStaff.filter(
+        (s) => s.role === "RN" && (nextStatus[s.id] ?? s.effStatus) !== "On Duty",
+      );
+      for (const rn of offDutyRNs) {
+        if (onDutyRNCount === 0) {
+          // avoid div/0 — always bring in first
+        } else if (censusCount / onDutyRNCount <= SAFETY_THRESHOLDS.RN) break;
+        nextStatus[rn.id] = "On Duty";
+        nextHours[rn.id] = 0; // fresh shift
+        onDutyRNCount++;
+        clockedIn++;
+      }
+
+      if (clockedIn > 0) {
+        toast.success(
+          `Ghost AI: Auto-deploying ${clockedIn} RN${clockedIn === 1 ? "" : "s"} to stabilize Med-Surg ratio.`,
+        );
+      }
+      if (clockedOut > 0) {
+        toast(
+          `Ghost AI: Clocked out ${clockedOut} staff exceeding ${SAFETY_THRESHOLDS.MAX_SHIFT_HOURS}h shift limit.`,
+        );
+      }
+
+      setHoursMap(nextHours);
+      if (clockedIn > 0 || clockedOut > 0) setStatusMap(nextStatus);
+    }, TICK_MS);
+    return () => clearInterval(interval);
+  }, [staff, staffLoading, facility, facilityPatients.length, hoursMap, statusMap]);
 
   const clockInStaff = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -666,8 +766,20 @@ function AdminDashboard() {
                           <span>
                             {assigned} / {cap} Patients Assigned
                           </span>
-                          <span className="font-medium text-slate-700">
-                            {pct}%
+                          <span className="font-medium text-slate-700 flex items-center gap-2">
+                            <span
+                              className={`tabular-nums ${
+                                (s.hours_worked ?? 0) > SAFETY_THRESHOLDS.MAX_SHIFT_HOURS
+                                  ? "text-red-600 font-semibold"
+                                  : (s.hours_worked ?? 0) >= 10
+                                  ? "text-amber-600"
+                                  : "text-slate-500"
+                              }`}
+                              title="Hours worked this shift"
+                            >
+                              ⏱ {(s.hours_worked ?? 0).toFixed(0)}h
+                            </span>
+                            <span>{pct}%</span>
                           </span>
                         </div>
                         <Progress value={pct} />
