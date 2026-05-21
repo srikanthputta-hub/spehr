@@ -102,13 +102,7 @@ const SAFETY_THRESHOLDS = {
 const TICK_MS = 1000;
 const HOURS_PER_TICK = 1;
 
-const IN_NETWORK_FACILITIES = new Set([
-  "Srik Health Clinic",
-  "Srik Health Clinic",
-  "Srik Health Clinic",
-  "Srik Health Clinic",
-  "Srik Health Clinic",
-]);
+const IN_NETWORK_FACILITIES = new Set(["Srik Health Clinic"]);
 
 interface TransferRequest {
   id: string;
