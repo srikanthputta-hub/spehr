@@ -5,7 +5,6 @@ import { Loader2, FlaskConical, Sparkles, CheckCircle2 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
-import { PATIENTS as CENSUS } from "@/lib/patients";
 
 export const Route = createFileRoute("/lab-board")({
   component: LabBoard,
@@ -125,37 +124,55 @@ function LabBoard() {
 
   useEffect(() => {
     load();
+    // Subscribe to live changes so the board re-renders the moment a lab is
+    // ordered, collected, or resulted from anywhere in the system.
+    const channel = supabase
+      .channel(`lab-board-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "lab_orders" },
+        () => load(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "patients" },
+        () => load(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [facility]);
 
+  // All lab rows for the active facility, drawn from the live global state.
   const visible = useMemo(
     () => orders.filter((o) => o.facility_name === facility),
     [orders, facility],
   );
-  const pending = visible.filter(
-    (o) => o.status === "Pending" || o.status === "In Progress" || o.status === "Pending Collection",
+  const tsOf = (o: LabOrderRow) =>
+    o.created_at ? new Date(o.created_at).getTime() : 0;
+  // Pending queue — strictly PENDING status, newest first, capped at 25.
+  const pending = useMemo(
+    () =>
+      visible
+        .filter((o) => (o.status ?? "").toUpperCase().startsWith("PENDING"))
+        .sort((a, b) => tsOf(b) - tsOf(a))
+        .slice(0, 25),
+    [visible],
   );
-  const completed = visible.filter(
-    (o) => o.status === "Completed" || o.status === "Resulted",
+  // Completed queue — strictly RESULTED status, newest first, capped at 25.
+  const completed = useMemo(
+    () =>
+      visible
+        .filter((o) => {
+          const s = (o.status ?? "").toUpperCase();
+          return s === "RESULTED" || s === "COMPLETED";
+        })
+        .sort((a, b) => tsOf(b) - tsOf(a))
+        .slice(0, 25),
+    [visible],
   );
-  // Derived from the global randomized census instead of the persisted
-  // lab_orders table — every patient ships with mock LabResult entries.
-  const recentResulted = useMemo(() => {
-    const now = Date.now();
-    return CENSUS.flatMap((p, pi) =>
-      (p.labs ?? []).map((l, li) => ({
-        id: l.id,
-        patient_mrn: p.mrn,
-        patient_name: p.name,
-        requested_by: tech?.name ? `${tech.name}, MLS` : "Auto-Resulted",
-        test_type: `${l.name} — ${l.value} ${l.unit} (ref ${l.referenceRange})`,
-        status: l.status,
-        created_at: new Date(now - (pi * 7 + li) * 60_000).toISOString(),
-      })),
-    )
-      .filter((l) => l.status === "RESULTED")
-      .sort((a, b) => (b.created_at > a.created_at ? 1 : -1))
-      .slice(0, 25);
-  }, [tech]);
+  const recentResulted = completed;
 
   const runSample = async (order: LabOrderRow) => {
     setProcessing(order.id);

@@ -49,8 +49,6 @@ type Lab = {
 
 const KEY_LABS = ["creatinine", "potassium", "k+", "k ", "bun", "egfr", "inr", "platelet", "wbc", "hgb", "hemoglobin"];
 
-import { PATIENTS as CENSUS } from "@/lib/patients";
-
 function PharmacyQueue() {
   const { facility } = useFacility();
   const pharm = useActiveStaff("PharmD");
@@ -59,6 +57,21 @@ function PharmacyQueue() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [facilityMrns, setFacilityMrns] = useState<Set<string>>(new Set());
+  const [dispensed, setDispensed] = useState<
+    {
+      id: string;
+      mrn: string | null;
+      patient_name: string | null;
+      drug_name: string | null;
+      dose: string | null;
+      route: string | null;
+      frequency: string | null;
+      status: string | null;
+      administered_at: string | null;
+      created_at: string | null;
+      ordering_physician: string | null;
+    }[]
+  >([]);
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [labs, setLabs] = useState<Lab[]>([]);
@@ -135,6 +148,47 @@ function PharmacyQueue() {
     () => orders.filter((o) => !!o.mrn && facilityMrns.has(o.mrn)),
     [orders, facilityMrns],
   );
+
+  // Recent dispensed medications — live feed sourced from medication_orders.
+  // Refetches on any change to the table so the dashboard stays in sync with
+  // the global state the moment a new patient is admitted or a dose is given.
+  useEffect(() => {
+    let active = true;
+    const loadDispensed = async () => {
+      const { data } = await supabase
+        .from("medication_orders")
+        .select(
+          "id, mrn, patient_name, drug_name, dose, route, frequency, status, administered_at, created_at, ordering_physician, facility_name",
+        )
+        .eq("facility_name", facility)
+        .order("administered_at", { ascending: false, nullsFirst: false })
+        .limit(200);
+      if (!active) return;
+      setDispensed((data ?? []) as any);
+    };
+    loadDispensed();
+    const channel = supabase
+      .channel(`pharmacy-dispensed-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "medication_orders" },
+        () => loadDispensed(),
+      )
+      .subscribe();
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [facility]);
+
+  const recentDispensed = useMemo(() => {
+    const tsOf = (o: { administered_at: string | null; created_at: string | null }) =>
+      new Date(o.administered_at ?? o.created_at ?? 0).getTime();
+    return dispensed
+      .filter((o) => (o.status ?? "").toUpperCase() === "ADMINISTERED")
+      .sort((a, b) => tsOf(b) - tsOf(a))
+      .slice(0, 25);
+  }, [dispensed]);
 
   const selected = useMemo(
     () => visibleOrders.find((o) => o.id === selectedId) ?? null,
@@ -484,20 +538,7 @@ function PharmacyQueue() {
                 </thead>
                 <tbody>
                   {(() => {
-                    const now = Date.now();
-                    const rows = CENSUS
-                      .flatMap((p, pi) =>
-                        (p.meds ?? []).map((m, mi) => ({
-                          id: `${p.mrn}-${m.id ?? mi}`,
-                          ts: new Date(now - (pi * 5 + mi) * 60_000),
-                          patient_name: p.name,
-                          mrn: p.mrn,
-                          order: `${m.name} ${m.dose} ${m.route} ${m.freq}`,
-                          pharmacist: pharm?.name ? `${pharm.name}, PharmD` : "Auto-Dispense, PharmD",
-                        })),
-                      )
-                      .sort((a, b) => b.ts.getTime() - a.ts.getTime())
-                      .slice(0, 25);
+                    const rows = recentDispensed;
                     if (rows.length === 0) {
                       return (
                         <tr>
@@ -513,18 +554,28 @@ function PharmacyQueue() {
                         className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
                       >
                         <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
-                          {m.ts.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                          {new Date(m.administered_at ?? m.created_at ?? Date.now()).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
                         </td>
-                        <td className="px-3 py-2 font-medium text-slate-900">{m.patient_name}</td>
-                        <td className="px-3 py-2 font-mono text-slate-600">{m.mrn}</td>
-                        <td className="px-3 py-2 text-slate-800">{m.order}</td>
+                        <td className="px-3 py-2 font-medium text-slate-900">{m.patient_name ?? "—"}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600">{m.mrn ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-800">
+                          {[m.drug_name, m.dose, m.route, m.frequency].filter(Boolean).join(" ")}
+                        </td>
                         <td className="px-3 py-2">
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                            Dispensed
+                            {m.status ?? "Administered"}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-slate-700">{m.pharmacist}</td>
+                        <td className="px-3 py-2 text-slate-700">
+                          {pharm?.name ? `${pharm.name}, PharmD` : "Auto-Dispense, PharmD"}
+                        </td>
                       </tr>
                     ));
                   })()}
