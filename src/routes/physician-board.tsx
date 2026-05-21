@@ -128,6 +128,7 @@ function PhysicianBoard() {
   const [noteText, setNoteText] = useState("");
   const [notePin, setNotePin] = useState("");
   const [disposition, setDisposition] = useState("Discharge to Home");
+  const [dischargeLoading, setDischargeLoading] = useState(false);
 
   useEffect(() => {
     if (!actionsMrn) return;
@@ -137,6 +138,7 @@ function PhysicianBoard() {
     setNoteText("");
     setNotePin("");
     setDisposition("Discharge to Home");
+    setDischargeLoading(false);
   }, [actionsMrn]);
 
   // Fetch + subscribe to the AI_DIFFERENTIAL note for the patient open in the
