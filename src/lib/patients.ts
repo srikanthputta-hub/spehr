@@ -305,7 +305,7 @@ function randomMedsFor(mrn: string): MedOrder[] {
       name: m.name,
       dose: m.dose,
       route: m.route,
-      freq: m.frequency,
+      freq: "Q8H",
       due: ["08:00", "12:00", "14:00", "18:00", "22:00"][
         Math.floor(Math.random() * 5)
       ],
