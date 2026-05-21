@@ -397,6 +397,7 @@ function AdminDashboard() {
       }
 
       // 3) Acuity scaling: if RN ratio > 5, auto clock-in Off Duty RNs
+      //    Census is strictly scoped to the active facility (facilityPatients).
       const censusCount = facilityPatients.length;
       let onDutyRNCount = currentStaff.filter(
         (s) => s.role === "RN" && (nextStatus[s.id] ?? s.effStatus) === "On Duty",
@@ -404,43 +405,58 @@ function AdminDashboard() {
       const offDutyRNs = currentStaff.filter(
         (s) => s.role === "RN" && (nextStatus[s.id] ?? s.effStatus) !== "On Duty",
       );
-      for (const rn of offDutyRNs) {
-        if (onDutyRNCount === 0) {
-          // avoid div/0 — always bring in first
-        } else if (censusCount / onDutyRNCount <= SAFETY_THRESHOLDS.RN) break;
-        nextStatus[rn.id] = "On Duty";
-        nextHours[rn.id] = 0; // fresh shift
-        onDutyRNCount++;
-        clockedIn++;
+      // Skip all scaling work if there are no patients in this facility (div/0 guard)
+      const spawned: StaffMember[] = [];
+      let scaledDown = 0;
+      if (censusCount > 0) {
+        for (const rn of offDutyRNs) {
+          if (onDutyRNCount > 0 && censusCount / onDutyRNCount <= SAFETY_THRESHOLDS.RN) break;
+          nextStatus[rn.id] = "On Duty";
+          nextHours[rn.id] = 0; // fresh shift
+          onDutyRNCount++;
+          clockedIn++;
+        }
+
+        // 3b) Exhausted Off Duty RNs but ratio still unsafe → spawn Auto-Deployed RNs.
+        while (onDutyRNCount === 0 || censusCount / onDutyRNCount > SAFETY_THRESHOLDS.RN) {
+          const id = `auto-rn-${Date.now()}-${spawned.length}`;
+          spawned.push({
+            id,
+            name: `Auto-Deployed RN #${spawned.length + 1}`,
+            role: "RN",
+            status: "On Duty",
+            assigned_patients: SAFETY_THRESHOLDS.RN,
+            max_capacity: SAFETY_THRESHOLDS.RN,
+            hourly_rate: 0,
+            facility_name: facility,
+            hours_worked: 0,
+          });
+          nextStatus[id] = "On Duty";
+          nextHours[id] = 0;
+          onDutyRNCount++;
+          clockedIn++;
+          if (spawned.length > 300) break;
+        }
       }
 
-      // 3b) If we've exhausted Off Duty RNs and ratio is still unsafe,
-      //     dynamically spawn brand-new Auto-Deployed RNs into staff state.
-      const spawned: StaffMember[] = [];
-      while (
-        onDutyRNCount === 0
-          ? censusCount > 0
-          : censusCount / onDutyRNCount > SAFETY_THRESHOLDS.RN
-      ) {
-        const id = `auto-rn-${Date.now()}-${spawned.length}`;
-        const newRN: StaffMember = {
-          id,
-          name: `Auto-Deployed RN #${spawned.length + 1}`,
-          role: "RN",
-          status: "On Duty",
-          assigned_patients: SAFETY_THRESHOLDS.RN,
-          max_capacity: SAFETY_THRESHOLDS.RN,
-          hourly_rate: 0,
-          facility_name: facility,
-          hours_worked: 0,
-        };
-        spawned.push(newRN);
-        nextStatus[id] = "On Duty";
-        nextHours[id] = 0;
-        onDutyRNCount++;
-        clockedIn++;
-        // safety: never spawn more than 300 in a single tick
-        if (spawned.length > 300) break;
+      // 4) Scale-down: if ratio < 1:2 (severely overstaffed), clock out
+      //    Auto-Deployed RNs first to save budget. Keep ratio >= 2.
+      if (onDutyRNCount > 1 && censusCount / onDutyRNCount < 2) {
+        const autoOnDuty = currentStaff.filter(
+          (s) =>
+            s.role === "RN" &&
+            s.id.startsWith("auto-rn-") &&
+            (nextStatus[s.id] ?? s.effStatus) === "On Duty",
+        );
+        for (const rn of autoOnDuty) {
+          if (onDutyRNCount <= 1) break;
+          const projected = censusCount / (onDutyRNCount - 1);
+          if (projected > SAFETY_THRESHOLDS.RN) break; // don't over-correct into understaffed
+          if (censusCount / onDutyRNCount >= 2) break;
+          nextStatus[rn.id] = "Off Duty";
+          onDutyRNCount--;
+          scaledDown++;
+        }
       }
 
       if (clockedIn > 0) {
@@ -453,9 +469,15 @@ function AdminDashboard() {
           `Ghost AI: Clocked out ${clockedOut} staff exceeding ${SAFETY_THRESHOLDS.MAX_SHIFT_HOURS}h shift limit.`,
         );
       }
+      if (scaledDown > 0) {
+        toast(
+          "Ghost HR: Unit overstaffed. Auto-clocking out surplus RNs to save budget.",
+          { className: "bg-slate-200 text-slate-800" },
+        );
+      }
 
       setHoursMap(nextHours);
-      if (clockedIn > 0 || clockedOut > 0) setStatusMap(nextStatus);
+      if (clockedIn > 0 || clockedOut > 0 || scaledDown > 0) setStatusMap(nextStatus);
       if (spawned.length > 0) setStaff((prev) => [...spawned, ...prev]);
     }, TICK_MS);
     return () => clearInterval(interval);
