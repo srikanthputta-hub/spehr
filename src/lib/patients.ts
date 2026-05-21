@@ -332,6 +332,25 @@ PATIENTS.forEach((p) => {
   p.labs = randomLabsFor(p.mrn);
 });
 
+// One-time stale-cache flush: prior builds may have persisted the census
+// to localStorage, which would shadow the freshly randomized seed data.
+// Bump CENSUS_CACHE_VERSION to force-clear any future stale entries.
+const CENSUS_CACHE_VERSION = "v2-randomizer";
+const CENSUS_CACHE_FLAG = "spehr.censusCacheVersion";
+if (typeof window !== "undefined") {
+  try {
+    if (localStorage.getItem(CENSUS_CACHE_FLAG) !== CENSUS_CACHE_VERSION) {
+      ["spehr.patients", "spehr.census", "patients", "census"].forEach((k) => {
+        localStorage.removeItem(k);
+        sessionStorage.removeItem(k);
+      });
+      localStorage.setItem(CENSUS_CACHE_FLAG, CENSUS_CACHE_VERSION);
+    }
+  } catch {
+    /* storage unavailable — ignore */
+  }
+}
+
 export function getPatient(mrn: string): Patient | undefined {
   return PATIENTS.find((p) => p.mrn === mrn);
 }
