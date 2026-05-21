@@ -1028,7 +1028,7 @@ function PhysicianBoard() {
                                     (l.status === "Resulted" ? "Normal" : l.status ?? "Pending");
                                   return `${short} - ${result}`;
                                 })
-                                .join(", ") || "None drawn.";
+                                .join(", ") || "None drawn";
 
                             const complaint =
                               p.chief_complaint || p.diagnosis || "clinical evaluation";
@@ -1036,7 +1036,7 @@ function PhysicianBoard() {
                             // 2-second simulated AI generation
                             await new Promise((r) => setTimeout(r, 2000));
 
-                            const summary = `HOSPITAL COURSE: Patient admitted for ${complaint}. Evaluated by Ghost AI and attending physician.\n\nLABORATORY FINDINGS: ${labString}.\n\nTREATMENT: Effectively treated with ${meds}. Patient is hemodynamically stable. Discharged to ${disposition}.`;
+                            const summary = `HOSPITAL COURSE: Patient admitted for ${complaint}. Evaluated by Ghost AI and attending physician.\n\nLABORATORY FINDINGS: ${labString}.\n\nTREATMENT: Effectively treated with ${meds}. Patient is hemodynamically stable. Disposition: ${disposition}.`;
 
                             const { error: insertErr } = await supabase
                               .from("clinical_notes")
