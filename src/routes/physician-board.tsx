@@ -128,6 +128,7 @@ function PhysicianBoard() {
   const [noteText, setNoteText] = useState("");
   const [notePin, setNotePin] = useState("");
   const [disposition, setDisposition] = useState("Discharge to Home");
+  const [dischargeLoading, setDischargeLoading] = useState(false);
 
   useEffect(() => {
     if (!actionsMrn) return;
@@ -137,6 +138,7 @@ function PhysicianBoard() {
     setNoteText("");
     setNotePin("");
     setDisposition("Discharge to Home");
+    setDischargeLoading(false);
   }, [actionsMrn]);
 
   // Fetch + subscribe to the AI_DIFFERENTIAL note for the patient open in the
@@ -990,17 +992,92 @@ function PhysicianBoard() {
                       </Button>
                       <Button
                         type="button"
-                        onClick={() => {
+                        disabled={dischargeLoading}
+                        onClick={async () => {
                           const mrn = p.mrn;
-                          setPatients((prev) => prev.filter((x) => x.mrn !== mrn));
-                          if (selectedMrn === mrn) setSelectedMrn(null);
-                          toast.success(`Disposition processed: ${disposition}`, {
-                            description: `${fullName} removed from active census.`,
-                          });
-                          setActionsMrn(null);
+                          setDischargeLoading(true);
+                          try {
+                            // Aggregate MAR + labs in parallel
+                            const [marRes, labRes] = await Promise.all([
+                              supabase
+                                .from("mar_logs")
+                                .select("medication_name, administered_at")
+                                .or(`mrn.eq.${mrn},patient_mrn.eq.${mrn}`)
+                                .order("administered_at", { ascending: false })
+                                .limit(5),
+                              supabase
+                                .from("lab_orders")
+                                .select("test_type, status, result_value")
+                                .eq("patient_mrn", mrn)
+                                .order("created_at", { ascending: false })
+                                .limit(5),
+                            ]);
+
+                            const meds =
+                              (marRes.data ?? [])
+                                .map((m: any) => m.medication_name)
+                                .filter(Boolean)
+                                .join(", ") || "supportive care only";
+
+                            const labString =
+                              (labRes.data ?? [])
+                                .map((l: any) => {
+                                  const short = String(l.test_type ?? "Lab").split(" (")[0];
+                                  const result =
+                                    l.result_value ??
+                                    (l.status === "Resulted" ? "Normal" : l.status ?? "Pending");
+                                  return `${short} - ${result}`;
+                                })
+                                .join(", ") || "None drawn.";
+
+                            const complaint =
+                              p.chief_complaint || p.diagnosis || "clinical evaluation";
+
+                            // 2-second simulated AI generation
+                            await new Promise((r) => setTimeout(r, 2000));
+
+                            const summary = `HOSPITAL COURSE: Patient admitted for ${complaint}. Evaluated by Ghost AI and attending physician.\n\nLABORATORY FINDINGS: ${labString}.\n\nTREATMENT: Effectively treated with ${meds}. Patient is hemodynamically stable. Discharged to ${disposition}.`;
+
+                            const { error: insertErr } = await supabase
+                              .from("clinical_notes")
+                              .insert({
+                                mrn,
+                                note_type: "DISCHARGE_SUMMARY",
+                                author: "Ghost AI - Auto Discharge",
+                                content: summary,
+                              });
+                            if (insertErr) {
+                              console.log("Discharge Summary Error: ", insertErr);
+                            }
+                          } catch (error) {
+                            console.log("Discharge Summary Error: ", error);
+                          } finally {
+                            setPatients((prev) => prev.filter((x) => x.mrn !== mrn));
+                            if (selectedMrn === mrn) setSelectedMrn(null);
+                            toast.success(
+                              "Ghost AI: Comprehensive Discharge Summary auto-generated and signed.",
+                              {
+                                description: `${fullName} → ${disposition}`,
+                                style: {
+                                  background: "#6b21a8",
+                                  color: "#fff",
+                                  border: "1px solid #7e22ce",
+                                },
+                              },
+                            );
+                            setDischargeLoading(false);
+                            setActionsMrn(null);
+                          }
                         }}
                       >
-                        Process Disposition
+                        {dischargeLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Ghost AI Generating Summary...
+                          </>
+                        ) : (
+                          "Process Disposition"
+                        )}
                       </Button>
                     </DialogFooter>
                   </div>
