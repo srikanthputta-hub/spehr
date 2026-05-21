@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility } from "@/lib/facility-context";
+import { MOCK_AI_MRNS } from "@/lib/mockAiNotes";
 import {
   Dialog,
   DialogContent,
@@ -284,7 +285,8 @@ export function PatientFlowCensusLog() {
   const [rows, setRows] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<PatientRow | null>(null);
-  const [aiMrns, setAiMrns] = useState<Set<string>>(new Set());
+  // SYNCHRONOUS BYPASS: seeded from global mock store. No timers, no DB.
+  const [aiMrns, setAiMrns] = useState<Set<string>>(() => new Set(MOCK_AI_MRNS));
 
   useEffect(() => {
     let cancelled = false;
@@ -316,61 +318,9 @@ export function PatientFlowCensusLog() {
     };
   }, [facility]);
 
+  // Keep mock MRNs marked AI-complete; nothing async to wire up.
   useEffect(() => {
-    let cancelled = false;
-    const loadAi = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("clinical_notes")
-          .select("mrn")
-          .eq("note_type", "AI_DIFFERENTIAL");
-        if (error) throw error;
-        if (cancelled || !data) return;
-        setAiMrns(
-          new Set(
-            (data as Array<{ mrn: string | null }>)
-              .map((r) => r.mrn ?? "")
-              .filter(Boolean),
-          ),
-        );
-      } catch (error) {
-        console.log("AI Differential Error: ", error);
-        // Fallback: mark all currently-admitted patients as having a local
-        // mock AI differential so the admin census never shows a stuck
-        // "AI Pending" row when clinical_notes is unavailable.
-        if (!cancelled) {
-          setAiMrns(
-            new Set(
-              rows
-                .filter((r) => r.status === "Admitted")
-                .map((r) => r.mrn ?? "")
-                .filter(Boolean),
-            ),
-          );
-        }
-      }
-    };
-    loadAi();
-    const ch = supabase
-      .channel("patient-flow-ai-notes")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "clinical_notes" },
-        (payload: any) => {
-          if (payload.new?.note_type === "AI_DIFFERENTIAL" && payload.new?.mrn) {
-            setAiMrns((prev) => {
-              const next = new Set(prev);
-              next.add(payload.new.mrn);
-              return next;
-            });
-          }
-        },
-      )
-      .subscribe();
-    return () => {
-      cancelled = true;
-      supabase.removeChannel(ch);
-    };
+    setAiMrns(new Set(MOCK_AI_MRNS));
   }, [rows]);
 
   const admittedCount = rows.filter((r) => r.status === "Admitted").length;
