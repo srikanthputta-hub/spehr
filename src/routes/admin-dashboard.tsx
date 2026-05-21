@@ -309,6 +309,15 @@ function AdminDashboard() {
     () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
     [patients, facility],
   );
+  // Active census: exclude discharged patients. Treat any status that is
+  // not explicitly "Discharged" (case-insensitive) as active/admitted.
+  const activePatients = useMemo(
+    () =>
+      facilityPatients.filter(
+        (p) => (p.status ?? "Admitted").toString().toLowerCase() !== "discharged",
+      ),
+    [facilityPatients],
+  );
   const facilityStaff = useMemo(
     () =>
       staff
