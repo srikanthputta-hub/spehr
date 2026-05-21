@@ -34,7 +34,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 
-const TRANSFER_DESTINATIONS = ["Memorial Hospital", "Outside Network"] as const;
+const TRANSFER_DESTINATIONS = [
+  "Memorial Hospital",
+  "St. Jude Medical Center",
+  "City General Infirmary",
+  "County Health Pavilion",
+  "Srik Health Clinic",
+  "Outside Network",
+] as const;
 
 type Patient = {
   mrn: string;
