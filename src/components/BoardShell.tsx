@@ -1,7 +1,25 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { HeartPulse, LogOut, Construction, ClipboardList } from "lucide-react";
+import { HeartPulse, LogOut, Construction, ClipboardList, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+
+const ROLE_LINKS: { to: string; label: string; abbrev: string }[] = [
+  { to: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
+  { to: "/physician-board", label: "Attending Physician", abbrev: "MD" },
+  { to: "/pharmacy-queue", label: "Clinical Pharmacist", abbrev: "PharmD" },
+  { to: "/respiratory-board", label: "Respiratory Therapist", abbrev: "RT" },
+  { to: "/admin-dashboard", label: "Unit Administrator", abbrev: "Admin" },
+  { to: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
+  { to: "/system-admin", label: "EHR Specialist", abbrev: "EHR" },
+];
 
 export function BoardHeader({
   title,
@@ -46,6 +64,34 @@ export function BoardHeader({
         >
           <ClipboardList className="h-3.5 w-3.5" /> 📋 Task List
         </Link>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Users className="h-3.5 w-3.5" /> Switch Role
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" sideOffset={6} className="w-60">
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+              Switch Clinical Role
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {ROLE_LINKS.map((r) => (
+              <DropdownMenuItem
+                key={r.to}
+                onSelect={() => {
+                  navigate({ to: r.to }).catch(() => {});
+                }}
+                className="cursor-pointer flex items-center justify-between gap-3"
+              >
+                <span className="text-sm text-slate-800">{r.label}</span>
+                <span className="text-[11px] font-semibold text-[#2d8a9e]">{r.abbrev}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <button
           onClick={logout}
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
