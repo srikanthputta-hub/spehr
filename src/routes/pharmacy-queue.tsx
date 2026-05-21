@@ -149,6 +149,47 @@ function PharmacyQueue() {
     [orders, facilityMrns],
   );
 
+  // Recent dispensed medications — live feed sourced from medication_orders.
+  // Refetches on any change to the table so the dashboard stays in sync with
+  // the global state the moment a new patient is admitted or a dose is given.
+  useEffect(() => {
+    let active = true;
+    const loadDispensed = async () => {
+      const { data } = await supabase
+        .from("medication_orders")
+        .select(
+          "id, mrn, patient_name, drug_name, dose, route, frequency, status, administered_at, created_at, ordering_physician, facility_name",
+        )
+        .eq("facility_name", facility)
+        .order("administered_at", { ascending: false, nullsFirst: false })
+        .limit(200);
+      if (!active) return;
+      setDispensed((data ?? []) as any);
+    };
+    loadDispensed();
+    const channel = supabase
+      .channel(`pharmacy-dispensed-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "medication_orders" },
+        () => loadDispensed(),
+      )
+      .subscribe();
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [facility]);
+
+  const recentDispensed = useMemo(() => {
+    const tsOf = (o: { administered_at: string | null; created_at: string | null }) =>
+      new Date(o.administered_at ?? o.created_at ?? 0).getTime();
+    return dispensed
+      .filter((o) => (o.status ?? "").toUpperCase() === "ADMINISTERED")
+      .sort((a, b) => tsOf(b) - tsOf(a))
+      .slice(0, 25);
+  }, [dispensed]);
+
   const selected = useMemo(
     () => visibleOrders.find((o) => o.id === selectedId) ?? null,
     [visibleOrders, selectedId],
