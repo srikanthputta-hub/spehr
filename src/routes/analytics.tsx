@@ -29,7 +29,13 @@ type Patient = {
   admission_time: string | null;
 };
 
-const FACILITIES = ["Memorial Hospital"];
+const FACILITIES = [
+  "Memorial Hospital",
+  "St. Jude Medical Center",
+  "City General Infirmary",
+  "County Health Pavilion",
+  "Srik Health Clinic",
+];
 
 function fmtTs(ts: string | null) {
   if (!ts) return "—";
