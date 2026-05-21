@@ -98,8 +98,8 @@ const SAFETY_THRESHOLDS = {
   MAX_SHIFT_HOURS: 12,
 } as const;
 
-// Simulation tick: every 7s = +1 simulated hour worked for On Duty staff
-const TICK_MS = 7000;
+// Simulation tick: every 1s — fast deploy loop so Ghost HR can visibly stabilize ratios
+const TICK_MS = 1000;
 const HOURS_PER_TICK = 1;
 
 const IN_NETWORK_FACILITIES = new Set([
@@ -414,6 +414,35 @@ function AdminDashboard() {
         clockedIn++;
       }
 
+      // 3b) If we've exhausted Off Duty RNs and ratio is still unsafe,
+      //     dynamically spawn brand-new Auto-Deployed RNs into staff state.
+      const spawned: StaffMember[] = [];
+      while (
+        onDutyRNCount === 0
+          ? censusCount > 0
+          : censusCount / onDutyRNCount > SAFETY_THRESHOLDS.RN
+      ) {
+        const id = `auto-rn-${Date.now()}-${spawned.length}`;
+        const newRN: StaffMember = {
+          id,
+          name: `Auto-Deployed RN #${spawned.length + 1}`,
+          role: "RN",
+          status: "On Duty",
+          assigned_patients: SAFETY_THRESHOLDS.RN,
+          max_capacity: SAFETY_THRESHOLDS.RN,
+          hourly_rate: 0,
+          facility_name: facility,
+          hours_worked: 0,
+        };
+        spawned.push(newRN);
+        nextStatus[id] = "On Duty";
+        nextHours[id] = 0;
+        onDutyRNCount++;
+        clockedIn++;
+        // safety: never spawn more than 300 in a single tick
+        if (spawned.length > 300) break;
+      }
+
       if (clockedIn > 0) {
         toast.success(
           `Ghost AI: Auto-deploying ${clockedIn} RN${clockedIn === 1 ? "" : "s"} to stabilize Med-Surg ratio.`,
@@ -427,6 +456,7 @@ function AdminDashboard() {
 
       setHoursMap(nextHours);
       if (clockedIn > 0 || clockedOut > 0) setStatusMap(nextStatus);
+      if (spawned.length > 0) setStaff((prev) => [...spawned, ...prev]);
     }, TICK_MS);
     return () => clearInterval(interval);
   }, [staff, staffLoading, facility, facilityPatients.length, hoursMap, statusMap]);
