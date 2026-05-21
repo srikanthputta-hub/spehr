@@ -29,13 +29,7 @@ type Patient = {
   admission_time: string | null;
 };
 
-const FACILITIES = [
-  "Srik Health Clinic",
-  "Srik Health Clinic",
-  "Srik Health Clinic",
-  "Srik Health Clinic",
-  "Srik Health Clinic",
-];
+const FACILITIES = ["Srik Health Clinic"];
 
 function fmtTs(ts: string | null) {
   if (!ts) return "—";
