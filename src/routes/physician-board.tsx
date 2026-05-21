@@ -1052,7 +1052,11 @@ function PhysicianBoard() {
                             // Persist discharge so realtime refetch doesn't resurrect the patient
                             const { error: updateErr } = await supabase
                               .from("patients")
-                              .update({ status: "Discharged" })
+                              .update({
+                                status: "Discharged",
+                                discharge_time: new Date().toISOString(),
+                                discharge_summary: summary,
+                              })
                               .eq("mrn", mrn);
                             if (updateErr) {
                               console.log("Discharge Status Update Error: ", updateErr);
