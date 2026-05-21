@@ -4,6 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2, Brain } from "lucide-react";
 import { toast } from "sonner";
+import {
+  MEDICATION_CATALOG,
+  LAB_CATALOG,
+  type LabCatalogEntry,
+} from "@/constants/clinical-catalog";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
@@ -146,6 +151,64 @@ function fmtTime(t: string | null | undefined) {
   } catch { return "—"; }
 }
 
+// --- Deterministic per-key catalog fallback ---------------------------
+function seededHash(key: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+function pickN<T>(arr: readonly T[], n: number, seed: number): T[] {
+  const idx = new Set<number>();
+  let s = seed || 1;
+  while (idx.size < Math.min(n, arr.length)) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    idx.add(s % arr.length);
+  }
+  return [...idx].map((i) => arr[i]);
+}
+function mockLabValue(lab: LabCatalogEntry, seed: number): string {
+  const rng = lab.referenceRange.trim();
+  const r = ((seed % 1000) / 1000);
+  if (/negative/i.test(rng)) return "Negative";
+  const lt = rng.match(/^<\s*([\d.]+)/);
+  if (lt) return (r * parseFloat(lt[1])).toFixed(2);
+  const range = rng.match(/([\d.]+)\s*[–-]\s*([\d.]+)/);
+  if (range) {
+    const lo = parseFloat(range[1]);
+    const hi = parseFloat(range[2]);
+    const decimals = (range[1].split(".")[1]?.length ?? 0) || 1;
+    return (lo + r * (hi - lo)).toFixed(decimals);
+  }
+  return (r * 10).toFixed(1);
+}
+function fallbackMeds(key: string): MedRow[] {
+  const seed = seededHash("med:" + key);
+  const now = new Date().toISOString();
+  return pickN(MEDICATION_CATALOG, 3, seed).map((m, i) => ({
+    id: `${key}-fb-med-${i}`,
+    medication_name: m.name,
+    drug_name: null,
+    medication: null,
+    dose: m.dose,
+    route: m.route,
+    status: "Administered",
+    administered_at: now,
+    created_at: now,
+  }));
+}
+function fallbackLabs(key: string): LabRow[] {
+  const seed = seededHash("lab:" + key);
+  const now = new Date().toISOString();
+  return pickN(LAB_CATALOG, 2, seed).map((l, i) => ({
+    id: `${key}-fb-lab-${i}`,
+    test_type: l.name,
+    status: "Resulted",
+    result_value: `${mockLabValue(l, seed + i * 97)} ${l.unit} (ref ${l.referenceRange})`,
+    ordered_by: "Auto-generated",
+    created_at: now,
+  }));
+}
+
 // ============= data hooks ==============================================
 interface LabRow {
   id: string;
@@ -183,7 +246,11 @@ function useLabs(mrn: string) {
       .select("id, test_type, status, result_value, ordered_by, created_at")
       .eq("patient_mrn", mrn)
       .order("created_at", { ascending: false })
-      .then(({ data }) => { if (!c) setRows((data as LabRow[]) ?? []); });
+      .then(({ data }) => {
+        if (c) return;
+        const real = (data as LabRow[]) ?? [];
+        setRows(real.length > 0 ? real : fallbackLabs(mrn));
+      });
     return () => { c = true; };
   }, [mrn]);
   return rows;
@@ -198,7 +265,11 @@ function useMeds(patientId: string | null | undefined) {
       .select("id, medication_name, drug_name, medication, dose, route, status, administered_at, created_at")
       .eq("patient_id", patientId)
       .order("created_at", { ascending: false })
-      .then(({ data }) => { if (!c) setRows((data as MedRow[]) ?? []); });
+      .then(({ data }) => {
+        if (c) return;
+        const real = (data as MedRow[]) ?? [];
+        setRows(real.length > 0 ? real : fallbackMeds(patientId));
+      });
     return () => { c = true; };
   }, [patientId]);
   return rows;
