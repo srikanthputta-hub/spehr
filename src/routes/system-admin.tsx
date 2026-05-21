@@ -1,9 +1,10 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { BoardHeader } from "@/components/BoardShell";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ShieldCheck, ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download } from "lucide-react";
+import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -175,24 +176,12 @@ function SystemAdminPage() {
 
   return (
     <main className="min-h-screen bg-slate-50">
-      <header className="bg-[#0c2340] text-white">
-        <div className="max-w-6xl mx-auto px-6 py-5 flex items-center gap-3">
-          <div className="grid place-items-center h-10 w-10 rounded-lg bg-[#2d8a9e]">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
-          <div className="leading-tight">
-            <div className="text-[10px] uppercase tracking-[0.28em] text-slate-300">
-              S.P.E.H.R. EHR Specialist
-            </div>
-            <div className="text-base font-semibold">Command Center · System Administration</div>
-          </div>
-          <Link
-            to="/"
-            className="ml-auto text-xs text-slate-300 hover:text-white underline-offset-2 hover:underline"
-          >
-            ← Exit to gateway
-          </Link>
-        </div>
+      <BoardHeader
+        title="Command Center · System Administration"
+        subtitle="EHR Specialist"
+        badge="EHR"
+      />
+      <div className="bg-[#0c2340] text-white">
         <nav className="max-w-6xl mx-auto px-6 flex gap-1">
           {TABS.map((t) => {
             const Icon = t.icon;
@@ -213,7 +202,7 @@ function SystemAdminPage() {
             );
           })}
         </nav>
-      </header>
+      </div>
 
       <section className="max-w-6xl mx-auto px-6 py-8">
         {isAdmin && tab === "feature_controls" && (
