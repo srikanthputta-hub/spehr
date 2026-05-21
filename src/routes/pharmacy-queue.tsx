@@ -49,8 +49,6 @@ type Lab = {
 
 const KEY_LABS = ["creatinine", "potassium", "k+", "k ", "bun", "egfr", "inr", "platelet", "wbc", "hgb", "hemoglobin"];
 
-import { PATIENTS as CENSUS } from "@/lib/patients";
-
 function PharmacyQueue() {
   const { facility } = useFacility();
   const pharm = useActiveStaff("PharmD");
@@ -59,6 +57,21 @@ function PharmacyQueue() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [facilityMrns, setFacilityMrns] = useState<Set<string>>(new Set());
+  const [dispensed, setDispensed] = useState<
+    {
+      id: string;
+      mrn: string | null;
+      patient_name: string | null;
+      drug_name: string | null;
+      dose: string | null;
+      route: string | null;
+      frequency: string | null;
+      status: string | null;
+      administered_at: string | null;
+      created_at: string | null;
+      ordering_physician: string | null;
+    }[]
+  >([]);
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [labs, setLabs] = useState<Lab[]>([]);
