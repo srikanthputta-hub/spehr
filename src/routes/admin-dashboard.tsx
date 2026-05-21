@@ -85,6 +85,7 @@ interface StaffMember {
   max_capacity: number | null;
   hourly_rate: number | null;
   facility_name: string | null;
+  hours_worked?: number;
 }
 
 const STAFF_ROLES = ["RN", "MD", "PharmD", "RT", "CNA", "LPN"] as const;
