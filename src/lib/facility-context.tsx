@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-export const FACILITIES = ["Srik Health Clinic"] as const;
+export const FACILITIES = ["Memorial Hospital"] as const;
 
 export type Facility = (typeof FACILITIES)[number];
 
@@ -21,13 +21,13 @@ export interface StaffProfile {
 }
 
 export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>> = {
-  "Srik Health Clinic": {
-    RN: { name: "Sarah Jenkins, RN", role: "RN", roleLabel: "Registered Nurse", facility: "Srik Health Clinic", ward: "Unit 4B - MedSurg" },
-    MD: { name: "Dr. Robert Patel", role: "MD", roleLabel: "Attending Physician", facility: "Srik Health Clinic", ward: "Internal Medicine" },
-    PharmD: { name: "Elena Rostova, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "Srik Health Clinic", ward: "Central Pharmacy" },
-    RT: { name: "Marcus Brody, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "Srik Health Clinic", ward: "Pulmonary Services" },
-    Admin: { name: "Diane Whitaker", role: "Admin", roleLabel: "Unit Administrator", facility: "Srik Health Clinic", ward: "Operations" },
-    Lab: { name: "Sarah Collins, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "Srik Health Clinic", ward: "Central Lab" },
+  "Memorial Hospital": {
+    RN: { name: "Sarah Jenkins, RN", role: "RN", roleLabel: "Registered Nurse", facility: "Memorial Hospital", ward: "Unit 4B - MedSurg" },
+    MD: { name: "Dr. Robert Patel", role: "MD", roleLabel: "Attending Physician", facility: "Memorial Hospital", ward: "Internal Medicine" },
+    PharmD: { name: "Elena Rostova, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "Memorial Hospital", ward: "Central Pharmacy" },
+    RT: { name: "Marcus Brody, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "Memorial Hospital", ward: "Pulmonary Services" },
+    Admin: { name: "Diane Whitaker", role: "Admin", roleLabel: "Unit Administrator", facility: "Memorial Hospital", ward: "Operations" },
+    Lab: { name: "Sarah Collins, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "Memorial Hospital", ward: "Central Lab" },
   },
 };
 
@@ -41,9 +41,9 @@ export function useActiveStaff(role: StaffRole): StaffProfile {
 }
 
 export const NURSES_BY_FACILITY: Record<Facility, NurseProfile> = {
-  "Srik Health Clinic": {
+  "Memorial Hospital": {
     name: "Sarah Jenkins, RN",
-    facility: "Srik Health Clinic",
+    facility: "Memorial Hospital",
     ward: "Unit 4B - MedSurg",
   },
 };
@@ -70,7 +70,7 @@ interface FacilityContextValue {
 const FacilityContext = createContext<FacilityContextValue | null>(null);
 
 export function FacilityProvider({ children }: { children: ReactNode }) {
-  const [facility, setFacilityState] = useState<Facility>("Srik Health Clinic");
+  const [facility, setFacilityState] = useState<Facility>("Memorial Hospital");
   const [activeRole, setActiveRoleState] = useState<StaffRole>("RN");
 
   useEffect(() => {
@@ -111,7 +111,7 @@ export function useFacility(): FacilityContextValue {
   const ctx = useContext(FacilityContext);
   if (!ctx) {
     // Safe fallback so components outside provider still render.
-    return { facility: "Srik Health Clinic", setFacility: () => {}, activeRole: "RN", setActiveRole: () => {} };
+    return { facility: "Memorial Hospital", setFacility: () => {}, activeRole: "RN", setActiveRole: () => {} };
   }
   return ctx;
 }
