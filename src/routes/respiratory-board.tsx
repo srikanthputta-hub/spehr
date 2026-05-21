@@ -91,7 +91,7 @@ function RespiratoryBoard() {
   );
 
   const visiblePatients = useMemo(
-    () => activePatients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
+    () => activePatients.filter((p) => (p.facility_name ?? "Srik Health Clinic") === facility),
     [activePatients, facility],
   );
 

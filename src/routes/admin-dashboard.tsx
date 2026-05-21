@@ -103,11 +103,11 @@ const TICK_MS = 1000;
 const HOURS_PER_TICK = 1;
 
 const IN_NETWORK_FACILITIES = new Set([
-  "Memorial Hospital",
-  "St. Jude Medical Center",
-  "City General Infirmary",
-  "County Health Pavilion",
-  "Mercy Childrens Hospital",
+  "Srik Health Clinic",
+  "Srik Health Clinic",
+  "Srik Health Clinic",
+  "Srik Health Clinic",
+  "Srik Health Clinic",
 ]);
 
 interface TransferRequest {
@@ -306,7 +306,7 @@ function AdminDashboard() {
   };
 
   const facilityPatients = useMemo(
-    () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
+    () => patients.filter((p) => (p.facility_name ?? "Srik Health Clinic") === facility),
     [patients, facility],
   );
   // Active census: exclude discharged patients. Treat any status that is
@@ -321,7 +321,7 @@ function AdminDashboard() {
   const facilityStaff = useMemo(
     () =>
       staff
-        .filter((s) => (s.facility_name ?? "Memorial Hospital") === facility)
+        .filter((s) => (s.facility_name ?? "Srik Health Clinic") === facility)
         .map((s) => ({
           ...s,
           status: statusMap[s.id] ?? s.status,
@@ -368,7 +368,7 @@ function AdminDashboard() {
     if (staffLoading) return;
     const interval = setInterval(() => {
       const currentStaff = staff
-        .filter((s) => (s.facility_name ?? "Memorial Hospital") === facility)
+        .filter((s) => (s.facility_name ?? "Srik Health Clinic") === facility)
         .map((s) => ({
           ...s,
           effStatus: statusMap[s.id] ?? s.status,

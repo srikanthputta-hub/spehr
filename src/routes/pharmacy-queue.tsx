@@ -76,7 +76,7 @@ function PharmacyQueue() {
       const set = new Set<string>();
       for (const p of (data ?? []) as { mrn: string | null; facility_name: string | null }[]) {
         if (!p.mrn) continue;
-        if ((p.facility_name ?? "Memorial Hospital") === facility) set.add(p.mrn);
+        if ((p.facility_name ?? "Srik Health Clinic") === facility) set.add(p.mrn);
       }
       setFacilityMrns(set);
     })();

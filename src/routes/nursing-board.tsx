@@ -217,7 +217,7 @@ function toRow(p: any): PatientRow {
     o2: p.spo2,
     task: "—",
     medsDue: p.meds_due_count ?? 1,
-    facility: p.facility_name ?? "Memorial Hospital",
+    facility: p.facility_name ?? "Srik Health Clinic",
     unreadLabs: !!p.unread_labs_alert,
     admittedAt: p.admission_time ?? null,
   };

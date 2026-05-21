@@ -30,11 +30,11 @@ type Patient = {
 };
 
 const FACILITIES = [
-  "Memorial Hospital",
-  "St. Jude Medical Center",
-  "City General Infirmary",
-  "County Health Pavilion",
-  "Mercy Childrens Hospital",
+  "Srik Health Clinic",
+  "Srik Health Clinic",
+  "Srik Health Clinic",
+  "Srik Health Clinic",
+  "Srik Health Clinic",
 ];
 
 function fmtTs(ts: string | null) {
