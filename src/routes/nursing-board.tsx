@@ -14,7 +14,6 @@ import {
   X,
   Trash2,
 } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
   hrOutOfRange,
@@ -248,7 +247,6 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
-  const [simulate, setSimulate] = useState(false);
   const [admitOpen, setAdmitOpen] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
   const [showOnlyMedsDue, setShowOnlyMedsDue] = useState(false);
@@ -355,7 +353,7 @@ function Dashboard() {
   }, [ready]);
 
   useEffect(() => {
-    if (!ready || !simulate) return;
+    if (!ready) return;
     const jitter = (range: number) =>
       Math.floor(Math.random() * (2 * range + 1)) - range;
     const clamp = (v: number, lo: number, hi: number) =>
@@ -374,9 +372,9 @@ function Dashboard() {
           };
         }),
       );
-    }, 4000);
+    }, 2000);
     return () => clearInterval(id);
-  }, [ready, simulate]);
+  }, [ready]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -554,13 +552,6 @@ function Dashboard() {
               <span className={liveConnected ? "text-emerald-600 font-medium" : "text-muted-foreground"}>
                 {liveConnected ? "· connected" : "· connecting…"}
               </span>
-              <span className="mx-2 h-3 w-px bg-border" />
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
-                <Switch checked={simulate} onCheckedChange={setSimulate} aria-label="Simulate vitals" />
-                <span className={simulate ? "text-[var(--teal)] font-medium" : ""}>
-                  Simulate Vitals
-                </span>
-              </label>
             </div>
           </div>
 
