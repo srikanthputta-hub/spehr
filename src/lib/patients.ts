@@ -1,3 +1,9 @@
+import { MEDICATION_CATALOG, LAB_CATALOG } from "@/constants/clinical-catalog";
+
+// Re-export the Master Clinical Catalog so patient generation / admission
+// randomizer logic can pull diverse meds + labs from a single source of truth.
+export { MEDICATION_CATALOG, LAB_CATALOG };
+
 export type CodeStatus = "Full Code" | "DNR" | "DNI" | "Comfort";
 
 export interface MedOrder {
