@@ -80,10 +80,35 @@ function classifyAlert(dx: string | null | undefined): AlertKind {
   return "pending";
 }
 
-function ClinicalAlertPill({ dx }: { dx: string | null | undefined }) {
-  const kind = classifyAlert(dx);
+function ClinicalAlertPill({
+  dx,
+  hr,
+  o2,
+}: {
+  dx: string | null | undefined;
+  hr?: number;
+  o2?: number;
+}) {
   const base =
     "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 font-sans tracking-tight whitespace-nowrap";
+
+  // Vitals-driven alerts take precedence over the diagnosis pill.
+  if (typeof o2 === "number" && o2 < 94) {
+    return (
+      <span className={`${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`}>
+        🫁 Hypoxia Alert
+      </span>
+    );
+  }
+  if (typeof hr === "number" && hr > 110) {
+    return (
+      <span className={`${base} bg-amber-100 text-amber-900 ring-amber-400`}>
+        ⚡ Tachycardia Alert
+      </span>
+    );
+  }
+
+  const kind = classifyAlert(dx);
   switch (kind) {
     case "sepsis":
       return (
