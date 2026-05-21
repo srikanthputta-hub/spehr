@@ -649,7 +649,7 @@ function Dashboard() {
                         <LiveVitals dx={p.diagnosis} />
                       </td>
                       <td className="px-3 py-2 align-middle">
-                        <ClinicalAlertPill dx={p.diagnosis} />
+                        <ClinicalAlertPill dx={p.diagnosis} hr={p.hr} o2={p.o2} />
                       </td>
                       <td className="px-3 py-2 align-middle text-right pr-4">
                         <div className="inline-flex items-center gap-1.5">
