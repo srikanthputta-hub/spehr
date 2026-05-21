@@ -72,15 +72,16 @@ async function seedAdmission(p: NewPatient) {
     .limit(1);
   if (existing && existing.length > 0) return;
 
-  const patientName =
-    p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ") || "Unknown";
+  const fallbackName = [p.first_name, p.last_name].filter(Boolean).join(" ");
+  const patientName = p.name ?? (fallbackName || "Unknown");
+  const mrn: string = p.mrn;
 
   const meds = pickUnique(MEDICATION_CATALOG, 3);
   const labs = pickUnique(LAB_CATALOG, 2);
 
   const medRows = meds.map((m: MedicationCatalogEntry) => ({
     patient_id: p.id,
-    patient_mrn: p.mrn,
+    patient_mrn: mrn,
     patient_name: patientName,
     facility_name: p.facility_name,
     medication_name: m.name,
@@ -93,7 +94,7 @@ async function seedAdmission(p: NewPatient) {
   }));
 
   const labRows = labs.map((l: LabCatalogEntry) => ({
-    patient_mrn: p.mrn,
+    patient_mrn: mrn,
     patient_name: patientName,
     facility_name: p.facility_name ?? "Memorial Hospital",
     requested_by: "Ghost AI - Admission Randomizer",
