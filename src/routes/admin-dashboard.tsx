@@ -359,7 +359,7 @@ function AdminDashboard() {
       facilityStaff.filter((s) => s.role === "RN" && s.status === "On Duty").length,
     [facilityStaff],
   );
-  const census = facilityPatients.length;
+  const census = activePatients.length;
   const ratio = onDutyRNs > 0 ? census / onDutyRNs : Infinity;
   const safeRatio = onDutyRNs > 0 && ratio <= SAFETY_THRESHOLDS.RN;
 
@@ -406,8 +406,9 @@ function AdminDashboard() {
       }
 
       // 3) Acuity scaling: if RN ratio > 5, auto clock-in Off Duty RNs
-      //    Census is strictly scoped to the active facility (facilityPatients).
-      const censusCount = facilityPatients.length;
+      //    Census is strictly scoped to the active facility AND filters out
+      //    discharged patients. Ghost HR must never staff for empty beds.
+      const censusCount = activePatients.length;
       let onDutyRNCount = currentStaff.filter(
         (s) => s.role === "RN" && (nextStatus[s.id] ?? s.effStatus) === "On Duty",
       ).length;
@@ -490,7 +491,7 @@ function AdminDashboard() {
       if (spawned.length > 0) setStaff((prev) => [...spawned, ...prev]);
     }, TICK_MS);
     return () => clearInterval(interval);
-  }, [staff, staffLoading, facility, facilityPatients.length, hoursMap, statusMap]);
+  }, [staff, staffLoading, facility, activePatients.length, hoursMap, statusMap]);
 
   const clockInStaff = async (e: React.FormEvent) => {
     e.preventDefault();
