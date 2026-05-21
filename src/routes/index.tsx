@@ -123,10 +123,10 @@ function LoginScreen() {
             Role Gateway
           </div>
           <h1 className="mt-4 text-2xl font-semibold tracking-tight leading-tight">
-            S.P.E.H.R. <span className="text-[#5cbdb9]">Clinical System</span>
+            S.P.E.H.R
           </h1>
           <p className="mt-1.5 text-xs text-slate-400">
-            S Group Private Network · Secure clinical workspace
+            Where tech meets patient care
           </p>
 
           <div className="mt-7 space-y-2">
