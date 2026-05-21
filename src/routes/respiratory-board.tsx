@@ -32,6 +32,7 @@ interface Patient {
   rr: number | null;
   diagnosis: string | null;
   facility_name: string | null;
+  status: string | null;
 }
 
 const INTERVENTIONS = [
@@ -63,18 +64,53 @@ function RespiratoryBoard() {
     (async () => {
       const { data, error } = await supabase
         .from("patients")
-        .select("id,mrn,name,first_name,last_name,room,spo2,rr,diagnosis,facility_name")
+        .select("id,mrn,name,first_name,last_name,room,spo2,rr,diagnosis,facility_name,status")
         .order("room", { ascending: true });
       if (error) toast.error(`Unable to load patients: ${error.message}`);
-      else setPatients((data ?? []) as Patient[]);
+      else {
+        // Seed any missing rr so the live engine has a starting point.
+        const seeded = (data ?? []).map((p: any) => ({
+          ...p,
+          rr: typeof p.rr === "number" ? p.rr : 14 + Math.floor(Math.random() * 6),
+          spo2: typeof p.spo2 === "number" ? p.spo2 : 96 + Math.floor(Math.random() * 3),
+        })) as Patient[];
+        setPatients(seeded);
+      }
       setLoading(false);
     })();
   }, []);
 
-  const visiblePatients = useMemo(
-    () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
-    [patients, facility],
+  // 1. Filter Active Census — only Admitted / Active patients render on the RT floor.
+  const activePatients = useMemo(
+    () =>
+      patients.filter((p) => {
+        const s = (p.status ?? "Admitted").toLowerCase();
+        return s === "admitted" || s === "active";
+      }),
+    [patients],
   );
+
+  const visiblePatients = useMemo(
+    () => activePatients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
+    [activePatients, facility],
+  );
+
+  // 2. Live vitals simulation engine — fluctuates SpO2 (±1, 70–100) and
+  // respiratoryRate (±2, 12–26) every 2s for the active census.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const jitter = (r: number) => Math.floor(Math.random() * (2 * r + 1)) - r;
+      const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+      setPatients((prev) =>
+        prev.map((p) => ({
+          ...p,
+          spo2: clamp((p.spo2 ?? 97) + jitter(1), 70, 100),
+          rr: clamp((p.rr ?? 16) + jitter(2), 12, 26),
+        })),
+      );
+    }, 2000);
+    return () => clearInterval(id);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,6 +171,8 @@ function RespiratoryBoard() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {visiblePatients.map((p) => {
                 const critical = (p.spo2 ?? 100) < 92;
+                const spo2Warn = (p.spo2 ?? 100) < 94;
+                const rrWarn = (p.rr ?? 0) > 24;
                 const isSelected = selected?.id === p.id;
                 return (
                   <button
@@ -170,7 +208,7 @@ function RespiratoryBoard() {
                     <div className="mt-3 grid grid-cols-2 gap-3">
                       <div
                         className={`rounded-lg p-3 ${
-                          critical ? "bg-red-50" : "bg-sky-50"
+                          critical ? "bg-red-50" : spo2Warn ? "bg-orange-50" : "bg-sky-50"
                         }`}
                       >
                         <div className="text-[10px] uppercase tracking-widest text-slate-500">
@@ -178,18 +216,18 @@ function RespiratoryBoard() {
                         </div>
                         <div
                           className={`text-2xl font-bold ${
-                            critical ? "text-red-700" : "text-sky-700"
+                            critical ? "text-red-700" : spo2Warn ? "text-orange-700" : "text-sky-700"
                           }`}
                         >
                           {p.spo2 ?? "—"}
                           <span className="text-sm font-medium">%</span>
                         </div>
                       </div>
-                      <div className="rounded-lg p-3 bg-slate-100">
+                      <div className={`rounded-lg p-3 ${rrWarn ? "bg-orange-50" : "bg-slate-100"}`}>
                         <div className="text-[10px] uppercase tracking-widest text-slate-500">
                           Resp Rate
                         </div>
-                        <div className="text-2xl font-bold text-slate-800">
+                        <div className={`text-2xl font-bold ${rrWarn ? "text-orange-700" : "text-slate-800"}`}>
                           {p.rr ?? "—"}
                           <span className="text-sm font-medium"> /min</span>
                         </div>
