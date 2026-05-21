@@ -351,7 +351,7 @@ function LabBoard() {
                 {recentResulted.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                      No resulted labs yet.
+                      No recent activity.
                     </td>
                   </tr>
                 ) : (
