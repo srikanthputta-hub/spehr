@@ -484,12 +484,25 @@ function PharmacyQueue() {
                 </thead>
                 <tbody>
                   {(() => {
-                    const rows = DISPATCHED_MEDS.filter((m) => m.facility_name === facility);
+                    const now = Date.now();
+                    const rows = CENSUS
+                      .flatMap((p, pi) =>
+                        (p.meds ?? []).map((m, mi) => ({
+                          id: `${p.mrn}-${m.id ?? mi}`,
+                          ts: new Date(now - (pi * 5 + mi) * 60_000),
+                          patient_name: p.name,
+                          mrn: p.mrn,
+                          order: `${m.name} ${m.dose} ${m.route} ${m.freq}`,
+                          pharmacist: pharm?.name ? `${pharm.name}, PharmD` : "Auto-Dispense, PharmD",
+                        })),
+                      )
+                      .sort((a, b) => b.ts.getTime() - a.ts.getTime())
+                      .slice(0, 50);
                     if (rows.length === 0) {
                       return (
                         <tr>
                           <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                            No dispatches recorded for {facility}.
+                            No recent activity.
                           </td>
                         </tr>
                       );
@@ -499,7 +512,9 @@ function PharmacyQueue() {
                         key={m.id}
                         className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
                       >
-                        <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">{m.ts}</td>
+                        <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
+                          {m.ts.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                        </td>
                         <td className="px-3 py-2 font-medium text-slate-900">{m.patient_name}</td>
                         <td className="px-3 py-2 font-mono text-slate-600">{m.mrn}</td>
                         <td className="px-3 py-2 text-slate-800">{m.order}</td>
