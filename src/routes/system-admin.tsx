@@ -388,13 +388,13 @@ const STAFF_DIRECTORY: StaffMember[] = [
   { name: "Diane Whitaker", role: "System Administrator", facility: "Memorial Hospital", status: "Active" },
   { name: "Marcus Lin, MD", role: "Attending Physician", facility: "Memorial Hospital", status: "Active" },
   { name: "Sarah Jenkins, RN", role: "Registered Nurse", facility: "Memorial Hospital", status: "Active" },
-  { name: "Priya Raman, PharmD", role: "Clinical Pharmacist", facility: "Memorial Hospital", status: "Active" },
+  { name: "Priya Raman, PharmD", role: "Clinical Pharmacist", facility: "City General Infirmary", status: "Active" },
   { name: "Jordan Alvarez, CLT", role: "Clinical Lab Tech", facility: "Memorial Hospital", status: "Active" },
-  { name: "Evelyn Park, MD", role: "Attending Physician", facility: "Memorial Hospital", status: "Suspended" },
+  { name: "Evelyn Park, MD", role: "Attending Physician", facility: "Srik Health Clinic", status: "Suspended" },
   { name: "Tomás Reyes, RT", role: "Respiratory Therapist", facility: "Memorial Hospital", status: "Active" },
   { name: "Hannah O'Connor, RN", role: "Registered Nurse", facility: "Memorial Hospital", status: "Active" },
   { name: "Brian Yamamoto, MD", role: "Attending Physician", facility: "Memorial Hospital", status: "Active" },
-  { name: "Lena Kowalski, CLT", role: "Clinical Lab Tech", facility: "Memorial Hospital", status: "Suspended" },
+  { name: "Lena Kowalski, CLT", role: "Clinical Lab Tech", facility: "City General Infirmary", status: "Suspended" },
 ];
 
 function UserDirectory() {
