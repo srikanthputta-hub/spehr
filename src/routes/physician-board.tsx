@@ -1049,6 +1049,14 @@ function PhysicianBoard() {
                             if (insertErr) {
                               console.log("Discharge Summary Error: ", insertErr);
                             }
+                            // Persist discharge so realtime refetch doesn't resurrect the patient
+                            const { error: updateErr } = await supabase
+                              .from("patients")
+                              .update({ status: "Discharged" })
+                              .eq("mrn", mrn);
+                            if (updateErr) {
+                              console.log("Discharge Status Update Error: ", updateErr);
+                            }
                           } catch (error) {
                             console.log("Discharge Summary Error: ", error);
                           } finally {
