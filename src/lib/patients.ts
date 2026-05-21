@@ -1,4 +1,9 @@
-import { MEDICATION_CATALOG, LAB_CATALOG } from "@/constants/clinical-catalog";
+import {
+  MEDICATION_CATALOG,
+  LAB_CATALOG,
+  type MedicationCatalogEntry,
+  type LabCatalogEntry,
+} from "@/constants/clinical-catalog";
 
 // Re-export the Master Clinical Catalog so patient generation / admission
 // randomizer logic can pull diverse meds + labs from a single source of truth.
@@ -14,6 +19,15 @@ export interface MedOrder {
   freq: string;
   due: string;
   notes?: string;
+}
+
+export interface LabResult {
+  id: string;
+  name: string;
+  value: string;
+  unit: string;
+  referenceRange: string;
+  status: "RESULTED";
 }
 
 export interface Patient {
@@ -37,6 +51,7 @@ export interface Patient {
   task: string;
   admitNote: string;
   meds: MedOrder[];
+  labs?: LabResult[];
 }
 
 export const PATIENTS: Patient[] = [
