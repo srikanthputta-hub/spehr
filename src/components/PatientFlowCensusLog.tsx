@@ -20,6 +20,7 @@ interface PatientRow {
   status: string | null;
   admission_time: string | null;
   discharge_time: string | null;
+  discharge_summary: string | null;
 }
 
 interface DischargeNote {
@@ -53,13 +54,20 @@ function DischargeSummaryModal({
   facility: string;
   onClose: () => void;
 }) {
+  // Prefer the summary written directly on the patient row. Fall back to
+  // clinical_notes only for legacy encounters that don't carry the field.
   const [note, setNote] = useState<DischargeNote | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!patient.discharge_summary);
 
   useEffect(() => {
+    if (patient.discharge_summary) {
+      setNote(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
-    const load = async () => {
-      setLoading(true);
+    setLoading(true);
+    (async () => {
       const { data } = await supabase
         .from("clinical_notes")
         .select("id, content, author, created_at")
@@ -70,12 +78,16 @@ function DischargeSummaryModal({
       if (cancelled) return;
       setNote((data && data[0]) ? (data[0] as DischargeNote) : null);
       setLoading(false);
-    };
-    load();
+    })();
     return () => {
       cancelled = true;
     };
-  }, [patient.mrn]);
+  }, [patient.mrn, patient.discharge_summary]);
+
+  const summaryContent = patient.discharge_summary ?? note?.content ?? null;
+  const summaryAuthor = patient.discharge_summary
+    ? "Ghost AI - Auto Discharge"
+    : note?.author ?? null;
 
   const handlePrint = () => window.print();
 
@@ -145,18 +157,18 @@ function DischargeSummaryModal({
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                 AI-Generated Discharge Summary
               </h2>
-              {note?.author && (
+              {summaryAuthor && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-700 ring-1 ring-purple-300">
                   <Brain className="h-2.5 w-2.5" />
-                  {note.author}
+                  {summaryAuthor}
                 </span>
               )}
             </div>
             {loading ? (
               <p className="text-sm text-slate-400 italic">Loading discharge summary…</p>
-            ) : note?.content ? (
+            ) : summaryContent ? (
               <div className="rounded-md border border-slate-200 bg-white px-8 py-7 text-[14px] leading-[1.85] text-slate-800 whitespace-pre-wrap font-serif tracking-[0.005em]">
-                {note.content}
+                {summaryContent}
               </div>
             ) : (
               <div className="rounded-md border border-dashed border-amber-300 bg-amber-50 px-6 py-5 text-sm text-amber-800">
@@ -217,7 +229,7 @@ export function PatientFlowCensusLog() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "id, mrn, first_name, last_name, name, chief_complaint, status, admission_time, discharge_time",
+          "id, mrn, first_name, last_name, name, chief_complaint, status, admission_time, discharge_time, discharge_summary",
         )
         .eq("facility_name", facility)
         .order("admission_time", { ascending: false })
