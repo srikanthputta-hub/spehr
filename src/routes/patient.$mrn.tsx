@@ -4,6 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2, Brain } from "lucide-react";
 import { toast } from "sonner";
+import {
+  MEDICATION_CATALOG,
+  LAB_CATALOG,
+  type LabCatalogEntry,
+} from "@/constants/clinical-catalog";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
@@ -183,7 +188,11 @@ function useLabs(mrn: string) {
       .select("id, test_type, status, result_value, ordered_by, created_at")
       .eq("patient_mrn", mrn)
       .order("created_at", { ascending: false })
-      .then(({ data }) => { if (!c) setRows((data as LabRow[]) ?? []); });
+      .then(({ data }) => {
+        if (c) return;
+        const real = (data as LabRow[]) ?? [];
+        setRows(real.length > 0 ? real : fallbackLabs(mrn));
+      });
     return () => { c = true; };
   }, [mrn]);
   return rows;
@@ -198,7 +207,11 @@ function useMeds(patientId: string | null | undefined) {
       .select("id, medication_name, drug_name, medication, dose, route, status, administered_at, created_at")
       .eq("patient_id", patientId)
       .order("created_at", { ascending: false })
-      .then(({ data }) => { if (!c) setRows((data as MedRow[]) ?? []); });
+      .then(({ data }) => {
+        if (c) return;
+        const real = (data as MedRow[]) ?? [];
+        setRows(real.length > 0 ? real : fallbackMeds(patientId));
+      });
     return () => { c = true; };
   }, [patientId]);
   return rows;
