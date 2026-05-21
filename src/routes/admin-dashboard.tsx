@@ -89,6 +89,18 @@ interface StaffMember {
 
 const STAFF_ROLES = ["RN", "MD", "PharmD", "RT", "CNA", "LPN"] as const;
 
+// Ghost HR — auto-scaling safety thresholds
+const SAFETY_THRESHOLDS = {
+  RN: 5,
+  MD: 15,
+  PharmD: 50,
+  MAX_SHIFT_HOURS: 12,
+} as const;
+
+// Simulation tick: every 7s = +1 simulated hour worked for On Duty staff
+const TICK_MS = 7000;
+const HOURS_PER_TICK = 1;
+
 const IN_NETWORK_FACILITIES = new Set([
   "Memorial Hospital",
   "St. Jude Medical Center",
