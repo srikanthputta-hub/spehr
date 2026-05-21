@@ -5,6 +5,7 @@ import { Loader2, FlaskConical, Sparkles, CheckCircle2 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
+import { PATIENTS as CENSUS } from "@/lib/patients";
 
 export const Route = createFileRoute("/lab-board")({
   component: LabBoard,
@@ -136,13 +137,24 @@ function LabBoard() {
   const completed = visible.filter(
     (o) => o.status === "Completed" || o.status === "Resulted",
   );
-  const recentResulted = orders
-    .filter(
-      (o) =>
-        (o.status === "Resulted" || o.status === "Completed") &&
-        o.facility_name === facility,
+  // Derived from the global randomized census instead of the persisted
+  // lab_orders table — every patient ships with mock LabResult entries.
+  const recentResulted = useMemo(() => {
+    const now = Date.now();
+    return CENSUS.flatMap((p, pi) =>
+      (p.labs ?? []).map((l, li) => ({
+        id: l.id,
+        patient_mrn: p.mrn,
+        patient_name: p.name,
+        requested_by: tech?.name ? `${tech.name}, MLS` : "Auto-Resulted",
+        test_type: `${l.name} — ${l.value} ${l.unit} (ref ${l.referenceRange})`,
+        status: l.status,
+        created_at: new Date(now - (pi * 7 + li) * 60_000).toISOString(),
+      })),
     )
-    .slice(0, 50);
+      .sort((a, b) => (b.created_at > a.created_at ? 1 : -1))
+      .slice(0, 50);
+  }, [tech]);
 
   const runSample = async (order: LabOrderRow) => {
     setProcessing(order.id);
@@ -339,7 +351,7 @@ function LabBoard() {
                 {recentResulted.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                      No resulted labs yet.
+                      No recent activity.
                     </td>
                   </tr>
                 ) : (
