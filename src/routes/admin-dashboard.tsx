@@ -102,7 +102,13 @@ const SAFETY_THRESHOLDS = {
 const TICK_MS = 1000;
 const HOURS_PER_TICK = 1;
 
-const IN_NETWORK_FACILITIES = new Set(["Memorial Hospital"]);
+const IN_NETWORK_FACILITIES = new Set([
+  "Memorial Hospital",
+  "St. Jude Medical Center",
+  "City General Infirmary",
+  "County Health Pavilion",
+  "Srik Health Clinic",
+]);
 
 interface TransferRequest {
   id: string;
