@@ -437,6 +437,9 @@ function Dashboard() {
       bp_diastolic: 78,
       temp: 98.6,
       spo2: 98,
+      status: "Admitted",
+      facility_name: facility,
+      admission_time: new Date().toISOString(),
     };
     const { data, error } = await supabase
       .from("patients")
