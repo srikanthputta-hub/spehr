@@ -766,8 +766,20 @@ function AdminDashboard() {
                           <span>
                             {assigned} / {cap} Patients Assigned
                           </span>
-                          <span className="font-medium text-slate-700">
-                            {pct}%
+                          <span className="font-medium text-slate-700 flex items-center gap-2">
+                            <span
+                              className={`tabular-nums ${
+                                (s.hours_worked ?? 0) > SAFETY_THRESHOLDS.MAX_SHIFT_HOURS
+                                  ? "text-red-600 font-semibold"
+                                  : (s.hours_worked ?? 0) >= 10
+                                  ? "text-amber-600"
+                                  : "text-slate-500"
+                              }`}
+                              title="Hours worked this shift"
+                            >
+                              ⏱ {(s.hours_worked ?? 0).toFixed(0)}h
+                            </span>
+                            <span>{pct}%</span>
                           </span>
                         </div>
                         <Progress value={pct} />
