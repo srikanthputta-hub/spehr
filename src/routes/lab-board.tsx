@@ -152,8 +152,9 @@ function LabBoard() {
         created_at: new Date(now - (pi * 7 + li) * 60_000).toISOString(),
       })),
     )
+      .filter((l) => l.status === "RESULTED")
       .sort((a, b) => (b.created_at > a.created_at ? 1 : -1))
-      .slice(0, 50);
+      .slice(0, 25);
   }, [tech]);
 
   const runSample = async (order: LabOrderRow) => {

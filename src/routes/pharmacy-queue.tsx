@@ -497,7 +497,7 @@ function PharmacyQueue() {
                         })),
                       )
                       .sort((a, b) => b.ts.getTime() - a.ts.getTime())
-                      .slice(0, 50);
+                      .slice(0, 25);
                     if (rows.length === 0) {
                       return (
                         <tr>
