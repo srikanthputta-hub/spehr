@@ -15,6 +15,11 @@ import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { getMockAiNote } from "@/lib/mockAiNotes";
+import { getPatient as getSeedPatient } from "@/lib/patients";
+import {
+  MEDICATION_CATALOG,
+  LAB_CATALOG,
+} from "@/constants/clinical-catalog";
 import {
   Dialog,
   DialogContent,
@@ -58,6 +63,38 @@ type Patient = {
 
 const ROUTES = ["PO", "IV", "IM", "SubQ", "Inh", "Neb", "Topical", "PR"];
 const FREQS = ["Once", "Daily", "BID", "TID", "QID", "Q4H", "Q6H", "Q8H", "Q12H", "PRN", "Continuous"];
+
+// Deterministic per-MRN catalog fallback. Mirrors the seed randomizer so
+// every patient yields a stable 3-med / 2-lab payload even when the DB
+// row has no attached arrays.
+function seedHash(key: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+function pickN<T>(arr: readonly T[], n: number, seed: number): T[] {
+  const idx = new Set<number>();
+  let s = seed || 1;
+  while (idx.size < Math.min(n, arr.length)) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    idx.add(s % arr.length);
+  }
+  return [...idx].map((i) => arr[i]);
+}
+function fallbackMedsFor(mrn: string) {
+  return pickN(MEDICATION_CATALOG, 3, seedHash("med:" + mrn)).map((m) => ({
+    name: m.name,
+    dose: m.dose,
+    route: m.route,
+  }));
+}
+function fallbackLabsFor(mrn: string) {
+  return pickN(LAB_CATALOG, 2, seedHash("lab:" + mrn)).map((l) => ({
+    name: l.name,
+    unit: l.unit,
+    referenceRange: l.referenceRange,
+  }));
+}
 
 function PhysicianBoard() {
   const { facility, activeRole } = useFacility();
