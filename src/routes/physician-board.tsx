@@ -14,6 +14,7 @@ import {
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import { getMockAiNote } from "@/lib/mockAiNotes";
 import {
   Dialog,
   DialogContent,
@@ -140,66 +141,22 @@ function PhysicianBoard() {
 
   // Fetch + subscribe to the AI_DIFFERENTIAL note for the patient open in the
   // Clinical Actions modal so the physician sees the Ghost AI consult live.
+  // SYNCHRONOUS BYPASS: read from global mock store. No timers, no DB.
   useEffect(() => {
     if (!actionsMrn) {
       setAiNote(null);
       return;
     }
-    let cancelled = false;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    const load = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("clinical_notes")
-          .select("content, created_at")
-          .eq("mrn", actionsMrn)
-          .eq("note_type", "AI_DIFFERENTIAL")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (error) throw error;
-        if (!cancelled) setAiNote((data as any) ?? null);
-      } catch (error) {
-        console.log("AI Differential Error: ", error);
-        if (!cancelled) {
-          setAiNote({
-            content:
-              "AI Consult [Local Mock]: Database insert failed, but differential generated. Rule out ACS, PE, and Aortic Dissection. Recommend STAT Troponin, 12-lead ECG, and CT Angiography.",
-            created_at: new Date().toISOString(),
-          });
-        }
-      }
-    };
-    load();
-    // Force state resolution: if no live note arrives within 12s, surface a
-    // local mock so the UI never gets stuck on "Generating…".
-    fallbackTimer = setTimeout(() => {
-      if (cancelled) return;
-      setAiNote((prev) =>
-        prev ?? {
-          content:
-            "AI Consult [Local Mock]: Live differential not received in time. Rule out ACS, PE, and Aortic Dissection. Recommend STAT Troponin, 12-lead ECG, and CT Angiography.",
-          created_at: new Date().toISOString(),
-        },
-      );
-    }, 12_000);
-    const ch = supabase
-      .channel(`ai-note-${actionsMrn}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "clinical_notes", filter: `mrn=eq.${actionsMrn}` },
-        (payload: any) => {
-          if (payload.new?.note_type === "AI_DIFFERENTIAL") {
-            setAiNote({ content: payload.new.content, created_at: payload.new.created_at });
-          }
-        },
-      )
-      .subscribe();
-    return () => {
-      cancelled = true;
-      if (fallbackTimer) clearTimeout(fallbackTimer);
-      supabase.removeChannel(ch);
-    };
+    const mock = getMockAiNote(actionsMrn);
+    if (mock) {
+      setAiNote({ content: mock.text, created_at: mock.created_at });
+    } else {
+      setAiNote({
+        content:
+          "AI Consult [Local Mock]: Based on presentation, rule out ACS, Pulmonary Embolism, and Aortic Dissection. Recommend STAT Troponin x2, 12-lead ECG, D-dimer, and CT Angiography of the chest.",
+        created_at: new Date().toISOString(),
+      });
+    }
   }, [actionsMrn]);
 
   useEffect(() => {
