@@ -543,7 +543,7 @@ function AdminDashboard() {
           <MetricCard
             icon={<Users className="h-5 w-5" />}
             label="Total Active Census"
-            value={loading ? "…" : facilityPatients.length}
+            value={loading ? "…" : activePatients.length}
             tint="bg-sky-50 text-sky-700"
           />
           <MetricCard
