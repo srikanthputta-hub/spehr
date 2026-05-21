@@ -1013,22 +1013,29 @@ function PhysicianBoard() {
                                 .limit(5),
                             ]);
 
-                            const meds =
-                              (marRes.data ?? [])
-                                .map((m: any) => m.medication_name)
-                                .filter(Boolean)
-                                .join(", ") || "supportive care only";
+                            // Prefer in-memory randomizer payload on the patient
+                            // object; fall back to DB-side MAR + lab_orders.
+                            const patientMeds = (p as any).medications ?? (p as any).meds ?? [];
+                            const patientLabs = (p as any).labs ?? [];
 
-                            const labString =
-                              (labRes.data ?? [])
-                                .map((l: any) => {
-                                  const short = String(l.test_type ?? "Lab").split(" (")[0];
-                                  const result =
-                                    l.result_value ??
-                                    (l.status === "Resulted" ? "Normal" : l.status ?? "Pending");
-                                  return `${short} - ${result}`;
-                                })
-                                .join(", ") || "None drawn";
+                            const medString = patientMeds.length
+                              ? patientMeds
+                                  .map((m: any) =>
+                                    m.dose ? `${m.name ?? m.medication_name} (${m.dose})` : (m.name ?? m.medication_name),
+                                  )
+                                  .filter(Boolean)
+                                  .join(", ")
+                              : (marRes.data ?? [])
+                                  .map((m: any) => m.medication_name)
+                                  .filter(Boolean)
+                                  .join(", ") || "supportive care only";
+
+                            const labString = patientLabs.length
+                              ? patientLabs.map((l: any) => l.name ?? l.test_type).filter(Boolean).join(", ")
+                              : (labRes.data ?? [])
+                                  .map((l: any) => String(l.test_type ?? "Lab").split(" (")[0])
+                                  .filter(Boolean)
+                                  .join(", ") || "None drawn";
 
                             const complaint =
                               p.chief_complaint || p.diagnosis || "clinical evaluation";
@@ -1036,7 +1043,7 @@ function PhysicianBoard() {
                             // 2-second simulated AI generation
                             await new Promise((r) => setTimeout(r, 2000));
 
-                            const summary = `HOSPITAL COURSE: Patient admitted for ${complaint}. Evaluated by Ghost AI and attending physician.\n\nLABORATORY FINDINGS: ${labString}.\n\nTREATMENT: Effectively treated with ${meds}. Patient is hemodynamically stable. Disposition: ${disposition}.`;
+                            const summary = `HOSPITAL COURSE: Patient admitted for ${complaint}. Evaluated by Ghost AI and attending physician.\n\nLABORATORY FINDINGS: ${labString}.\n\nTREATMENT: Patient was administered ${medString}. Patient is hemodynamically stable. Disposition: ${disposition}.`;
 
                             const { error: insertErr } = await supabase
                               .from("clinical_notes")
