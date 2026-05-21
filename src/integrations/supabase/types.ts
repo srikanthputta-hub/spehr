@@ -384,6 +384,7 @@ export type Database = {
           chief_complaint: string | null
           code_status: string | null
           diagnosis: string | null
+          discharge_summary: string | null
           discharge_time: string | null
           facility_name: string
           first_name: string | null
@@ -411,6 +412,7 @@ export type Database = {
           chief_complaint?: string | null
           code_status?: string | null
           diagnosis?: string | null
+          discharge_summary?: string | null
           discharge_time?: string | null
           facility_name?: string
           first_name?: string | null
@@ -438,6 +440,7 @@ export type Database = {
           chief_complaint?: string | null
           code_status?: string | null
           diagnosis?: string | null
+          discharge_summary?: string | null
           discharge_time?: string | null
           facility_name?: string
           first_name?: string | null
