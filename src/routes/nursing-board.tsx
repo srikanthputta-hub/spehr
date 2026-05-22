@@ -22,6 +22,7 @@ import {
   type CodeStatus,
 } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
+import { seedAdmission } from "@/hooks/useAIAutomation";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
