@@ -22,6 +22,7 @@ import {
   type CodeStatus,
 } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
+import { seedAdmission } from "@/hooks/useAIAutomation";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -449,6 +450,21 @@ function Dashboard() {
     if (error) {
       toast.error("Could not admit patient", { description: error.message });
       return false;
+    }
+    // Explicitly seed meds + labs into Supabase so the Pharmacy and Lab
+    // boards pick this admission up immediately — don't rely solely on the
+    // realtime channel, which can be missed on reconnect.
+    try {
+      await seedAdmission({
+        id: data.id,
+        mrn: data.mrn,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        name: (data as any).name ?? null,
+        facility_name: data.facility_name,
+      });
+    } catch (e: any) {
+      console.warn("[admit] seedAdmission failed", e);
     }
     setPatients((prev) =>
       prev.some((p) => p.mrn === mrn) ? prev : [...prev, toRow(data)],
