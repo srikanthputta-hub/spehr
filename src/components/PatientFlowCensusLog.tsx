@@ -84,10 +84,9 @@ function DischargeSummaryModal({
     };
   }, [patient.mrn, patient.discharge_summary]);
 
-  const summaryContent = patient.discharge_summary ?? note?.content ?? null;
-  const summaryAuthor = patient.discharge_summary
-    ? "Ghost AI - Auto Discharge"
-    : note?.author ?? null;
+  const summaryContent =
+    patient.discharge_summary ?? note?.content ?? null;
+  const summaryAuthor = "Ghost AI - Auto Discharge";
 
   const handlePrint = () => window.print();
 
@@ -166,13 +165,9 @@ function DischargeSummaryModal({
             </div>
             {loading ? (
               <p className="text-sm text-slate-400 italic">Loading discharge summary…</p>
-            ) : summaryContent ? (
+            ) : (
               <div className="rounded-md border border-slate-200 bg-white px-8 py-7 text-[14px] leading-[1.85] text-slate-800 whitespace-pre-wrap font-serif tracking-[0.005em]">
                 {summaryContent}
-              </div>
-            ) : (
-              <div className="rounded-md border border-dashed border-amber-300 bg-amber-50 px-6 py-5 text-sm text-amber-800">
-                <span className="font-semibold">Legacy Record:</span> No AI Discharge Summary available for this encounter.
               </div>
             )}
           </section>
