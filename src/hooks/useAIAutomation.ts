@@ -61,7 +61,7 @@ interface NewPatient {
   facility_name: string | null;
 }
 
-async function seedAdmission(p: NewPatient) {
+export async function seedAdmission(p: NewPatient) {
   if (!p.mrn) return;
 
   // Guard against double-seeding (realtime can fire on reconnect).
