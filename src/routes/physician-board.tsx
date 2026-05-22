@@ -1068,23 +1068,21 @@ function PhysicianBoard() {
                                   : fallbackLabsFor(mrn),
                             };
 
-                            const medString =
+                            const medsList: string[] = (
                               Array.isArray(fullPatient.meds) && fullPatient.meds.length > 0
-                                ? fullPatient.meds
-                                    .map((m: any) => `${m.name} (${m.dose})`)
-                                    .join(", ")
+                                ? fullPatient.meds.map((m: any) => `${m.name} (${m.dose})`)
                                 : (marRes.data ?? [])
                                     .map((m: any) => m.medication_name)
                                     .filter(Boolean)
-                                    .join(", ") || "supportive care only";
+                            );
 
-                            const labString =
+                            const labsList: string[] = (
                               Array.isArray(fullPatient.labs) && fullPatient.labs.length > 0
-                                ? fullPatient.labs.map((l: any) => l.name).join(", ")
+                                ? fullPatient.labs.map((l: any) => l.name)
                                 : (labRes.data ?? [])
-                                    .map((l: any) => String(l.test_type ?? "Lab").split(" (")[0])
+                                    .map((l: any) => String(l.test_type ?? "").split(" (")[0])
                                     .filter(Boolean)
-                                    .join(", ") || "None drawn";
+                            );
 
                             const complaint =
                               p.chief_complaint || p.diagnosis || "clinical evaluation";
@@ -1092,7 +1090,10 @@ function PhysicianBoard() {
                             // 2-second simulated AI generation
                             await new Promise((r) => setTimeout(r, 2000));
 
-                            const summary = `HOSPITAL COURSE: Patient admitted for ${complaint}. Evaluated by Ghost AI and attending physician.\n\nLABORATORY FINDINGS: ${labString}.\n\nTREATMENT: Patient was administered ${medString}. Patient is hemodynamically stable. Disposition: ${disposition}.`;
+                            const hasAiData = medsList.length > 0 || labsList.length > 0;
+                            const summary = hasAiData
+                              ? `Patient admitted for ${complaint}. Treated successfully with ${medsList.join(", ") || "supportive care"}. Labs processed: ${labsList.join(", ") || "none"}. Discharged in stable condition.`
+                              : `Patient admitted for ${complaint}. Standard clinical observation and care provided. No specific medication or laboratory data recorded for this encounter. Discharged in stable condition.`;
 
                             const { error: insertErr } = await supabase
                               .from("clinical_notes")
