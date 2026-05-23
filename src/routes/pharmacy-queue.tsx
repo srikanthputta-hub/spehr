@@ -61,8 +61,10 @@ function PharmacyQueue() {
     {
       id: string;
       mrn: string | null;
+      patient_mrn: string | null;
       patient_name: string | null;
       drug_name: string | null;
+      medication_name: string | null;
       dose: string | null;
       route: string | null;
       frequency: string | null;
