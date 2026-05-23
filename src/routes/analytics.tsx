@@ -57,7 +57,7 @@ function fullName(p: Patient) {
   );
 }
 
-function AnalyticsPage() {
+export function AnalyticsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
