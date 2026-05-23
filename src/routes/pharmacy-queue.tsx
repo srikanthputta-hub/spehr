@@ -173,6 +173,21 @@ function PharmacyQueue() {
       .channel(`pharmacy-dispensed-${facility}`)
       .on(
         "postgres_changes",
+        { event: "INSERT", schema: "public", table: "medication_orders" },
+        (payload) => {
+          // Instant optimistic prepend so meds inserted by backend SQL
+          // triggers (auto_order_ghost_labs, etc.) appear immediately
+          // without waiting for the broader refetch below.
+          const row = payload.new as any;
+          if (row && row.facility_name === facility) {
+            setDispensed((prev) =>
+              prev.some((o) => o.id === row.id) ? prev : [row, ...prev],
+            );
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
         { event: "*", schema: "public", table: "medication_orders" },
         () => loadDispensed(),
       )
