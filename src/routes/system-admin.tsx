@@ -375,6 +375,11 @@ function SystemAdminPage() {
           <AuditLog />
         )}
       </section>
+      {tab === "analytics" && (
+        <div className="w-full">
+          <GlobalNetworkAnalytics />
+        </div>
+      )}
     </main>
   );
 }
