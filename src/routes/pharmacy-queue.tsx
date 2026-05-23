@@ -61,8 +61,10 @@ function PharmacyQueue() {
     {
       id: string;
       mrn: string | null;
+      patient_mrn: string | null;
       patient_name: string | null;
       drug_name: string | null;
+      medication_name: string | null;
       dose: string | null;
       route: string | null;
       frequency: string | null;
@@ -158,7 +160,7 @@ function PharmacyQueue() {
       const { data } = await supabase
         .from("medication_orders")
         .select(
-          "id, mrn, patient_name, drug_name, dose, route, frequency, status, administered_at, created_at, ordering_physician, facility_name",
+          "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, administered_at, created_at, ordering_physician, facility_name",
         )
         .eq("facility_name", facility)
         .order("administered_at", { ascending: false, nullsFirst: false })
@@ -554,18 +556,21 @@ function PharmacyQueue() {
                         className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
                       >
                         <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
-                          {new Date(m.administered_at ?? m.created_at ?? Date.now()).toLocaleString([], {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            second: "2-digit",
-                          })}
+                          {(() => {
+                            const ts = m?.administered_at ?? m?.created_at;
+                            return ts ? new Date(ts).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            }) : "Just now";
+                          })()}
                         </td>
-                        <td className="px-3 py-2 font-medium text-slate-900">{m.patient_name ?? "—"}</td>
-                        <td className="px-3 py-2 font-mono text-slate-600">{m.mrn ?? "—"}</td>
+                        <td className="px-3 py-2 font-medium text-slate-900">{m?.patient_name ?? "Unknown"}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600">{m?.patient_mrn ?? m?.mrn ?? "—"}</td>
                         <td className="px-3 py-2 text-slate-800">
-                          {[m.drug_name, m.dose, m.route, m.frequency].filter(Boolean).join(" ")}
+                          {[m?.drug_name ?? m?.medication_name, m?.dose, m?.route, m?.frequency].filter(Boolean).join(" ") || "Unknown"}
                         </td>
                         <td className="px-3 py-2">
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">

@@ -379,7 +379,7 @@ function LabBoard() {
                       className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
                     >
                       <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
-                        {o.created_at
+                        {o?.created_at
                           ? new Date(o.created_at).toLocaleString([], {
                               month: "short",
                               day: "numeric",
@@ -387,18 +387,18 @@ function LabBoard() {
                               minute: "2-digit",
                               second: "2-digit",
                             })
-                          : "—"}
+                          : "Just now"}
                       </td>
-                      <td className="px-3 py-2 font-medium text-slate-900">{o.patient_name}</td>
-                      <td className="px-3 py-2 font-mono text-slate-600">{o.patient_mrn}</td>
-                      <td className="px-3 py-2 text-slate-800">{o.test_type}</td>
+                      <td className="px-3 py-2 font-medium text-slate-900">{o?.patient_name ?? "Unknown"}</td>
+                      <td className="px-3 py-2 font-mono text-slate-600">{o?.patient_mrn ?? "—"}</td>
+                      <td className="px-3 py-2 text-slate-800">{o?.test_type ?? "Unknown"}</td>
                       <td className="px-3 py-2">
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          {o.status}
+                          {o?.status ?? "Resulted"}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-slate-700">{o.requested_by}</td>
+                      <td className="px-3 py-2 text-slate-700">{o?.requested_by ?? "—"}</td>
                     </tr>
                   ))
                 )}
