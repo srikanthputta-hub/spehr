@@ -376,8 +376,8 @@ function SystemAdminPage() {
         )}
       </section>
       {tab === "analytics" && (
-        <div className="w-full">
-          <GlobalNetworkAnalytics />
+        <div className="max-w-6xl mx-auto px-6 pb-8">
+          <GlobalNetworkAnalytics embedded />
         </div>
       )}
     </main>
