@@ -130,6 +130,21 @@ function LabBoard() {
       .channel(`lab-board-${facility}`)
       .on(
         "postgres_changes",
+        { event: "INSERT", schema: "public", table: "lab_orders" },
+        (payload) => {
+          // Instant optimistic prepend so newly-generated orders (e.g. from
+          // backend SQL triggers) appear immediately without waiting for the
+          // full refetch below.
+          const row = payload.new as LabOrderRow | undefined;
+          if (row && row.facility_name === facility) {
+            setOrders((prev) =>
+              prev.some((o) => o.id === row.id) ? prev : [row, ...prev],
+            );
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
         { event: "*", schema: "public", table: "lab_orders" },
         () => load(),
       )
