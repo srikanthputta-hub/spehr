@@ -57,7 +57,7 @@ function fullName(p: Patient) {
   );
 }
 
-function AnalyticsPage() {
+export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,15 +107,18 @@ function AnalyticsPage() {
 
   const feed = useMemo(() => patients.slice(0, 50), [patients]);
 
+  const Wrapper: any = embedded ? "div" : "main";
   return (
-    <main className="min-h-screen bg-slate-50">
-      <BoardHeader
-        title="Global Network Analytics"
-        subtitle="Real-time admission, census, and facility load telemetry"
-        badge="Analytics"
-      />
+    <Wrapper className={embedded ? "bg-slate-50" : "min-h-screen bg-slate-50"}>
+      {!embedded && (
+        <BoardHeader
+          title="Global Network Analytics"
+          subtitle="Real-time admission, census, and facility load telemetry"
+          badge="Analytics"
+        />
+      )}
 
-      <section className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+      <section className={`${embedded ? "w-full" : "max-w-7xl"} mx-auto px-6 py-6 space-y-6`}>
         <div className="flex items-center justify-between">
           <h1 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
             📊 Network Operations Overview
@@ -273,7 +276,7 @@ function AnalyticsPage() {
           </div>
         </div>
       </section>
-    </main>
+    </Wrapper>
   );
 }
 

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download } from "lucide-react";
+import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3 } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -40,6 +41,7 @@ const TABS = [
   { id: "feature_controls" as const, label: "🎛️ UI & Feature Controls", icon: ToggleRight },
   { id: "users" as const, label: "👥 Users", icon: Users },
   { id: "audit" as const, label: "📜 Audit Log", icon: Activity },
+  { id: "analytics" as const, label: "📊 Network Analytics", icon: BarChart3 },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -373,6 +375,11 @@ function SystemAdminPage() {
           <AuditLog />
         )}
       </section>
+      {tab === "analytics" && (
+        <div className="max-w-6xl mx-auto px-6 pb-8">
+          <GlobalNetworkAnalytics embedded />
+        </div>
+      )}
     </main>
   );
 }
