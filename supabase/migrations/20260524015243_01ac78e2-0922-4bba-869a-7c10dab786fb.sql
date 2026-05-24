@@ -1,0 +1,1 @@
+ALTER TABLE public.patients ENABLE ROW LEVEL SECURITY;
