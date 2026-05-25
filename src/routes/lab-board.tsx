@@ -488,12 +488,12 @@ function LabBoard() {
                 ) : (
                   recentResulted.map((o, i) => (
                     <tr
-                      key={o.id}
+                      key={o.key}
                       className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
                     >
                       <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
-                        {o?.created_at
-                          ? new Date(o.created_at).toLocaleString([], {
+                        {o.timestamp
+                          ? new Date(o.timestamp).toLocaleString([], {
                               month: "short",
                               day: "numeric",
                               hour: "2-digit",
@@ -506,22 +506,9 @@ function LabBoard() {
                       <td className="px-3 py-2 font-mono text-slate-600">{o?.patient_mrn ?? "—"}</td>
                       <td className="px-3 py-2 text-slate-800">
                         <div className="font-medium">{o?.test_type ?? "Unknown"}</div>
-                        {(() => {
-                          const rd = Array.isArray(o?.results_data) ? (o.results_data as LabValue[]) : null;
-                          const crit = rd?.find((r) => r.flag === "CRITICAL") ?? rd?.find((r) => r.flag === "H" || r.flag === "L") ?? rd?.[0];
-                          if (crit) {
-                            return (
-                              <div className="text-[11px] text-slate-500 mt-0.5">
-                                {crit.test}: {crit.value} {crit.unit}
-                                {crit.flag && crit.flag !== "NORMAL" ? ` · ${crit.flag}` : ""}
-                              </div>
-                            );
-                          }
-                          if (o?.result_value) {
-                            return <div className="text-[11px] text-slate-500 mt-0.5">{o.result_value}</div>;
-                          }
-                          return null;
-                        })()}
+                        {o.result_value && (
+                          <div className="text-[11px] text-slate-500 mt-0.5">{o.result_value}</div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
@@ -529,7 +516,7 @@ function LabBoard() {
                           {o?.status ?? "Resulted"}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-slate-700">{o?.requested_by ?? "—"}</td>
+                      <td className="px-3 py-2 text-slate-700">{o.physician}</td>
                     </tr>
                   ))
                 )}
