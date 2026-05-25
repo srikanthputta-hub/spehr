@@ -5,6 +5,7 @@ import { Loader2, FlaskConical, Sparkles, CheckCircle2 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
+import { fallbackLabsFor } from "@/lib/fallback-labs";
 
 export const Route = createFileRoute("/lab-board")({
   component: LabBoard,
@@ -30,6 +31,23 @@ interface LabValue {
   unit: string;
   range: string;
   flag: "H" | "L" | "CRITICAL" | "NORMAL";
+}
+
+interface BoardPatient {
+  mrn: string;
+  name: string;
+  admission_time: string | null;
+}
+
+interface FeedRow {
+  key: string;
+  timestamp: string | null;
+  patient_name: string;
+  patient_mrn: string;
+  test_type: string;
+  result_value: string | null;
+  status: string;
+  physician: string;
 }
 
 function generateMockResults(testType: string, condition: string | null): LabValue[] {
@@ -107,7 +125,7 @@ function LabBoard() {
   const { facility } = useFacility();
   const tech = useActiveStaff("Lab");
   const [orders, setOrders] = useState<LabOrderRow[]>([]);
-  const [boardMrns, setBoardMrns] = useState<Set<string>>(new Set());
+  const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Record<string, LabValue[]>>({});
   const [processing, setProcessing] = useState<string | null>(null);
@@ -123,17 +141,30 @@ function LabBoard() {
         .order("created_at", { ascending: false }),
       supabase
         .from("patients")
-        .select("mrn")
+        .select("mrn, first_name, last_name, name, admission_time")
         .eq("facility_name", facility)
         .eq("status", "Admitted")
         .order("admission_time", { ascending: false })
         .limit(25),
     ]);
     setOrders((labData as LabOrderRow[]) ?? []);
-    setBoardMrns(
-      new Set(((patientData as { mrn: string | null }[]) ?? [])
-        .map((p) => p.mrn)
-        .filter((m): m is string => !!m)),
+    const rows = (patientData as Array<{
+      mrn: string | null;
+      first_name: string | null;
+      last_name: string | null;
+      name: string | null;
+      admission_time: string | null;
+    }> | null) ?? [];
+    setBoardPatients(
+      rows
+        .filter((p): p is typeof p & { mrn: string } => !!p.mrn)
+        .map((p) => ({
+          mrn: p.mrn,
+          name:
+            (p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ")) ||
+            "Unknown",
+          admission_time: p.admission_time,
+        })),
     );
     setLoading(false);
   };
@@ -191,20 +222,70 @@ function LabBoard() {
         .slice(0, 25),
     [visible],
   );
-  // Completed queue — strictly RESULTED status, newest first, capped at 25.
-  const completed = useMemo(
-    () =>
-      visible
-        .filter((o) => {
-          const s = (o.status ?? "").toUpperCase();
-          return s === "RESULTED" || s === "COMPLETED";
-        })
-        .filter((o) => boardMrns.has(o.patient_mrn))
-        .sort((a, b) => tsOf(b) - tsOf(a))
-        .slice(0, 25),
-    [visible, boardMrns],
-  );
-  const recentResulted = completed;
+  // For each patient currently on the Nursing Board, surface their exact
+  // resulted labs — mirroring the patient chart's Recent Labs widget.
+  // Real lab_orders rows win; otherwise fall back to the same deterministic
+  // per-MRN panel the chart uses (e.g. Patricia Smith → BUN + Urine SG).
+  const recentResulted: FeedRow[] = useMemo(() => {
+    const resultedByMrn = new Map<string, LabOrderRow[]>();
+    for (const o of visible) {
+      const s = (o.status ?? "").toUpperCase();
+      if (s !== "RESULTED" && s !== "COMPLETED") continue;
+      const list = resultedByMrn.get(o.patient_mrn) ?? [];
+      list.push(o);
+      resultedByMrn.set(o.patient_mrn, list);
+    }
+
+    const rows: FeedRow[] = [];
+    for (const p of boardPatients) {
+      const real = resultedByMrn.get(p.mrn);
+      if (real && real.length > 0) {
+        for (const o of real) {
+          rows.push({
+            key: o.id,
+            timestamp: o.created_at ?? p.admission_time,
+            patient_name: o.patient_name || p.name,
+            patient_mrn: p.mrn,
+            test_type: o.test_type,
+            result_value:
+              o.result_value ??
+              (Array.isArray(o.results_data) && o.results_data.length > 0
+                ? (() => {
+                    const r = o.results_data[0];
+                    return `${r.test}: ${r.value} ${r.unit}${r.flag && r.flag !== "NORMAL" ? ` [${r.flag}]` : ""}`;
+                  })()
+                : null),
+            status: o.status ?? "Resulted",
+            physician: o.requested_by || "Dr. Ghost",
+          });
+        }
+      } else {
+        // Deterministic synthetic panel — same tests the patient chart shows.
+        for (const [i, l] of fallbackLabsFor(p.mrn).entries()) {
+          rows.push({
+            key: `${p.mrn}-fb-${i}`,
+            timestamp: p.admission_time,
+            patient_name: p.name,
+            patient_mrn: p.mrn,
+            test_type: l.test_type,
+            result_value: l.result_value,
+            status: l.status,
+            physician: "Dr. Ghost",
+          });
+        }
+      }
+    }
+
+    rows.sort((a, b) => {
+      const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return tb - ta;
+    });
+    return rows.slice(0, 25);
+  }, [boardPatients, visible]);
+
+  // Pending count for header still reflects real pending orders.
+  const completed = recentResulted;
 
   const runSample = async (order: LabOrderRow) => {
     setProcessing(order.id);
@@ -407,12 +488,12 @@ function LabBoard() {
                 ) : (
                   recentResulted.map((o, i) => (
                     <tr
-                      key={o.id}
+                      key={o.key}
                       className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
                     >
                       <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
-                        {o?.created_at
-                          ? new Date(o.created_at).toLocaleString([], {
+                        {o.timestamp
+                          ? new Date(o.timestamp).toLocaleString([], {
                               month: "short",
                               day: "numeric",
                               hour: "2-digit",
@@ -425,22 +506,9 @@ function LabBoard() {
                       <td className="px-3 py-2 font-mono text-slate-600">{o?.patient_mrn ?? "—"}</td>
                       <td className="px-3 py-2 text-slate-800">
                         <div className="font-medium">{o?.test_type ?? "Unknown"}</div>
-                        {(() => {
-                          const rd = Array.isArray(o?.results_data) ? (o.results_data as LabValue[]) : null;
-                          const crit = rd?.find((r) => r.flag === "CRITICAL") ?? rd?.find((r) => r.flag === "H" || r.flag === "L") ?? rd?.[0];
-                          if (crit) {
-                            return (
-                              <div className="text-[11px] text-slate-500 mt-0.5">
-                                {crit.test}: {crit.value} {crit.unit}
-                                {crit.flag && crit.flag !== "NORMAL" ? ` · ${crit.flag}` : ""}
-                              </div>
-                            );
-                          }
-                          if (o?.result_value) {
-                            return <div className="text-[11px] text-slate-500 mt-0.5">{o.result_value}</div>;
-                          }
-                          return null;
-                        })()}
+                        {o.result_value && (
+                          <div className="text-[11px] text-slate-500 mt-0.5">{o.result_value}</div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
@@ -448,7 +516,7 @@ function LabBoard() {
                           {o?.status ?? "Resulted"}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-slate-700">{o?.requested_by ?? "—"}</td>
+                      <td className="px-3 py-2 text-slate-700">{o.physician}</td>
                     </tr>
                   ))
                 )}
