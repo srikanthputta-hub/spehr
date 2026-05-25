@@ -161,8 +161,7 @@ function LabBoard() {
         .map((p) => ({
           mrn: p.mrn,
           name:
-            p.name ??
-            [p.first_name, p.last_name].filter(Boolean).join(" ") ||
+            (p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ")) ||
             "Unknown",
           admission_time: p.admission_time,
         })),
