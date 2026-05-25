@@ -21,6 +21,7 @@ interface LabOrderRow {
   status: string | null;
   results_data: any;
   created_at: string | null;
+  result_value?: string | null;
 }
 
 interface LabValue {
