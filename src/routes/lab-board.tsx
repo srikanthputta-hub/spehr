@@ -382,7 +382,7 @@ function LabBoard() {
             <span className="text-xs font-normal text-slate-500">(Auto-Updating · {facility})</span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Latest {recentResulted.length} resulted labs at {facility}, newest first.
+            Latest {recentResulted.length} completed labs for patients currently on the Nursing Board at {facility}, newest first.
           </p>
           <div className="mt-3 rounded-xl border border-slate-300 bg-white overflow-hidden shadow-sm">
             <table className="w-full text-xs">
@@ -400,7 +400,7 @@ function LabBoard() {
                 {recentResulted.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                      No recent activity.
+                      No completed labs yet for patients currently on the Nursing Board at {facility}.
                     </td>
                   </tr>
                 ) : (
@@ -422,7 +422,25 @@ function LabBoard() {
                       </td>
                       <td className="px-3 py-2 font-medium text-slate-900">{o?.patient_name ?? "Unknown"}</td>
                       <td className="px-3 py-2 font-mono text-slate-600">{o?.patient_mrn ?? "—"}</td>
-                      <td className="px-3 py-2 text-slate-800">{o?.test_type ?? "Unknown"}</td>
+                      <td className="px-3 py-2 text-slate-800">
+                        <div className="font-medium">{o?.test_type ?? "Unknown"}</div>
+                        {(() => {
+                          const rd = Array.isArray(o?.results_data) ? (o.results_data as LabValue[]) : null;
+                          const crit = rd?.find((r) => r.flag === "CRITICAL") ?? rd?.find((r) => r.flag === "H" || r.flag === "L") ?? rd?.[0];
+                          if (crit) {
+                            return (
+                              <div className="text-[11px] text-slate-500 mt-0.5">
+                                {crit.test}: {crit.value} {crit.unit}
+                                {crit.flag && crit.flag !== "NORMAL" ? ` · ${crit.flag}` : ""}
+                              </div>
+                            );
+                          }
+                          if (o?.result_value) {
+                            return <div className="text-[11px] text-slate-500 mt-0.5">{o.result_value}</div>;
+                          }
+                          return null;
+                        })()}
+                      </td>
                       <td className="px-3 py-2">
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
