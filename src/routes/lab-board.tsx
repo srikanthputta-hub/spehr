@@ -106,6 +106,7 @@ function LabBoard() {
   const { facility } = useFacility();
   const tech = useActiveStaff("Lab");
   const [orders, setOrders] = useState<LabOrderRow[]>([]);
+  const [boardMrns, setBoardMrns] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Record<string, LabValue[]>>({});
   const [processing, setProcessing] = useState<string | null>(null);
@@ -113,12 +114,26 @@ function LabBoard() {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("lab_orders")
-      .select("*")
-      .eq("facility_name", facility)
-      .order("created_at", { ascending: false });
-    setOrders((data as LabOrderRow[]) ?? []);
+    const [{ data: labData }, { data: patientData }] = await Promise.all([
+      supabase
+        .from("lab_orders")
+        .select("*")
+        .eq("facility_name", facility)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("patients")
+        .select("mrn")
+        .eq("facility_name", facility)
+        .eq("status", "Admitted")
+        .order("admission_time", { ascending: false })
+        .limit(25),
+    ]);
+    setOrders((labData as LabOrderRow[]) ?? []);
+    setBoardMrns(
+      new Set(((patientData as { mrn: string | null }[]) ?? [])
+        .map((p) => p.mrn)
+        .filter((m): m is string => !!m)),
+    );
     setLoading(false);
   };
 
@@ -183,9 +198,10 @@ function LabBoard() {
           const s = (o.status ?? "").toUpperCase();
           return s === "RESULTED" || s === "COMPLETED";
         })
+        .filter((o) => boardMrns.has(o.patient_mrn))
         .sort((a, b) => tsOf(b) - tsOf(a))
         .slice(0, 25),
-    [visible],
+    [visible, boardMrns],
   );
   const recentResulted = completed;
 
