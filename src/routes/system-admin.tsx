@@ -182,6 +182,7 @@ function SystemAdminPage() {
         title="Command Center · System Administration"
         subtitle="EHR Specialist"
         badge="EHR"
+        hideFacilitySwitcher
       />
       <div className="bg-[#0c2340] text-white">
         <nav className="max-w-6xl mx-auto px-6 flex gap-1">
