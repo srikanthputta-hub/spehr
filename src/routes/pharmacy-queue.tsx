@@ -689,12 +689,12 @@ function PharmacyQueue() {
                     }
                     return rows.map((m, i) => (
                       <tr
-                        key={m.id}
+                        key={m.key}
                         className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
                       >
                         <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
                           {(() => {
-                            const ts = m?.administered_at ?? m?.created_at;
+                            const ts = m?.timestamp;
                             return ts ? new Date(ts).toLocaleString([], {
                               month: "short",
                               day: "numeric",
@@ -705,9 +705,9 @@ function PharmacyQueue() {
                           })()}
                         </td>
                         <td className="px-3 py-2 font-medium text-slate-900">{m?.patient_name ?? "Unknown"}</td>
-                        <td className="px-3 py-2 font-mono text-slate-600">{m?.patient_mrn ?? m?.mrn ?? "—"}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600">{m?.patient_mrn ?? "—"}</td>
                         <td className="px-3 py-2 text-slate-800">
-                          {[m?.drug_name ?? m?.medication_name, m?.dose, m?.route, m?.frequency].filter(Boolean).join(" ") || "Unknown"}
+                          {[m?.drug_name, m?.dose, m?.route, m?.frequency].filter(Boolean).join(" ") || "Unknown"}
                         </td>
                         <td className="px-3 py-2">
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
@@ -716,7 +716,7 @@ function PharmacyQueue() {
                           </span>
                         </td>
                         <td className="px-3 py-2 text-slate-700">
-                          {pharm?.name ? `${pharm.name}, PharmD` : "Auto-Dispense, PharmD"}
+                          {m.pharmacist}
                         </td>
                       </tr>
                     ));
