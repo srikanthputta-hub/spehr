@@ -14,6 +14,7 @@ import {
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import { fallbackMedsFor } from "@/lib/fallback-meds";
 
 type Order = {
   id: string;
@@ -47,6 +48,25 @@ type Lab = {
   time_drawn: string | null;
 };
 
+interface BoardPatient {
+  mrn: string;
+  name: string;
+  admission_time: string | null;
+}
+
+interface DispensedFeedRow {
+  key: string;
+  timestamp: string | null;
+  patient_name: string;
+  patient_mrn: string;
+  drug_name: string;
+  dose: string | null;
+  route: string | null;
+  frequency: string | null;
+  status: string;
+  pharmacist: string;
+}
+
 const KEY_LABS = ["creatinine", "potassium", "k+", "k ", "bun", "egfr", "inr", "platelet", "wbc", "hgb", "hemoglobin"];
 
 function PharmacyQueue() {
@@ -74,6 +94,7 @@ function PharmacyQueue() {
       ordering_physician: string | null;
     }[]
   >([]);
+  const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [labs, setLabs] = useState<Lab[]>([]);
@@ -97,6 +118,53 @@ function PharmacyQueue() {
     })();
     return () => {
       active = false;
+    };
+  }, [facility]);
+
+  // Load the Nursing Board roster (latest 25 admitted patients) for the
+  // active facility — same source the Nursing Board / Lab Board use.
+  useEffect(() => {
+    let active = true;
+    const loadBoard = async () => {
+      const { data } = await supabase
+        .from("patients")
+        .select("mrn, first_name, last_name, name, admission_time")
+        .eq("facility_name", facility)
+        .eq("status", "Admitted")
+        .order("admission_time", { ascending: false })
+        .limit(25);
+      if (!active) return;
+      const rows = (data as Array<{
+        mrn: string | null;
+        first_name: string | null;
+        last_name: string | null;
+        name: string | null;
+        admission_time: string | null;
+      }> | null) ?? [];
+      setBoardPatients(
+        rows
+          .filter((p): p is typeof p & { mrn: string } => !!p.mrn)
+          .map((p) => ({
+            mrn: p.mrn,
+            name:
+              (p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ")) ||
+              "Unknown",
+            admission_time: p.admission_time,
+          })),
+      );
+    };
+    loadBoard();
+    const channel = supabase
+      .channel(`pharmacy-board-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "patients" },
+        () => loadBoard(),
+      )
+      .subscribe();
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
     };
   }, [facility]);
 
@@ -198,14 +266,68 @@ function PharmacyQueue() {
     };
   }, [facility]);
 
-  const recentDispensed = useMemo(() => {
-    const tsOf = (o: { administered_at: string | null; created_at: string | null }) =>
-      new Date(o.administered_at ?? o.created_at ?? 0).getTime();
-    return dispensed
-      .filter((o) => (o.status ?? "").toUpperCase() === "ADMINISTERED")
-      .sort((a, b) => tsOf(b) - tsOf(a))
-      .slice(0, 25);
-  }, [dispensed]);
+  // For each patient currently on the Nursing Board, surface their exact
+  // administered medications — mirroring the patient chart's MAR.
+  // Real medication_orders rows win; otherwise fall back to the same
+  // deterministic per-MRN panel the admission randomizer would have seeded.
+  const recentDispensed: DispensedFeedRow[] = useMemo(() => {
+    const pharmacistName = pharm?.name
+      ? `${pharm.name}, PharmD`
+      : "Auto-Dispense, PharmD";
+
+    const adminByMrn = new Map<string, typeof dispensed>();
+    for (const o of dispensed) {
+      if ((o.status ?? "").toUpperCase() !== "ADMINISTERED") continue;
+      const mrn = o.patient_mrn ?? o.mrn;
+      if (!mrn) continue;
+      const list = adminByMrn.get(mrn) ?? [];
+      list.push(o);
+      adminByMrn.set(mrn, list);
+    }
+
+    const rows: DispensedFeedRow[] = [];
+    for (const p of boardPatients) {
+      const real = adminByMrn.get(p.mrn);
+      if (real && real.length > 0) {
+        for (const o of real) {
+          rows.push({
+            key: o.id,
+            timestamp: o.administered_at ?? o.created_at,
+            patient_name: o.patient_name || p.name,
+            patient_mrn: p.mrn,
+            drug_name: o.drug_name ?? o.medication_name ?? "—",
+            dose: o.dose,
+            route: o.route,
+            frequency: o.frequency,
+            status: o.status ?? "Administered",
+            pharmacist: pharmacistName,
+          });
+        }
+      } else {
+        for (const [i, m] of fallbackMedsFor(p.mrn).entries()) {
+          rows.push({
+            key: `${p.mrn}-fb-${i}`,
+            timestamp: p.admission_time,
+            patient_name: p.name,
+            patient_mrn: p.mrn,
+            drug_name: m.drug_name,
+            dose: m.dose,
+            route: m.route,
+            frequency: null,
+            status: m.status,
+            pharmacist: pharmacistName,
+          });
+        }
+      }
+    }
+
+    rows.sort((a, b) => {
+      const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return tb - ta;
+    });
+    return rows.slice(0, 25);
+  }, [boardPatients, dispensed, pharm?.name]);
 
   const selected = useMemo(
     () => visibleOrders.find((o) => o.id === selectedId) ?? null,
