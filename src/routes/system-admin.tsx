@@ -623,9 +623,160 @@ const CATEGORY_STYLES: Record<AuditCategory, string> = {
 };
 
 function AuditLog() {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    const [patientsRes, labsRes, medsRes, permsRes, settingsRes] = await Promise.all([
+      supabase
+        .from("patients")
+        .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint")
+        .order("admission_time", { ascending: false })
+        .limit(60),
+      supabase
+        .from("lab_orders")
+        .select("id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at")
+        .order("created_at", { ascending: false })
+        .limit(60),
+      supabase
+        .from("medication_orders")
+        .select("id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at")
+        .order("created_at", { ascending: false })
+        .limit(60),
+      supabase
+        .from("role_permissions")
+        .select("id, facility_name, target_role, feature_key, feature_name, is_active, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(30),
+      supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
+    ]);
+
+    const out: AuditEvent[] = [];
+
+    for (const p of (patientsRes.data ?? []) as any[]) {
+      if (p.admission_time) {
+        const d = new Date(p.admission_time);
+        out.push({
+          key: `adm-${p.mrn}`,
+          tsMs: d.getTime(),
+          ts: fmtTs(d),
+          category: "AUTOMATION",
+          actor: "Ghost AI (System)",
+          facility: p.facility_name ?? "Global Network",
+          details: `Auto-admitted patient MRN-${p.mrn} (${p.chief_complaint ?? p.name ?? "New admission"})`,
+        });
+      }
+      if (p.discharge_time && (p.status === "Discharged" || p.status === "discharged")) {
+        const d = new Date(p.discharge_time);
+        out.push({
+          key: `dis-${p.mrn}`,
+          tsMs: d.getTime(),
+          ts: fmtTs(d),
+          category: "AUTOMATION",
+          actor: "Ghost AI (System)",
+          facility: p.facility_name ?? "Global Network",
+          details: `Auto-discharged patient MRN-${p.mrn} (${p.name ?? ""})`,
+        });
+      }
+    }
+
+    for (const l of (labsRes.data ?? []) as any[]) {
+      const tsRaw = l.collected_at ?? l.created_at;
+      if (!tsRaw) continue;
+      const d = new Date(tsRaw);
+      const actor = l.ordered_by ?? l.requested_by ?? "Ghost AI (System)";
+      const isResulted = (l.status ?? "").toLowerCase() === "resulted" || !!l.result_value;
+      const verb = isResulted ? "Auto-resulted" : "Ordered";
+      const cat: AuditCategory = isGhost(actor) ? "AUTOMATION" : "CLINICAL";
+      const tail = l.result_value ? ` (${l.result_value})` : "";
+      out.push({
+        key: `lab-${l.id}`,
+        tsMs: d.getTime(),
+        ts: fmtTs(d),
+        category: cat,
+        actor: isGhost(actor) ? "Ghost AI (System)" : actor,
+        facility: l.facility_name ?? "Global Network",
+        details: `${verb} ${l.test_type ?? "lab"} for MRN-${l.patient_mrn ?? "?"}${tail}`,
+      });
+    }
+
+    for (const m of (medsRes.data ?? []) as any[]) {
+      const tsRaw = m.administered_at ?? m.approved_at ?? m.created_at;
+      if (!tsRaw) continue;
+      const d = new Date(tsRaw);
+      const drug = m.drug_name ?? m.drug ?? m.medication_name ?? "medication";
+      const dose = m.dose ?? "";
+      const route = m.route ?? "";
+      const mrn = m.patient_mrn ?? m.mrn ?? "?";
+      const actor = m.ordering_physician ?? m.ordered_by ?? "Ghost AI (System)";
+      let verb = "Ordered";
+      const status = (m.status ?? "").toLowerCase();
+      if (m.administered_at) verb = "Administered";
+      else if (m.approved_at || status === "approved") verb = "Approved";
+      const cat: AuditCategory = isGhost(actor) || verb === "Approved" ? "AUTOMATION" : "CLINICAL";
+      out.push({
+        key: `med-${m.id}-${verb}`,
+        tsMs: d.getTime(),
+        ts: fmtTs(d),
+        category: cat,
+        actor: isGhost(actor) ? "Ghost AI (System)" : actor,
+        facility: m.facility_name ?? "Global Network",
+        details: `${verb} ${drug} ${dose} ${route} for MRN-${mrn}`.replace(/\s+/g, " ").trim(),
+      });
+    }
+
+    for (const r of (permsRes.data ?? []) as any[]) {
+      if (!r.updated_at) continue;
+      const d = new Date(r.updated_at);
+      out.push({
+        key: `perm-${r.id}`,
+        tsMs: d.getTime(),
+        ts: fmtTs(d),
+        category: "SECURITY",
+        actor: "Diane Whitaker (Admin)",
+        facility: r.facility_name ?? "Global Network",
+        details: `${r.is_active ? "Enabled" : "Disabled"} feature '${r.feature_key}' for role ${r.target_role}`,
+      });
+    }
+
+    const auto = (settingsRes.data as any)?.automation_enabled;
+    if (typeof auto === "boolean") {
+      const now = new Date();
+      out.push({
+        key: `automation-state`,
+        tsMs: now.getTime() - 1000,
+        ts: fmtTs(now),
+        category: "SYSTEM",
+        actor: "Diane Whitaker (Admin)",
+        facility: "Global Network",
+        details: `Master AI Automation is ${auto ? "ON" : "OFF"}`,
+      });
+    }
+
+    out.sort((a, b) => b.tsMs - a.tsMs);
+    setEvents(out.slice(0, 50));
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+    const channel = supabase
+      .channel("audit-log-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "medication_orders" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "role_permissions" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "system_settings" }, () => load())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const downloadCsv = () => {
     const header = ["Timestamp", "Category", "Actor", "Facility", "Details"];
-    const rows = AUDIT_EVENTS.map((e) =>
+    const rows = events.map((e) =>
       [e.ts, e.category, e.actor, e.facility, e.details]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(","),
@@ -638,7 +789,7 @@ function AuditLog() {
     a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Audit log exported", { description: `${AUDIT_EVENTS.length} events · CSV` });
+    toast.success("Audit log exported", { description: `${events.length} events · CSV` });
   };
 
   return (
@@ -673,8 +824,22 @@ function AuditLog() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {AUDIT_EVENTS.map((e, i) => (
-                <tr key={i} className="hover:bg-slate-50/70 transition-colors">
+              {loading && events.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
+                    <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" /> Loading live system events…
+                  </td>
+                </tr>
+              )}
+              {!loading && events.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
+                    No system events yet. Activity will stream in as it happens.
+                  </td>
+                </tr>
+              )}
+              {events.map((e) => (
+                <tr key={e.key} className="hover:bg-slate-50/70 transition-colors">
                   <td className="px-4 py-2.5 font-mono text-[12px] text-slate-700 whitespace-nowrap">{e.ts}</td>
                   <td className="px-4 py-2.5">
                     <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${CATEGORY_STYLES[e.category]}`}>
