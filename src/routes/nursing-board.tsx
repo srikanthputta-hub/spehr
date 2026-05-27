@@ -191,7 +191,6 @@ function baselineVitals(dx: string | null | undefined): { hr: number; sys: numbe
   return { hr: 75, sys: 120, dia: 80, spo2: 98 };
 }
 
-function LiveVitals({ dx }: { dx: string | null | undefined }) {
 function LiveVitals({
   hr,
   bp,
