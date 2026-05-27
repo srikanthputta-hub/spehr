@@ -194,9 +194,8 @@ function LoginScreen() {
           </p>
         </div>
 
-        <p className="mt-8 text-[11px] text-slate-600 text-center">
-          © {new Date().getFullYear()} S Group Health Network · Authorized
-          personnel only
+        <p className="mt-8 text-[11px] text-slate-600 text-center max-w-sm mx-auto">
+          Disclaimer: All patient data displayed in this system is 100% fabricated for simulation purposes and contains no real Protected Health Information (PHI).
         </p>
       </section>
     </main>
