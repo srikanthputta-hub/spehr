@@ -124,17 +124,18 @@ function DischargeSummaryModal({
     }
     let cancelled = false;
     setChartLoading(true);
+    const mrn = patient.mrn;
     (async () => {
       const [medsRes, labsRes] = await Promise.all([
         supabase
           .from("medication_orders")
           .select("medication_name, drug_name, dose, route, status, ordered_by, administered_at, created_at")
-          .eq("patient_mrn", patient.mrn)
+          .eq("patient_mrn", mrn)
           .order("administered_at", { ascending: true }),
         supabase
           .from("lab_orders")
           .select("test_type, status, result_value, requested_by, ordered_by, collected_at, created_at")
-          .eq("patient_mrn", patient.mrn)
+          .eq("patient_mrn", mrn)
           .order("collected_at", { ascending: true }),
       ]);
       if (cancelled) return;
