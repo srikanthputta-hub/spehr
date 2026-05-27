@@ -705,10 +705,10 @@ function Dashboard() {
                         {fmtAdmitted(p.admittedAt)}
                       </td>
                       <td className="px-3 py-2 align-middle">
-                        <LiveVitals dx={p.diagnosis} />
+                        <LiveVitals hr={p.hr} bp={p.bp} spo2={p.o2} rr={p.rr} temp={p.temp} />
                       </td>
                       <td className="px-3 py-2 align-middle">
-                        <ClinicalAlertPill dx={p.diagnosis} hr={p.hr} o2={p.o2} />
+                        <ClinicalAlertPill dx={p.diagnosis} hr={p.hr} o2={p.o2} bp={p.bp} rr={p.rr} temp={p.temp} />
                       </td>
                       <td className="px-3 py-2 align-middle text-right pr-4">
                         <div className="inline-flex items-center gap-1.5">
