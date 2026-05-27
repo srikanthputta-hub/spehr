@@ -192,32 +192,31 @@ function baselineVitals(dx: string | null | undefined): { hr: number; sys: numbe
 }
 
 function LiveVitals({ dx }: { dx: string | null | undefined }) {
-  const base = useMemo(() => baselineVitals(dx), [dx]);
-  const [hr, setHr] = useState(base.hr);
-  const [sys, setSys] = useState(base.sys);
-  const [dia, setDia] = useState(base.dia);
-  const [spo2, setSpo2] = useState(base.spo2);
-
-  useEffect(() => {
-    setHr(base.hr);
-    setSys(base.sys);
-    setDia(base.dia);
-    setSpo2(base.spo2);
-  }, [base]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      const j = (r: number) => Math.floor(Math.random() * (2 * r + 1)) - r;
-      setHr((v) => Math.max(30, Math.min(200, v + j(2))));
-      setSpo2((v) => Math.max(70, Math.min(100, v + (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.5 ? 0 : 1))));
-      setSys((v) => Math.max(50, Math.min(220, v + j(1))));
-      setDia((v) => Math.max(30, Math.min(140, v + (Math.random() < 0.5 ? -1 : 0))));
-    }, 3000);
-    return () => clearInterval(id);
-  }, []);
-
-  const hrCritical = hr > 100;
-  const sysCritical = sys < 90;
+function LiveVitals({
+  hr,
+  bp,
+  spo2,
+  rr,
+  temp,
+}: {
+  hr: number;
+  bp: string;
+  spo2: number;
+  rr: number;
+  temp: number;
+}) {
+  void baselineVitals; // legacy helper, kept for compatibility
+  const [sysStr, diaStr] = bp.split("/");
+  const sys = parseInt(sysStr, 10) || 0;
+  const dia = parseInt(diaStr, 10) || 0;
+  const hrCritical = hr > 100 || hr < 60;
+  const sysCritical = sys < 90 || sys > 180 || dia > 120;
+  const sysWarn = !sysCritical && (sys > 130 || dia > 80);
+  const spo2Critical = spo2 < 90;
+  const spo2Warn = !spo2Critical && spo2 < 95;
+  const rrAlert = rr < 12 || rr > 20;
+  const tempCritical = temp < 95.0;
+  const tempWarn = !tempCritical && temp > 100.4;
   return (
     <div className="font-mono text-[11.5px] leading-tight tabular-nums">
       <div>
@@ -229,15 +228,25 @@ function LiveVitals({ dx }: { dx: string | null | undefined }) {
       </div>
       <div>
         <span className="text-slate-400">BP </span>
-        <span className={sysCritical ? "text-red-600 font-extrabold animate-pulse" : "text-slate-800 font-semibold"}>
+        <span className={sysCritical ? "text-red-600 font-extrabold animate-pulse" : sysWarn ? "text-amber-600 font-bold" : "text-slate-800 font-semibold"}>
           {sys}
         </span>
         <span className="text-slate-500">/{dia}</span>
       </div>
       <div>
         <span className="text-slate-400">SpO₂ </span>
-        <span className="text-cyan-600 font-bold">{spo2}</span>
+        <span className={spo2Critical ? "text-red-600 font-extrabold animate-pulse" : spo2Warn ? "text-amber-600 font-bold" : "text-cyan-600 font-bold"}>{spo2}</span>
         <span className="text-slate-400">%</span>
+      </div>
+      <div>
+        <span className="text-slate-400">RR </span>
+        <span className={rrAlert ? "text-amber-600 font-bold" : "text-slate-700 font-semibold"}>{rr}</span>
+        <span className="text-slate-400"> /min</span>
+      </div>
+      <div>
+        <span className="text-slate-400">T </span>
+        <span className={tempCritical ? "text-red-600 font-extrabold animate-pulse" : tempWarn ? "text-amber-600 font-bold" : "text-slate-700 font-semibold"}>{temp.toFixed(1)}</span>
+        <span className="text-slate-400">°F</span>
       </div>
     </div>
   );
@@ -260,6 +269,8 @@ function toRow(p: any): PatientRow {
     facility: p.facility_name ?? "Memorial Hospital",
     unreadLabs: !!p.unread_labs_alert,
     admittedAt: p.admission_time ?? null,
+    rr: 16,
+    temp: 98.6,
   };
 }
 
