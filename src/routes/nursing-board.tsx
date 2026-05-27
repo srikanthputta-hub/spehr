@@ -46,6 +46,8 @@ interface PatientRow {
   hr: number;
   bp: string;
   o2: number;
+  rr: number;
+  temp: number;
   task: string;
   medsDue: number;
   facility: string;
@@ -84,38 +86,75 @@ function ClinicalAlertPill({
   dx,
   hr,
   o2,
+  bp,
+  rr,
+  temp,
 }: {
   dx: string | null | undefined;
   hr?: number;
   o2?: number;
+  bp?: string;
+  rr?: number;
+  temp?: number;
 }) {
   const base =
     "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 font-sans tracking-tight whitespace-nowrap";
 
-  // Vitals-driven alerts take precedence over the diagnosis pill.
-  if (typeof o2 === "number" && o2 < 94) {
-    return (
-      <span className={`${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`}>
-        🫁 Hypoxia Alert
-      </span>
-    );
-  }
-  if (typeof hr === "number" && hr > 110) {
-    return (
-      <span className={`${base} bg-amber-100 text-amber-900 ring-amber-400`}>
-        ⚡ Tachycardia Alert
-      </span>
-    );
+  const critical = `${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`;
+  const warn = `${base} bg-amber-100 text-amber-900 ring-amber-400`;
+  const info = `${base} bg-orange-100 text-orange-800 ring-orange-400`;
+
+  let sys: number | undefined;
+  let dia: number | undefined;
+  if (bp) {
+    const [s, d] = bp.split("/").map((n) => parseInt(n, 10));
+    if (!isNaN(s)) sys = s;
+    if (!isNaN(d)) dia = d;
   }
 
+  // Severity-ordered, vitals-driven alerts (override the diagnosis pill).
+  if ((typeof sys === "number" && sys > 180) || (typeof dia === "number" && dia > 120)) {
+    return <span className={critical}>🆘 Hypertensive Crisis</span>;
+  }
+  if (typeof o2 === "number" && o2 < 90) {
+    return <span className={critical}>🫁 Hypoxia Alert</span>;
+  }
+  if (typeof temp === "number" && temp < 95.0) {
+    return <span className={critical}>🥶 Hypothermia</span>;
+  }
+  if (typeof temp === "number" && temp > 100.4) {
+    return <span className={warn}>🌡️ Fever</span>;
+  }
+  if (typeof sys === "number" && sys < 90) {
+    return <span className={critical}>📉 Hypotension</span>;
+  }
+  if (typeof hr === "number" && hr < 60) {
+    return <span className={warn}>🐢 Bradycardia</span>;
+  }
+  if (typeof hr === "number" && hr > 100) {
+    return <span className={warn}>⚡ Tachycardia</span>;
+  }
+  if ((typeof sys === "number" && sys > 130) || (typeof dia === "number" && dia > 80)) {
+    return <span className={info}>🩺 Hypertension</span>;
+  }
+  if (typeof rr === "number" && rr < 12) {
+    return <span className={warn}>💨 Bradypnea</span>;
+  }
+  if (typeof rr === "number" && rr > 20) {
+    return <span className={warn}>💨 Tachypnea</span>;
+  }
+  if (typeof o2 === "number" && o2 < 95) {
+    return <span className={warn}>🫁 Low SpO₂</span>;
+  }
+
+  // Fall back to diagnosis-driven pill when vitals are within range.
   const kind = classifyAlert(dx);
+  if (kind === "sepsis") {
+    return (
+      <span className={critical}>🚨 Sepsis Watch</span>
+    );
+  }
   switch (kind) {
-    case "sepsis":
-      return (
-        <span className={`${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`}>
-          🚨 Sepsis Watch
-        </span>
-      );
     case "stemi":
       return (
         <span className={`${base} bg-red-100 text-red-800 ring-red-400`}>
@@ -152,33 +191,31 @@ function baselineVitals(dx: string | null | undefined): { hr: number; sys: numbe
   return { hr: 75, sys: 120, dia: 80, spo2: 98 };
 }
 
-function LiveVitals({ dx }: { dx: string | null | undefined }) {
-  const base = useMemo(() => baselineVitals(dx), [dx]);
-  const [hr, setHr] = useState(base.hr);
-  const [sys, setSys] = useState(base.sys);
-  const [dia, setDia] = useState(base.dia);
-  const [spo2, setSpo2] = useState(base.spo2);
-
-  useEffect(() => {
-    setHr(base.hr);
-    setSys(base.sys);
-    setDia(base.dia);
-    setSpo2(base.spo2);
-  }, [base]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      const j = (r: number) => Math.floor(Math.random() * (2 * r + 1)) - r;
-      setHr((v) => Math.max(30, Math.min(200, v + j(2))));
-      setSpo2((v) => Math.max(70, Math.min(100, v + (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.5 ? 0 : 1))));
-      setSys((v) => Math.max(50, Math.min(220, v + j(1))));
-      setDia((v) => Math.max(30, Math.min(140, v + (Math.random() < 0.5 ? -1 : 0))));
-    }, 3000);
-    return () => clearInterval(id);
-  }, []);
-
-  const hrCritical = hr > 100;
-  const sysCritical = sys < 90;
+function LiveVitals({
+  hr,
+  bp,
+  spo2,
+  rr,
+  temp,
+}: {
+  hr: number;
+  bp: string;
+  spo2: number;
+  rr: number;
+  temp: number;
+}) {
+  void baselineVitals; // legacy helper, kept for compatibility
+  const [sysStr, diaStr] = bp.split("/");
+  const sys = parseInt(sysStr, 10) || 0;
+  const dia = parseInt(diaStr, 10) || 0;
+  const hrCritical = hr > 100 || hr < 60;
+  const sysCritical = sys < 90 || sys > 180 || dia > 120;
+  const sysWarn = !sysCritical && (sys > 130 || dia > 80);
+  const spo2Critical = spo2 < 90;
+  const spo2Warn = !spo2Critical && spo2 < 95;
+  const rrAlert = rr < 12 || rr > 20;
+  const tempCritical = temp < 95.0;
+  const tempWarn = !tempCritical && temp > 100.4;
   return (
     <div className="font-mono text-[11.5px] leading-tight tabular-nums">
       <div>
@@ -190,15 +227,25 @@ function LiveVitals({ dx }: { dx: string | null | undefined }) {
       </div>
       <div>
         <span className="text-slate-400">BP </span>
-        <span className={sysCritical ? "text-red-600 font-extrabold animate-pulse" : "text-slate-800 font-semibold"}>
+        <span className={sysCritical ? "text-red-600 font-extrabold animate-pulse" : sysWarn ? "text-amber-600 font-bold" : "text-slate-800 font-semibold"}>
           {sys}
         </span>
         <span className="text-slate-500">/{dia}</span>
       </div>
       <div>
         <span className="text-slate-400">SpO₂ </span>
-        <span className="text-cyan-600 font-bold">{spo2}</span>
+        <span className={spo2Critical ? "text-red-600 font-extrabold animate-pulse" : spo2Warn ? "text-amber-600 font-bold" : "text-cyan-600 font-bold"}>{spo2}</span>
         <span className="text-slate-400">%</span>
+      </div>
+      <div>
+        <span className="text-slate-400">RR </span>
+        <span className={rrAlert ? "text-amber-600 font-bold" : "text-slate-700 font-semibold"}>{rr}</span>
+        <span className="text-slate-400"> /min</span>
+      </div>
+      <div>
+        <span className="text-slate-400">T </span>
+        <span className={tempCritical ? "text-red-600 font-extrabold animate-pulse" : tempWarn ? "text-amber-600 font-bold" : "text-slate-700 font-semibold"}>{temp.toFixed(1)}</span>
+        <span className="text-slate-400">°F</span>
       </div>
     </div>
   );
@@ -221,6 +268,8 @@ function toRow(p: any): PatientRow {
     facility: p.facility_name ?? "Memorial Hospital",
     unreadLabs: !!p.unread_labs_alert,
     admittedAt: p.admission_time ?? null,
+    rr: 16,
+    temp: 98.6,
   };
 }
 
@@ -363,13 +412,15 @@ function Dashboard() {
       setPatients((prev) =>
         prev.map((p) => {
           const [sysStr, diaStr] = p.bp.split("/");
-          const sys = clamp((parseInt(sysStr, 10) || 120) + jitter(4), 80, 200);
-          const dia = clamp((parseInt(diaStr, 10) || 80) + jitter(4), 40, 120);
+          const sys = clamp((parseInt(sysStr, 10) || 120) + jitter(8), 80, 200);
+          const dia = clamp((parseInt(diaStr, 10) || 80) + jitter(6), 45, 130);
           return {
             ...p,
-            hr: clamp(p.hr + jitter(5), 60, 130),
+            hr: clamp(p.hr + jitter(8), 45, 140),
             bp: `${sys}/${dia}`,
-            o2: clamp(p.o2 + jitter(2), 92, 100),
+            o2: clamp(p.o2 + jitter(3), 85, 100),
+            rr: clamp((p.rr ?? 16) + jitter(2), 8, 26),
+            temp: Math.round((Math.max(94.5, Math.min(102.5, (p.temp ?? 98.6) + (Math.random() - 0.5) * 0.6))) * 10) / 10,
           };
         }),
       );
@@ -656,10 +707,10 @@ function Dashboard() {
                         {fmtAdmitted(p.admittedAt)}
                       </td>
                       <td className="px-3 py-2 align-middle">
-                        <LiveVitals dx={p.diagnosis} />
+                        <LiveVitals hr={p.hr} bp={p.bp} spo2={p.o2} rr={p.rr} temp={p.temp} />
                       </td>
                       <td className="px-3 py-2 align-middle">
-                        <ClinicalAlertPill dx={p.diagnosis} hr={p.hr} o2={p.o2} />
+                        <ClinicalAlertPill dx={p.diagnosis} hr={p.hr} o2={p.o2} bp={p.bp} rr={p.rr} temp={p.temp} />
                       </td>
                       <td className="px-3 py-2 align-middle text-right pr-4">
                         <div className="inline-flex items-center gap-1.5">
