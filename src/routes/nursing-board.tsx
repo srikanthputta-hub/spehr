@@ -412,13 +412,15 @@ function Dashboard() {
       setPatients((prev) =>
         prev.map((p) => {
           const [sysStr, diaStr] = p.bp.split("/");
-          const sys = clamp((parseInt(sysStr, 10) || 120) + jitter(4), 80, 200);
-          const dia = clamp((parseInt(diaStr, 10) || 80) + jitter(4), 40, 120);
+          const sys = clamp((parseInt(sysStr, 10) || 120) + jitter(8), 80, 200);
+          const dia = clamp((parseInt(diaStr, 10) || 80) + jitter(6), 45, 130);
           return {
             ...p,
-            hr: clamp(p.hr + jitter(5), 60, 130),
+            hr: clamp(p.hr + jitter(8), 45, 140),
             bp: `${sys}/${dia}`,
-            o2: clamp(p.o2 + jitter(2), 92, 100),
+            o2: clamp(p.o2 + jitter(3), 85, 100),
+            rr: clamp((p.rr ?? 16) + jitter(2), 8, 26),
+            temp: Math.round((Math.max(94.5, Math.min(102.5, (p.temp ?? 98.6) + (Math.random() - 0.5) * 0.6))) * 10) / 10,
           };
         }),
       );
