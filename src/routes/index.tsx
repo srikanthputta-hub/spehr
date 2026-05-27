@@ -126,7 +126,7 @@ function LoginScreen() {
             S.P.E.H.R
           </h1>
           <p className="mt-1.5 text-xs text-slate-400">
-            Where tech meets patient care
+            Simulated Patient Electronic Health Records
           </p>
 
           <div className="mt-7 space-y-2">
