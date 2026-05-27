@@ -46,6 +46,8 @@ interface PatientRow {
   hr: number;
   bp: string;
   o2: number;
+  rr: number;
+  temp: number;
   task: string;
   medsDue: number;
   facility: string;
