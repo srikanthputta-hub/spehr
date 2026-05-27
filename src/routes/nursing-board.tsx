@@ -86,38 +86,75 @@ function ClinicalAlertPill({
   dx,
   hr,
   o2,
+  bp,
+  rr,
+  temp,
 }: {
   dx: string | null | undefined;
   hr?: number;
   o2?: number;
+  bp?: string;
+  rr?: number;
+  temp?: number;
 }) {
   const base =
     "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 font-sans tracking-tight whitespace-nowrap";
 
-  // Vitals-driven alerts take precedence over the diagnosis pill.
-  if (typeof o2 === "number" && o2 < 94) {
-    return (
-      <span className={`${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`}>
-        🫁 Hypoxia Alert
-      </span>
-    );
-  }
-  if (typeof hr === "number" && hr > 110) {
-    return (
-      <span className={`${base} bg-amber-100 text-amber-900 ring-amber-400`}>
-        ⚡ Tachycardia Alert
-      </span>
-    );
+  const critical = `${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`;
+  const warn = `${base} bg-amber-100 text-amber-900 ring-amber-400`;
+  const info = `${base} bg-orange-100 text-orange-800 ring-orange-400`;
+
+  let sys: number | undefined;
+  let dia: number | undefined;
+  if (bp) {
+    const [s, d] = bp.split("/").map((n) => parseInt(n, 10));
+    if (!isNaN(s)) sys = s;
+    if (!isNaN(d)) dia = d;
   }
 
+  // Severity-ordered, vitals-driven alerts (override the diagnosis pill).
+  if ((typeof sys === "number" && sys > 180) || (typeof dia === "number" && dia > 120)) {
+    return <span className={critical}>🆘 Hypertensive Crisis</span>;
+  }
+  if (typeof o2 === "number" && o2 < 90) {
+    return <span className={critical}>🫁 Hypoxia Alert</span>;
+  }
+  if (typeof temp === "number" && temp < 95.0) {
+    return <span className={critical}>🥶 Hypothermia</span>;
+  }
+  if (typeof temp === "number" && temp > 100.4) {
+    return <span className={warn}>🌡️ Fever</span>;
+  }
+  if (typeof sys === "number" && sys < 90) {
+    return <span className={critical}>📉 Hypotension</span>;
+  }
+  if (typeof hr === "number" && hr < 60) {
+    return <span className={warn}>🐢 Bradycardia</span>;
+  }
+  if (typeof hr === "number" && hr > 100) {
+    return <span className={warn}>⚡ Tachycardia</span>;
+  }
+  if ((typeof sys === "number" && sys > 130) || (typeof dia === "number" && dia > 80)) {
+    return <span className={info}>🩺 Hypertension</span>;
+  }
+  if (typeof rr === "number" && rr < 12) {
+    return <span className={warn}>💨 Bradypnea</span>;
+  }
+  if (typeof rr === "number" && rr > 20) {
+    return <span className={warn}>💨 Tachypnea</span>;
+  }
+  if (typeof o2 === "number" && o2 < 95) {
+    return <span className={warn}>🫁 Low SpO₂</span>;
+  }
+
+  // Fall back to diagnosis-driven pill when vitals are within range.
   const kind = classifyAlert(dx);
+  if (kind === "sepsis") {
+    return (
+      <span className={critical}>🚨 Sepsis Watch</span>
+    );
+  }
   switch (kind) {
-    case "sepsis":
-      return (
-        <span className={`${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`}>
-          🚨 Sepsis Watch
-        </span>
-      );
     case "stemi":
       return (
         <span className={`${base} bg-red-100 text-red-800 ring-red-400`}>
