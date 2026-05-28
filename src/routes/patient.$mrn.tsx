@@ -5,10 +5,9 @@ import { getMockAiNote } from "@/lib/mockAiNotes";
 import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2, Brain } from "lucide-react";
 import { toast } from "sonner";
 import {
-  MEDICATION_CATALOG,
-  LAB_CATALOG,
-  type LabCatalogEntry,
-} from "@/constants/clinical-catalog";
+  medsForComplaint,
+  labsForComplaint,
+} from "@/lib/complaint-protocols";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
@@ -151,40 +150,13 @@ function fmtTime(t: string | null | undefined) {
   } catch { return "—"; }
 }
 
-// --- Deterministic per-key catalog fallback ---------------------------
-function seededHash(key: string): number {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
-  return h >>> 0;
-}
-function pickN<T>(arr: readonly T[], n: number, seed: number): T[] {
-  const idx = new Set<number>();
-  let s = seed || 1;
-  while (idx.size < Math.min(n, arr.length)) {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    idx.add(s % arr.length);
-  }
-  return [...idx].map((i) => arr[i]);
-}
-function mockLabValue(lab: LabCatalogEntry, seed: number): string {
-  const rng = lab.referenceRange.trim();
-  const r = ((seed % 1000) / 1000);
-  if (/negative/i.test(rng)) return "Negative";
-  const lt = rng.match(/^<\s*([\d.]+)/);
-  if (lt) return (r * parseFloat(lt[1])).toFixed(2);
-  const range = rng.match(/([\d.]+)\s*[–-]\s*([\d.]+)/);
-  if (range) {
-    const lo = parseFloat(range[1]);
-    const hi = parseFloat(range[2]);
-    const decimals = (range[1].split(".")[1]?.length ?? 0) || 1;
-    return (lo + r * (hi - lo)).toFixed(decimals);
-  }
-  return (r * 10).toFixed(1);
-}
-function fallbackMeds(key: string): MedRow[] {
-  const seed = seededHash("med:" + key);
+// --- Per-complaint fallback (used only if DB row hasn't seeded yet) ---
+function fallbackMeds(
+  key: string,
+  complaint?: string | null,
+): MedRow[] {
   const now = new Date().toISOString();
-  return pickN(MEDICATION_CATALOG, 3, seed).map((m, i) => ({
+  return medsForComplaint(complaint).map((m, i) => ({
     id: `${key}-fb-med-${i}`,
     medication_name: m.name,
     drug_name: null,
@@ -196,14 +168,16 @@ function fallbackMeds(key: string): MedRow[] {
     created_at: now,
   }));
 }
-function fallbackLabs(key: string): LabRow[] {
-  const seed = seededHash("lab:" + key);
+function fallbackLabs(
+  key: string,
+  complaint?: string | null,
+): LabRow[] {
   const now = new Date().toISOString();
-  return pickN(LAB_CATALOG, 2, seed).map((l, i) => ({
+  return labsForComplaint(complaint).map((l, i) => ({
     id: `${key}-fb-lab-${i}`,
     test_type: l.name,
     status: "Resulted",
-    result_value: `${mockLabValue(l, seed + i * 97)} ${l.unit} (ref ${l.referenceRange})`,
+    result_value: `${l.resultExample} (ref ${l.referenceRange}${l.unit ? ` ${l.unit}` : ""})`,
     ordered_by: "Auto-generated",
     created_at: now,
   }));
@@ -238,7 +212,7 @@ interface NoteRow {
   signed_at: string | null;
 }
 
-function useLabs(mrn: string) {
+function useLabs(mrn: string, complaint?: string | null) {
   const [rows, setRows] = useState<LabRow[] | null>(null);
   useEffect(() => {
     let c = false;
@@ -249,14 +223,17 @@ function useLabs(mrn: string) {
       .then(({ data }) => {
         if (c) return;
         const real = (data as LabRow[]) ?? [];
-        setRows(real.length > 0 ? real : fallbackLabs(mrn));
+        setRows(real.length > 0 ? real : fallbackLabs(mrn, complaint));
       });
     return () => { c = true; };
-  }, [mrn]);
+  }, [mrn, complaint]);
   return rows;
 }
 
-function useMeds(patientId: string | null | undefined) {
+function useMeds(
+  patientId: string | null | undefined,
+  complaint?: string | null,
+) {
   const [rows, setRows] = useState<MedRow[] | null>(null);
   useEffect(() => {
     if (!patientId) { setRows([]); return; }
@@ -268,10 +245,10 @@ function useMeds(patientId: string | null | undefined) {
       .then(({ data }) => {
         if (c) return;
         const real = (data as MedRow[]) ?? [];
-        setRows(real.length > 0 ? real : fallbackMeds(patientId));
+        setRows(real.length > 0 ? real : fallbackMeds(patientId, complaint));
       });
     return () => { c = true; };
-  }, [patientId]);
+  }, [patientId, complaint]);
   return rows;
 }
 
@@ -342,8 +319,8 @@ function ResultValueCell({ value }: { value: string | null }) {
 }
 
 // ============= tab views ===============================================
-function LabsView({ mrn }: { mrn: string }) {
-  const rows = useLabs(mrn);
+function LabsView({ mrn, complaint }: { mrn: string; complaint: string | null }) {
+  const rows = useLabs(mrn, complaint);
   if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
   if (rows.length === 0) return emptyMsg;
   return (
@@ -372,8 +349,8 @@ function LabsView({ mrn }: { mrn: string }) {
   );
 }
 
-function MarView({ patientId }: { patientId: string }) {
-  const rows = useMeds(patientId);
+function MarView({ patientId, complaint }: { patientId: string; complaint: string | null }) {
+  const rows = useMeds(patientId, complaint);
   if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
   if (rows.length === 0) return emptyMsg;
   return (
@@ -598,8 +575,8 @@ function NotesView({ mrn }: { mrn: string }) {
 }
 
 function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
-  const labs = useLabs(mrn);
-  const meds = useMeds(patient.id);
+  const labs = useLabs(mrn, patient.chief_complaint);
+  const meds = useMeds(patient.id, patient.chief_complaint);
   const [notes] = useNotes(mrn, 0);
 
   const topMeds = (meds ?? []).slice(0, 3);
@@ -882,12 +859,12 @@ function PatientChart() {
         ) : tab === "labs" ? (
           <div className={panelClass + " overflow-hidden"}>
             <header className={sectionHeader}>Laboratory Results</header>
-            <LabsView mrn={patient.mrn} />
+            <LabsView mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
           </div>
         ) : tab === "mar" ? (
           <div className={panelClass + " overflow-hidden"}>
             <header className={sectionHeader}>Medication Administration Record</header>
-            <MarView patientId={patient.id} />
+            <MarView patientId={patient.id} complaint={patient.chief_complaint ?? null} />
           </div>
         ) : (
           <NotesView mrn={patient.mrn} />
