@@ -513,6 +513,7 @@ function Dashboard() {
         last_name: data.last_name,
         name: (data as any).name ?? null,
         facility_name: data.facility_name,
+        chief_complaint: (data as any).chief_complaint ?? null,
       });
     } catch (e: any) {
       console.warn("[admit] seedAdmission failed", e);
