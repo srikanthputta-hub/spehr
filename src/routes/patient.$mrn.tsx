@@ -353,8 +353,8 @@ function ResultValueCell({ value }: { value: string | null }) {
 }
 
 // ============= tab views ===============================================
-function LabsView({ mrn }: { mrn: string }) {
-  const rows = useLabs(mrn);
+function LabsView({ mrn, complaint }: { mrn: string; complaint: string | null }) {
+  const rows = useLabs(mrn, complaint);
   if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
   if (rows.length === 0) return emptyMsg;
   return (
@@ -383,8 +383,8 @@ function LabsView({ mrn }: { mrn: string }) {
   );
 }
 
-function MarView({ patientId }: { patientId: string }) {
-  const rows = useMeds(patientId);
+function MarView({ patientId, complaint }: { patientId: string; complaint: string | null }) {
+  const rows = useMeds(patientId, complaint);
   if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
   if (rows.length === 0) return emptyMsg;
   return (
