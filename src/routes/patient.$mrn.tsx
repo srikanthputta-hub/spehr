@@ -893,12 +893,12 @@ function PatientChart() {
         ) : tab === "labs" ? (
           <div className={panelClass + " overflow-hidden"}>
             <header className={sectionHeader}>Laboratory Results</header>
-            <LabsView mrn={patient.mrn} />
+            <LabsView mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
           </div>
         ) : tab === "mar" ? (
           <div className={panelClass + " overflow-hidden"}>
             <header className={sectionHeader}>Medication Administration Record</header>
-            <MarView patientId={patient.id} />
+            <MarView patientId={patient.id} complaint={patient.chief_complaint ?? null} />
           </div>
         ) : (
           <NotesView mrn={patient.mrn} />
