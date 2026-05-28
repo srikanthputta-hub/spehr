@@ -9,6 +9,10 @@ import {
   LAB_CATALOG,
   type LabCatalogEntry,
 } from "@/constants/clinical-catalog";
+import {
+  medsForComplaint,
+  labsForComplaint,
+} from "@/lib/complaint-protocols";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
@@ -181,10 +185,12 @@ function mockLabValue(lab: LabCatalogEntry, seed: number): string {
   }
   return (r * 10).toFixed(1);
 }
-function fallbackMeds(key: string): MedRow[] {
-  const seed = seededHash("med:" + key);
+function fallbackMeds(
+  key: string,
+  complaint?: string | null,
+): MedRow[] {
   const now = new Date().toISOString();
-  return pickN(MEDICATION_CATALOG, 3, seed).map((m, i) => ({
+  return medsForComplaint(complaint).map((m, i) => ({
     id: `${key}-fb-med-${i}`,
     medication_name: m.name,
     drug_name: null,
@@ -196,14 +202,16 @@ function fallbackMeds(key: string): MedRow[] {
     created_at: now,
   }));
 }
-function fallbackLabs(key: string): LabRow[] {
-  const seed = seededHash("lab:" + key);
+function fallbackLabs(
+  key: string,
+  complaint?: string | null,
+): LabRow[] {
   const now = new Date().toISOString();
-  return pickN(LAB_CATALOG, 2, seed).map((l, i) => ({
+  return labsForComplaint(complaint).map((l, i) => ({
     id: `${key}-fb-lab-${i}`,
     test_type: l.name,
     status: "Resulted",
-    result_value: `${mockLabValue(l, seed + i * 97)} ${l.unit} (ref ${l.referenceRange})`,
+    result_value: `${l.resultExample} (ref ${l.referenceRange}${l.unit ? ` ${l.unit}` : ""})`,
     ordered_by: "Auto-generated",
     created_at: now,
   }));
@@ -238,7 +246,7 @@ interface NoteRow {
   signed_at: string | null;
 }
 
-function useLabs(mrn: string) {
+function useLabs(mrn: string, complaint?: string | null) {
   const [rows, setRows] = useState<LabRow[] | null>(null);
   useEffect(() => {
     let c = false;
@@ -249,14 +257,17 @@ function useLabs(mrn: string) {
       .then(({ data }) => {
         if (c) return;
         const real = (data as LabRow[]) ?? [];
-        setRows(real.length > 0 ? real : fallbackLabs(mrn));
+        setRows(real.length > 0 ? real : fallbackLabs(mrn, complaint));
       });
     return () => { c = true; };
-  }, [mrn]);
+  }, [mrn, complaint]);
   return rows;
 }
 
-function useMeds(patientId: string | null | undefined) {
+function useMeds(
+  patientId: string | null | undefined,
+  complaint?: string | null,
+) {
   const [rows, setRows] = useState<MedRow[] | null>(null);
   useEffect(() => {
     if (!patientId) { setRows([]); return; }
@@ -268,10 +279,10 @@ function useMeds(patientId: string | null | undefined) {
       .then(({ data }) => {
         if (c) return;
         const real = (data as MedRow[]) ?? [];
-        setRows(real.length > 0 ? real : fallbackMeds(patientId));
+        setRows(real.length > 0 ? real : fallbackMeds(patientId, complaint));
       });
     return () => { c = true; };
-  }, [patientId]);
+  }, [patientId, complaint]);
   return rows;
 }
 
