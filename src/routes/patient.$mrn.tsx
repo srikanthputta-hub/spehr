@@ -5,11 +5,6 @@ import { getMockAiNote } from "@/lib/mockAiNotes";
 import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2, Brain } from "lucide-react";
 import { toast } from "sonner";
 import {
-  MEDICATION_CATALOG,
-  LAB_CATALOG,
-  type LabCatalogEntry,
-} from "@/constants/clinical-catalog";
-import {
   medsForComplaint,
   labsForComplaint,
 } from "@/lib/complaint-protocols";
@@ -155,36 +150,7 @@ function fmtTime(t: string | null | undefined) {
   } catch { return "—"; }
 }
 
-// --- Deterministic per-key catalog fallback ---------------------------
-function seededHash(key: string): number {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
-  return h >>> 0;
-}
-function pickN<T>(arr: readonly T[], n: number, seed: number): T[] {
-  const idx = new Set<number>();
-  let s = seed || 1;
-  while (idx.size < Math.min(n, arr.length)) {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    idx.add(s % arr.length);
-  }
-  return [...idx].map((i) => arr[i]);
-}
-function mockLabValue(lab: LabCatalogEntry, seed: number): string {
-  const rng = lab.referenceRange.trim();
-  const r = ((seed % 1000) / 1000);
-  if (/negative/i.test(rng)) return "Negative";
-  const lt = rng.match(/^<\s*([\d.]+)/);
-  if (lt) return (r * parseFloat(lt[1])).toFixed(2);
-  const range = rng.match(/([\d.]+)\s*[–-]\s*([\d.]+)/);
-  if (range) {
-    const lo = parseFloat(range[1]);
-    const hi = parseFloat(range[2]);
-    const decimals = (range[1].split(".")[1]?.length ?? 0) || 1;
-    return (lo + r * (hi - lo)).toFixed(decimals);
-  }
-  return (r * 10).toFixed(1);
-}
+// --- Per-complaint fallback (used only if DB row hasn't seeded yet) ---
 function fallbackMeds(
   key: string,
   complaint?: string | null,
