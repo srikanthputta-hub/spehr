@@ -609,8 +609,8 @@ function NotesView({ mrn }: { mrn: string }) {
 }
 
 function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
-  const labs = useLabs(mrn);
-  const meds = useMeds(patient.id);
+  const labs = useLabs(mrn, patient.chief_complaint);
+  const meds = useMeds(patient.id, patient.chief_complaint);
   const [notes] = useNotes(mrn, 0);
 
   const topMeds = (meds ?? []).slice(0, 3);
