@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Loader2, Wind, AlertTriangle, Activity } from "lucide-react";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useMemo } from "react";
+import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 export const Route = createFileRoute("/respiratory-board")({
   component: RespiratoryBoard,
