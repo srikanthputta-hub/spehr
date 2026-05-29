@@ -124,6 +124,7 @@ function generateMockResults(testType: string, condition: string | null): LabVal
 function LabBoard() {
   const { facility } = useFacility();
   const tech = useActiveStaff("Lab");
+  const { can, gate } = useRolePermissions("Lab");
   const [orders, setOrders] = useState<LabOrderRow[]>([]);
   const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
   const [loading, setLoading] = useState(true);
