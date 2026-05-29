@@ -8,6 +8,7 @@ import {
   medsForComplaint,
   labsForComplaint,
 } from "@/lib/complaint-protocols";
+import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
@@ -69,6 +70,7 @@ function LiveTelemetry({ dx }: { dx: string | null | undefined }) {
   const [sys, setSys] = useState(base.sys);
   const [dia, setDia] = useState(base.dia);
   const [spo2, setSpo2] = useState(base.spo2);
+  const automationEnabled = useAutomationEnabled();
 
   useEffect(() => {
     setHr(base.hr);
@@ -78,6 +80,7 @@ function LiveTelemetry({ dx }: { dx: string | null | undefined }) {
   }, [base]);
 
   useEffect(() => {
+    if (!automationEnabled) return;
     const id = setInterval(() => {
       const j = (r: number) => Math.floor(Math.random() * (2 * r + 1)) - r;
       setHr((v) => Math.max(30, Math.min(220, v + j(2))));
@@ -86,7 +89,7 @@ function LiveTelemetry({ dx }: { dx: string | null | undefined }) {
       setDia((v) => Math.max(30, Math.min(140, v + (Math.random() < 0.5 ? -1 : 0))));
     }, 3000);
     return () => clearInterval(id);
-  }, []);
+  }, [automationEnabled]);
 
   const hrCritical = hr > 100;
   const sysCritical = sys < 90;
