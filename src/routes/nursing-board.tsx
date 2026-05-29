@@ -728,10 +728,9 @@ function Dashboard() {
                             <ChevronRight className="h-3 w-3" />
                           </Link>
                           <button
-                            onClick={() => setDischarging(p)}
-                            title="Discharge patient"
+                            {...gate("btn_discharge_patient", () => setDischarging(p))}
                             aria-label={`Discharge ${p.name}`}
-                            className="inline-grid place-items-center h-7 w-7 rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                            className="inline-grid place-items-center h-7 w-7 rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Trash2 className="h-3 w-3" />
                           </button>
