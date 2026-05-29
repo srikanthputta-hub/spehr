@@ -770,32 +770,32 @@ function PhysicianBoard() {
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <button
                         type="button"
-                        onClick={() => setActionsView("orders")}
-                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                        {...gate("btn_create_med_order", () => setActionsView("orders"))}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">💊</span>
                         <span className="text-center leading-tight">Order Medication</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActionsView("lab")}
-                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                        {...gate("btn_order_labs", () => setActionsView("lab"))}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">🧪</span>
                         <span className="text-center leading-tight">Order Laboratory Evaluation</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActionsView("note")}
-                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                        {...gate("btn_esign_note", () => setActionsView("note"))}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">✍️</span>
                         <span className="text-center leading-tight">Write & E-Sign Progress Note</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActionsView("discharge")}
-                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                        {...gate("btn_discharge_patient", () => setActionsView("discharge"))}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">🚪</span>
                         <span className="text-center leading-tight">Discharge / Transfer Patient</span>
