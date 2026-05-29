@@ -4,6 +4,7 @@ import {
   medsForComplaint,
   labsForComplaint,
 } from "@/lib/complaint-protocols";
+import { getAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer                                                */
@@ -27,6 +28,10 @@ interface NewPatient {
 
 export async function seedAdmission(p: NewPatient) {
   if (!p.mrn) return;
+
+  // Respect the master automation switch — in MANUAL mode no ghost
+  // meds/labs are auto-seeded for newly admitted patients.
+  if (!(await getAutomationEnabled())) return;
 
   // Guard against duplicate seeding (realtime can fire on reconnect, and the
   // DB cron may have already inserted the same protocol rows). We only skip
@@ -78,8 +83,10 @@ export async function seedAdmission(p: NewPatient) {
 
 export function useAIAutomation() {
   const seeded = useRef<Set<string>>(new Set());
+  const automationEnabled = useAutomationEnabled();
 
   useEffect(() => {
+    if (!automationEnabled) return;
     const channel = supabase
       .channel("admission-randomizer")
       .on(
@@ -99,5 +106,5 @@ export function useAIAutomation() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [automationEnabled]);
 }
