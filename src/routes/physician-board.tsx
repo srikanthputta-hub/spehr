@@ -14,6 +14,7 @@ import {
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import { getPatient as getSeedPatient } from "@/lib/patients";
 import {
