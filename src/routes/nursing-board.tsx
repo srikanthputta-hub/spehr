@@ -303,6 +303,7 @@ function Dashboard() {
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
   const [showOnlyMedsDue, setShowOnlyMedsDue] = useState(false);
   const automationEnabled = useAutomationEnabled();
+  const { gate } = useRolePermissions("RN");
 
   const MEDS_DUE_NAMES = ["margaret chen", "robert alvarez", "srujan patel", "marcus vance"];
 
