@@ -5,6 +5,7 @@ import { Loader2, FlaskConical, Sparkles, CheckCircle2 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fallbackLabsFor } from "@/lib/fallback-labs";
 
 export const Route = createFileRoute("/lab-board")({
