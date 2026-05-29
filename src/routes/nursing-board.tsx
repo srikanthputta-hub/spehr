@@ -24,6 +24,7 @@ import {
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { seedAdmission } from "@/hooks/useAIAutomation";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
