@@ -24,6 +24,7 @@ import {
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { seedAdmission } from "@/hooks/useAIAutomation";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -302,6 +303,7 @@ function Dashboard() {
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
   const [showOnlyMedsDue, setShowOnlyMedsDue] = useState(false);
   const automationEnabled = useAutomationEnabled();
+  const { gate } = useRolePermissions("RN");
 
   const MEDS_DUE_NAMES = ["margaret chen", "robert alvarez", "srujan patel", "marcus vance"];
 
@@ -566,8 +568,8 @@ function Dashboard() {
             </div>
           </div>
           <button
-            onClick={() => setAdmitOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 px-3 h-9 text-xs font-semibold text-white shadow-sm transition"
+            {...gate("btn_admit_patient", () => setAdmitOpen(true))}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 px-3 h-9 text-xs font-semibold text-white shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <UserPlus className="h-3.5 w-3.5" /> Admit Patient
           </button>
@@ -726,10 +728,9 @@ function Dashboard() {
                             <ChevronRight className="h-3 w-3" />
                           </Link>
                           <button
-                            onClick={() => setDischarging(p)}
-                            title="Discharge patient"
+                            {...gate("btn_discharge_patient", () => setDischarging(p))}
                             aria-label={`Discharge ${p.name}`}
-                            className="inline-grid place-items-center h-7 w-7 rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                            className="inline-grid place-items-center h-7 w-7 rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Trash2 className="h-3 w-3" />
                           </button>

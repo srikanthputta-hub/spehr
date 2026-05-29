@@ -14,6 +14,7 @@ import {
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import { getPatient as getSeedPatient } from "@/lib/patients";
 import {
@@ -99,39 +100,7 @@ function fallbackLabsFor(mrn: string) {
 function PhysicianBoard() {
   const { facility, activeRole } = useFacility();
   const [aiNote, setAiNote] = useState<{ content: string; created_at: string | null } | null>(null);
-  const [refPerm, setRefPerm] = useState<boolean>(true);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data } = await supabase
-        .from("role_permissions")
-        .select("is_active")
-        .eq("target_role", activeRole)
-        .eq("feature_key", "btn_refer_patient")
-        .eq("facility_name", facility)
-        .maybeSingle();
-      if (!cancelled && data) setRefPerm(!!(data as any).is_active);
-    })();
-    const channel = supabase
-      .channel(`md_refer_${activeRole}_${facility}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "role_permissions", filter: `target_role=eq.${activeRole}` },
-        (payload: any) => {
-          if (
-            payload.new?.feature_key === "btn_refer_patient" &&
-            payload.new?.facility_name === facility
-          ) {
-            setRefPerm(!!payload.new.is_active);
-          }
-        },
-      )
-      .subscribe();
-    return () => {
-      cancelled = true;
-      supabase.removeChannel(channel);
-    };
-  }, [activeRole, facility]);
+  const { can, gate } = useRolePermissions();
   const md = useActiveStaff("MD");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -483,16 +452,14 @@ function PhysicianBoard() {
                     value={selected.diagnosis || selected.chief_complaint || "—"}
                     wide
                   />
-                      {refPerm && (
-                        <button
-                          type="button"
-                          onClick={() => setTransferOpen(true)}
-                          className="ml-auto inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition"
-                        >
-                          <ArrowRightLeft className="h-4 w-4" />
-                          🔄 Refer / Transfer Patient
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        {...gate("btn_refer_patient", () => setTransferOpen(true))}
+                        className="ml-auto inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ArrowRightLeft className="h-4 w-4" />
+                        🔄 Refer / Transfer Patient
+                      </button>
                 </div>
               </div>
 
@@ -803,32 +770,32 @@ function PhysicianBoard() {
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <button
                         type="button"
-                        onClick={() => setActionsView("orders")}
-                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                        {...gate("btn_create_med_order", () => setActionsView("orders"))}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">💊</span>
                         <span className="text-center leading-tight">Order Medication</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActionsView("lab")}
-                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                        {...gate("btn_order_labs", () => setActionsView("lab"))}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">🧪</span>
                         <span className="text-center leading-tight">Order Laboratory Evaluation</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActionsView("note")}
-                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                        {...gate("btn_esign_note", () => setActionsView("note"))}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">✍️</span>
                         <span className="text-center leading-tight">Write & E-Sign Progress Note</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActionsView("discharge")}
-                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer"
+                        {...gate("btn_discharge_patient", () => setActionsView("discharge"))}
+                        className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">🚪</span>
                         <span className="text-center leading-tight">Discharge / Transfer Patient</span>
