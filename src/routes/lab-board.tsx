@@ -383,9 +383,9 @@ function LabBoard() {
                         <div className="flex items-center gap-2">
                           {!results && (
                             <button
-                              onClick={() => runSample(o)}
-                              disabled={processing === o.id}
-                              className="inline-flex items-center gap-1.5 rounded-md bg-[#2d8a9e] hover:bg-[#34a0b6] disabled:opacity-60 text-white px-3 h-9 text-xs font-semibold transition shadow-sm"
+                              {...gate("btn_run_lab_sample", () => runSample(o))}
+                              disabled={processing === o.id || !can("btn_run_lab_sample")}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-[#2d8a9e] hover:bg-[#34a0b6] disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 h-9 text-xs font-semibold transition shadow-sm"
                             >
                               {processing === o.id ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -397,9 +397,9 @@ function LabBoard() {
                           )}
                           {results && (
                             <button
-                              onClick={() => submitReport(o)}
-                              disabled={submitting === o.id}
-                              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-3 h-9 text-xs font-semibold transition shadow-sm"
+                              {...gate("btn_submit_report", () => submitReport(o))}
+                              disabled={submitting === o.id || !can("btn_submit_report")}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 h-9 text-xs font-semibold transition shadow-sm"
                             >
                               {submitting === o.id ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
