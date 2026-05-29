@@ -452,16 +452,14 @@ function PhysicianBoard() {
                     value={selected.diagnosis || selected.chief_complaint || "—"}
                     wide
                   />
-                      {refPerm && (
-                        <button
-                          type="button"
-                          onClick={() => setTransferOpen(true)}
-                          className="ml-auto inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition"
-                        >
-                          <ArrowRightLeft className="h-4 w-4" />
-                          🔄 Refer / Transfer Patient
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        {...gate("btn_refer_patient", () => setTransferOpen(true))}
+                        className="ml-auto inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ArrowRightLeft className="h-4 w-4" />
+                        🔄 Refer / Transfer Patient
+                      </button>
                 </div>
               </div>
 
