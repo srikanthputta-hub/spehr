@@ -23,6 +23,7 @@ import {
 } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { seedAdmission } from "@/hooks/useAIAutomation";
+import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -300,6 +301,7 @@ function Dashboard() {
   const [admitOpen, setAdmitOpen] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
   const [showOnlyMedsDue, setShowOnlyMedsDue] = useState(false);
+  const automationEnabled = useAutomationEnabled();
 
   const MEDS_DUE_NAMES = ["margaret chen", "robert alvarez", "srujan patel", "marcus vance"];
 
@@ -403,7 +405,7 @@ function Dashboard() {
   }, [ready]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !automationEnabled) return;
     const jitter = (range: number) =>
       Math.floor(Math.random() * (2 * range + 1)) - range;
     const clamp = (v: number, lo: number, hi: number) =>
@@ -426,7 +428,7 @@ function Dashboard() {
       );
     }, 2000);
     return () => clearInterval(id);
-  }, [ready]);
+  }, [ready, automationEnabled]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();

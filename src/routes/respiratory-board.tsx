@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Loader2, Wind, AlertTriangle, Activity } from "lucide-react";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useMemo } from "react";
+import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 export const Route = createFileRoute("/respiratory-board")({
   component: RespiratoryBoard,
@@ -59,6 +60,7 @@ function RespiratoryBoard() {
   const [intervention, setIntervention] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const automationEnabled = useAutomationEnabled();
 
   useEffect(() => {
     (async () => {
@@ -98,6 +100,7 @@ function RespiratoryBoard() {
   // 2. Live vitals simulation engine — fluctuates SpO2 (±1, 70–100) and
   // respiratoryRate (±2, 12–26) every 2s for the active census.
   useEffect(() => {
+    if (!automationEnabled) return;
     const id = setInterval(() => {
       const jitter = (r: number) => Math.floor(Math.random() * (2 * r + 1)) - r;
       const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -110,7 +113,7 @@ function RespiratoryBoard() {
       );
     }, 2000);
     return () => clearInterval(id);
-  }, []);
+  }, [automationEnabled]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

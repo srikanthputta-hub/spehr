@@ -1,7 +1,8 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { HeartPulse, LogOut, Construction, ClipboardList, Users } from "lucide-react";
+import { HeartPulse, LogOut, Construction, ClipboardList, Users, Hand, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
+import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -34,6 +35,7 @@ export function BoardHeader({
 }) {
   const navigate = useNavigate();
   const { facility } = useFacility();
+  const automationEnabled = useAutomationEnabled();
   const logout = async () => {
     await supabase.auth.signOut().catch(() => {});
     navigate({ to: "/" }).catch(() => {});
@@ -60,6 +62,28 @@ export function BoardHeader({
       </div>
       <div className="flex items-center gap-3">
         {!hideFacilitySwitcher && <FacilitySwitcher variant="light" />}
+        <span
+          title={
+            automationEnabled
+              ? "AI engines are running across the hospital network"
+              : "All AI engines paused — every action must be performed manually"
+          }
+          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider border ${
+            automationEnabled
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+              : "bg-amber-50 text-amber-800 border-amber-300"
+          }`}
+        >
+          {automationEnabled ? (
+            <>
+              <Zap className="h-3 w-3" /> AI Engines
+            </>
+          ) : (
+            <>
+              <Hand className="h-3 w-3" /> Manual Mode
+            </>
+          )}
+        </span>
         <Link
           to="/tasks"
           className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
