@@ -23,6 +23,7 @@ import {
 } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { seedAdmission } from "@/hooks/useAIAutomation";
+import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
