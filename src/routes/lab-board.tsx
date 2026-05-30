@@ -304,9 +304,22 @@ function LabBoard() {
     if (!results) return;
     setSubmitting(order.id);
     try {
+      const summary = Array.isArray(results) && results.length > 0
+        ? results
+            .map(
+              (r: any) =>
+                `${r.test}: ${r.value}${r.unit ? ` ${r.unit}` : ""}${r.flag && r.flag !== "NORMAL" ? ` [${r.flag}]` : ""}`,
+            )
+            .join(" | ")
+        : `${order.test_type}: Resulted`;
       const { error: e1 } = await supabase
         .from("lab_orders")
-        .update({ status: "Completed", results_data: results as any })
+        .update({
+          status: "Completed",
+          results_data: results as any,
+          result_value: summary,
+          collected_at: new Date().toISOString(),
+        })
         .eq("id", order.id);
       if (e1) throw e1;
       const { error: e2 } = await supabase
