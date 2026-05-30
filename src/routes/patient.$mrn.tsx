@@ -219,16 +219,41 @@ function useLabs(mrn: string, complaint?: string | null) {
   const [rows, setRows] = useState<LabRow[] | null>(null);
   useEffect(() => {
     let c = false;
-    supabase.from("lab_orders")
+    const load = () => supabase.from("lab_orders")
       .select("id, test_type, status, result_value, ordered_by, created_at")
       .eq("patient_mrn", mrn)
       .order("created_at", { ascending: false })
       .then(({ data }) => {
         if (c) return;
         const real = (data as LabRow[]) ?? [];
-        setRows(real.length > 0 ? real : fallbackLabs(mrn, complaint));
+        // Only surface labs that have been officially resulted/completed and
+        // carry a result value — pending/processing orders awaiting the lab
+        // tech are hidden from the patient chart per clinical workflow.
+        const finalized = real.filter((r) => {
+          const s = (r.status ?? "").toLowerCase();
+          const released = s === "resulted" || s === "completed";
+          return released && !!r.result_value;
+        });
+        if (finalized.length > 0) {
+          setRows(finalized);
+        } else if (real.length > 0) {
+          // Real (pending) rows exist but none are released yet — show empty,
+          // do NOT fall back to the pre-filled protocol example values.
+          setRows([]);
+        } else {
+          setRows(fallbackLabs(mrn, complaint));
+        }
       });
-    return () => { c = true; };
+    load();
+    const channel = supabase
+      .channel(`labs-${mrn}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "lab_orders", filter: `patient_mrn=eq.${mrn}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => { c = true; supabase.removeChannel(channel); };
   }, [mrn, complaint]);
   return rows;
 }
