@@ -26,12 +26,28 @@ interface NewPatient {
   chief_complaint: string | null;
 }
 
-export async function seedAdmission(p: NewPatient) {
+/**
+ * Seed an admission with the protocol meds + labs.
+ *
+ *  • Auto admissions (default)  → meds = "Administered", labs = "Resulted"
+ *    with a pre-filled result_value. Skipped when the global automation
+ *    switch is OFF.
+ *  • Manual admissions (manual:true) → meds = "Pending Verification"
+ *    (awaiting pharmacist) and labs = "Pending Collection" (awaiting lab
+ *    tech). Always seeds regardless of the automation switch so the
+ *    Pharmacy + Lab queues pick the patient up immediately. result_value
+ *    is left null until the lab tech submits the official report.
+ */
+export async function seedAdmission(
+  p: NewPatient,
+  opts: { manual?: boolean } = {},
+) {
   if (!p.mrn) return;
+  const manual = !!opts.manual;
 
-  // Respect the master automation switch — in MANUAL mode no ghost
-  // meds/labs are auto-seeded for newly admitted patients.
-  if (!(await getAutomationEnabled())) return;
+  // Auto seeding respects the master automation switch.
+  // Manual admissions always seed pending orders for the human queues.
+  if (!manual && !(await getAutomationEnabled())) return;
 
   // Guard against duplicate seeding (realtime can fire on reconnect, and the
   // DB cron may have already inserted the same protocol rows). We only skip
@@ -58,21 +74,23 @@ export async function seedAdmission(p: NewPatient) {
     drug_name: m.name,
     dose: m.dose,
     route: m.route,
-    status: "Administered",
-    ordered_by: "Ghost AI - Admission Randomizer",
-    administered_at: new Date().toISOString(),
+    status: manual ? "PENDING_VERIFICATION" : "Administered",
+    ordered_by: manual ? "Human" : "Ghost AI - Admission Randomizer",
+    administered_at: manual ? null : new Date().toISOString(),
   }));
 
   const labRows = labs.map((l) => ({
     patient_mrn: mrn,
     patient_name: patientName,
     facility_name: p.facility_name ?? "Srik Health Clinic",
-    requested_by: "Ghost AI - Admission Randomizer",
+    requested_by: manual ? "Bedside RN" : "Ghost AI - Admission Randomizer",
     test_type: l.name,
-    status: "Resulted",
-    result_value: `${l.name}: ${l.resultExample} (ref ${l.referenceRange}${l.unit ? ` ${l.unit}` : ""})`,
-    ordered_by: "Ghost AI - Admission Randomizer",
-    collected_at: new Date().toISOString(),
+    status: manual ? "Pending Collection" : "Resulted",
+    result_value: manual
+      ? null
+      : `${l.name}: ${l.resultExample} (ref ${l.referenceRange}${l.unit ? ` ${l.unit}` : ""})`,
+    ordered_by: manual ? "Human" : "Ghost AI - Admission Randomizer",
+    collected_at: manual ? null : new Date().toISOString(),
   }));
 
   await Promise.all([
