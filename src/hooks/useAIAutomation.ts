@@ -68,6 +68,7 @@ export async function seedAdmission(
   const medRows = meds.map((m) => ({
     patient_id: p.id,
     patient_mrn: mrn,
+    mrn,
     patient_name: patientName,
     facility_name: p.facility_name,
     medication_name: m.name,
