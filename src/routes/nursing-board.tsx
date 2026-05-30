@@ -518,7 +518,7 @@ function Dashboard() {
         name: (data as any).name ?? null,
         facility_name: data.facility_name,
         chief_complaint: (data as any).chief_complaint ?? null,
-      });
+      }, { manual: true });
     } catch (e: any) {
       console.warn("[admit] seedAdmission failed", e);
     }
