@@ -2,7 +2,12 @@ import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getMockAiNote } from "@/lib/mockAiNotes";
-import { ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X, CheckCircle2, Brain } from "lucide-react";
+import {
+  ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X,
+  CheckCircle2, Brain, Home, ClipboardList, FileText, FlaskConical,
+  LogOut, PenLine, Settings, Power, ChevronUp, RefreshCw, Info, Search,
+  TrendingUp, Calendar, Pill,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   medsForComplaint,
@@ -124,12 +129,36 @@ function LiveTelemetry({ dx }: { dx: string | null | undefined }) {
   );
 }
 
-type TabKey = "summary" | "labs" | "mar" | "notes";
-const TABS: { key: TabKey; label: string }[] = [
+type TabKey =
+  | "summary"
+  | "activity"
+  | "flowsheets"
+  | "healthmgmt"
+  | "diagnostics"
+  | "providernotes"
+  | "nurse"
+  | "medications"
+  | "history"
+  | "administrative"
+  | "otherclinical";
+
+// MEDITECH Expanse style — two tab rows
+const TABS_ROW1: { key: TabKey; label: string }[] = [
+  { key: "diagnostics", label: "Diagnostics" },
+  { key: "providernotes", label: "Provider Notes" },
+  { key: "nurse", label: "Nurse/Allied Health" },
+  { key: "medications", label: "Medications" },
+];
+const TABS_ROW2: { key: TabKey; label: string }[] = [
+  { key: "history", label: "History & Problems" },
+  { key: "administrative", label: "Administrative" },
+  { key: "otherclinical", label: "Other Clinical" },
+];
+const TABS_ROW3: { key: TabKey; label: string }[] = [
   { key: "summary", label: "Summary" },
-  { key: "labs", label: "Lab Results" },
-  { key: "mar", label: "MAR (Medications)" },
-  { key: "notes", label: "Provider Notes" },
+  { key: "activity", label: "Activity" },
+  { key: "flowsheets", label: "Flowsheets" },
+  { key: "healthmgmt", label: "Health Mgmt" },
 ];
 
 // ============= shared styles ============================================
