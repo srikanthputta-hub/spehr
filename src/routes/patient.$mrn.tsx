@@ -637,92 +637,558 @@ function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) 
   const [notes] = useNotes(mrn, 0);
 
   const topMeds = (meds ?? []).slice(0, 3);
-  const topLabs = (labs ?? []).slice(0, 3);
+  const topLabs = (labs ?? []).slice(0, 10);
   const latestNote = (notes ?? [])[0];
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-      {/* LEFT */}
-      <div className="space-y-3">
-        <section className={panelClass}>
-          <header className={sectionHeader}>Encounter Details</header>
-          <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 p-3 text-[12px]">
-            <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Admission</dt>
-            <dd className="col-span-2 font-mono">{fmtTime(patient.admission_time)}</dd>
-            <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Chief Complaint</dt>
-            <dd className="col-span-2 font-semibold text-slate-800">{patient.chief_complaint ?? "—"}</dd>
-            <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Diagnosis</dt>
-            <dd className="col-span-2 text-slate-800">{patient.diagnosis ?? "—"}</dd>
-            <dt className="col-span-1 text-slate-500 uppercase text-[10px] tracking-wider font-bold">Room</dt>
-            <dd className="col-span-2 font-mono">{patient.room ?? "—"}</dd>
-          </dl>
-        </section>
+    <MeditechSummary
+      patient={patient}
+      meds={meds}
+      labs={labs}
+      latestNote={latestNote}
+      notesLoading={notes === null}
+      topMeds={topMeds}
+      topLabs={topLabs}
+    />
+  );
+}
 
-        <section className={panelClass}>
-          <header className={sectionHeader}>Active Medications</header>
-          {meds === null ? (
-            <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
-          ) : topMeds.length === 0 ? emptyMsg : (
-            <ul className="divide-y divide-slate-200">
-              {topMeds.map((m) => (
-                <li key={m.id} className="px-3 py-2 flex items-center justify-between text-[12px]">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-800 truncate">
-                      {m.medication_name ?? m.drug_name ?? m.medication ?? "—"}
-                    </div>
-                    <div className="font-mono text-[11px] text-slate-500">
-                      {m.dose ?? "—"} · {m.route ?? "—"}
-                    </div>
-                  </div>
-                  <MedStatusBadge status={m.status} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+// ============= MEDITECH summary widgets ================================
+const widgetBox =
+  "rounded border border-slate-300 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]";
+const widgetHead =
+  "flex items-center justify-between px-2.5 py-1.5 border-b border-slate-300 bg-[#fdfbe8] text-[12px] font-semibold text-emerald-800";
+
+function WidgetHeader({ title, icon }: { title: string; icon?: React.ReactNode }) {
+  return (
+    <div className={widgetHead}>
+      <div className="flex items-center gap-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 inline-block" />
+        <span className="underline decoration-emerald-700/40 underline-offset-2">{title}</span>
+      </div>
+      <div className="flex items-center gap-1 text-slate-500">
+        {icon}
+        <ChevronUp className="h-3.5 w-3.5" />
+      </div>
+    </div>
+  );
+}
+
+function MeditechSummary({
+  patient,
+  meds,
+  labs,
+  latestNote,
+  notesLoading,
+  topMeds,
+  topLabs,
+}: {
+  patient: PatientRecord;
+  meds: MedRow[] | null;
+  labs: LabRow[] | null;
+  latestNote: NoteRow | undefined;
+  notesLoading: boolean;
+  topMeds: MedRow[];
+  topLabs: LabRow[];
+}) {
+  const admissionDate = patient.admission_time
+    ? new Date(patient.admission_time).toLocaleDateString("en-GB").replace(/\//g, "/")
+    : "—";
+  return (
+    <div className="bg-[#f7f5ef] border border-slate-300 rounded">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-300 bg-[#f0ecdc]">
+        <div className="flex items-center gap-2">
+          <ChevronUp className="h-4 w-4 text-slate-600" />
+          <h2 className="text-[15px] font-semibold text-slate-800">Summary</h2>
+        </div>
+        <div className="flex items-center gap-2 text-slate-500">
+          <Settings className="h-4 w-4" />
+        </div>
+      </div>
+      <div className="px-3 py-2 text-[11px] text-emerald-700 font-semibold">
+        ● Widget data for {admissionDate} (REG ER)
       </div>
 
-      {/* RIGHT */}
-      <div className="space-y-3">
-        <section className={panelClass}>
-          <header className={sectionHeader}>Recent Labs</header>
-          {labs === null ? (
-            <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
-          ) : topLabs.length === 0 ? emptyMsg : (
-            <ul className="divide-y divide-slate-200">
-              {topLabs.map((l) => (
-                <li key={l.id} className="px-3 py-2 text-[12px]">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-slate-800 truncate">{l.test_type}</span>
-                    <LabStatusBadge status={l.status} />
-                  </div>
-                  <div className="mt-0.5"><ResultValueCell value={l.result_value} /></div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+      <div className="grid grid-cols-12 gap-2 px-2 pb-3">
+        {/* LEFT COLUMN — Triage Info + Common Labs */}
+        <div className="col-span-12 lg:col-span-5 space-y-2">
+          <section className={widgetBox}>
+            <WidgetHeader title="Triage Info" />
+            <dl className="grid grid-cols-[140px_1fr] gap-y-1 px-2.5 py-2 text-[12px]">
+              <dt className="text-slate-600">Triage Note</dt><dd className="text-slate-800">—</dd>
+              <dt className="text-slate-600">ED Triage Level</dt>
+              <dd className="font-semibold text-slate-800">URGENT</dd>
+              <dt className="text-slate-600">Stated Complaint</dt>
+              <dd className="text-slate-800">{patient.chief_complaint ?? "—"}</dd>
+              <dt className="text-slate-600">Chief Complaint</dt>
+              <dd className="text-slate-800">{patient.chief_complaint ?? "—"}</dd>
+              <dt className="text-slate-600">Condition</dt><dd className="text-slate-800">—</dd>
+              <dt className="text-slate-600">Arrival Date/Time</dt>
+              <dd className="text-slate-800">{fmtTime(patient.admission_time)}</dd>
+              <dt className="text-slate-600">Arrival Mode</dt>
+              <dd className="text-slate-800">No Ambulance</dd>
+              <dt className="text-slate-600">Triaged At</dt>
+              <dd className="text-slate-800">{fmtTime(patient.admission_time)}</dd>
+              <dt className="text-slate-600">ED Location</dt>
+              <dd className="text-slate-800">SA Main ED</dd>
+              <dt className="text-slate-600">Area/Station</dt>
+              <dd className="text-slate-800">{patient.room ?? "Acute A11"}</dd>
+            </dl>
+          </section>
 
-        <section className={panelClass}>
-          <header className={sectionHeader}>Latest Clinical Note</header>
-          {notes === null ? (
-            <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
-          ) : !latestNote ? emptyMsg : (
-            <div className="p-3 text-[12px]">
-              <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-1.5">
-                <span className="rounded bg-[var(--navy,#0b2545)] text-white px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                  {latestNote.note_type ?? "Note"}
-                </span>
-                <span className="font-mono text-[10.5px] text-slate-500">{fmtTime(latestNote.signed_at)}</span>
+          <section className={widgetBox}>
+            <WidgetHeader title="Common Labs" />
+            {labs === null ? (
+              <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+            ) : topLabs.length === 0 ? (
+              <div className="px-3 py-4 text-[12px] italic text-slate-500">No labs released.</div>
+            ) : (
+              <ul className="divide-y divide-slate-200">
+                {topLabs.map((l) => {
+                  const abnormal = /\[(CRITICAL|HIGH|LOW|H|L|ABN)/i.test(l.result_value ?? "");
+                  const display = l.result_value ?? "Pending";
+                  return (
+                    <li key={l.id} className="grid grid-cols-[110px_1fr_70px] gap-2 px-2.5 py-1.5 text-[12px] items-center">
+                      <span className="text-slate-700 truncate">{l.test_type}</span>
+                      <span className={`font-mono text-[11.5px] truncate ${abnormal ? "bg-yellow-200 text-slate-900 px-1 rounded font-bold" : "text-slate-700"}`}>
+                        {display}
+                      </span>
+                      <span className="font-mono text-[10.5px] text-slate-500 text-right">
+                        {fmtTime(l.created_at).split(",")[0]}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          <section className={widgetBox}>
+            <WidgetHeader title="Active Medications" icon={<Pill className="h-3.5 w-3.5" />} />
+            {meds === null ? (
+              <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+            ) : topMeds.length === 0 ? (
+              <div className="px-3 py-4 text-[12px] italic text-slate-500">No active medications.</div>
+            ) : (
+              <ul className="divide-y divide-slate-200">
+                {topMeds.map((m) => (
+                  <li key={m.id} className="px-2.5 py-1.5 flex items-center justify-between text-[12px]">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-800 truncate">
+                        {m.medication_name ?? m.drug_name ?? m.medication ?? "—"}
+                      </div>
+                      <div className="font-mono text-[10.5px] text-slate-500">
+                        {m.dose ?? "—"} · {m.route ?? "—"}
+                      </div>
+                    </div>
+                    <MedStatusBadge status={m.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        {/* CENTER COLUMN — Visits + Documents */}
+        <div className="col-span-12 lg:col-span-4 space-y-2">
+          <section className={widgetBox}>
+            <WidgetHeader title="Visits" icon={<Calendar className="h-3.5 w-3.5" />} />
+            <div className="text-[12px]">
+              <div className="px-2.5 py-1.5 border-b border-slate-200 flex items-center gap-1 text-slate-700 font-semibold">
+                <ChevronUp className="h-3.5 w-3.5 rotate-90" /> Future
               </div>
-              <div className="text-[11px] text-slate-500 mb-1">
-                {latestNote.author_name} · {latestNote.author_role}
+              <div className="px-2.5 py-1.5 border-b border-slate-200 flex items-center gap-1 text-slate-700 font-semibold">
+                <ChevronUp className="h-3.5 w-3.5" /> Past
               </div>
-              <p className="text-slate-800 whitespace-pre-wrap line-clamp-6">{latestNote.content}</p>
+              <div className="grid grid-cols-[80px_1fr_24px] px-2.5 py-1.5 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 font-bold border-b border-slate-200">
+                <span>Date</span><span>Location / Provider</span><span></span>
+              </div>
+              <div className="grid grid-cols-[80px_1fr_24px] px-2.5 py-1.5 border-b border-slate-100 items-start">
+                <span className="font-mono text-[11px] text-slate-600">{fmtTime(patient.admission_time).split(",")[0]}</span>
+                <div>
+                  <div className="text-slate-800">Emergency Department</div>
+                  <div className="text-slate-500 text-[11px]">{patient.chief_complaint ?? "—"}</div>
+                </div>
+                <FileText className="h-3.5 w-3.5 text-slate-400" />
+              </div>
+              <div className="grid grid-cols-[80px_1fr_24px] px-2.5 py-1.5 border-b border-slate-100 items-start">
+                <span className="font-mono text-[11px] text-slate-600">—</span>
+                <div>
+                  <div className="text-slate-800">Medical (3B)</div>
+                  <div className="text-slate-500 text-[11px]">Garniss, Derek A, MD</div>
+                </div>
+                <FileText className="h-3.5 w-3.5 text-slate-400" />
+              </div>
             </div>
-          )}
-        </section>
+          </section>
+
+          <section className={widgetBox}>
+            <WidgetHeader title="Documents" icon={<FileText className="h-3.5 w-3.5" />} />
+            <div className="text-[12px]">
+              <div className="px-2.5 py-1.5 border-b border-slate-200 flex items-center justify-between text-slate-700">
+                <span className="flex items-center gap-1 font-semibold">
+                  <ChevronUp className="h-3.5 w-3.5" /> Departmental
+                </span>
+                <span className="text-[10.5px] text-slate-500">Most Recent</span>
+              </div>
+              {notesLoading ? (
+                <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+              ) : !latestNote ? (
+                <div className="px-3 py-4 text-[12px] italic text-slate-500">No documents on file.</div>
+              ) : (
+                <ul className="divide-y divide-slate-200">
+                  <li className="grid grid-cols-[1fr_24px_80px] px-2.5 py-1.5 items-center text-[12px]">
+                    <span className="text-slate-800 truncate">{latestNote.note_type ?? "Note"}</span>
+                    <FileText className="h-3.5 w-3.5 text-slate-400" />
+                    <span className="font-mono text-[10.5px] text-slate-500 text-right">{fmtTime(latestNote.signed_at).split(",")[0]}</span>
+                  </li>
+                </ul>
+              )}
+            </div>
+          </section>
+        </div>
+
+        {/* RIGHT COLUMN — Clinical sidebar */}
+        <div className="col-span-12 lg:col-span-3 space-y-2">
+          <section className={widgetBox}>
+            <WidgetHeader title="Active" />
+            <div className="px-2.5 py-2 text-[12px]">
+              <div className="grid grid-cols-3 gap-1 pb-1 border-b border-slate-200 text-[9.5px] uppercase tracking-wider text-slate-500 font-bold">
+                <span>Problem</span><span>Curr Visit</span><span>Onset</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 py-1.5 text-slate-800">
+                <span className="font-semibold">{patient.chief_complaint ?? "—"}</span>
+                <span>●</span>
+                <span className="font-mono text-[10.5px] text-slate-500">{fmtTime(patient.admission_time).split(",")[0]}</span>
+              </div>
+            </div>
+          </section>
+
+          <section className={widgetBox}>
+            <WidgetHeader title="Allergies" />
+            <div className="px-2.5 py-2 text-[12px] space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-800 font-semibold">cefazolin (From Ancef)</span>
+                <span className="text-slate-500">Diarrhea</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-800 font-semibold">penicillin G</span>
+                <span className="text-slate-500">Rash</span>
+              </div>
+            </div>
+          </section>
+
+          <section className={widgetBox}>
+            <WidgetHeader title="Vitals — Initial & Most Recent" icon={<TrendingUp className="h-3.5 w-3.5" />} />
+            <div className="px-2.5 py-2 text-[12px]">
+              <div className="text-[11px] text-blue-700 underline mb-1 cursor-pointer">Growth Chart</div>
+              <div className="grid grid-cols-[60px_1fr] gap-y-1">
+                <span className="text-slate-500 text-[10px] uppercase tracking-wider font-bold col-span-2 border-b border-slate-200 pb-1">
+                  Current — {fmtTime(patient.admission_time).split(",")[0]}
+                </span>
+                <span className="text-slate-600">BP</span>
+                <span className={`font-mono ${(patient.bp_systolic ?? 0) >= 140 ? "bg-yellow-200 px-1 rounded font-bold" : ""}`}>
+                  {patient.bp_systolic ?? "—"}/{patient.bp_diastolic ?? "—"}{(patient.bp_systolic ?? 0) >= 140 ? " H" : ""}
+                </span>
+                <span className="text-slate-600">Pulse</span>
+                <span className="font-mono">{patient.hr ?? "—"}</span>
+                <span className="text-slate-600">SpO₂</span>
+                <span className={`font-mono ${(patient.spo2 ?? 100) < 92 ? "bg-yellow-200 px-1 rounded font-bold" : ""}`}>
+                  {patient.spo2 ?? "—"}%
+                </span>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
+    </div>
+  );
+}
+
+// ============= MEDITECH-style tab content for new tabs =================
+function ActivityView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
+  const labs = useLabs(mrn, patient.chief_complaint);
+  const meds = useMeds(patient.id, patient.chief_complaint);
+  const [notes] = useNotes(mrn, 0);
+
+  type Item = { ts: string | null; type: string; title: string; detail: string };
+  const items: Item[] = [];
+  if (patient.admission_time) {
+    items.push({
+      ts: patient.admission_time, type: "Admission",
+      title: "Patient admitted to ED",
+      detail: `${patient.chief_complaint ?? "—"} · ${patient.room ?? "—"}`,
+    });
+  }
+  (meds ?? []).forEach((m) => items.push({
+    ts: m.administered_at ?? m.created_at, type: "Medication",
+    title: m.medication_name ?? m.drug_name ?? m.medication ?? "Medication",
+    detail: `${m.dose ?? ""} ${m.route ?? ""} · ${m.status ?? ""}`,
+  }));
+  (labs ?? []).forEach((l) => items.push({
+    ts: l.created_at, type: "Lab",
+    title: l.test_type ?? "Lab", detail: l.result_value ?? "—",
+  }));
+  (notes ?? []).forEach((n) => items.push({
+    ts: n.signed_at, type: "Note",
+    title: n.note_type ?? "Note", detail: `${n.author_name ?? ""} ${n.author_role ?? ""}`,
+  }));
+  items.sort((a, b) => (new Date(b.ts ?? 0).getTime() - new Date(a.ts ?? 0).getTime()));
+
+  const colorFor = (t: string) =>
+    t === "Admission" ? "bg-indigo-100 text-indigo-800 ring-indigo-300"
+    : t === "Medication" ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
+    : t === "Lab" ? "bg-blue-100 text-blue-800 ring-blue-300"
+    : "bg-slate-100 text-slate-700 ring-slate-300";
+
+  return (
+    <div className={widgetBox}>
+      <WidgetHeader title="Encounter Activity Timeline" icon={<Activity className="h-3.5 w-3.5" />} />
+      {items.length === 0 ? emptyMsg : (
+        <ol className="divide-y divide-slate-200">
+          {items.map((it, i) => (
+            <li key={i} className="grid grid-cols-[110px_90px_1fr] gap-2 px-3 py-2 text-[12px] items-start">
+              <span className="font-mono text-[10.5px] text-slate-600">{fmtTime(it.ts)}</span>
+              <span className={`inline-flex justify-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${colorFor(it.type)}`}>
+                {it.type}
+              </span>
+              <div>
+                <div className="font-semibold text-slate-800">{it.title}</div>
+                <div className="text-slate-600 text-[11.5px]">{it.detail}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function FlowsheetsView({ patient }: { patient: PatientRecord }) {
+  // Synthesize a vitals trend (4 timepoints) based on baseline
+  const base = baselineVitals(patient.diagnosis ?? patient.chief_complaint);
+  const cols = [0, 1, 2, 3].map((i) => {
+    const t = new Date(Date.now() - i * 60 * 60 * 1000);
+    return {
+      time: t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      hr: base.hr + ((i * 3) % 5),
+      sys: base.sys - ((i * 2) % 4),
+      dia: base.dia - ((i) % 3),
+      spo2: base.spo2 - ((i) % 2),
+      temp: 36.8 + ((i * 1) % 3) * 0.1,
+      resp: 18 + ((i * 2) % 4),
+    };
+  }).reverse();
+
+  return (
+    <div className={widgetBox + " overflow-hidden"}>
+      <WidgetHeader title="Vital Signs Flowsheet" icon={<TrendingUp className="h-3.5 w-3.5" />} />
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr>
+            <th className={thClass}>Parameter</th>
+            {cols.map((c) => <th key={c.time} className={thClass + " text-center"}>{c.time}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {[
+            { lbl: "BP (mmHg)", val: (c: any) => `${c.sys}/${c.dia}`, abn: (c: any) => c.sys >= 140 || c.sys < 90 },
+            { lbl: "Pulse (bpm)", val: (c: any) => c.hr, abn: (c: any) => c.hr > 100 || c.hr < 60 },
+            { lbl: "Resp (rpm)", val: (c: any) => c.resp, abn: (c: any) => c.resp > 20 },
+            { lbl: "SpO₂ (%)", val: (c: any) => c.spo2, abn: (c: any) => c.spo2 < 92 },
+            { lbl: "Temp (°C)", val: (c: any) => c.temp.toFixed(1), abn: (c: any) => c.temp >= 38 },
+          ].map((r) => (
+            <tr key={r.lbl} className="hover:bg-slate-50">
+              <td className={tdClass + " font-semibold"}>{r.lbl}</td>
+              {cols.map((c) => (
+                <td key={c.time} className={tdClass + " text-center font-mono"}>
+                  <span className={r.abn(c) ? "bg-yellow-200 px-1 rounded font-bold" : ""}>{r.val(c)}</span>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function HistoryProblemsView({ patient }: { patient: PatientRecord }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <section className={widgetBox}>
+        <WidgetHeader title="Active Problems" />
+        <ul className="divide-y divide-slate-200 text-[12px]">
+          <li className="px-3 py-2 flex justify-between">
+            <span className="font-semibold text-slate-800">{patient.chief_complaint ?? "—"}</span>
+            <span className="font-mono text-[10.5px] text-slate-500">{fmtTime(patient.admission_time).split(",")[0]}</span>
+          </li>
+          {patient.diagnosis && patient.diagnosis !== patient.chief_complaint ? (
+            <li className="px-3 py-2 flex justify-between">
+              <span className="font-semibold text-slate-800">{patient.diagnosis}</span>
+              <span className="font-mono text-[10.5px] text-slate-500">Active</span>
+            </li>
+          ) : null}
+        </ul>
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Past Medical History" />
+        <ul className="divide-y divide-slate-200 text-[12px]">
+          <li className="px-3 py-2 text-slate-700">Hypertension — controlled</li>
+          <li className="px-3 py-2 text-slate-700">Type 2 Diabetes Mellitus</li>
+          <li className="px-3 py-2 text-slate-700">Hyperlipidemia</li>
+        </ul>
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Allergies" />
+        <ul className="divide-y divide-slate-200 text-[12px]">
+          <li className="px-3 py-2 flex justify-between"><span className="font-semibold">cefazolin (From Ancef)</span><span className="text-slate-500">Diarrhea</span></li>
+          <li className="px-3 py-2 flex justify-between"><span className="font-semibold">penicillin G</span><span className="text-slate-500">Rash</span></li>
+        </ul>
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Surgical History" />
+        <ul className="divide-y divide-slate-200 text-[12px]">
+          <li className="px-3 py-2 text-slate-700">Appendectomy — 2012</li>
+          <li className="px-3 py-2 text-slate-700">Cholecystectomy — 2018</li>
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+function AdministrativeView({ patient }: { patient: PatientRecord }) {
+  const fullName = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown";
+  const age = mockAgeFromName(patient.first_name, patient.age);
+  const dob = mockDobFromAge(age);
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <section className={widgetBox}>
+        <WidgetHeader title="Demographics" />
+        <dl className="grid grid-cols-[140px_1fr] gap-y-1 px-3 py-2 text-[12px]">
+          <dt className="text-slate-600">Name</dt><dd className="font-semibold text-slate-800">{fullName}</dd>
+          <dt className="text-slate-600">MRN</dt><dd className="font-mono text-slate-800">{patient.mrn}</dd>
+          <dt className="text-slate-600">Date of Birth</dt><dd className="font-mono text-slate-800">{dob}</dd>
+          <dt className="text-slate-600">Age</dt><dd className="text-slate-800">{age}</dd>
+          <dt className="text-slate-600">Sex</dt><dd className="text-slate-800">{patient.gender ?? "—"}</dd>
+          <dt className="text-slate-600">Room</dt><dd className="font-mono text-slate-800">{patient.room ?? "—"}</dd>
+        </dl>
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Encounter / Account" />
+        <dl className="grid grid-cols-[140px_1fr] gap-y-1 px-3 py-2 text-[12px]">
+          <dt className="text-slate-600">Account #</dt><dd className="font-mono text-slate-800">SE{patient.mrn.slice(-7)}</dd>
+          <dt className="text-slate-600">Admit Time</dt><dd className="font-mono text-slate-800">{fmtTime(patient.admission_time)}</dd>
+          <dt className="text-slate-600">Service</dt><dd className="text-slate-800">Emergency Medicine</dd>
+          <dt className="text-slate-600">Status</dt><dd className="text-slate-800">Inpatient</dd>
+          <dt className="text-slate-600">Code Status</dt><dd className="text-slate-800">{patient.code_status ?? "Full Code"}</dd>
+        </dl>
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Insurance / Payor" />
+        <dl className="grid grid-cols-[140px_1fr] gap-y-1 px-3 py-2 text-[12px]">
+          <dt className="text-slate-600">Primary</dt><dd className="text-slate-800">Blue Cross — PPO</dd>
+          <dt className="text-slate-600">Policy #</dt><dd className="font-mono text-slate-800">BC{patient.mrn.slice(-6)}</dd>
+          <dt className="text-slate-600">Group</dt><dd className="font-mono text-slate-800">GRP-002841</dd>
+        </dl>
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Contacts" />
+        <dl className="grid grid-cols-[140px_1fr] gap-y-1 px-3 py-2 text-[12px]">
+          <dt className="text-slate-600">Emergency Contact</dt><dd className="text-slate-800">Spouse — (555) 200-4815</dd>
+          <dt className="text-slate-600">PCP</dt><dd className="text-slate-800">Dr. Garniss, Derek A, MD</dd>
+        </dl>
+      </section>
+    </div>
+  );
+}
+
+function NurseView({ patient }: { patient: PatientRecord }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <section className={widgetBox}>
+        <WidgetHeader title="Nursing Assessment" />
+        <dl className="grid grid-cols-[160px_1fr] gap-y-1 px-3 py-2 text-[12px]">
+          <dt className="text-slate-600">LOC</dt><dd>Alert &amp; Oriented x3</dd>
+          <dt className="text-slate-600">Pain Score</dt><dd className="font-mono">4/10</dd>
+          <dt className="text-slate-600">Fall Risk</dt><dd>Moderate (Morse 45)</dd>
+          <dt className="text-slate-600">Skin Integrity</dt><dd>Intact</dd>
+          <dt className="text-slate-600">Mobility</dt><dd>Independent</dd>
+          <dt className="text-slate-600">IV Access</dt><dd>20g LFA — patent</dd>
+        </dl>
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Intake &amp; Output (8 hr)" />
+        <table className="w-full text-[12px]">
+          <thead><tr><th className={thClass}>Type</th><th className={thClass + " text-right"}>Volume (mL)</th></tr></thead>
+          <tbody>
+            <tr><td className={tdClass}>PO</td><td className={tdClass + " font-mono text-right"}>240</td></tr>
+            <tr><td className={tdClass}>IV NS @ 100/hr</td><td className={tdClass + " font-mono text-right"}>800</td></tr>
+            <tr><td className={tdClass}>Urine</td><td className={tdClass + " font-mono text-right"}>650</td></tr>
+            <tr><td className={tdClass + " font-bold"}>Net</td><td className={tdClass + " font-mono font-bold text-right"}>+390</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <section className={widgetBox + " md:col-span-2"}>
+        <WidgetHeader title="Allied Health Consults" />
+        <ul className="divide-y divide-slate-200 text-[12px]">
+          <li className="px-3 py-2 flex justify-between"><span>Respiratory Therapy</span><span className="text-emerald-700 font-semibold">Active</span></li>
+          <li className="px-3 py-2 flex justify-between"><span>Physical Therapy</span><span className="text-slate-500">Pending eval</span></li>
+          <li className="px-3 py-2 flex justify-between"><span>Care Management</span><span className="text-slate-500">Pending</span></li>
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+function OtherClinicalView({ patient }: { patient: PatientRecord }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <section className={widgetBox}>
+        <WidgetHeader title="Imaging" />
+        <ul className="divide-y divide-slate-200 text-[12px]">
+          <li className="px-3 py-2 flex justify-between"><span>CXR — Portable</span><span className="text-emerald-700 font-semibold">Resulted</span></li>
+          <li className="px-3 py-2 flex justify-between"><span>CT Abdomen w/ contrast</span><span className="text-amber-700 font-semibold">In Progress</span></li>
+        </ul>
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Microbiology" />
+        <ul className="divide-y divide-slate-200 text-[12px]">
+          <li className="px-3 py-2 flex justify-between"><span>Blood Culture x2</span><span className="text-slate-500">Pending — 24h</span></li>
+          <li className="px-3 py-2 flex justify-between"><span>UA / Urine Cx</span><span className="text-emerald-700 font-semibold">Resulted</span></li>
+        </ul>
+      </section>
+      <section className={widgetBox + " md:col-span-2"}>
+        <WidgetHeader title="Diet / Activity Orders" />
+        <dl className="grid grid-cols-[160px_1fr] gap-y-1 px-3 py-2 text-[12px]">
+          <dt className="text-slate-600">Diet</dt><dd>Regular, as tolerated</dd>
+          <dt className="text-slate-600">Activity</dt><dd>Ambulate with assist</dd>
+          <dt className="text-slate-600">Precautions</dt><dd>Standard + Fall</dd>
+        </dl>
+      </section>
+    </div>
+  );
+}
+
+function HealthMgmtView({ patient }: { patient: PatientRecord }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <section className={widgetBox}>
+        <WidgetHeader title="Care Plan Goals" />
+        <ul className="divide-y divide-slate-200 text-[12px]">
+          <li className="px-3 py-2">Stabilize hemodynamics — pulse &lt; 100, MAP &gt; 65</li>
+          <li className="px-3 py-2">Pain controlled to &lt; 4/10 within 6h</li>
+          <li className="px-3 py-2">Identify infectious source — cultures + imaging</li>
+        </ul>
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Preventive / Screening" />
+        <ul className="divide-y divide-slate-200 text-[12px]">
+          <li className="px-3 py-2 flex justify-between"><span>Influenza Vaccine</span><span className="text-emerald-700 font-semibold">Up to date</span></li>
+          <li className="px-3 py-2 flex justify-between"><span>Pneumococcal</span><span className="text-amber-700 font-semibold">Due</span></li>
+          <li className="px-3 py-2 flex justify-between"><span>Tobacco Screening</span><span className="text-emerald-700 font-semibold">Completed</span></li>
+        </ul>
+      </section>
     </div>
   );
 }
@@ -792,141 +1258,195 @@ function PatientChart() {
   const dx = patient.diagnosis ?? patient.chief_complaint;
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      {/* Persistent Clinical Banner */}
-      <header className="sticky top-0 z-30 bg-[var(--navy,#0b2545)] text-white border-b-2 border-[var(--teal,#13b5b1)] shadow-lg">
-        <div className="max-w-[1600px] mx-auto px-4 py-2.5 flex items-center gap-4">
+    <main className="min-h-screen bg-[#e9e7e0]">
+      {/* MEDITECH Expanse — Top dark toolbar */}
+      <header className="sticky top-0 z-30 bg-[#2c2c2c] text-white shadow">
+        <div className="flex items-stretch">
           <Link
             to="/nursing-board"
-            className="inline-flex items-center gap-1 rounded bg-white/10 hover:bg-white/20 ring-1 ring-white/15 px-2.5 h-8 text-[11px] font-semibold transition shrink-0"
+            className="flex flex-col items-center justify-center px-3 py-1.5 border-r border-white/10 hover:bg-white/10 transition min-w-[64px]"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Floor Board
+            <ArrowLeft className="h-4 w-4 text-emerald-400 mb-0.5" />
+            <span className="text-[10px] tracking-wide">Return To</span>
           </Link>
-
-          <div className="min-w-0 flex-1 flex items-center gap-4">
-            {/* Identity */}
-            <div className="min-w-0">
-              <h1 className="font-serif text-2xl leading-none tracking-tight truncate">
-                {fullName}
-              </h1>
-              <div className="mt-1 flex items-center gap-2 font-mono text-[10.5px] text-white/75 tabular-nums">
-                <span>MRN {patient.mrn}</span>
-                <span className="text-white/30">|</span>
-                <span>DOB {dob}</span>
-                <span className="text-white/30">|</span>
-                <span>{age} y/o {patient.gender ?? "—"}</span>
-                {patient.room ? (
-                  <>
-                    <span className="text-white/30">|</span>
-                    <span>RM {patient.room}</span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Pills */}
-            <div className="hidden md:flex items-center gap-1.5 shrink-0">
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-bold ring-1 ${
-                  isFullCode
-                    ? "bg-emerald-500/15 text-emerald-300 ring-emerald-400/40"
-                    : "bg-amber-500/15 text-amber-300 ring-amber-400/40"
-                }`}
-              >
-                {codeStatus}
-              </span>
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-bold ring-1 ${
-                  isNKDA
-                    ? "bg-slate-500/15 text-slate-200 ring-slate-400/30"
-                    : "bg-red-500/20 text-red-300 ring-red-400/50"
-                }`}
-              >
-                Allergies: {allergy}
-              </span>
-            </div>
-
-            {/* Chief Complaint */}
-            <div className="hidden lg:flex min-w-0 flex-1 items-center gap-2 px-3 h-8 rounded bg-white/5 ring-1 ring-white/10">
-              <span className="text-[9px] uppercase tracking-widest text-white/55 shrink-0">CC</span>
-              <span className="text-[11.5px] text-white/95 truncate font-medium">
-                {patient.chief_complaint ?? "—"}
-              </span>
-            </div>
-          </div>
-
-          {/* Live Telemetry */}
-          <div className="shrink-0">
-            <LiveTelemetry dx={dx} />
-          </div>
+          {[
+            { label: "Home", icon: <Home className="h-4 w-4" /> },
+            { label: "Trackers", icon: <ClipboardList className="h-4 w-4" /> },
+            { label: "Chart", icon: <FileText className="h-4 w-4" />, active: true },
+            { label: "Document", icon: <PenLine className="h-4 w-4" /> },
+            { label: "Orders", icon: <FlaskConical className="h-4 w-4" /> },
+            { label: "Discharge", icon: <LogOut className="h-4 w-4" /> },
+          ].map((b) => (
+            <button key={b.label} className={`flex flex-col items-center justify-center px-3 py-1.5 border-r border-white/10 hover:bg-white/10 min-w-[72px] ${b.active ? "bg-white/10" : ""}`}>
+              {b.icon}
+              <span className="text-[10px] tracking-wide mt-0.5">{b.label}</span>
+            </button>
+          ))}
+          <div className="flex-1" />
+          {[
+            { label: "Sign", icon: <PenLine className="h-4 w-4" /> },
+            { label: "Workload", icon: <ClipboardList className="h-4 w-4" />, badge: 5 },
+            { label: "Menu", icon: <Settings className="h-4 w-4" /> },
+            { label: "Suspend", icon: <Power className="h-4 w-4 text-red-400" /> },
+          ].map((b) => (
+            <button key={b.label} className="relative flex flex-col items-center justify-center px-3 py-1.5 border-l border-white/10 hover:bg-white/10 min-w-[72px]">
+              {b.icon}
+              <span className="text-[10px] tracking-wide mt-0.5">{b.label}</span>
+              {b.badge ? <span className="absolute top-1 right-1 bg-amber-500 text-black text-[9px] font-bold rounded-full h-4 w-4 grid place-items-center">{b.badge}</span> : null}
+            </button>
+          ))}
         </div>
-
-        {/* Chart Navigation Tabs */}
-        <nav className="bg-[#0a1f3d] border-t border-white/10">
-          <div className="max-w-[1600px] mx-auto px-4 flex items-center gap-0">
-            {TABS.map((t) => {
-              const active = tab === t.key;
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`relative h-9 px-4 text-[11.5px] font-semibold uppercase tracking-wider transition ${
-                    active
-                      ? "text-white"
-                      : "text-white/55 hover:text-white/85"
-                  }`}
-                >
-                  {t.label}
-                  {active ? (
-                    <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-[var(--teal,#13b5b1)] rounded-t" />
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
       </header>
 
-      {/* Main content area */}
-      <section className="max-w-[1600px] mx-auto px-4 py-10">
-        {tab === null ? (
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-12 text-center">
-            <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
-              S.P.E.H.R. Clinical Chart
+      {/* Body — main content + right patient sidebar */}
+      <div className="flex">
+        {/* Main column */}
+        <div className="flex-1 min-w-0 px-2 pt-3 pb-6">
+          {/* MEDITECH tab rows */}
+          <nav className="space-y-1.5 mb-3">
+            <TabRow tabs={TABS_ROW1} active={tab} onClick={(k) => setTab(k)} variant="blue" />
+            <TabRow tabs={TABS_ROW2} active={tab} onClick={(k) => setTab(k)} variant="blue" />
+            <TabRow tabs={TABS_ROW3} active={tab} onClick={(k) => setTab(k)} variant="cream" />
+          </nav>
+
+          {tab === "summary" ? (
+            <SummaryView mrn={patient.mrn} patient={patient} />
+          ) : tab === "diagnostics" ? (
+            <div className={widgetBox + " overflow-hidden"}>
+              <WidgetHeader title="Laboratory Results" icon={<FlaskConical className="h-3.5 w-3.5" />} />
+              <LabsView mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
             </div>
-            <p className="mt-3 text-base text-slate-600">
-              Select a chart section to view clinical data for{" "}
-              <span className="font-serif text-slate-900 font-semibold">{fullName}</span>.
-            </p>
-            <div className="mt-6 flex justify-center gap-2 flex-wrap">
-              {TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className="rounded border border-slate-300 bg-white px-3 h-8 text-[11px] font-semibold text-slate-700 hover:bg-[var(--navy,#0b2545)] hover:text-white hover:border-[var(--navy,#0b2545)] transition"
-                >
-                  {t.label}
-                </button>
-              ))}
+          ) : tab === "medications" ? (
+            <div className={widgetBox + " overflow-hidden"}>
+              <WidgetHeader title="Medication Administration Record" icon={<Pill className="h-3.5 w-3.5" />} />
+              <MarView patientId={patient.id} complaint={patient.chief_complaint ?? null} />
+            </div>
+          ) : tab === "providernotes" ? (
+            <div className="space-y-3">
+              <div className={widgetBox + " p-3"}>
+                <NotesView mrn={patient.mrn} />
+              </div>
+            </div>
+          ) : tab === "activity" ? (
+            <ActivityView mrn={patient.mrn} patient={patient} />
+          ) : tab === "flowsheets" ? (
+            <FlowsheetsView patient={patient} />
+          ) : tab === "nurse" ? (
+            <NurseView patient={patient} />
+          ) : tab === "history" ? (
+            <HistoryProblemsView patient={patient} />
+          ) : tab === "administrative" ? (
+            <AdministrativeView patient={patient} />
+          ) : tab === "otherclinical" ? (
+            <OtherClinicalView patient={patient} />
+          ) : tab === "healthmgmt" ? (
+            <HealthMgmtView patient={patient} />
+          ) : null}
+        </div>
+
+        {/* Right patient sidebar */}
+        <aside className="hidden xl:block w-[300px] shrink-0 bg-white border-l border-slate-300 min-h-[calc(100vh-50px)]">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200">
+            <RefreshCw className="h-4 w-4 text-slate-500" />
+            <Info className="h-4 w-4 text-blue-600" />
+          </div>
+          <div className="px-3 pt-2 pb-3 border-b border-slate-200">
+            <h2 className="text-[18px] font-semibold text-slate-900 leading-tight truncate">{fullName}</h2>
+            <div className="text-[11.5px] text-slate-600 mt-0.5">
+              {age}, {patient.gender ?? "—"} · {dob}
+            </div>
+            <div className="text-[11px] text-slate-600 font-mono mt-0.5">MRN# {patient.mrn}</div>
+            <div className="text-[11px] text-slate-700 mt-1">
+              REG ER, SA Main ED <span className="text-slate-500">Acute -{patient.room ?? "A11"}</span>
+            </div>
+            <div className="mt-2 flex gap-3 text-[11px]">
+              <span className="text-slate-600">1.58m / 78kg</span>
+              <span className="text-slate-600">BMI: 31.2 kg/m²</span>
+            </div>
+            <div className="mt-2 text-[13px] font-semibold text-orange-700">
+              {patient.chief_complaint ?? "—"}
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <div className="text-[10px] text-slate-500">
+                <div>Acc#</div>
+                <div className="font-mono text-slate-700">SE{patient.mrn.slice(-7)}</div>
+              </div>
+              {!isFullCode ? null : (
+                <span className="inline-flex items-center rounded bg-red-600 text-white px-2 py-1 text-[10px] font-bold uppercase tracking-wider">
+                  Full Resuscitation
+                </span>
+              )}
             </div>
           </div>
-        ) : tab === "summary" ? (
-          <SummaryView mrn={patient.mrn} patient={patient} />
-        ) : tab === "labs" ? (
-          <div className={panelClass + " overflow-hidden"}>
-            <header className={sectionHeader}>Laboratory Results</header>
-            <LabsView mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
+
+          <div className="px-3 py-2 border-b border-slate-200 flex items-center gap-2">
+            <Search className="h-3.5 w-3.5 text-slate-400" />
+            <input placeholder="Search Chart" className="flex-1 bg-[#fdfbe8] border border-slate-300 rounded px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-emerald-500" />
           </div>
-        ) : tab === "mar" ? (
-          <div className={panelClass + " overflow-hidden"}>
-            <header className={sectionHeader}>Medication Administration Record</header>
-            <MarView patientId={patient.id} complaint={patient.chief_complaint ?? null} />
+
+          {/* Live telemetry pulled into MEDITECH sidebar */}
+          <div className="px-3 py-2 border-b border-slate-200 bg-[#0b2545] text-white">
+            <div className="text-[10px] uppercase tracking-widest text-white/55 mb-1">Live Telemetry</div>
+            <LiveTelemetry dx={dx} />
           </div>
-        ) : (
-          <NotesView mrn={patient.mrn} />
-        )}
-      </section>
+
+          <div className="px-3 py-2 border-b border-slate-200">
+            <div className="text-[12px] font-semibold text-slate-800 mb-1">● Active Problems</div>
+            <div className="text-[12px] text-slate-700">{patient.chief_complaint ?? "—"}</div>
+          </div>
+
+          <div className="px-3 py-2 border-b border-slate-200">
+            <div className="text-[12px] font-semibold text-slate-800 mb-1">● Allergies</div>
+            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>cefazolin</span><span className="text-slate-500">Diarrhea</span></div>
+            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>penicillin G</span><span className="text-slate-500">Rash</span></div>
+          </div>
+
+          <div className="px-3 py-2">
+            <div className="text-[12px] font-semibold text-slate-800 mb-1">● Vitals — Current</div>
+            <div className="grid grid-cols-2 gap-y-1 text-[11.5px]">
+              <span className="text-slate-600">BP</span>
+              <span className={`font-mono ${(patient.bp_systolic ?? 0) >= 140 ? "bg-yellow-200 px-1 rounded font-bold" : ""}`}>
+                {patient.bp_systolic ?? "—"}/{patient.bp_diastolic ?? "—"}
+              </span>
+              <span className="text-slate-600">Pulse</span>
+              <span className="font-mono">{patient.hr ?? "—"}</span>
+              <span className="text-slate-600">SpO₂</span>
+              <span className="font-mono">{patient.spo2 ?? "—"}%</span>
+              <span className="text-slate-600">Code</span>
+              <span className="font-mono">{codeStatus}</span>
+              <span className="text-slate-600">Allergy</span>
+              <span className={`font-mono ${isNKDA ? "" : "text-red-700 font-bold"}`}>{allergy}</span>
+            </div>
+          </div>
+        </aside>
+      </div>
     </main>
+  );
+}
+
+function TabRow({
+  tabs, active, onClick, variant,
+}: {
+  tabs: { key: TabKey; label: string }[];
+  active: TabKey | null;
+  onClick: (k: TabKey) => void;
+  variant: "blue" | "cream";
+}) {
+  const isCream = variant === "cream";
+  return (
+    <div className="flex items-center gap-1">
+      {tabs.map((t) => {
+        const isActive = active === t.key;
+        const base = "px-6 py-1.5 text-[13px] font-medium rounded-t-[14px] rounded-b-sm border border-b-0 transition";
+        const colors = isActive
+          ? (isCream ? "bg-[#fdfbe8] border-amber-400 text-slate-900 shadow-inner" : "bg-[#7fa9d8] border-[#5b8bc7] text-white shadow-inner")
+          : (isCream ? "bg-[#f0ecdc] border-amber-300/60 text-slate-700 hover:bg-[#fdfbe8]" : "bg-[#a8c5e3] border-[#7fa9d8] text-slate-900 hover:bg-[#7fa9d8] hover:text-white");
+        return (
+          <button key={t.key} onClick={() => onClick(t.key)} className={`${base} ${colors} flex-1`}>
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
