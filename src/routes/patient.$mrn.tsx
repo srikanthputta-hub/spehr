@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import {
@@ -18,6 +18,46 @@ import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
 });
+
+/* ------------------------------------------------------------------ */
+/* Pending Signature Store                                             */
+/* ------------------------------------------------------------------ */
+/* Any edit in the chart that the user "Saves" is queued here as an    */
+/* unsigned change. The toolbar Sign button flushes the queue after    */
+/* PIN 1234 is verified, persisting every change to Supabase.          */
+/* ------------------------------------------------------------------ */
+type PendingChange = {
+  id: string;
+  label: string;
+  commit: () => Promise<void>;
+};
+const pendingStore = (() => {
+  let items: PendingChange[] = [];
+  const subs = new Set<() => void>();
+  const emit = () => subs.forEach((s) => s());
+  return {
+    add(c: Omit<PendingChange, "id">) {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      items = [...items, { ...c, id }];
+      emit();
+      return id;
+    },
+    remove(id: string) {
+      items = items.filter((i) => i.id !== id);
+      emit();
+    },
+    clear() { items = []; emit(); },
+    get(): PendingChange[] { return items; },
+    subscribe(fn: () => void) { subs.add(fn); return () => subs.delete(fn); },
+  };
+})();
+function usePendingChanges(): PendingChange[] {
+  return useSyncExternalStore(
+    (cb) => pendingStore.subscribe(cb),
+    () => pendingStore.get(),
+    () => pendingStore.get(),
+  );
+}
 
 interface PatientRecord {
   id: string;
