@@ -1195,10 +1195,39 @@ function HealthMgmtView({ patient }: { patient: PatientRecord }) {
 
 function PatientChart() {
   const { mrn } = useParams({ from: "/patient/$mrn" });
+  const navigate = useNavigate();
   const [patient, setPatient] = useState<PatientRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey | null>("summary");
+  const [ordersOpen, setOrdersOpen] = useState(false);
+  const [dischargeOpen, setDischargeOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [workloadCount, setWorkloadCount] = useState<number>(0);
+  const automationEnabled = useAutomationEnabled();
+
+  // Live workload badge — pending labs+meds for this patient
+  useEffect(() => {
+    if (!patient) return;
+    let cancelled = false;
+    const refresh = async () => {
+      const [labs, meds] = await Promise.all([
+        supabase.from("lab_orders").select("id", { count: "exact", head: true })
+          .eq("patient_mrn", patient.mrn).in("status", ["Pending Collection", "PENDING_VERIFICATION", "In Progress"]),
+        supabase.from("medication_orders").select("id", { count: "exact", head: true })
+          .eq("patient_mrn", patient.mrn).in("status", ["PENDING_PHARMACY", "PENDING_VERIFICATION"]),
+      ]);
+      if (cancelled) return;
+      setWorkloadCount((labs.count ?? 0) + (meds.count ?? 0));
+    };
+    refresh();
+    const ch = supabase
+      .channel(`patient-workload-${patient.mrn}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders", filter: `patient_mrn=eq.${patient.mrn}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "medication_orders", filter: `patient_mrn=eq.${patient.mrn}` }, refresh)
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, [patient?.mrn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1257,6 +1286,20 @@ function PatientChart() {
   const isNKDA = allergy === "NKDA";
   const dx = patient.diagnosis ?? patient.chief_complaint;
 
+  const handleSuspend = async () => {
+    if (!confirm("Suspend session and sign out?")) return;
+    await supabase.auth.signOut().catch(() => {});
+    toast.success("Session suspended");
+    navigate({ to: "/" }).catch(() => {});
+  };
+
+  const refreshChart = () => {
+    toast.info("Refreshing chart…");
+    window.location.reload();
+  };
+
+  const handlePrint = () => window.print();
+
   return (
     <main className="min-h-screen bg-[#e9e7e0]">
       {/* MEDITECH Expanse — Top dark toolbar */}
@@ -1269,34 +1312,38 @@ function PatientChart() {
             <ArrowLeft className="h-4 w-4 text-emerald-400 mb-0.5" />
             <span className="text-[10px] tracking-wide">Return To</span>
           </Link>
-          {[
-            { label: "Home", icon: <Home className="h-4 w-4" /> },
-            { label: "Trackers", icon: <ClipboardList className="h-4 w-4" /> },
-            { label: "Chart", icon: <FileText className="h-4 w-4" />, active: true },
-            { label: "Document", icon: <PenLine className="h-4 w-4" /> },
-            { label: "Orders", icon: <FlaskConical className="h-4 w-4" /> },
-            { label: "Discharge", icon: <LogOut className="h-4 w-4" /> },
-          ].map((b) => (
-            <button key={b.label} className={`flex flex-col items-center justify-center px-3 py-1.5 border-r border-white/10 hover:bg-white/10 min-w-[72px] ${b.active ? "bg-white/10" : ""}`}>
-              {b.icon}
-              <span className="text-[10px] tracking-wide mt-0.5">{b.label}</span>
-            </button>
-          ))}
+          <ToolbarBtn label="Home" icon={<Home className="h-4 w-4" />} onClick={() => navigate({ to: "/" }).catch(() => {})} />
+          <ToolbarBtn label="Trackers" icon={<ClipboardList className="h-4 w-4" />} onClick={() => navigate({ to: "/nursing-board" }).catch(() => {})} />
+          <ToolbarBtn label="Chart" icon={<FileText className="h-4 w-4" />} active onClick={() => { setTab("summary"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+          <ToolbarBtn label="Document" icon={<PenLine className="h-4 w-4" />} onClick={() => { setTab("providernotes"); toast.info("Opened Provider Notes — add or sign a note"); }} />
+          <ToolbarBtn label="Orders" icon={<FlaskConical className="h-4 w-4" />} onClick={() => setOrdersOpen(true)} />
+          <ToolbarBtn label="Discharge" icon={<LogOut className="h-4 w-4" />} onClick={() => setDischargeOpen(true)} />
           <div className="flex-1" />
-          {[
-            { label: "Sign", icon: <PenLine className="h-4 w-4" /> },
-            { label: "Workload", icon: <ClipboardList className="h-4 w-4" />, badge: 5 },
-            { label: "Menu", icon: <Settings className="h-4 w-4" /> },
-            { label: "Suspend", icon: <Power className="h-4 w-4 text-red-400" /> },
-          ].map((b) => (
-            <button key={b.label} className="relative flex flex-col items-center justify-center px-3 py-1.5 border-l border-white/10 hover:bg-white/10 min-w-[72px]">
-              {b.icon}
-              <span className="text-[10px] tracking-wide mt-0.5">{b.label}</span>
-              {b.badge ? <span className="absolute top-1 right-1 bg-amber-500 text-black text-[9px] font-bold rounded-full h-4 w-4 grid place-items-center">{b.badge}</span> : null}
-            </button>
-          ))}
+          <ToolbarBtn side="right" label="Sign" icon={<PenLine className="h-4 w-4" />} onClick={() => { setTab("providernotes"); toast.info("Review unsigned notes & enter PIN to sign"); }} />
+          <ToolbarBtn side="right" label="Workload" icon={<ClipboardList className="h-4 w-4" />} badge={workloadCount} onClick={() => navigate({ to: "/tasks" }).catch(() => {})} />
+          <div className="relative">
+            <ToolbarBtn side="right" label="Menu" icon={<Settings className="h-4 w-4" />} onClick={() => setMenuOpen((v) => !v)} />
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-0.5 bg-white text-slate-800 shadow-xl border border-slate-300 rounded-md w-56 z-40">
+                <button onClick={() => { setMenuOpen(false); refreshChart(); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 flex items-center gap-2"><RefreshCw className="h-3.5 w-3.5" /> Refresh Chart</button>
+                <button onClick={() => { setMenuOpen(false); handlePrint(); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 flex items-center gap-2"><Printer className="h-3.5 w-3.5" /> Print Chart</button>
+                <button onClick={() => { setMenuOpen(false); navigate({ to: "/physician-board" }).catch(() => {}); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 flex items-center gap-2"><Users className="h-3.5 w-3.5" /> Switch to Physician Board</button>
+                <button onClick={() => { setMenuOpen(false); navigate({ to: "/admin-dashboard" }).catch(() => {}); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 flex items-center gap-2"><Settings className="h-3.5 w-3.5" /> Admin Dashboard</button>
+                <div className="border-t border-slate-200" />
+                <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-slate-500">Automation: {automationEnabled ? "ON" : "OFF"}</div>
+              </div>
+            )}
+          </div>
+          <ToolbarBtn side="right" label="Suspend" icon={<Power className="h-4 w-4 text-red-400" />} onClick={handleSuspend} />
         </div>
       </header>
+
+      {ordersOpen && (
+        <OrdersDialog patient={patient} automationEnabled={automationEnabled} onClose={() => setOrdersOpen(false)} />
+      )}
+      {dischargeOpen && (
+        <DischargeDialog patient={patient} onClose={() => setDischargeOpen(false)} onDone={() => { setDischargeOpen(false); navigate({ to: "/nursing-board" }).catch(() => {}); }} />
+      )}
 
       {/* Body — main content + right patient sidebar */}
       <div className="flex">
