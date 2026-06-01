@@ -1192,6 +1192,43 @@ function PatientChart() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [workloadCount, setWorkloadCount] = useState<number>(0);
   const automationEnabled = useAutomationEnabled();
+  const pending = usePendingChanges();
+  const [signOpen, setSignOpen] = useState(false);
+  const [signPin, setSignPin] = useState("");
+  const [signError, setSignError] = useState<string | null>(null);
+  const [signing, setSigning] = useState(false);
+
+  const openSign = () => {
+    if (pending.length === 0) {
+      toast.info("No unsigned changes — make an edit and click Save first");
+      return;
+    }
+    setSignPin("");
+    setSignError(null);
+    setSignOpen(true);
+  };
+
+  const verifyAndCommitAll = async () => {
+    if (signPin !== "1234") {
+      setSignError("Invalid Signature PIN.");
+      return;
+    }
+    setSigning(true);
+    const items = pendingStore.get();
+    let ok = 0;
+    for (const it of items) {
+      try {
+        await it.commit();
+        pendingStore.remove(it.id);
+        ok++;
+      } catch (e: any) {
+        toast.error(`Failed to sign "${it.label}": ${e?.message ?? "error"}`);
+      }
+    }
+    setSigning(false);
+    setSignOpen(false);
+    if (ok > 0) toast.success(`Signed & saved ${ok} change${ok === 1 ? "" : "s"}`);
+  };
 
   // Live workload badge — pending labs+meds for this patient
   useEffect(() => {
@@ -1306,7 +1343,7 @@ function PatientChart() {
           <ToolbarBtn label="Orders" icon={<FlaskConical className="h-4 w-4" />} onClick={() => setOrdersOpen(true)} />
           <ToolbarBtn label="Discharge" icon={<LogOut className="h-4 w-4" />} onClick={() => setDischargeOpen(true)} />
           <div className="flex-1" />
-          <ToolbarBtn side="right" label="Sign" icon={<PenLine className="h-4 w-4" />} onClick={() => { setTab("providernotes"); toast.info("Review unsigned notes & enter PIN to sign"); }} />
+          <ToolbarBtn side="right" label="Sign" icon={<PenLine className="h-4 w-4" />} badge={pending.length} onClick={openSign} />
           <ToolbarBtn side="right" label="Workload" icon={<ClipboardList className="h-4 w-4" />} badge={workloadCount} onClick={() => navigate({ to: "/tasks" }).catch(() => {})} />
           <div className="relative">
             <ToolbarBtn side="right" label="Menu" icon={<Settings className="h-4 w-4" />} onClick={() => setMenuOpen((v) => !v)} />
@@ -1330,6 +1367,54 @@ function PatientChart() {
       )}
       {dischargeOpen && (
         <DischargeDialog patient={patient} onClose={() => setDischargeOpen(false)} onDone={() => { setDischargeOpen(false); navigate({ to: "/nursing-board" }).catch(() => {}); }} />
+      )}
+
+      {signOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white shadow-2xl border-t-4 border-[var(--teal,#13b5b1)]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-[var(--navy,#0b2545)]" />
+                <h3 className="text-[12px] font-bold uppercase tracking-wider text-slate-800">
+                  Digital Signature Verification
+                </h3>
+              </div>
+              <button onClick={() => setSignOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-[12px] text-slate-600">
+                Enter your 4-digit clinician PIN to permanently sign and save the following unsigned change{pending.length === 1 ? "" : "s"}:
+              </p>
+              <ul className="rounded border border-slate-200 bg-slate-50 divide-y divide-slate-200 text-[11.5px]">
+                {pending.map((p) => (
+                  <li key={p.id} className="px-2.5 py-1.5 flex items-center gap-2">
+                    <PenLine className="h-3 w-3 text-slate-400" />
+                    <span className="truncate text-slate-700">{p.label}</span>
+                  </li>
+                ))}
+              </ul>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                value={signPin}
+                onChange={(e) => { setSignPin(e.target.value.replace(/\D/g, "").slice(0, 4)); setSignError(null); }}
+                onKeyDown={(e) => e.key === "Enter" && verifyAndCommitAll()}
+                autoFocus
+                placeholder="••••"
+                className="w-full h-12 rounded border-2 border-slate-300 px-3 text-center font-mono text-2xl tracking-[0.6em] focus:outline-none focus:border-[var(--teal,#13b5b1)]"
+              />
+              {signError && <p className="text-[11.5px] font-bold text-red-600 text-center">{signError}</p>}
+              <button
+                onClick={verifyAndCommitAll}
+                disabled={signing || signPin.length !== 4}
+                className="w-full rounded bg-emerald-700 text-white px-3 h-9 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-800 disabled:opacity-50"
+              >
+                {signing ? "Signing…" : "Verify & Sign"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Body — main content + right patient sidebar */}
