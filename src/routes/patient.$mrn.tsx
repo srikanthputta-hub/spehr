@@ -491,43 +491,32 @@ function NotesView({ mrn }: { mrn: string }) {
   const [showForm, setShowForm] = useState(false);
   const [noteType, setNoteType] = useState("Progress Note");
   const [content, setContent] = useState("");
-  const [pinOpen, setPinOpen] = useState(false);
-  const [pin, setPin] = useState("");
-  const [pinError, setPinError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
-  const tryOpenPin = () => {
+  const saveDraft = () => {
     if (!content.trim()) {
       toast.error("Note content is required");
       return;
     }
-    setPin(""); setPinError(null); setPinOpen(true);
-  };
-
-  const verifyAndSubmit = async () => {
-    if (pin !== "1234") {
-      setPinError("Invalid Signature PIN.");
-      return;
-    }
-    setSubmitting(true);
-    const { error } = await supabase.from("provider_notes").insert({
-      patient_mrn: mrn,
-      note_type: noteType,
-      content: content.trim(),
-      author_name: "Sarah Jenkins",
-      author_role: "RN, BSN",
+    const snapshotType = noteType;
+    const snapshotContent = content.trim();
+    pendingStore.add({
+      label: `${snapshotType} note`,
+      commit: async () => {
+        const { error } = await supabase.from("provider_notes").insert({
+          patient_mrn: mrn,
+          note_type: snapshotType,
+          content: snapshotContent,
+          author_name: "Sarah Jenkins",
+          author_role: "RN, BSN",
+        });
+        if (error) throw error;
+        setRefreshKey((k) => k + 1);
+      },
     });
-    setSubmitting(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Note signed and submitted");
-    setPinOpen(false);
+    toast.success("Draft saved — click Sign on the toolbar to commit");
     setShowForm(false);
     setContent("");
     setNoteType("Progress Note");
-    setRefreshKey((k) => k + 1);
   };
 
   return (
@@ -590,10 +579,10 @@ function NotesView({ mrn }: { mrn: string }) {
               Cancel
             </button>
             <button
-              onClick={tryOpenPin}
+              onClick={saveDraft}
               className="inline-flex items-center gap-1.5 rounded bg-emerald-700 text-white px-3 h-8 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-800"
             >
-              <ShieldCheck className="h-3.5 w-3.5" /> Sign & Submit
+              <ShieldCheck className="h-3.5 w-3.5" /> Save
             </button>
           </div>
         </div>
@@ -625,48 +614,6 @@ function NotesView({ mrn }: { mrn: string }) {
           ))}
         </div>
       )}
-
-      {pinOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
-          <div className="w-full max-w-sm rounded-lg bg-white shadow-2xl border-t-4 border-[var(--teal,#13b5b1)]">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-[var(--navy,#0b2545)]" />
-                <h3 className="text-[12px] font-bold uppercase tracking-wider text-slate-800">
-                  Digital Signature Verification
-                </h3>
-              </div>
-              <button onClick={() => setPinOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
-            </div>
-            <div className="p-5 space-y-3">
-              <p className="text-[12px] text-slate-600">
-                Enter your 4-digit clinician PIN to electronically sign this note.
-              </p>
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                value={pin}
-                onChange={(e) => { setPin(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinError(null); }}
-                onKeyDown={(e) => e.key === "Enter" && verifyAndSubmit()}
-                autoFocus
-                placeholder="••••"
-                className="w-full h-12 rounded border-2 border-slate-300 px-3 text-center font-mono text-2xl tracking-[0.6em] focus:outline-none focus:border-[var(--teal,#13b5b1)]"
-              />
-              {pinError ? (
-                <p className="text-[11.5px] font-bold text-red-600 text-center">{pinError}</p>
-              ) : null}
-              <button
-                onClick={verifyAndSubmit}
-                disabled={submitting || pin.length !== 4}
-                className="w-full rounded bg-emerald-700 text-white px-3 h-9 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-800 disabled:opacity-50"
-              >
-                {submitting ? "Signing…" : "Verify & Sign"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
