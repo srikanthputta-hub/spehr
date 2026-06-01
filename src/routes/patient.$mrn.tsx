@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useParams } from "@tanstack/react-router";
+import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getMockAiNote } from "@/lib/mockAiNotes";
@@ -6,7 +6,7 @@ import {
   ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X,
   CheckCircle2, Brain, Home, ClipboardList, FileText, FlaskConical,
   LogOut, PenLine, Settings, Power, ChevronUp, RefreshCw, Info, Search,
-  TrendingUp, Calendar, Pill,
+  TrendingUp, Calendar, Pill, Printer, Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
