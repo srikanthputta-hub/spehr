@@ -357,16 +357,17 @@ function BillModal({
       return;
     }
     let cancelled = false;
+    const mrn = patient.mrn;
     (async () => {
       const [medsRes, labsRes] = await Promise.all([
         supabase
           .from("medication_orders")
           .select("medication_name,drug_name,dose,route,status,administered_at")
-          .eq("patient_mrn", patient.mrn),
+          .eq("patient_mrn", mrn),
         supabase
           .from("lab_orders")
           .select("test_type,status,result_value,collected_at")
-          .eq("patient_mrn", patient.mrn),
+          .eq("patient_mrn", mrn),
       ]);
       if (cancelled) return;
       setMeds((medsRes.data ?? []) as MedRow[]);
