@@ -15,6 +15,7 @@ import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
 import { Route as LabBoardRouteImport } from './routes/lab-board'
+import { Route as FinanceBoardRouteImport } from './routes/finance-board'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
@@ -51,6 +52,11 @@ const LabBoardRoute = LabBoardRouteImport.update({
   path: '/lab-board',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FinanceBoardRoute = FinanceBoardRouteImport.update({
+  id: '/finance-board',
+  path: '/finance-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
   '/analytics': typeof AnalyticsRoute
+  '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
   '/analytics': typeof AnalyticsRoute
+  '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
   '/analytics': typeof AnalyticsRoute
+  '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
@@ -123,6 +132,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin-dashboard'
     | '/analytics'
+    | '/finance-board'
     | '/lab-board'
     | '/nursing-board'
     | '/pharmacy-queue'
@@ -136,6 +146,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin-dashboard'
     | '/analytics'
+    | '/finance-board'
     | '/lab-board'
     | '/nursing-board'
     | '/pharmacy-queue'
@@ -149,6 +160,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin-dashboard'
     | '/analytics'
+    | '/finance-board'
     | '/lab-board'
     | '/nursing-board'
     | '/pharmacy-queue'
@@ -163,6 +175,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminDashboardRoute: typeof AdminDashboardRoute
   AnalyticsRoute: typeof AnalyticsRoute
+  FinanceBoardRoute: typeof FinanceBoardRoute
   LabBoardRoute: typeof LabBoardRoute
   NursingBoardRoute: typeof NursingBoardRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
@@ -217,6 +230,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LabBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/finance-board': {
+      id: '/finance-board'
+      path: '/finance-board'
+      fullPath: '/finance-board'
+      preLoaderRoute: typeof FinanceBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/analytics': {
       id: '/analytics'
       path: '/analytics'
@@ -259,6 +279,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminDashboardRoute: AdminDashboardRoute,
   AnalyticsRoute: AnalyticsRoute,
+  FinanceBoardRoute: FinanceBoardRoute,
   LabBoardRoute: LabBoardRoute,
   NursingBoardRoute: NursingBoardRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
