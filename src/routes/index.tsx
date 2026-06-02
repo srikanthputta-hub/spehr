@@ -34,7 +34,7 @@ type RoleRoute =
   | "/nursing-board"
   | "/physician-board"
   | "/pharmacy-queue"
-  | "/respiratory-board"
+  | "/finance-board"
   | "/admin-dashboard"
   | "/lab-board"
   | "/system-admin";
@@ -43,7 +43,7 @@ const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = 
   { value: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
   { value: "/physician-board", label: "Attending Physician", abbrev: "MD" },
   { value: "/pharmacy-queue", label: "Clinical Pharmacist", abbrev: "PharmD" },
-  { value: "/respiratory-board", label: "Respiratory Therapist", abbrev: "RT" },
+  { value: "/finance-board", label: "Corporate Finance & Accounts", abbrev: "Finance" },
   { value: "/admin-dashboard", label: "Unit Administrator", abbrev: "Admin" },
   { value: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
   { value: "/system-admin", label: "EHR Specialist", abbrev: "EHR" },
