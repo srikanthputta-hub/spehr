@@ -88,7 +88,7 @@ interface StaffMember {
   hours_worked?: number;
 }
 
-const STAFF_ROLES = ["RN", "MD", "PharmD", "RT", "CNA", "LPN"] as const;
+const STAFF_ROLES = ["RN", "MD", "PharmD", "Finance", "CNA", "LPN"] as const;
 
 // Ghost HR — auto-scaling safety thresholds
 const SAFETY_THRESHOLDS = {
@@ -130,7 +130,7 @@ function roleBadgeClass(role: string) {
       return "bg-violet-50 text-violet-700 ring-1 ring-violet-600/20";
     case "PharmD":
       return "bg-amber-50 text-amber-700 ring-1 ring-amber-600/20";
-    case "RT":
+    case "Finance":
       return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20";
     default:
       return "bg-slate-100 text-slate-700 ring-1 ring-slate-600/20";

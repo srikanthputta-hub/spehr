@@ -48,7 +48,7 @@ const ROLE_LABELS: Record<string, string> = {
   RN: "Registered Nurse (RN)",
   MD: "Attending Physician (MD)",
   PharmD: "Clinical Pharmacist (PharmD)",
-  RT: "Respiratory Therapist (RT)",
+  Finance: "Corporate Finance & Accounts",
   Admin: "Unit Administrator",
   Lab: "Laboratory Technician (CLT)",
 };
@@ -399,7 +399,7 @@ const STAFF_DIRECTORY: StaffMember[] = [
   { name: "Priya Raman, PharmD", role: "Clinical Pharmacist", facility: "City General Infirmary", status: "Active" },
   { name: "Jordan Alvarez, CLT", role: "Clinical Lab Tech", facility: "Memorial Hospital", status: "Active" },
   { name: "Evelyn Park, MD", role: "Attending Physician", facility: "Srik Health Clinic", status: "Suspended" },
-  { name: "Tomás Reyes, RT", role: "Respiratory Therapist", facility: "County Health Pavilion", status: "Active" },
+  { name: "Daniel Whitfield, CPA", role: "Corporate Finance & Accounts", facility: "County Health Pavilion", status: "Active" },
   { name: "Hannah O'Connor, RN", role: "Registered Nurse", facility: "Memorial Hospital", status: "Active" },
   { name: "Brian Yamamoto, MD", role: "Attending Physician", facility: "St. Jude Medical Center", status: "Active" },
   { name: "Lena Kowalski, CLT", role: "Clinical Lab Tech", facility: "City General Infirmary", status: "Suspended" },

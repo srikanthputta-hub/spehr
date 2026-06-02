@@ -16,7 +16,7 @@ export interface NurseProfile {
   ward: string;
 }
 
-export type StaffRole = "RN" | "MD" | "PharmD" | "RT" | "Admin" | "Lab";
+export type StaffRole = "RN" | "MD" | "PharmD" | "Finance" | "Admin" | "Lab";
 
 export interface StaffProfile {
   name: string;
@@ -31,7 +31,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     RN: { name: "Sarah Jenkins, RN", role: "RN", roleLabel: "Registered Nurse", facility: "Memorial Hospital", ward: "Unit 4B - MedSurg" },
     MD: { name: "Dr. Robert Patel", role: "MD", roleLabel: "Attending Physician", facility: "Memorial Hospital", ward: "Internal Medicine" },
     PharmD: { name: "Elena Rostova, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "Memorial Hospital", ward: "Central Pharmacy" },
-    RT: { name: "Marcus Brody, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "Memorial Hospital", ward: "Pulmonary Services" },
+    Finance: { name: "Daniel Whitfield, CPA", role: "Finance", roleLabel: "Corporate Finance & Accounts", facility: "Memorial Hospital", ward: "Revenue Cycle Office" },
     Admin: { name: "Diane Whitaker", role: "Admin", roleLabel: "Unit Administrator", facility: "Memorial Hospital", ward: "Operations" },
     Lab: { name: "Sarah Collins, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "Memorial Hospital", ward: "Central Lab" },
   },
@@ -39,7 +39,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     RN: { name: "Michael Chang, RN", role: "RN", roleLabel: "Registered Nurse", facility: "St. Jude Medical Center", ward: "ICU - Pod B" },
     MD: { name: "Dr. Jonathan Vance", role: "MD", roleLabel: "Attending Physician", facility: "St. Jude Medical Center", ward: "Critical Care" },
     PharmD: { name: "Amina Diop, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "St. Jude Medical Center", ward: "ICU Pharmacy" },
-    RT: { name: "Thomas Wright, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "St. Jude Medical Center", ward: "Critical Care RT" },
+    Finance: { name: "Rachel Bergman, CFO", role: "Finance", roleLabel: "Corporate Finance & Accounts", facility: "St. Jude Medical Center", ward: "Hospital Billing Office" },
     Admin: { name: "Harold Pierce", role: "Admin", roleLabel: "Unit Administrator", facility: "St. Jude Medical Center", ward: "Operations" },
     Lab: { name: "Alex Wong, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "St. Jude Medical Center", ward: "ICU Diagnostic Lab" },
   },
@@ -47,7 +47,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     RN: { name: "Amanda Ross, RN", role: "RN", roleLabel: "Registered Nurse", facility: "City General Infirmary", ward: "ER - Trauma Bay" },
     MD: { name: "Dr. Carlos Mendez", role: "MD", roleLabel: "Attending Physician", facility: "City General Infirmary", ward: "Emergency Medicine" },
     PharmD: { name: "Chloe Kim, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "City General Infirmary", ward: "ER Pharmacy" },
-    RT: { name: "David Goldstein, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "City General Infirmary", ward: "Emergency RT" },
+    Finance: { name: "Andre Lacroix, CPA", role: "Finance", roleLabel: "Corporate Finance & Accounts", facility: "City General Infirmary", ward: "Patient Accounts" },
     Admin: { name: "Renee Cabrera", role: "Admin", roleLabel: "Unit Administrator", facility: "City General Infirmary", ward: "Operations" },
     Lab: { name: "Maya Lin, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "City General Infirmary", ward: "ER STAT Lab" },
   },
@@ -55,7 +55,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     RN: { name: "Jordan Lee, RN", role: "RN", roleLabel: "Registered Nurse", facility: "County Health Pavilion", ward: "Med-Surg Float" },
     MD: { name: "Dr. Arjun Mehta", role: "MD", roleLabel: "Attending Physician", facility: "County Health Pavilion", ward: "Hospitalist Service" },
     PharmD: { name: "Fatima Al-Sayed, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "County Health Pavilion", ward: "Inpatient Pharmacy" },
-    RT: { name: "Grace Mulligan, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "County Health Pavilion", ward: "Pulmonary Services" },
+    Finance: { name: "Monica Schaeffer, MBA", role: "Finance", roleLabel: "Corporate Finance & Accounts", facility: "County Health Pavilion", ward: "Patient Accounts" },
     Admin: { name: "Marcus Hadley", role: "Admin", roleLabel: "Unit Administrator", facility: "County Health Pavilion", ward: "Operations" },
     Lab: { name: "James Carter, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "County Health Pavilion", ward: "Diagnostic Lab" },
   },
@@ -63,7 +63,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     RN: { name: "Priya Shah, RN", role: "RN", roleLabel: "Registered Nurse", facility: "Srik Health Clinic", ward: "Pediatrics - Wing C" },
     MD: { name: "Dr. William Bradshaw", role: "MD", roleLabel: "Attending Physician", facility: "Srik Health Clinic", ward: "Pediatrics" },
     PharmD: { name: "Xavier Dupont, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "Srik Health Clinic", ward: "Pediatric Pharmacy" },
-    RT: { name: "Jackson Brooks, RRT", role: "RT", roleLabel: "Respiratory Therapist", facility: "Srik Health Clinic", ward: "Pediatric RT" },
+    Finance: { name: "Kenji Aoyama, CPA", role: "Finance", roleLabel: "Corporate Finance & Accounts", facility: "Srik Health Clinic", ward: "Revenue Cycle Office" },
     Admin: { name: "Olivia Sterling", role: "Admin", roleLabel: "Unit Administrator", facility: "Srik Health Clinic", ward: "Operations" },
     Lab: { name: "Nisha Patel, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "Srik Health Clinic", ward: "Pediatric Lab" },
   },
@@ -138,7 +138,7 @@ export function FacilityProvider({ children }: { children: ReactNode }) {
         setFacilityState(stored as Facility);
       }
       const r = localStorage.getItem(ROLE_STORAGE_KEY);
-      if (r && ["RN", "MD", "PharmD", "RT", "Admin", "Lab"].includes(r)) {
+      if (r && ["RN", "MD", "PharmD", "Finance", "Admin", "Lab"].includes(r)) {
         setActiveRoleState(r as StaffRole);
       }
     } catch {}

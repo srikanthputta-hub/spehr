@@ -1119,7 +1119,7 @@ function NurseView({ patient }: { patient: PatientRecord }) {
       <section className={widgetBox + " md:col-span-2"}>
         <WidgetHeader title="Allied Health Consults" />
         <ul className="divide-y divide-slate-200 text-[12px]">
-          <li className="px-3 py-2 flex justify-between"><span>Respiratory Therapy</span><span className="text-emerald-700 font-semibold">Active</span></li>
+          <li className="px-3 py-2 flex justify-between"><span>Nutrition Services</span><span className="text-emerald-700 font-semibold">Active</span></li>
           <li className="px-3 py-2 flex justify-between"><span>Physical Therapy</span><span className="text-slate-500">Pending eval</span></li>
           <li className="px-3 py-2 flex justify-between"><span>Care Management</span><span className="text-slate-500">Pending</span></li>
         </ul>
