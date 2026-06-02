@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SystemAdminRouteImport } from './routes/system-admin'
-import { Route as RespiratoryBoardRouteImport } from './routes/respiratory-board'
 import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
@@ -30,11 +29,6 @@ const TasksRoute = TasksRouteImport.update({
 const SystemAdminRoute = SystemAdminRouteImport.update({
   id: '/system-admin',
   path: '/system-admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RespiratoryBoardRoute = RespiratoryBoardRouteImport.update({
-  id: '/respiratory-board',
-  path: '/respiratory-board',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PhysicianBoardRoute = PhysicianBoardRouteImport.update({
@@ -91,7 +85,6 @@ export interface FileRoutesByFullPath {
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
-  '/respiratory-board': typeof RespiratoryBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/chart/$mrn': typeof ChartMrnRoute
@@ -105,7 +98,6 @@ export interface FileRoutesByTo {
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
-  '/respiratory-board': typeof RespiratoryBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/chart/$mrn': typeof ChartMrnRoute
@@ -120,7 +112,6 @@ export interface FileRoutesById {
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
-  '/respiratory-board': typeof RespiratoryBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/chart/$mrn': typeof ChartMrnRoute
@@ -136,7 +127,6 @@ export interface FileRouteTypes {
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
-    | '/respiratory-board'
     | '/system-admin'
     | '/tasks'
     | '/chart/$mrn'
@@ -150,7 +140,6 @@ export interface FileRouteTypes {
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
-    | '/respiratory-board'
     | '/system-admin'
     | '/tasks'
     | '/chart/$mrn'
@@ -164,7 +153,6 @@ export interface FileRouteTypes {
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
-    | '/respiratory-board'
     | '/system-admin'
     | '/tasks'
     | '/chart/$mrn'
@@ -179,7 +167,6 @@ export interface RootRouteChildren {
   NursingBoardRoute: typeof NursingBoardRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
   PhysicianBoardRoute: typeof PhysicianBoardRoute
-  RespiratoryBoardRoute: typeof RespiratoryBoardRoute
   SystemAdminRoute: typeof SystemAdminRoute
   TasksRoute: typeof TasksRoute
   ChartMrnRoute: typeof ChartMrnRoute
@@ -200,13 +187,6 @@ declare module '@tanstack/react-router' {
       path: '/system-admin'
       fullPath: '/system-admin'
       preLoaderRoute: typeof SystemAdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/respiratory-board': {
-      id: '/respiratory-board'
-      path: '/respiratory-board'
-      fullPath: '/respiratory-board'
-      preLoaderRoute: typeof RespiratoryBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/physician-board': {
@@ -283,7 +263,6 @@ const rootRouteChildren: RootRouteChildren = {
   NursingBoardRoute: NursingBoardRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
   PhysicianBoardRoute: PhysicianBoardRoute,
-  RespiratoryBoardRoute: RespiratoryBoardRoute,
   SystemAdminRoute: SystemAdminRoute,
   TasksRoute: TasksRoute,
   ChartMrnRoute: ChartMrnRoute,
