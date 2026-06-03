@@ -13,7 +13,7 @@ export function ModuleRibbon({
 }: {
   module: string;
   context?: string;
-  stats?: { label: string; value: ReactNode; tone?: "default" | "good" | "warn" | "bad" }[];
+  stats?: { label: string; value: ReactNode; tone?: "default" | "good" | "warn" | "bad" | "info" }[];
   right?: ReactNode;
 }) {
   const toneClass = (t?: string) =>
@@ -23,6 +23,8 @@ export function ModuleRibbon({
         ? "text-amber-300"
         : t === "bad"
           ? "text-red-300"
+          : t === "info"
+            ? "text-cyan-200"
           : "text-cyan-200";
   return (
     <div className="border-b border-[#0a1a30] bg-gradient-to-r from-[#08172b] via-[#0c2340] to-[#0e2b4f] text-slate-100">
