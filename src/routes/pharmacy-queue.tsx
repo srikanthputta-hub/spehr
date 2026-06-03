@@ -12,6 +12,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
+import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/MeditechExpanse";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { fallbackMedsFor } from "@/lib/fallback-meds";
@@ -417,19 +418,26 @@ function PharmacyQueue() {
         badge="Pharmacy · PharmD"
         subtitle={`${pharm.ward} · Order verification & clinical review`}
       />
+      <ModuleRibbon
+        module="PHA"
+        context={`${facility} · Central Pharmacy`}
+        stats={[
+          { label: "Pending", value: visibleOrders.length, tone: visibleOrders.length > 0 ? "warn" : "good" },
+          { label: "Dispensed", value: recentDispensed.length, tone: "good" },
+          { label: "Pharmacist", value: pharm.name },
+          { label: "Mode", value: "Verification" },
+        ]}
+      />
       <div className="grid grid-cols-12 gap-4 p-4">
         {/* Inbox */}
         <aside className="col-span-12 lg:col-span-4 xl:col-span-3">
-          <div className="rounded-lg border border-slate-200 bg-white">
-            <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Inbox className="h-3.5 w-3.5 text-[#0c2340]" />
-                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  Pending Verification
-                </div>
-              </div>
-              <span className="text-[11px] font-mono text-slate-500">{visibleOrders.length}</span>
-            </div>
+          <div className="rounded-sm border border-slate-300 bg-white overflow-hidden shadow-sm">
+            <SectionHeader
+              icon={<Inbox className="h-3.5 w-3.5" />}
+              title="Pending Verification"
+              subtitle="RxQueue · Live"
+              right={<span className="font-mono">{visibleOrders.length}</span>}
+            />
             <div className="max-h-[calc(100vh-160px)] overflow-y-auto divide-y divide-slate-100">
               {loading && (
                 <div className="p-4 text-xs text-slate-500">Loading queue…</div>
@@ -657,22 +665,23 @@ function PharmacyQueue() {
 
           {/* Recent dispatched medications feed */}
           <div className="pt-2">
-            <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-              💊 Recent Dispatched Medications — {facility}
-            </h2>
-            <p className="text-xs text-slate-500 mt-1">
-              Latest verified &amp; dispensed orders at {facility}, newest first.
-            </p>
-            <div className="mt-3 rounded-xl border border-slate-300 bg-white overflow-hidden shadow-sm">
+            <div className="rounded-sm border border-slate-300 bg-white overflow-hidden shadow-sm">
+              <SectionHeader
+                tone="teal"
+                icon={<span>💊</span>}
+                title={`Recent Dispatched Medications — ${facility}`}
+                subtitle="Auto-Updating · Newest first"
+                right={<span className="font-mono">LIVE</span>}
+              />
               <table className="w-full text-xs">
-                <thead className="bg-slate-900 text-slate-100">
+                <thead className="bg-[#0c2340] text-slate-100">
                   <tr>
-                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Timestamp</th>
-                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Patient Name</th>
-                    <th className="text-left px-3 py-2 font-semibold tracking-wide">MRN</th>
-                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Medication Order</th>
-                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Status</th>
-                    <th className="text-left px-3 py-2 font-semibold tracking-wide">Verifying Pharmacist</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Timestamp</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Patient</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">MRN</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Medication Order</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Status</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Verifying PharmD</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -690,7 +699,7 @@ function PharmacyQueue() {
                     return rows.map((m, i) => (
                       <tr
                         key={m.key}
-                        className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
+                        className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/70"} hover:bg-cyan-50/50 transition-colors`}
                       >
                         <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
                           {(() => {
@@ -710,10 +719,7 @@ function PharmacyQueue() {
                           {[m?.drug_name, m?.dose, m?.route, m?.frequency].filter(Boolean).join(" ") || "Unknown"}
                         </td>
                         <td className="px-3 py-2">
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                            {m.status ?? "Administered"}
-                          </span>
+                          <StatusPill tone="good" pulse>{m.status ?? "Administered"}</StatusPill>
                         </td>
                         <td className="px-3 py-2 text-slate-700">
                           {m.pharmacist}

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, FlaskConical, Sparkles, CheckCircle2 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
+import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/MeditechExpanse";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
@@ -347,17 +348,25 @@ function LabBoard() {
         subtitle={`${tech.ward} · ${pending.length} pending · ${completed.length} resulted`}
         badge="Lab Tech"
       />
+      <ModuleRibbon
+        module="LAB"
+        context={`${facility} · Central Lab`}
+        stats={[
+          { label: "Pending", value: pending.length, tone: pending.length > 0 ? "warn" : "good" },
+          { label: "Resulted", value: completed.length, tone: "good" },
+          { label: "Tech", value: tech.name },
+          { label: "Shift", value: new Date().toLocaleDateString([], { month: "short", day: "numeric" }) },
+        ]}
+      />
       <section className="max-w-[1400px] mx-auto px-6 py-8 space-y-8">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-            <FlaskConical className="h-5 w-5 text-[#2d8a9e]" />
-            Pending Lab Requests — {facility}
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Ring-fenced queue. Orders from other facilities are hidden.
-          </p>
-
-          <div className="mt-4 rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div className="rounded-sm border border-slate-300 bg-white overflow-hidden shadow-sm">
+            <SectionHeader
+              icon={<FlaskConical className="h-3.5 w-3.5" />}
+              title={`Pending Lab Requests — ${facility}`}
+              subtitle="Ring-fenced queue · Live"
+              right={<span className="font-mono">{pending.length} OPEN</span>}
+            />
             {loading ? (
               <div className="p-8 grid place-items-center text-slate-400">
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -475,23 +484,23 @@ function LabBoard() {
         </div>
 
         <div>
-          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-            🗄️ Recent Completed Labs Feed
-            <span className="text-xs font-normal text-slate-500">(Auto-Updating · {facility})</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Latest {recentResulted.length} completed labs for patients currently on the Nursing Board at {facility}, newest first.
-          </p>
-          <div className="mt-3 rounded-xl border border-slate-300 bg-white overflow-hidden shadow-sm">
+          <div className="rounded-sm border border-slate-300 bg-white overflow-hidden shadow-sm">
+            <SectionHeader
+              tone="teal"
+              icon={<span>🗄️</span>}
+              title={`Recent Completed Labs Feed — ${facility}`}
+              subtitle={`Auto-Updating · Newest first · ${recentResulted.length} entries`}
+              right={<span className="font-mono">LIVE</span>}
+            />
             <table className="w-full text-xs">
-              <thead className="bg-slate-900 text-slate-100">
+              <thead className="bg-[#0c2340] text-slate-100">
                 <tr>
-                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Timestamp</th>
-                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Patient Name</th>
-                  <th className="text-left px-3 py-2 font-semibold tracking-wide">MRN</th>
-                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Test Type</th>
-                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Status</th>
-                  <th className="text-left px-3 py-2 font-semibold tracking-wide">Ordering Physician</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Timestamp</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Patient</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">MRN</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Test</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Status</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Physician</th>
                 </tr>
               </thead>
               <tbody>
@@ -505,7 +514,7 @@ function LabBoard() {
                   recentResulted.map((o, i) => (
                     <tr
                       key={o.key}
-                      className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-emerald-50/40`}
+                      className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/70"} hover:bg-cyan-50/50 transition-colors`}
                     >
                       <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
                         {o.timestamp
@@ -527,10 +536,7 @@ function LabBoard() {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          {o?.status ?? "Resulted"}
-                        </span>
+                        <StatusPill tone="good" pulse>{o?.status ?? "Resulted"}</StatusPill>
                       </td>
                       <td className="px-3 py-2 text-slate-700">{o.physician}</td>
                     </tr>
