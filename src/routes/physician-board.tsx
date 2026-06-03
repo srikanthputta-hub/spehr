@@ -12,6 +12,7 @@ import {
   ArrowRightLeft,
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
+import { ModuleRibbon, SectionHeader } from "@/components/MeditechExpanse";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
@@ -106,6 +107,7 @@ function PhysicianBoard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMrn, setSelectedMrn] = useState<string | null>(null);
+  const [chartView, setChartView] = useState<"workspace" | "chart">("workspace");
 
   // Order form
   const [drug, setDrug] = useState("");
@@ -334,16 +336,51 @@ function PhysicianBoard() {
         badge="Provider · MD"
         subtitle={`${md.ward} · Computerized Provider Order Entry`}
       />
+      <ModuleRibbon
+        module="EDM"
+        context={`${facility} · CPOE`}
+        stats={[
+          { label: "Census", value: filteredPatients.length, tone: "info" },
+          { label: "Selected", value: selected ? `Rm ${selected.room ?? "—"}` : "—" },
+          { label: "Provider", value: md.name },
+          { label: "View", value: chartView === "chart" ? "Chart" : "Workspace", tone: "good" },
+        ]}
+        right={
+          selected ? (
+            <div className="flex items-center rounded-sm overflow-hidden border border-cyan-700/60">
+              <button
+                onClick={() => setChartView("workspace")}
+                className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition ${
+                  chartView === "workspace"
+                    ? "bg-cyan-500 text-slate-900"
+                    : "bg-transparent text-cyan-100 hover:bg-cyan-900/40"
+                }`}
+              >
+                Workspace
+              </button>
+              <button
+                onClick={() => setChartView("chart")}
+                className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition ${
+                  chartView === "chart"
+                    ? "bg-cyan-500 text-slate-900"
+                    : "bg-transparent text-cyan-100 hover:bg-cyan-900/40"
+                }`}
+              >
+                Patient Chart
+              </button>
+            </div>
+          ) : null
+        }
+      />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
         {/* Patient list */}
         <aside className="lg:col-span-1">
-          <div className="rounded-lg border border-slate-200 bg-white">
-            <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                Active Census
-              </div>
-              <span className="text-[11px] text-slate-500">{filteredPatients.length}</span>
-            </div>
+          <div className="rounded-sm border border-slate-300 bg-white shadow-sm overflow-hidden">
+            <SectionHeader
+              title="Active Census"
+              subtitle={`${facility}`}
+              right={<span className="font-mono">{filteredPatients.length}</span>}
+            />
             <div className="max-h-[calc(100vh-160px)] overflow-y-auto divide-y divide-slate-100">
               {loading && (
                 <div className="p-4 text-xs text-slate-500">Loading patients…</div>
@@ -421,6 +458,31 @@ function PhysicianBoard() {
           {!selected ? (
             <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">
               Select a patient from the census to open CPOE workspace.
+            </div>
+          ) : chartView === "chart" ? (
+            <div className="rounded-sm border border-slate-300 bg-white shadow-sm overflow-hidden">
+              <SectionHeader
+                tone="teal"
+                title={`Patient Chart — ${selected.first_name ?? ""} ${selected.last_name ?? ""}`}
+                subtitle={`MRN ${selected.mrn} · Rm ${selected.room ?? "—"} · ${selected.diagnosis || selected.chief_complaint || "—"}`}
+                right={
+                  <a
+                    href={`/patient/${selected.mrn}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="font-mono hover:underline"
+                  >
+                    OPEN FULL ↗
+                  </a>
+                }
+              />
+              <iframe
+                key={selected.mrn}
+                src={`/patient/${selected.mrn}`}
+                title={`Patient Chart ${selected.mrn}`}
+                className="w-full bg-white"
+                style={{ height: "calc(100vh - 220px)", border: "0" }}
+              />
             </div>
           ) : (
             <>
