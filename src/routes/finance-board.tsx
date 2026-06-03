@@ -187,7 +187,7 @@ function FinanceBoard() {
         subtitle={`${officer.ward} · Patient billing, charge capture & A/R`}
       />
 
-      {/* KPI strip — Meditech Expanse rounded widgets */}
+      {/* KPI strip — rounded widgets */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-4 p-6 pb-2">
         <KpiCard
           icon={<Wallet className="h-4 w-4" />}
