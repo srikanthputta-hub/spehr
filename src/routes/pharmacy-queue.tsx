@@ -12,7 +12,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
-import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/MeditechExpanse";
+import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { fallbackMedsFor } from "@/lib/fallback-meds";

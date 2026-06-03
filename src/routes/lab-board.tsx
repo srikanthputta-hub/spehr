@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, FlaskConical, Sparkles, CheckCircle2 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
-import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/MeditechExpanse";
+import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";

@@ -182,7 +182,7 @@ type TabKey =
   | "administrative"
   | "otherclinical";
 
-// MEDITECH Expanse style — two tab rows
+// Clinical style — two tab rows
 const TABS_ROW1: { key: TabKey; label: string }[] = [
   { key: "diagnostics", label: "Diagnostics" },
   { key: "providernotes", label: "Provider Notes" },
@@ -628,7 +628,7 @@ function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) 
   const latestNote = (notes ?? [])[0];
 
   return (
-    <MeditechSummary
+    <ClinicalSummary
       patient={patient}
       meds={meds}
       labs={labs}
@@ -640,7 +640,7 @@ function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) 
   );
 }
 
-// ============= MEDITECH summary widgets ================================
+// ============= Clinical summary widgets ================================
 const widgetBox =
   "rounded border border-slate-300 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]";
 const widgetHead =
@@ -661,7 +661,7 @@ function WidgetHeader({ title, icon }: { title: string; icon?: React.ReactNode }
   );
 }
 
-function MeditechSummary({
+function ClinicalSummary({
   patient,
   meds,
   labs,
@@ -892,7 +892,7 @@ function MeditechSummary({
   );
 }
 
-// ============= MEDITECH-style tab content for new tabs =================
+// ============= Clinical-style tab content for new tabs =================
 function ActivityView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
   const labs = useLabs(mrn, patient.chief_complaint);
   const meds = useMeds(patient.id, patient.chief_complaint);
@@ -1326,7 +1326,7 @@ function PatientChart() {
 
   return (
     <main className="min-h-screen bg-[#e9e7e0]">
-      {/* MEDITECH Expanse — Top dark toolbar */}
+      {/* Clinical — Top dark toolbar */}
       <header className="sticky top-0 z-30 bg-[#2c2c2c] text-white shadow">
         <div className="flex items-stretch">
           <Link
@@ -1421,7 +1421,7 @@ function PatientChart() {
       <div className="flex">
         {/* Main column */}
         <div className="flex-1 min-w-0 px-2 pt-3 pb-6">
-          {/* MEDITECH tab rows */}
+          {/* Clinical tab rows */}
           <nav className="space-y-1.5 mb-3">
             <TabRow tabs={TABS_ROW1} active={tab} onClick={(k) => setTab(k)} variant="blue" />
             <TabRow tabs={TABS_ROW2} active={tab} onClick={(k) => setTab(k)} variant="blue" />
@@ -1503,7 +1503,7 @@ function PatientChart() {
             <input placeholder="Search Chart" className="flex-1 bg-[#fdfbe8] border border-slate-300 rounded px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-emerald-500" />
           </div>
 
-          {/* Live telemetry pulled into MEDITECH sidebar */}
+          {/* Live telemetry pulled into clinical sidebar */}
           <div className="px-3 py-2 border-b border-slate-200 bg-[#0b2545] text-white">
             <div className="text-[10px] uppercase tracking-widest text-white/55 mb-1">Live Telemetry</div>
             <LiveTelemetry dx={dx} />

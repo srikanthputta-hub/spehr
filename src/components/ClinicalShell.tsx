@@ -1,8 +1,8 @@
 import { ReactNode } from "react";
 
 /**
- * MEDITECH Expanse-style module ribbon — the dense, dark info strip
- * that sits directly under the global header on every Expanse module.
+ * Clinical module ribbon — the dense, dark info strip
+ * that sits directly under the global header on every module.
  * Renders a navy bar with monospaced metadata chips.
  */
 export function ModuleRibbon({
@@ -32,7 +32,7 @@ export function ModuleRibbon({
         <div className="flex items-center gap-2">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-[10px] uppercase tracking-[0.22em] text-slate-300">
-            MEDITECH Expanse · {module}
+            Clinical System · {module}
           </span>
           {context && (
             <>
@@ -62,7 +62,7 @@ export function ModuleRibbon({
 }
 
 /**
- * MEDITECH Expanse-style section header — uppercase tracking, navy fill,
+ * Clinical section header — uppercase tracking, navy fill,
  * thin teal underline. Used as the bar above every clinical panel/table.
  */
 export function SectionHeader({
@@ -103,7 +103,7 @@ export function SectionHeader({
 }
 
 /**
- * Status pill with dot — MEDITECH Expanse convention. Color-coded by tone.
+ * Status pill with dot — clinical convention. Color-coded by tone.
  */
 export function StatusPill({
   tone = "default",
