@@ -12,7 +12,7 @@ import {
   ArrowRightLeft,
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
-import { ModuleRibbon, SectionHeader } from "@/components/MeditechExpanse";
+import { ModuleRibbon, SectionHeader } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
