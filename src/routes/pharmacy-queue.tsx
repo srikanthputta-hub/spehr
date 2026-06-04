@@ -169,14 +169,22 @@ function PharmacyQueue() {
     };
   }, [facility]);
 
-  // Load pending queue
+  // Load pending queue — includes every in-flight status so users watch
+  // each order transition Ordered → Pending → Dispensed live (then it
+  // drops off once the bedside RN marks it Administered).
   useEffect(() => {
     let active = true;
+    const PENDING_STATUSES = [
+      "ORDERED",
+      "PENDING_PHARMACY",
+      "PENDING_VERIFICATION",
+      "DISPENSED",
+    ];
     (async () => {
       const { data, error } = await supabase
         .from("medication_orders")
         .select("id, mrn, drug_name, dose, route, frequency, status")
-        .in("status", ["PENDING_PHARMACY", "PENDING_VERIFICATION"]);
+        .in("status", PENDING_STATUSES);
       if (!active) return;
       if (error) setError(error.message);
       else {
@@ -200,7 +208,8 @@ function PharmacyQueue() {
             const newStatus = (payload.new as Order)?.status;
             if (
               payload.eventType !== "DELETE" &&
-              (newStatus === "PENDING_PHARMACY" || newStatus === "PENDING_VERIFICATION")
+              newStatus &&
+              PENDING_STATUSES.includes(newStatus)
             ) {
               return [...without, payload.new as Order];
             }
