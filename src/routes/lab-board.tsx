@@ -415,6 +415,26 @@ function LabBoard() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          {(() => {
+                            const s = (o.status ?? "").toUpperCase();
+                            const tone: "info" | "warn" | "good" =
+                              s === "ORDERED"
+                                ? "info"
+                                : s === "PROCESSING"
+                                  ? "warn"
+                                  : "warn";
+                            const label =
+                              s === "ORDERED"
+                                ? "Ordered"
+                                : s === "PROCESSING"
+                                  ? "Processing"
+                                  : "Pending";
+                            return (
+                              <StatusPill tone={tone} pulse>
+                                {label}
+                              </StatusPill>
+                            );
+                          })()}
                           {!results && (
                             <button
                               {...gate("btn_run_lab_sample", () => runSample(o))}
