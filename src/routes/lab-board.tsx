@@ -228,6 +228,7 @@ function LabBoard() {
           return (
             s === "ORDERED" ||
             s === "PROCESSING" ||
+            s === "RESULTED" ||
             s.startsWith("PENDING")
           );
         })
@@ -364,7 +365,7 @@ function LabBoard() {
           { label: "Pending", value: pending.length, tone: pending.length > 0 ? "warn" : "good" },
           { label: "Resulted", value: completed.length, tone: "good" },
           { label: "Tech", value: tech.name },
-          { label: "Shift", value: new Date().toLocaleDateString([], { month: "short", day: "numeric" }) },
+          { label: "Shift", value: "Today" },
         ]}
       />
       <section className="max-w-[1400px] mx-auto px-6 py-8 space-y-8">
@@ -420,15 +421,17 @@ function LabBoard() {
                             const tone: "info" | "warn" | "good" =
                               s === "ORDERED"
                                 ? "info"
-                                : s === "PROCESSING"
-                                  ? "warn"
+                                : s === "RESULTED"
+                                  ? "good"
                                   : "warn";
                             const label =
                               s === "ORDERED"
                                 ? "Ordered"
                                 : s === "PROCESSING"
                                   ? "Processing"
-                                  : "Pending";
+                                  : s === "RESULTED"
+                                    ? "Resulted"
+                                    : "Pending";
                             return (
                               <StatusPill tone={tone} pulse>
                                 {label}

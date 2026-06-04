@@ -95,6 +95,7 @@ export type Database = {
           patient_name: string
           requested_by: string
           result_value: string | null
+          resulted_at: string | null
           results_data: Json | null
           status: string | null
           test_type: string
@@ -110,6 +111,7 @@ export type Database = {
           patient_name: string
           requested_by: string
           result_value?: string | null
+          resulted_at?: string | null
           results_data?: Json | null
           status?: string | null
           test_type: string
@@ -125,6 +127,7 @@ export type Database = {
           patient_name?: string
           requested_by?: string
           result_value?: string | null
+          resulted_at?: string | null
           results_data?: Json | null
           status?: string | null
           test_type?: string
@@ -205,6 +208,7 @@ export type Database = {
           administered_at: string | null
           approved_at: string | null
           created_at: string | null
+          dispensed_at: string | null
           dose: string | null
           drug: string | null
           drug_name: string | null
@@ -227,6 +231,7 @@ export type Database = {
           administered_at?: string | null
           approved_at?: string | null
           created_at?: string | null
+          dispensed_at?: string | null
           dose?: string | null
           drug?: string | null
           drug_name?: string | null
@@ -249,6 +254,7 @@ export type Database = {
           administered_at?: string | null
           approved_at?: string | null
           created_at?: string | null
+          dispensed_at?: string | null
           dose?: string | null
           drug?: string | null
           drug_name?: string | null
