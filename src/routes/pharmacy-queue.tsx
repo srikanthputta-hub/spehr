@@ -486,10 +486,10 @@ function PharmacyQueue() {
                         const s = (o.status ?? "").toUpperCase();
                         const label =
                           s === "ORDERED"
-                            ? "ORDERED"
+                            ? "Ordered"
                             : s === "DISPENSED"
-                              ? "DISPENSED"
-                              : "PENDING";
+                              ? "Dispensed"
+                              : "Pending";
                         const cls = active
                           ? "bg-white/15 text-white"
                           : s === "ORDERED"
