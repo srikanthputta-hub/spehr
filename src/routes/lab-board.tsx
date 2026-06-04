@@ -421,15 +421,17 @@ function LabBoard() {
                             const tone: "info" | "warn" | "good" =
                               s === "ORDERED"
                                 ? "info"
-                                : s === "PROCESSING"
-                                  ? "warn"
+                                : s === "RESULTED"
+                                  ? "good"
                                   : "warn";
                             const label =
                               s === "ORDERED"
                                 ? "Ordered"
                                 : s === "PROCESSING"
                                   ? "Processing"
-                                  : "Pending";
+                                  : s === "RESULTED"
+                                    ? "Resulted"
+                                    : "Pending";
                             return (
                               <StatusPill tone={tone} pulse>
                                 {label}
