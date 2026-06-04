@@ -217,11 +217,20 @@ function LabBoard() {
   );
   const tsOf = (o: LabOrderRow) =>
     o.created_at ? new Date(o.created_at).getTime() : 0;
-  // Pending queue — strictly PENDING status, newest first, capped at 25.
+  // Pending queue — every in-flight status (Ordered → Processing →
+  // Pending → Resulted transitions live in the same panel), newest
+  // first, capped at 25. Resulted/Completed drop into the feed below.
   const pending = useMemo(
     () =>
       visible
-        .filter((o) => (o.status ?? "").toUpperCase().startsWith("PENDING"))
+        .filter((o) => {
+          const s = (o.status ?? "").toUpperCase();
+          return (
+            s === "ORDERED" ||
+            s === "PROCESSING" ||
+            s.startsWith("PENDING")
+          );
+        })
         .sort((a, b) => tsOf(b) - tsOf(a))
         .slice(0, 25),
     [visible],
@@ -406,6 +415,26 @@ function LabBoard() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          {(() => {
+                            const s = (o.status ?? "").toUpperCase();
+                            const tone: "info" | "warn" | "good" =
+                              s === "ORDERED"
+                                ? "info"
+                                : s === "PROCESSING"
+                                  ? "warn"
+                                  : "warn";
+                            const label =
+                              s === "ORDERED"
+                                ? "Ordered"
+                                : s === "PROCESSING"
+                                  ? "Processing"
+                                  : "Pending";
+                            return (
+                              <StatusPill tone={tone} pulse>
+                                {label}
+                              </StatusPill>
+                            );
+                          })()}
                           {!results && (
                             <button
                               {...gate("btn_run_lab_sample", () => runSample(o))}

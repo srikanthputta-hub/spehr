@@ -169,14 +169,22 @@ function PharmacyQueue() {
     };
   }, [facility]);
 
-  // Load pending queue
+  // Load pending queue — includes every in-flight status so users watch
+  // each order transition Ordered → Pending → Dispensed live (then it
+  // drops off once the bedside RN marks it Administered).
   useEffect(() => {
     let active = true;
+    const PENDING_STATUSES = [
+      "ORDERED",
+      "PENDING_PHARMACY",
+      "PENDING_VERIFICATION",
+      "DISPENSED",
+    ];
     (async () => {
       const { data, error } = await supabase
         .from("medication_orders")
         .select("id, mrn, drug_name, dose, route, frequency, status")
-        .in("status", ["PENDING_PHARMACY", "PENDING_VERIFICATION"]);
+        .in("status", PENDING_STATUSES);
       if (!active) return;
       if (error) setError(error.message);
       else {
@@ -200,7 +208,8 @@ function PharmacyQueue() {
             const newStatus = (payload.new as Order)?.status;
             if (
               payload.eventType !== "DELETE" &&
-              (newStatus === "PENDING_PHARMACY" || newStatus === "PENDING_VERIFICATION")
+              newStatus &&
+              PENDING_STATUSES.includes(newStatus)
             ) {
               return [...without, payload.new as Order];
             }
@@ -466,13 +475,29 @@ function PharmacyQueue() {
                         <Pill className={`h-3.5 w-3.5 ${active ? "text-white/80" : "text-amber-600"}`} />
                         {o.drug_name ?? "—"}
                       </div>
-                      <span
-                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                          active ? "bg-white/15 text-white" : "bg-amber-50 text-amber-700 border border-amber-200"
-                        }`}
-                      >
-                        PEND
-                      </span>
+                      {(() => {
+                        const s = (o.status ?? "").toUpperCase();
+                        const label =
+                          s === "ORDERED"
+                            ? "ORDERED"
+                            : s === "DISPENSED"
+                              ? "DISPENSED"
+                              : "PENDING";
+                        const cls = active
+                          ? "bg-white/15 text-white"
+                          : s === "ORDERED"
+                            ? "bg-sky-50 text-sky-700 border border-sky-200"
+                            : s === "DISPENSED"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-amber-50 text-amber-700 border border-amber-200";
+                        return (
+                          <span
+                            className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${cls}`}
+                          >
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div className={`mt-0.5 text-[11px] truncate ${active ? "text-white/75" : "text-slate-500"}`}>
                       {o.dose} · {o.route} · {o.frequency}
