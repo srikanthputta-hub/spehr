@@ -174,8 +174,15 @@ function PharmacyQueue() {
   // drops off once the bedside RN marks it Administered).
   useEffect(() => {
     let active = true;
+    // Live state machine — every in-flight casing the cascade may emit
+    // (Ordered → Pending → Dispensed) plus the legacy uppercase values
+    // for any rows still mid-flight from older sessions.
     const PENDING_STATUSES = [
+      "Ordered",
+      "Pending",
+      "Dispensed",
       "ORDERED",
+      "PENDING",
       "PENDING_PHARMACY",
       "PENDING_VERIFICATION",
       "DISPENSED",
