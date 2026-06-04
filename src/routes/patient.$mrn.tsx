@@ -289,15 +289,20 @@ function useLabs(mrn: string, complaint?: string | null) {
   useEffect(() => {
     let c = false;
     const load = () => supabase.from("lab_orders")
-      .select("id, test_type, status, result_value, ordered_by, created_at")
+      .select("id, test_type, status, result_value, ordered_by, created_at, resulted_at")
       .eq("patient_mrn", mrn)
       .order("created_at", { ascending: false })
       .then(({ data }) => {
         if (c) return;
-        const real = (data as LabRow[]) ?? [];
-        // Only surface labs that have been officially resulted/completed and
-        // carry a result value — pending/processing orders awaiting the lab
-        // tech are hidden from the patient chart per clinical workflow.
+        const real = ((data as any[]) ?? []).map((r) => ({
+          ...r,
+          // Surface the lab's official resulted timestamp wherever the chart
+          // currently displays created_at — keeps every downstream row aware
+          // of the precise moment the cascade flipped status to "Resulted".
+          created_at: r.resulted_at ?? r.created_at,
+        })) as LabRow[];
+        // Gate: only labs whose status is exactly "Resulted" (or the legacy
+        // "Completed") and carry a result value are visible in the chart.
         const finalized = real.filter((r) => {
           const s = (r.status ?? "").toLowerCase();
           const released = s === "resulted" || s === "completed";
@@ -335,16 +340,39 @@ function useMeds(
   useEffect(() => {
     if (!patientId) { setRows([]); return; }
     let c = false;
-    supabase.from("medication_orders")
-      .select("id, medication_name, drug_name, medication, dose, route, status, administered_at, created_at")
+    const load = () => supabase.from("medication_orders")
+      .select("id, medication_name, drug_name, medication, dose, route, status, administered_at, dispensed_at, created_at")
       .eq("patient_id", patientId)
       .order("created_at", { ascending: false })
       .then(({ data }) => {
         if (c) return;
-        const real = (data as MedRow[]) ?? [];
-        setRows(real.length > 0 ? real : fallbackMeds(patientId, complaint));
+        const all = ((data as any[]) ?? []).map((r) => ({
+          ...r,
+          // Mirror dispensed_at into administered_at so the existing UI cells
+          // print the exact moment the order flipped to "Dispensed".
+          administered_at: r.dispensed_at ?? r.administered_at,
+        })) as MedRow[];
+        // Gate: only meds whose status reads exactly "Dispensed" (case-
+        // insensitive, plus the legacy "Administered") are visible in the
+        // chart. Anything still "Ordered" / "Pending" stays hidden.
+        const released = all.filter((r) => {
+          const s = (r.status ?? "").toLowerCase();
+          return s === "dispensed" || s === "administered";
+        });
+        if (released.length > 0) setRows(released);
+        else if (all.length > 0) setRows([]);
+        else setRows(fallbackMeds(patientId, complaint));
       });
-    return () => { c = true; };
+    load();
+    const channel = supabase
+      .channel(`meds-${patientId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "medication_orders", filter: `patient_id=eq.${patientId}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => { c = true; supabase.removeChannel(channel); };
   }, [patientId, complaint]);
   return rows;
 }
