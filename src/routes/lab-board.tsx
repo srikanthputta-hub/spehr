@@ -229,6 +229,7 @@ function LabBoard() {
             s === "ORDERED" ||
             s === "PROCESSING" ||
             s === "RESULTED" ||
+            s === "REPORTED" ||
             s.startsWith("PENDING")
           );
         })
@@ -244,7 +245,7 @@ function LabBoard() {
     const resultedByMrn = new Map<string, LabOrderRow[]>();
     for (const o of visible) {
       const s = (o.status ?? "").toUpperCase();
-      if (s !== "RESULTED" && s !== "COMPLETED") continue;
+      if (s !== "RESULTED" && s !== "COMPLETED" && s !== "REPORTED") continue;
       const list = resultedByMrn.get(o.patient_mrn) ?? [];
       list.push(o);
       resultedByMrn.set(o.patient_mrn, list);
@@ -421,7 +422,7 @@ function LabBoard() {
                             const tone: "info" | "warn" | "good" =
                               s === "ORDERED"
                                 ? "info"
-                                : s === "RESULTED"
+                                : s === "RESULTED" || s === "REPORTED"
                                   ? "good"
                                   : "warn";
                             const label =
@@ -429,8 +430,8 @@ function LabBoard() {
                                 ? "Ordered"
                                 : s === "PROCESSING"
                                   ? "Processing"
-                                  : s === "RESULTED"
-                                    ? "Resulted"
+                                  : s === "RESULTED" || s === "REPORTED"
+                                    ? "Reported"
                                     : "Pending";
                             return (
                               <StatusPill tone={tone} pulse>

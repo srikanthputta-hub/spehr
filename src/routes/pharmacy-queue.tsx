@@ -25,6 +25,10 @@ type Order = {
   route: string | null;
   frequency: string | null;
   status: string | null;
+  created_at?: string | null;
+  approved_at?: string | null;
+  dispensed_at?: string | null;
+  administered_at?: string | null;
 };
 
 type Patient = {
@@ -180,17 +184,20 @@ function PharmacyQueue() {
     const PENDING_STATUSES = [
       "Ordered",
       "Pending",
+      "Pending Verification",
       "Dispensed",
+      "Administered",
       "ORDERED",
       "PENDING",
       "PENDING_PHARMACY",
       "PENDING_VERIFICATION",
       "DISPENSED",
+      "ADMINISTERED",
     ];
     (async () => {
       const { data, error } = await supabase
         .from("medication_orders")
-        .select("id, mrn, drug_name, dose, route, frequency, status")
+        .select("id, mrn, drug_name, dose, route, frequency, status, created_at, approved_at, dispensed_at, administered_at")
         .in("status", PENDING_STATUSES);
       if (!active) return;
       if (error) setError(error.message);
@@ -489,14 +496,18 @@ function PharmacyQueue() {
                             ? "Ordered"
                             : s === "DISPENSED"
                               ? "Dispensed"
-                              : "Pending";
+                              : s === "ADMINISTERED"
+                                ? "Administered"
+                                : "Pending Verification";
                         const cls = active
                           ? "bg-white/15 text-white"
                           : s === "ORDERED"
                             ? "bg-sky-50 text-sky-700 border border-sky-200"
                             : s === "DISPENSED"
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : "bg-amber-50 text-amber-700 border border-amber-200";
+                              ? "bg-violet-50 text-violet-700 border border-violet-200"
+                              : s === "ADMINISTERED"
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : "bg-amber-50 text-amber-700 border border-amber-200";
                         return (
                           <span
                             className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${cls}`}
@@ -512,6 +523,36 @@ function PharmacyQueue() {
                     <div className={`mt-1 text-[10px] font-mono ${active ? "text-white/70" : "text-slate-400"}`}>
                       {o.mrn ?? "—"}
                     </div>
+                    {/* Chronology — 4-phase timestamp pipeline */}
+                    {(() => {
+                      const fmt = (t?: string | null) =>
+                        t
+                          ? new Date(t).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                              hour12: false,
+                            })
+                          : "—";
+                      const muted = active ? "text-white/60" : "text-slate-400";
+                      const lit = active ? "text-white" : "text-slate-700";
+                      const steps: { k: string; ts?: string | null }[] = [
+                        { k: "Ord", ts: o.created_at },
+                        { k: "Vrf", ts: o.approved_at },
+                        { k: "Dsp", ts: o.dispensed_at },
+                        { k: "Adm", ts: o.administered_at },
+                      ];
+                      return (
+                        <div className={`mt-1 flex items-center gap-2 text-[9px] font-mono ${muted}`}>
+                          {steps.map((s, idx) => (
+                            <span key={s.k} className={s.ts ? lit : muted}>
+                              {s.k} {fmt(s.ts)}
+                              {idx < steps.length - 1 ? " ›" : ""}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </button>
                 );
               })}

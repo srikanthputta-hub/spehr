@@ -29,9 +29,14 @@ interface NewPatient {
   chief_complaint: string | null;
 }
 
-const FIRST_ORDER_DELAY_MS = 20_000; // first order placed 20s after admit
-const ORDER_GAP_MS = 15_000;         // 15s between successive orders
-const TRANSITION_GAP_MS = 3_000;     // 3s between status transitions
+// Medication cascade — orders placed at T+20, T+35, T+50.
+const MED_FIRST_ORDER_DELAY_MS = 20_000;
+const MED_ORDER_GAP_MS = 15_000;
+// Lab cascade — orders placed at T+25 and T+45.
+const LAB_FIRST_ORDER_DELAY_MS = 25_000;
+const LAB_ORDER_GAP_MS = 20_000;
+// 3 seconds between status transitions for both engines.
+const TRANSITION_GAP_MS = 3_000;
 
 /* ------------------------------------------------------------------ */
 /* MRN-keyed timer registry — every setTimeout scheduled by the       */
@@ -62,15 +67,15 @@ function delay(ms: number) {
 }
 
 async function cascadeMed(mrn: string, orderId: string) {
-  // Ordered → Pending → Dispensed (final). The chart/board only
-  // surface the order once status === "Dispensed".
+  // Ordered → Pending Verification → Dispensed → Administered (final).
+  // The chart only surfaces the order once status === "Administered".
   await new Promise<void>((res) => {
     const t = setTimeout(() => res(), TRANSITION_GAP_MS);
     trackTimer(mrn, t);
   });
   await supabase
     .from("medication_orders")
-    .update({ status: "Pending" })
+    .update({ status: "Pending Verification" })
     .eq("id", orderId);
   await new Promise<void>((res) => {
     const t = setTimeout(() => res(), TRANSITION_GAP_MS);
@@ -82,7 +87,18 @@ async function cascadeMed(mrn: string, orderId: string) {
     .update({
       status: "Dispensed",
       dispensed_at: dispensedAt,
-      administered_at: dispensedAt,
+    } as any)
+    .eq("id", orderId);
+  await new Promise<void>((res) => {
+    const t = setTimeout(() => res(), TRANSITION_GAP_MS);
+    trackTimer(mrn, t);
+  });
+  const administeredAt = new Date().toISOString();
+  await supabase
+    .from("medication_orders")
+    .update({
+      status: "Administered",
+      administered_at: administeredAt,
     } as any)
     .eq("id", orderId);
 }
@@ -92,7 +108,7 @@ async function cascadeLab(
   orderId: string,
   resultSummary: string,
 ) {
-  // Ordered → Processing → Resulted (final).
+  // Ordered → Processing → Reported (final).
   await new Promise<void>((res) => {
     const t = setTimeout(() => res(), TRANSITION_GAP_MS);
     trackTimer(mrn, t);
@@ -109,7 +125,7 @@ async function cascadeLab(
   await supabase
     .from("lab_orders")
     .update({
-      status: "Resulted",
+      status: "Reported",
       result_value: resultSummary,
       collected_at: resultedAt,
       resulted_at: resultedAt,
@@ -156,7 +172,7 @@ export async function seedAdmission(
 
   // Schedule meds: T+20s, T+35s, T+50s
   meds.slice(0, 3).forEach((m, i) => {
-    const t = FIRST_ORDER_DELAY_MS + i * ORDER_GAP_MS;
+    const t = MED_FIRST_ORDER_DELAY_MS + i * MED_ORDER_GAP_MS;
     const timer = setTimeout(async () => {
       const { data, error } = await supabase
         .from("medication_orders")
@@ -183,9 +199,9 @@ export async function seedAdmission(
     trackTimer(mrn, timer);
   });
 
-  // Schedule labs: T+20s, T+35s
+  // Schedule labs: T+25s, T+45s
   labs.slice(0, 2).forEach((l, i) => {
-    const t = FIRST_ORDER_DELAY_MS + i * ORDER_GAP_MS;
+    const t = LAB_FIRST_ORDER_DELAY_MS + i * LAB_ORDER_GAP_MS;
     const resultSummary = `${l.name}: ${l.resultExample} (ref ${l.referenceRange}${
       l.unit ? ` ${l.unit}` : ""
     })`;
