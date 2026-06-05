@@ -545,6 +545,7 @@ function LabBoard() {
                               hour: "2-digit",
                               minute: "2-digit",
                               second: "2-digit",
+                              hour12: false,
                             })
                           : "Just now"}
                       </td>
@@ -557,7 +558,7 @@ function LabBoard() {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <StatusPill tone="good" pulse>{o?.status ?? "Resulted"}</StatusPill>
+                        <StatusPill tone="good">{(o?.status ?? "Reported").toUpperCase()}</StatusPill>
                       </td>
                       <td className="px-3 py-2 text-slate-700">{o.physician}</td>
                     </tr>
