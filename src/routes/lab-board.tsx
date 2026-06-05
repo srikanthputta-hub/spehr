@@ -417,20 +417,10 @@ function LabBoard() {
                         <div className="flex items-center gap-2">
                           {(() => {
                             const s = (o.status ?? "").toUpperCase();
-                            const tone: "info" | "warn" | "good" =
-                              s === "ORDERED"
-                                ? "info"
-                                : s === "RESULTED" || s === "REPORTED"
-                                  ? "good"
-                                  : "warn";
+                            const tone: "info" | "warn" =
+                              s === "ORDERED" ? "info" : "warn";
                             const label =
-                              s === "ORDERED"
-                                ? "Ordered"
-                                : s === "PROCESSING"
-                                  ? "Processing"
-                                  : s === "RESULTED" || s === "REPORTED"
-                                    ? "Reported"
-                                    : "Pending";
+                              s === "ORDERED" ? "Ordered" : "Processing";
                             return (
                               <StatusPill tone={tone} pulse>
                                 {label}
