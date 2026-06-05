@@ -494,18 +494,14 @@ function PharmacyQueue() {
                             ? "Ordered"
                             : s === "DISPENSED"
                               ? "Dispensed"
-                              : s === "ADMINISTERED"
-                                ? "Administered"
-                                : "Pending Verification";
+                              : "Pending Verification";
                         const cls = active
                           ? "bg-white/15 text-white"
                           : s === "ORDERED"
                             ? "bg-sky-50 text-sky-700 border border-sky-200"
                             : s === "DISPENSED"
                               ? "bg-violet-50 text-violet-700 border border-violet-200"
-                              : s === "ADMINISTERED"
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : "bg-amber-50 text-amber-700 border border-amber-200";
+                              : "bg-amber-50 text-amber-700 border border-amber-200";
                         return (
                           <span
                             className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${cls}`}
