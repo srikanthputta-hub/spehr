@@ -25,6 +25,10 @@ type Order = {
   route: string | null;
   frequency: string | null;
   status: string | null;
+  created_at?: string | null;
+  approved_at?: string | null;
+  dispensed_at?: string | null;
+  administered_at?: string | null;
 };
 
 type Patient = {
@@ -180,17 +184,20 @@ function PharmacyQueue() {
     const PENDING_STATUSES = [
       "Ordered",
       "Pending",
+      "Pending Verification",
       "Dispensed",
+      "Administered",
       "ORDERED",
       "PENDING",
       "PENDING_PHARMACY",
       "PENDING_VERIFICATION",
       "DISPENSED",
+      "ADMINISTERED",
     ];
     (async () => {
       const { data, error } = await supabase
         .from("medication_orders")
-        .select("id, mrn, drug_name, dose, route, frequency, status")
+        .select("id, mrn, drug_name, dose, route, frequency, status, created_at, approved_at, dispensed_at, administered_at")
         .in("status", PENDING_STATUSES);
       if (!active) return;
       if (error) setError(error.message);
