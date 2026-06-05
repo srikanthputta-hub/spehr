@@ -777,6 +777,7 @@ function PharmacyQueue() {
                               hour: "2-digit",
                               minute: "2-digit",
                               second: "2-digit",
+                              hour12: false,
                             }) : "Just now";
                           })()}
                         </td>
@@ -786,7 +787,7 @@ function PharmacyQueue() {
                           {[m?.drug_name, m?.dose, m?.route, m?.frequency].filter(Boolean).join(" ") || "Unknown"}
                         </td>
                         <td className="px-3 py-2">
-                          <StatusPill tone="good" pulse>{m.status ?? "Administered"}</StatusPill>
+                          <StatusPill tone="good">{(m.status ?? "Administered").toUpperCase()}</StatusPill>
                         </td>
                         <td className="px-3 py-2 text-slate-700">
                           {m.pharmacist}
