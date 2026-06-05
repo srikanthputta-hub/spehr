@@ -186,13 +186,11 @@ function PharmacyQueue() {
       "Pending",
       "Pending Verification",
       "Dispensed",
-      "Administered",
       "ORDERED",
       "PENDING",
       "PENDING_PHARMACY",
       "PENDING_VERIFICATION",
       "DISPENSED",
-      "ADMINISTERED",
     ];
     (async () => {
       const { data, error } = await supabase
