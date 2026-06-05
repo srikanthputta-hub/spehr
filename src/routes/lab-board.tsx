@@ -25,6 +25,8 @@ interface LabOrderRow {
   results_data: any;
   created_at: string | null;
   result_value?: string | null;
+  collected_at?: string | null;
+  resulted_at?: string | null;
 }
 
 interface LabValue {
@@ -218,20 +220,15 @@ function LabBoard() {
   const tsOf = (o: LabOrderRow) =>
     o.created_at ? new Date(o.created_at).getTime() : 0;
   // Pending queue — every in-flight status (Ordered → Processing →
-  // Pending → Resulted transitions live in the same panel), newest
-  // first, capped at 25. Resulted/Completed drop into the feed below.
+  // Pending only). The instant a row flips to Reported/Resulted the
+  // realtime channel re-loads and it is evicted from this panel and
+  // pushed into the "Recent Completed Labs Feed" below.
   const pending = useMemo(
     () =>
       visible
         .filter((o) => {
           const s = (o.status ?? "").toUpperCase();
-          return (
-            s === "ORDERED" ||
-            s === "PROCESSING" ||
-            s === "RESULTED" ||
-            s === "REPORTED" ||
-            s.startsWith("PENDING")
-          );
+          return s === "ORDERED" || s === "PROCESSING" || s === "PENDING";
         })
         .sort((a, b) => tsOf(b) - tsOf(a))
         .slice(0, 25),
@@ -258,7 +255,8 @@ function LabBoard() {
         for (const o of real) {
           rows.push({
             key: o.id,
-            timestamp: o.created_at ?? p.admission_time,
+            timestamp:
+              o.resulted_at ?? o.collected_at ?? o.created_at ?? p.admission_time,
             patient_name: o.patient_name || p.name,
             patient_mrn: p.mrn,
             test_type: o.test_type,
@@ -270,7 +268,7 @@ function LabBoard() {
                     return `${r.test}: ${r.value} ${r.unit}${r.flag && r.flag !== "NORMAL" ? ` [${r.flag}]` : ""}`;
                   })()
                 : null),
-            status: o.status ?? "Resulted",
+            status: "Reported",
             physician: o.requested_by || "Dr. Ghost",
           });
         }
