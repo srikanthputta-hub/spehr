@@ -186,13 +186,11 @@ function PharmacyQueue() {
       "Pending",
       "Pending Verification",
       "Dispensed",
-      "Administered",
       "ORDERED",
       "PENDING",
       "PENDING_PHARMACY",
       "PENDING_VERIFICATION",
       "DISPENSED",
-      "ADMINISTERED",
     ];
     (async () => {
       const { data, error } = await supabase
@@ -496,18 +494,14 @@ function PharmacyQueue() {
                             ? "Ordered"
                             : s === "DISPENSED"
                               ? "Dispensed"
-                              : s === "ADMINISTERED"
-                                ? "Administered"
-                                : "Pending Verification";
+                              : "Pending Verification";
                         const cls = active
                           ? "bg-white/15 text-white"
                           : s === "ORDERED"
                             ? "bg-sky-50 text-sky-700 border border-sky-200"
                             : s === "DISPENSED"
                               ? "bg-violet-50 text-violet-700 border border-violet-200"
-                              : s === "ADMINISTERED"
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : "bg-amber-50 text-amber-700 border border-amber-200";
+                              : "bg-amber-50 text-amber-700 border border-amber-200";
                         return (
                           <span
                             className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${cls}`}
@@ -783,6 +777,7 @@ function PharmacyQueue() {
                               hour: "2-digit",
                               minute: "2-digit",
                               second: "2-digit",
+                              hour12: false,
                             }) : "Just now";
                           })()}
                         </td>
@@ -792,7 +787,7 @@ function PharmacyQueue() {
                           {[m?.drug_name, m?.dose, m?.route, m?.frequency].filter(Boolean).join(" ") || "Unknown"}
                         </td>
                         <td className="px-3 py-2">
-                          <StatusPill tone="good" pulse>{m.status ?? "Administered"}</StatusPill>
+                          <StatusPill tone="good">{(m.status ?? "Administered").toUpperCase()}</StatusPill>
                         </td>
                         <td className="px-3 py-2 text-slate-700">
                           {m.pharmacist}
