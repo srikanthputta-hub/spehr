@@ -301,11 +301,12 @@ function useLabs(mrn: string, complaint?: string | null) {
           // of the precise moment the cascade flipped status to "Resulted".
           created_at: r.resulted_at ?? r.created_at,
         })) as LabRow[];
-        // Gate: only labs whose status is exactly "Resulted" (or the legacy
-        // "Completed") and carry a result value are visible in the chart.
+        // Gate: only labs whose status is "Reported" (current cascade final
+        // state) — or the legacy "Resulted" / "Completed" — and that carry a
+        // result value are visible in the chart.
         const finalized = real.filter((r) => {
           const s = (r.status ?? "").toLowerCase();
-          const released = s === "resulted" || s === "completed";
+          const released = s === "reported" || s === "resulted" || s === "completed";
           return released && !!r.result_value;
         });
         if (finalized.length > 0) {
@@ -348,16 +349,17 @@ function useMeds(
         if (c) return;
         const all = ((data as any[]) ?? []).map((r) => ({
           ...r,
-          // Mirror dispensed_at into administered_at so the existing UI cells
-          // print the exact moment the order flipped to "Dispensed".
-          administered_at: r.dispensed_at ?? r.administered_at,
+        // Prefer the official administered_at timestamp; fall back to
+        // dispensed_at for legacy rows that never reached "Administered".
+          administered_at: r.administered_at ?? r.dispensed_at,
         })) as MedRow[];
-        // Gate: only meds whose status reads exactly "Dispensed" (case-
-        // insensitive, plus the legacy "Administered") are visible in the
-        // chart. Anything still "Ordered" / "Pending" stays hidden.
+        // Gate: only meds whose status reads "Administered" (cascade final
+        // state; "Dispensed" kept for legacy rows) are visible in the chart.
+        // Anything still Ordered / Pending Verification / Dispensed stays
+        // hidden until the pharmacy cascade signs off.
         const released = all.filter((r) => {
           const s = (r.status ?? "").toLowerCase();
-          return s === "dispensed" || s === "administered";
+          return s === "administered" || s === "dispensed";
         });
         if (released.length > 0) setRows(released);
         else if (all.length > 0) setRows([]);
