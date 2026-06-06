@@ -25,6 +25,7 @@ type Order = {
   route: string | null;
   frequency: string | null;
   status: string | null;
+  facility_name?: string | null;
   created_at?: string | null;
   approved_at?: string | null;
   dispensed_at?: string | null;
