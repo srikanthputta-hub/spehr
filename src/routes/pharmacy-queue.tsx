@@ -19,6 +19,7 @@ import { useFacility, useActiveStaff } from "@/lib/facility-context";
 type Order = {
   id: string;
   mrn: string | null;
+  patient_mrn?: string | null;
   drug_name: string | null;
   dose: string | null;
   route: string | null;
@@ -46,12 +47,15 @@ type Lab = {
   id: string;
   test_name: string | null;
   panel_name: string | null;
-  result_value: number | null;
+  result_value: number | string | null;
   unit: string | null;
   reference_range: string | null;
   flag: string | null;
   time_drawn: string | null;
 };
+
+const orderMrn = (order: Pick<Order, "mrn" | "patient_mrn"> | null | undefined) =>
+  order?.patient_mrn ?? order?.mrn ?? null;
 
 interface BoardPatient {
   mrn: string;
@@ -174,14 +178,17 @@ function PharmacyQueue() {
     (async () => {
       const { data, error } = await supabase
         .from("medication_orders")
-        .select("id, mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at")
-        .in("status", PENDING_STATUSES);
+        .select("id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at")
+        .eq("facility_name", facility)
+        .in("status", PENDING_STATUSES)
+        .order("created_at", { ascending: false })
+        .limit(200);
       if (!active) return;
       if (error) setError(error.message);
       else {
         const rows = (data ?? []) as Order[];
         setOrders(rows);
-        if (rows.length > 0) setSelectedId(rows[0].id);
+        setSelectedId(rows[0]?.id ?? null);
       }
       setLoading(false);
     })();
@@ -202,7 +209,9 @@ function PharmacyQueue() {
               newStatus &&
               PENDING_STATUSES.includes(newStatus)
             ) {
-              return [...without, payload.new as Order];
+              const next = payload.new as Order;
+              if ((next.facility_name ?? "Memorial Hospital") !== facility) return without;
+              return [next, ...without];
             }
             return without;
           });
@@ -213,7 +222,7 @@ function PharmacyQueue() {
       active = false;
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [facility]);
 
   const visibleOrders = useMemo(
     () =>
