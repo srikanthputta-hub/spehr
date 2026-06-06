@@ -307,14 +307,15 @@ function LabBoard() {
             )
             .join(" | ")
         : `${order.test_type}: Resulted`;
+      const officialAt = new Date().toISOString();
       const { error: e1 } = await supabase
         .from("lab_orders")
         .update({
           status: "Reported",
           results_data: results as any,
           result_value: summary,
-          collected_at: new Date().toISOString(),
-          resulted_at: new Date().toISOString(),
+          collected_at: officialAt,
+          resulted_at: officialAt,
         })
         .eq("id", order.id);
       if (e1) throw e1;
