@@ -75,6 +75,7 @@ interface PatientRecord {
   bp_diastolic: number | null;
   spo2: number | null;
   admission_time: string | null;
+  facility_name: string | null;
 }
 
 function mockAgeFromName(first: string | null | undefined, fallback: number | null): number {
@@ -1267,9 +1268,9 @@ function PatientChart() {
     const refresh = async () => {
       const [labs, meds] = await Promise.all([
         supabase.from("lab_orders").select("id", { count: "exact", head: true })
-          .eq("patient_mrn", patient.mrn).in("status", ["Pending Collection", "PENDING_VERIFICATION", "In Progress"]),
+          .eq("patient_mrn", patient.mrn).in("status", ["Ordered", "Processing", "ORDERED", "PROCESSING"]),
         supabase.from("medication_orders").select("id", { count: "exact", head: true })
-          .eq("patient_mrn", patient.mrn).in("status", ["PENDING_PHARMACY", "PENDING_VERIFICATION"]),
+          .eq("patient_mrn", patient.mrn).in("status", ["Ordered", "Pending Verification", "Dispensed", "ORDERED", "PENDING_VERIFICATION", "DISPENSED"]),
       ]);
       if (cancelled) return;
       setWorkloadCount((labs.count ?? 0) + (meds.count ?? 0));
@@ -1290,7 +1291,7 @@ function PatientChart() {
       setError(null);
       const { data, error } = await supabase
         .from("patients")
-        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time")
+        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name")
         .eq("mrn", mrn)
         .maybeSingle();
       if (cancelled) return;
@@ -1643,22 +1644,20 @@ function OrdersDialog({
     setSubmitting(true);
     try {
       if (kind === "lab") {
-        const status = automationEnabled ? "Pending Collection" : "PENDING_VERIFICATION";
         const { error } = await supabase.from("lab_orders").insert({
           patient_mrn: patient.mrn,
           patient_name: patientName,
-          facility_name: "Memorial Hospital",
+          facility_name: patient.facility_name ?? "Memorial Hospital",
           requested_by: "Provider",
           test_type: testType,
           clinical_condition: patient.chief_complaint ?? null,
-          status,
+          status: "Ordered",
           ordered_by: "Human",
         } as any);
         if (error) throw error;
-        toast.success(`Lab ordered: ${testType}${automationEnabled ? "" : " (awaiting lab tech verification)"}`);
+        toast.success(`Lab ordered: ${testType} (sent to live lab queue)`);
       } else {
         const [name, ...rest] = drug.split(" ");
-        const status = automationEnabled ? "Administered" : "PENDING_VERIFICATION";
         const { error } = await supabase.from("medication_orders").insert({
           patient_id: patient.id,
           patient_mrn: patient.mrn,
@@ -1672,13 +1671,13 @@ function OrdersDialog({
           dose: rest.slice(0, 2).join(" "),
           route: "PO",
           frequency: "Q6H PRN",
-          status,
+          status: "Ordered",
           ordered_by: "Human",
-          facility_name: "Memorial Hospital",
+          facility_name: patient.facility_name ?? "Memorial Hospital",
           ordering_physician: "Provider",
         } as any);
         if (error) throw error;
-        toast.success(`Medication ordered: ${drug}${automationEnabled ? "" : " (awaiting pharmacist verification)"}`);
+        toast.success(`Medication ordered: ${drug} (sent to live pharmacy queue)`);
       }
       onClose();
     } catch (e: any) {
