@@ -476,8 +476,8 @@ function LabsView({ mrn, complaint }: { mrn: string; complaint: string | null })
   );
 }
 
-function MarView({ patientId, complaint }: { patientId: string; complaint: string | null }) {
-  const rows = useMeds(patientId, complaint);
+function MarView({ patientId, mrn, complaint }: { patientId: string; mrn: string; complaint: string | null }) {
+  const rows = useMeds(patientId, mrn, complaint);
   if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
   if (rows.length === 0) return emptyMsg;
   return (
@@ -650,7 +650,7 @@ function NotesView({ mrn }: { mrn: string }) {
 
 function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
   const labs = useLabs(mrn, patient.chief_complaint);
-  const meds = useMeds(patient.id, patient.chief_complaint);
+  const meds = useMeds(patient.id, patient.mrn, patient.chief_complaint);
   const [notes] = useNotes(mrn, 0);
 
   const topMeds = (meds ?? []).slice(0, 3);
@@ -925,7 +925,7 @@ function ClinicalSummary({
 // ============= Clinical-style tab content for new tabs =================
 function ActivityView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
   const labs = useLabs(mrn, patient.chief_complaint);
-  const meds = useMeds(patient.id, patient.chief_complaint);
+  const meds = useMeds(patient.id, patient.mrn, patient.chief_complaint);
   const [notes] = useNotes(mrn, 0);
 
   type Item = { ts: string | null; type: string; title: string; detail: string };
@@ -1468,7 +1468,7 @@ function PatientChart() {
           ) : tab === "medications" ? (
             <div className={widgetBox + " overflow-hidden"}>
               <WidgetHeader title="Medication Administration Record" icon={<Pill className="h-3.5 w-3.5" />} />
-              <MarView patientId={patient.id} complaint={patient.chief_complaint ?? null} />
+              <MarView patientId={patient.id} mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
             </div>
           ) : tab === "providernotes" ? (
             <div className="space-y-3">
