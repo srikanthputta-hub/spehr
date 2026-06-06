@@ -299,7 +299,7 @@ function useLabs(mrn: string, complaint?: string | null) {
           ...r,
           // Surface the lab's official resulted timestamp wherever the chart
           // currently displays created_at — keeps every downstream row aware
-          // of the precise moment the cascade flipped status to "Resulted".
+          // of the precise moment the cascade flipped status to "Reported".
           created_at: r.resulted_at ?? r.created_at,
         })) as LabRow[];
         // Gate: only labs whose status is "Reported" (current cascade final
@@ -398,7 +398,7 @@ function useNotes(mrn: string, refreshKey: number) {
 function LabStatusBadge({ status }: { status: string | null }) {
   const s = (status ?? "").toLowerCase();
   const cls =
-    s === "resulted"
+    s === "resulted" || s === "reported" || s === "completed"
       ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
       : s.includes("processing")
       ? "bg-blue-100 text-blue-800 ring-blue-300"
