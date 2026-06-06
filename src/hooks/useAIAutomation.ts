@@ -55,6 +55,13 @@ function trackTimer(mrn: string, t: ReturnType<typeof setTimeout>) {
   set.add(t);
 }
 
+function untrackTimer(mrn: string, t: ReturnType<typeof setTimeout>) {
+  const set = mrnTimers.get(mrn);
+  if (!set) return;
+  set.delete(t);
+  if (set.size === 0) mrnTimers.delete(mrn);
+}
+
 function clearAllTimers() {
   for (const set of mrnTimers.values()) {
     for (const t of set) clearTimeout(t);
@@ -62,25 +69,26 @@ function clearAllTimers() {
   mrnTimers.clear();
 }
 
-function delay(ms: number) {
-  return new Promise<void>((res) => setTimeout(res, ms));
+function trackedDelay(mrn: string, ms: number) {
+  return new Promise<void>((res) => {
+    const t = setTimeout(() => {
+      untrackTimer(mrn, t);
+      res();
+    }, ms);
+    trackTimer(mrn, t);
+  });
 }
 
 async function cascadeMed(mrn: string, orderId: string) {
   // Ordered → Pending Verification → Dispensed → Administered (final).
   // The chart only surfaces the order once status === "Administered".
-  await new Promise<void>((res) => {
-    const t = setTimeout(() => res(), TRANSITION_GAP_MS);
-    trackTimer(mrn, t);
-  });
+  await trackedDelay(mrn, TRANSITION_GAP_MS);
+  const approvedAt = new Date().toISOString();
   await supabase
     .from("medication_orders")
-    .update({ status: "Pending Verification" })
+    .update({ status: "Pending Verification", approved_at: approvedAt })
     .eq("id", orderId);
-  await new Promise<void>((res) => {
-    const t = setTimeout(() => res(), TRANSITION_GAP_MS);
-    trackTimer(mrn, t);
-  });
+  await trackedDelay(mrn, TRANSITION_GAP_MS);
   const dispensedAt = new Date().toISOString();
   await supabase
     .from("medication_orders")
@@ -89,10 +97,7 @@ async function cascadeMed(mrn: string, orderId: string) {
       dispensed_at: dispensedAt,
     } as any)
     .eq("id", orderId);
-  await new Promise<void>((res) => {
-    const t = setTimeout(() => res(), TRANSITION_GAP_MS);
-    trackTimer(mrn, t);
-  });
+  await trackedDelay(mrn, TRANSITION_GAP_MS);
   const administeredAt = new Date().toISOString();
   await supabase
     .from("medication_orders")
@@ -109,18 +114,12 @@ async function cascadeLab(
   resultSummary: string,
 ) {
   // Ordered → Processing → Reported (final).
-  await new Promise<void>((res) => {
-    const t = setTimeout(() => res(), TRANSITION_GAP_MS);
-    trackTimer(mrn, t);
-  });
+  await trackedDelay(mrn, TRANSITION_GAP_MS);
   await supabase
     .from("lab_orders")
     .update({ status: "Processing" })
     .eq("id", orderId);
-  await new Promise<void>((res) => {
-    const t = setTimeout(() => res(), TRANSITION_GAP_MS);
-    trackTimer(mrn, t);
-  });
+  await trackedDelay(mrn, TRANSITION_GAP_MS);
   const resultedAt = new Date().toISOString();
   await supabase
     .from("lab_orders")
@@ -174,6 +173,7 @@ export async function seedAdmission(
   meds.slice(0, 3).forEach((m, i) => {
     const t = MED_FIRST_ORDER_DELAY_MS + i * MED_ORDER_GAP_MS;
     const timer = setTimeout(async () => {
+      untrackTimer(mrn, timer);
       const { data, error } = await supabase
         .from("medication_orders")
         .insert({
@@ -206,6 +206,7 @@ export async function seedAdmission(
       l.unit ? ` ${l.unit}` : ""
     })`;
     const timer = setTimeout(async () => {
+      untrackTimer(mrn, timer);
       const { data, error } = await supabase
         .from("lab_orders")
         .insert({
