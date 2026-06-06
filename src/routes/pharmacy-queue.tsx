@@ -339,6 +339,12 @@ function PharmacyQueue() {
       setLabs([]);
       return;
     }
+    const selectedMrn = orderMrn(selected);
+    if (!selectedMrn) {
+      setPatient(null);
+      setLabs([]);
+      return;
+    }
     let active = true;
     setContextLoading(true);
     (async () => {
@@ -346,24 +352,34 @@ function PharmacyQueue() {
         supabase
           .from("patients")
           .select("mrn, first_name, last_name, age, gender, room, diagnosis, chief_complaint")
-          .eq("mrn", selected.mrn!)
+          .eq("mrn", selectedMrn)
           .maybeSingle(),
         supabase
-          .from("lab_results")
-          .select("id, test_name, panel_name, result_value, unit, reference_range, flag, time_drawn")
-          .eq("mrn", selected.mrn!)
-          .order("time_drawn", { ascending: false })
+          .from("lab_orders")
+          .select("id, test_type, result_value, status, resulted_at, collected_at, created_at")
+          .eq("patient_mrn", selectedMrn)
+          .in("status", ["Reported", "Resulted", "Completed"])
+          .order("resulted_at", { ascending: false, nullsFirst: false })
           .limit(40),
       ]);
       if (!active) return;
       setPatient((pData ?? null) as Patient | null);
-      setLabs((lData ?? []) as Lab[]);
+      setLabs(((lData ?? []) as any[]).map((l) => ({
+        id: l.id,
+        test_name: l.test_type,
+        panel_name: "Lab Order",
+        result_value: l.result_value,
+        unit: null,
+        reference_range: null,
+        flag: /CRITICAL/i.test(l.result_value ?? "") ? "H" : null,
+        time_drawn: l.resulted_at ?? l.collected_at ?? l.created_at,
+      })) as Lab[]);
       setContextLoading(false);
     })();
     return () => {
       active = false;
     };
-  }, [selected?.mrn]);
+  }, [selected?.id]);
 
   // Always pick next pending after current selection disappears
   useEffect(() => {
