@@ -307,21 +307,6 @@ function PharmacyQueue() {
             pharmacist: pharmacistName,
           });
         }
-      } else {
-        for (const [i, m] of fallbackMedsFor(p.mrn).entries()) {
-          rows.push({
-            key: `${p.mrn}-fb-${i}`,
-            timestamp: p.admission_time,
-            patient_name: p.name,
-            patient_mrn: p.mrn,
-            drug_name: m.drug_name,
-            dose: m.dose,
-            route: m.route,
-            frequency: null,
-            status: m.status,
-            pharmacist: pharmacistName,
-          });
-        }
       }
     }
 
