@@ -75,6 +75,7 @@ interface PatientRecord {
   bp_diastolic: number | null;
   spo2: number | null;
   admission_time: string | null;
+  facility_name: string | null;
 }
 
 function mockAgeFromName(first: string | null | undefined, fallback: number | null): number {
@@ -217,7 +218,7 @@ function fmtTime(t: string | null | undefined) {
   if (!t) return "—";
   try {
     return new Date(t).toLocaleString(undefined, {
-      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
     });
   } catch { return "—"; }
 }
@@ -298,7 +299,7 @@ function useLabs(mrn: string, complaint?: string | null) {
           ...r,
           // Surface the lab's official resulted timestamp wherever the chart
           // currently displays created_at — keeps every downstream row aware
-          // of the precise moment the cascade flipped status to "Resulted".
+          // of the precise moment the cascade flipped status to "Reported".
           created_at: r.resulted_at ?? r.created_at,
         })) as LabRow[];
         // Gate: only labs whose status is "Reported" (current cascade final
@@ -335,6 +336,7 @@ function useLabs(mrn: string, complaint?: string | null) {
 
 function useMeds(
   patientId: string | null | undefined,
+  mrn: string,
   complaint?: string | null,
 ) {
   const [rows, setRows] = useState<MedRow[] | null>(null);
@@ -343,7 +345,7 @@ function useMeds(
     let c = false;
     const load = () => supabase.from("medication_orders")
       .select("id, medication_name, drug_name, medication, dose, route, status, administered_at, dispensed_at, created_at")
-      .eq("patient_id", patientId)
+      .or(`patient_id.eq.${patientId},patient_mrn.eq.${mrn},mrn.eq.${mrn}`)
       .order("created_at", { ascending: false })
       .then(({ data }) => {
         if (c) return;
@@ -354,12 +356,11 @@ function useMeds(
           administered_at: r.administered_at ?? r.dispensed_at,
         })) as MedRow[];
         // Gate: only meds whose status reads "Administered" (cascade final
-        // state; "Dispensed" kept for legacy rows) are visible in the chart.
-        // Anything still Ordered / Pending Verification / Dispensed stays
-        // hidden until the pharmacy cascade signs off.
+        // state) are visible in the chart. Anything still Ordered / Pending
+        // Verification / Dispensed stays hidden until final administration.
         const released = all.filter((r) => {
           const s = (r.status ?? "").toLowerCase();
-          return s === "administered" || s === "dispensed";
+          return s === "administered";
         });
         if (released.length > 0) setRows(released);
         else if (all.length > 0) setRows([]);
@@ -370,12 +371,12 @@ function useMeds(
       .channel(`meds-${patientId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "medication_orders", filter: `patient_id=eq.${patientId}` },
+        { event: "*", schema: "public", table: "medication_orders" },
         () => load(),
       )
       .subscribe();
     return () => { c = true; supabase.removeChannel(channel); };
-  }, [patientId, complaint]);
+  }, [patientId, mrn, complaint]);
   return rows;
 }
 
@@ -397,7 +398,7 @@ function useNotes(mrn: string, refreshKey: number) {
 function LabStatusBadge({ status }: { status: string | null }) {
   const s = (status ?? "").toLowerCase();
   const cls =
-    s === "resulted"
+    s === "resulted" || s === "reported" || s === "completed"
       ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
       : s.includes("processing")
       ? "bg-blue-100 text-blue-800 ring-blue-300"
@@ -476,8 +477,8 @@ function LabsView({ mrn, complaint }: { mrn: string; complaint: string | null })
   );
 }
 
-function MarView({ patientId, complaint }: { patientId: string; complaint: string | null }) {
-  const rows = useMeds(patientId, complaint);
+function MarView({ patientId, mrn, complaint }: { patientId: string; mrn: string; complaint: string | null }) {
+  const rows = useMeds(patientId, mrn, complaint);
   if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
   if (rows.length === 0) return emptyMsg;
   return (
@@ -650,7 +651,7 @@ function NotesView({ mrn }: { mrn: string }) {
 
 function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
   const labs = useLabs(mrn, patient.chief_complaint);
-  const meds = useMeds(patient.id, patient.chief_complaint);
+  const meds = useMeds(patient.id, patient.mrn, patient.chief_complaint);
   const [notes] = useNotes(mrn, 0);
 
   const topMeds = (meds ?? []).slice(0, 3);
@@ -925,7 +926,7 @@ function ClinicalSummary({
 // ============= Clinical-style tab content for new tabs =================
 function ActivityView({ mrn, patient }: { mrn: string; patient: PatientRecord }) {
   const labs = useLabs(mrn, patient.chief_complaint);
-  const meds = useMeds(patient.id, patient.chief_complaint);
+  const meds = useMeds(patient.id, patient.mrn, patient.chief_complaint);
   const [notes] = useNotes(mrn, 0);
 
   type Item = { ts: string | null; type: string; title: string; detail: string };
@@ -1267,9 +1268,9 @@ function PatientChart() {
     const refresh = async () => {
       const [labs, meds] = await Promise.all([
         supabase.from("lab_orders").select("id", { count: "exact", head: true })
-          .eq("patient_mrn", patient.mrn).in("status", ["Pending Collection", "PENDING_VERIFICATION", "In Progress"]),
+          .eq("patient_mrn", patient.mrn).in("status", ["Ordered", "Processing", "ORDERED", "PROCESSING"]),
         supabase.from("medication_orders").select("id", { count: "exact", head: true })
-          .eq("patient_mrn", patient.mrn).in("status", ["PENDING_PHARMACY", "PENDING_VERIFICATION"]),
+          .eq("patient_mrn", patient.mrn).in("status", ["Ordered", "Pending Verification", "Dispensed", "ORDERED", "PENDING_VERIFICATION", "DISPENSED"]),
       ]);
       if (cancelled) return;
       setWorkloadCount((labs.count ?? 0) + (meds.count ?? 0));
@@ -1290,7 +1291,7 @@ function PatientChart() {
       setError(null);
       const { data, error } = await supabase
         .from("patients")
-        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time")
+        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name")
         .eq("mrn", mrn)
         .maybeSingle();
       if (cancelled) return;
@@ -1468,7 +1469,7 @@ function PatientChart() {
           ) : tab === "medications" ? (
             <div className={widgetBox + " overflow-hidden"}>
               <WidgetHeader title="Medication Administration Record" icon={<Pill className="h-3.5 w-3.5" />} />
-              <MarView patientId={patient.id} complaint={patient.chief_complaint ?? null} />
+              <MarView patientId={patient.id} mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
             </div>
           ) : tab === "providernotes" ? (
             <div className="space-y-3">
@@ -1643,22 +1644,20 @@ function OrdersDialog({
     setSubmitting(true);
     try {
       if (kind === "lab") {
-        const status = automationEnabled ? "Pending Collection" : "PENDING_VERIFICATION";
         const { error } = await supabase.from("lab_orders").insert({
           patient_mrn: patient.mrn,
           patient_name: patientName,
-          facility_name: "Memorial Hospital",
+          facility_name: patient.facility_name ?? "Memorial Hospital",
           requested_by: "Provider",
           test_type: testType,
           clinical_condition: patient.chief_complaint ?? null,
-          status,
+          status: "Ordered",
           ordered_by: "Human",
         } as any);
         if (error) throw error;
-        toast.success(`Lab ordered: ${testType}${automationEnabled ? "" : " (awaiting lab tech verification)"}`);
+        toast.success(`Lab ordered: ${testType} (sent to live lab queue)`);
       } else {
         const [name, ...rest] = drug.split(" ");
-        const status = automationEnabled ? "Administered" : "PENDING_VERIFICATION";
         const { error } = await supabase.from("medication_orders").insert({
           patient_id: patient.id,
           patient_mrn: patient.mrn,
@@ -1672,13 +1671,13 @@ function OrdersDialog({
           dose: rest.slice(0, 2).join(" "),
           route: "PO",
           frequency: "Q6H PRN",
-          status,
+          status: "Ordered",
           ordered_by: "Human",
-          facility_name: "Memorial Hospital",
+          facility_name: patient.facility_name ?? "Memorial Hospital",
           ordering_physician: "Provider",
         } as any);
         if (error) throw error;
-        toast.success(`Medication ordered: ${drug}${automationEnabled ? "" : " (awaiting pharmacist verification)"}`);
+        toast.success(`Medication ordered: ${drug} (sent to live pharmacy queue)`);
       }
       onClose();
     } catch (e: any) {

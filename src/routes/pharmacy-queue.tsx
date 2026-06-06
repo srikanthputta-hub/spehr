@@ -15,11 +15,11 @@ import { BoardHeader } from "@/components/BoardShell";
 import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
-import { fallbackMedsFor } from "@/lib/fallback-meds";
 
 type Order = {
   id: string;
   mrn: string | null;
+  patient_mrn?: string | null;
   drug_name: string | null;
   dose: string | null;
   route: string | null;
@@ -47,12 +47,15 @@ type Lab = {
   id: string;
   test_name: string | null;
   panel_name: string | null;
-  result_value: number | null;
+  result_value: number | string | null;
   unit: string | null;
   reference_range: string | null;
   flag: string | null;
   time_drawn: string | null;
 };
+
+const orderMrn = (order: Pick<Order, "mrn" | "patient_mrn"> | null | undefined) =>
+  order?.patient_mrn ?? order?.mrn ?? null;
 
 interface BoardPatient {
   mrn: string;
@@ -82,7 +85,6 @@ function PharmacyQueue() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [facilityMrns, setFacilityMrns] = useState<Set<string>>(new Set());
   const [dispensed, setDispensed] = useState<
     {
       id: string;
@@ -106,26 +108,6 @@ function PharmacyQueue() {
   const [labs, setLabs] = useState<Lab[]>([]);
   const [contextLoading, setContextLoading] = useState(false);
   const [acting, setActing] = useState(false);
-
-  // Load the set of MRNs for the active facility so we can ring-fence the queue
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const { data } = await supabase
-        .from("patients")
-        .select("mrn, facility_name");
-      if (!active) return;
-      const set = new Set<string>();
-      for (const p of (data ?? []) as { mrn: string | null; facility_name: string | null }[]) {
-        if (!p.mrn) continue;
-        if ((p.facility_name ?? "Memorial Hospital") === facility) set.add(p.mrn);
-      }
-      setFacilityMrns(set);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [facility]);
 
   // Load the Nursing Board roster (latest 25 admitted patients) for the
   // active facility — same source the Nursing Board / Lab Board use.
@@ -196,14 +178,17 @@ function PharmacyQueue() {
     (async () => {
       const { data, error } = await supabase
         .from("medication_orders")
-        .select("id, mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at")
-        .in("status", PENDING_STATUSES);
+        .select("id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at")
+        .eq("facility_name", facility)
+        .in("status", PENDING_STATUSES)
+        .order("created_at", { ascending: false })
+        .limit(200);
       if (!active) return;
       if (error) setError(error.message);
       else {
         const rows = (data ?? []) as Order[];
         setOrders(rows);
-        if (rows.length > 0) setSelectedId(rows[0].id);
+        setSelectedId(rows[0]?.id ?? null);
       }
       setLoading(false);
     })();
@@ -224,7 +209,9 @@ function PharmacyQueue() {
               newStatus &&
               PENDING_STATUSES.includes(newStatus)
             ) {
-              return [...without, payload.new as Order];
+              const next = payload.new as Order;
+              if ((next.facility_name ?? "Memorial Hospital") !== facility) return without;
+              return [next, ...without];
             }
             return without;
           });
@@ -235,7 +222,7 @@ function PharmacyQueue() {
       active = false;
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [facility]);
 
   const visibleOrders = useMemo(
     () =>
@@ -329,21 +316,6 @@ function PharmacyQueue() {
             pharmacist: pharmacistName,
           });
         }
-      } else {
-        for (const [i, m] of fallbackMedsFor(p.mrn).entries()) {
-          rows.push({
-            key: `${p.mrn}-fb-${i}`,
-            timestamp: p.admission_time,
-            patient_name: p.name,
-            patient_mrn: p.mrn,
-            drug_name: m.drug_name,
-            dose: m.dose,
-            route: m.route,
-            frequency: null,
-            status: m.status,
-            pharmacist: pharmacistName,
-          });
-        }
       }
     }
 
@@ -362,7 +334,8 @@ function PharmacyQueue() {
 
   // Load patient context + labs whenever selection changes
   useEffect(() => {
-    if (!selected?.mrn) {
+    const selectedMrn = orderMrn(selected);
+    if (!selectedMrn) {
       setPatient(null);
       setLabs([]);
       return;
@@ -374,24 +347,34 @@ function PharmacyQueue() {
         supabase
           .from("patients")
           .select("mrn, first_name, last_name, age, gender, room, diagnosis, chief_complaint")
-          .eq("mrn", selected.mrn!)
+          .eq("mrn", selectedMrn)
           .maybeSingle(),
         supabase
-          .from("lab_results")
-          .select("id, test_name, panel_name, result_value, unit, reference_range, flag, time_drawn")
-          .eq("mrn", selected.mrn!)
-          .order("time_drawn", { ascending: false })
+          .from("lab_orders")
+          .select("id, test_type, result_value, status, resulted_at, collected_at, created_at")
+          .eq("patient_mrn", selectedMrn)
+          .in("status", ["Reported", "Resulted", "Completed"])
+          .order("resulted_at", { ascending: false, nullsFirst: false })
           .limit(40),
       ]);
       if (!active) return;
       setPatient((pData ?? null) as Patient | null);
-      setLabs((lData ?? []) as Lab[]);
+      setLabs(((lData ?? []) as any[]).map((l) => ({
+        id: l.id,
+        test_name: l.test_type,
+        panel_name: "Lab Order",
+        result_value: l.result_value,
+        unit: null,
+        reference_range: null,
+        flag: /CRITICAL/i.test(l.result_value ?? "") ? "H" : null,
+        time_drawn: l.resulted_at ?? l.collected_at ?? l.created_at,
+      })) as Lab[]);
       setContextLoading(false);
     })();
     return () => {
       active = false;
     };
-  }, [selected?.mrn]);
+  }, [selected?.id]);
 
   // Always pick next pending after current selection disappears
   useEffect(() => {

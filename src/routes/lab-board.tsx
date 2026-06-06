@@ -7,7 +7,6 @@ import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalSh
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
-import { fallbackLabsFor } from "@/lib/fallback-labs";
 
 export const Route = createFileRoute("/lab-board")({
   component: LabBoard,
@@ -228,7 +227,7 @@ function LabBoard() {
       visible
         .filter((o) => {
           const s = (o.status ?? "").toUpperCase();
-          return s === "ORDERED" || s === "PROCESSING" || s === "PENDING";
+          return s === "ORDERED" || s === "PROCESSING";
         })
         .sort((a, b) => tsOf(b) - tsOf(a))
         .slice(0, 25),
@@ -272,20 +271,6 @@ function LabBoard() {
             physician: o.requested_by || "Dr. Ghost",
           });
         }
-      } else {
-        // Deterministic synthetic panel — same tests the patient chart shows.
-        for (const [i, l] of fallbackLabsFor(p.mrn).entries()) {
-          rows.push({
-            key: `${p.mrn}-fb-${i}`,
-            timestamp: p.admission_time,
-            patient_name: p.name,
-            patient_mrn: p.mrn,
-            test_type: l.test_type,
-            result_value: l.result_value,
-            status: l.status,
-            physician: "Dr. Ghost",
-          });
-        }
       }
     }
 
@@ -322,13 +307,15 @@ function LabBoard() {
             )
             .join(" | ")
         : `${order.test_type}: Resulted`;
+      const officialAt = new Date().toISOString();
       const { error: e1 } = await supabase
         .from("lab_orders")
         .update({
-          status: "Completed",
+          status: "Reported",
           results_data: results as any,
           result_value: summary,
-          collected_at: new Date().toISOString(),
+          collected_at: officialAt,
+          resulted_at: officialAt,
         })
         .eq("id", order.id);
       if (e1) throw e1;
