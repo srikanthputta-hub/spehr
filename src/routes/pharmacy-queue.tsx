@@ -334,11 +334,6 @@ function PharmacyQueue() {
 
   // Load patient context + labs whenever selection changes
   useEffect(() => {
-    if (!selected?.mrn) {
-      setPatient(null);
-      setLabs([]);
-      return;
-    }
     const selectedMrn = orderMrn(selected);
     if (!selectedMrn) {
       setPatient(null);
