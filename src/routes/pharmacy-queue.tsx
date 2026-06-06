@@ -15,7 +15,6 @@ import { BoardHeader } from "@/components/BoardShell";
 import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
-import { fallbackMedsFor } from "@/lib/fallback-meds";
 
 type Order = {
   id: string;
@@ -82,7 +81,6 @@ function PharmacyQueue() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [facilityMrns, setFacilityMrns] = useState<Set<string>>(new Set());
   const [dispensed, setDispensed] = useState<
     {
       id: string;
@@ -106,26 +104,6 @@ function PharmacyQueue() {
   const [labs, setLabs] = useState<Lab[]>([]);
   const [contextLoading, setContextLoading] = useState(false);
   const [acting, setActing] = useState(false);
-
-  // Load the set of MRNs for the active facility so we can ring-fence the queue
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const { data } = await supabase
-        .from("patients")
-        .select("mrn, facility_name");
-      if (!active) return;
-      const set = new Set<string>();
-      for (const p of (data ?? []) as { mrn: string | null; facility_name: string | null }[]) {
-        if (!p.mrn) continue;
-        if ((p.facility_name ?? "Memorial Hospital") === facility) set.add(p.mrn);
-      }
-      setFacilityMrns(set);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [facility]);
 
   // Load the Nursing Board roster (latest 25 admitted patients) for the
   // active facility — same source the Nursing Board / Lab Board use.
