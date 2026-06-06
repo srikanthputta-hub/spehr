@@ -29,6 +29,15 @@ interface NewPatient {
   chief_complaint: string | null;
 }
 
+interface InsertedOrder {
+  id: string;
+  status: string | null;
+  ordered_by?: string | null;
+  patient_mrn?: string | null;
+  mrn?: string | null;
+  test_type?: string | null;
+}
+
 // Medication cascade — orders placed at T+20, T+35, T+50.
 const MED_FIRST_ORDER_DELAY_MS = 20_000;
 const MED_ORDER_GAP_MS = 15_000;
@@ -246,6 +255,32 @@ export function useAIAutomation() {
           seeded.current.add(p.id);
           seedAdmission(p).catch((e) =>
             console.warn("[admission-randomizer] seed failed", e),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "medication_orders" },
+        (payload) => {
+          const o = payload.new as InsertedOrder;
+          const mrn = o.patient_mrn ?? o.mrn;
+          const source = (o.ordered_by ?? "").toLowerCase();
+          if (!mrn || (o.status ?? "").toLowerCase() !== "ordered") return;
+          if (source.includes("admission randomizer") || source.includes("bedside rn")) return;
+          cascadeMed(mrn, o.id).catch((e) => console.warn("[order-cascadeMed] failed", e));
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "lab_orders" },
+        (payload) => {
+          const o = payload.new as InsertedOrder;
+          const mrn = o.patient_mrn ?? o.mrn;
+          const source = (o.ordered_by ?? "").toLowerCase();
+          if (!mrn || (o.status ?? "").toLowerCase() !== "ordered") return;
+          if (source.includes("admission randomizer") || source.includes("bedside rn")) return;
+          cascadeLab(mrn, o.id, `${o.test_type ?? "Lab"}: resulted`).catch((e) =>
+            console.warn("[order-cascadeLab] failed", e),
           );
         },
       )
