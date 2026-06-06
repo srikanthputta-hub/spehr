@@ -195,7 +195,7 @@ function PharmacyQueue() {
     (async () => {
       const { data, error } = await supabase
         .from("medication_orders")
-        .select("id, mrn, drug_name, dose, route, frequency, status, created_at, approved_at, dispensed_at, administered_at")
+        .select("id, mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at")
         .in("status", PENDING_STATUSES);
       if (!active) return;
       if (error) setError(error.message);
@@ -237,8 +237,11 @@ function PharmacyQueue() {
   }, []);
 
   const visibleOrders = useMemo(
-    () => orders.filter((o) => !!o.mrn && facilityMrns.has(o.mrn)),
-    [orders, facilityMrns],
+    () =>
+      orders.filter(
+        (o) => (o.facility_name ?? "Memorial Hospital") === facility,
+      ),
+    [orders, facility],
   );
 
   // Recent dispensed medications — live feed sourced from medication_orders.
