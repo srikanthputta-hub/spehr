@@ -217,7 +217,7 @@ function fmtTime(t: string | null | undefined) {
   if (!t) return "—";
   try {
     return new Date(t).toLocaleString(undefined, {
-      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
     });
   } catch { return "—"; }
 }
@@ -335,6 +335,7 @@ function useLabs(mrn: string, complaint?: string | null) {
 
 function useMeds(
   patientId: string | null | undefined,
+  mrn: string,
   complaint?: string | null,
 ) {
   const [rows, setRows] = useState<MedRow[] | null>(null);
@@ -343,7 +344,7 @@ function useMeds(
     let c = false;
     const load = () => supabase.from("medication_orders")
       .select("id, medication_name, drug_name, medication, dose, route, status, administered_at, dispensed_at, created_at")
-      .eq("patient_id", patientId)
+      .or(`patient_id.eq.${patientId},patient_mrn.eq.${mrn},mrn.eq.${mrn}`)
       .order("created_at", { ascending: false })
       .then(({ data }) => {
         if (c) return;
@@ -354,12 +355,11 @@ function useMeds(
           administered_at: r.administered_at ?? r.dispensed_at,
         })) as MedRow[];
         // Gate: only meds whose status reads "Administered" (cascade final
-        // state; "Dispensed" kept for legacy rows) are visible in the chart.
-        // Anything still Ordered / Pending Verification / Dispensed stays
-        // hidden until the pharmacy cascade signs off.
+        // state) are visible in the chart. Anything still Ordered / Pending
+        // Verification / Dispensed stays hidden until final administration.
         const released = all.filter((r) => {
           const s = (r.status ?? "").toLowerCase();
-          return s === "administered" || s === "dispensed";
+          return s === "administered";
         });
         if (released.length > 0) setRows(released);
         else if (all.length > 0) setRows([]);
@@ -370,12 +370,12 @@ function useMeds(
       .channel(`meds-${patientId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "medication_orders", filter: `patient_id=eq.${patientId}` },
+        { event: "*", schema: "public", table: "medication_orders" },
         () => load(),
       )
       .subscribe();
     return () => { c = true; supabase.removeChannel(channel); };
-  }, [patientId, complaint]);
+  }, [patientId, mrn, complaint]);
   return rows;
 }
 
