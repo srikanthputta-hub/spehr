@@ -244,6 +244,53 @@ export function useAIAutomation() {
 
   useEffect(() => {
     if (!automationEnabled) return;
+    // Orphan sweeper — any pharmacy/lab order stuck in a non-terminal state
+    // for >90s (page reload mid-cascade, closed tab, crashed worker) is
+    // finalized so the live boards don't grow stale rows across every
+    // facility. Mirrors the one-shot DB cleanup but keeps running.
+    const sweepOrphans = async () => {
+      const cutoff = new Date(Date.now() - 90_000).toISOString();
+      const nowIso = new Date().toISOString();
+      await supabase
+        .from("medication_orders")
+        .update({
+          status: "Administered",
+          administered_at: nowIso,
+        } as any)
+        .lt("created_at", cutoff)
+        .in("status", [
+          "Ordered",
+          "Pending",
+          "Pending Verification",
+          "Dispensed",
+          "DUE",
+          "ORDERED",
+          "PENDING",
+          "PENDING_PHARMACY",
+          "PENDING_VERIFICATION",
+          "DISPENSED",
+        ]);
+      await supabase
+        .from("lab_orders")
+        .update({
+          status: "Reported",
+          resulted_at: nowIso,
+        } as any)
+        .lt("created_at", cutoff)
+        .in("status", [
+          "Ordered",
+          "Processing",
+          "Pending Collection",
+          "Completed",
+          "ORDERED",
+          "PROCESSING",
+        ]);
+    };
+    sweepOrphans().catch((e) => console.warn("[orphan-sweep] failed", e));
+    const sweepInterval = setInterval(() => {
+      sweepOrphans().catch(() => {});
+    }, 30_000);
+
     const channel = supabase
       .channel("admission-randomizer")
       .on(
@@ -289,6 +336,7 @@ export function useAIAutomation() {
     return () => {
       supabase.removeChannel(channel);
       clearAllTimers();
+      clearInterval(sweepInterval);
     };
   }, [automationEnabled]);
 }
