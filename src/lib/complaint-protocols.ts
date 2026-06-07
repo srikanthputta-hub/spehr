@@ -115,7 +115,7 @@ const PROTOCOLS: ComplaintProtocol[] = [
     ],
     labs: [
       { name: "WBC", unit: "k/uL", referenceRange: "4.5–11.0", resultExample: "12.8 k/uL [HIGH]" },
-      { name: "Blood Culture", unit: "", referenceRange: "Negative", resultExample: "Pending — preliminary" },
+      { name: "Blood Culture", unit: "", referenceRange: "Negative", resultExample: "No growth at 24h (preliminary)" },
     ],
   },
   {
