@@ -200,7 +200,12 @@ export async function seedAdmission(
         })
         .select("id")
         .single();
-      if (error || !data) return;
+      if (error || !data) {
+        // Partial-unique index collision: another tab/worker already seeded
+        // this (MRN, drug) pair. Silently skip — the winning insert owns
+        // the cascade for this order.
+        return;
+      }
       cascadeMed(mrn, data.id).catch((e) =>
         console.warn("[cascadeMed] failed", e),
       );
@@ -229,7 +234,7 @@ export async function seedAdmission(
         })
         .select("id")
         .single();
-      if (error || !data) return;
+      if (error || !data) return; // unique-index collision → another tab wins
       cascadeLab(mrn, data.id, resultSummary).catch((e) =>
         console.warn("[cascadeLab] failed", e),
       );
