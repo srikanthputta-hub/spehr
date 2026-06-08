@@ -98,9 +98,54 @@ const SAFETY_THRESHOLDS = {
   MAX_SHIFT_HOURS: 12,
 } as const;
 
-// Simulation tick: every 1s — fast deploy loop so Ghost HR can visibly stabilize ratios
-const TICK_MS = 1000;
+// Simulation tick: 1 simulated hour every 2s so a 12-hour shift completes in
+// ~24s — fast enough to demo rotation, slow enough to read the timer.
+const TICK_MS = 2000;
 const HOURS_PER_TICK = 1;
+
+// Random first/last name pools — used to spawn unique replacement staff when
+// an on-duty clinician hits the 12-hour shift cap. Keeps the roster looking
+// like a real hospital instead of "Auto-Deployed RN #1".
+const FIRST_NAMES = [
+  "Aisha","Brandon","Chen","Devon","Elena","Felix","Grace","Hiro","Imani",
+  "Jasmine","Kwame","Lila","Marco","Nadia","Owen","Priya","Quinn","Rafael",
+  "Sasha","Tomas","Uma","Vikram","Willa","Ximena","Yusuf","Zara","Anders",
+  "Bianca","Cyrus","Delphine","Emeka","Farrah","Gus","Hannah","Ines","Jonah",
+  "Kira","Leon","Mira","Noor","Otis","Penelope","Rhea","Soren","Tomoko",
+] as const;
+const LAST_NAMES = [
+  "Park","Nguyen","Okafor","Sullivan","Reyes","Carter","Bauer","Khan","Mendez",
+  "Holloway","Brennan","Tanaka","Ortiz","Singh","Adler","Bishop","Costa",
+  "DuBois","Engel","Fontaine","Ghosh","Hayes","Ibanez","Joshi","Kapoor",
+  "Lawrence","Moreau","Navarro","Osei","Patel","Quintero","Romero","Suzuki",
+] as const;
+const ROLE_SUFFIX: Record<string, string> = {
+  RN: ", RN",
+  MD: ", MD",
+  PharmD: ", PharmD",
+  CNA: ", CNA",
+  LPN: ", LPN",
+  Finance: ", CPA",
+};
+const ROLE_RATE: Record<string, number> = {
+  RN: 52, MD: 150, PharmD: 68, CNA: 28, LPN: 36, Finance: 60,
+};
+const ROLE_CAP: Record<string, number> = {
+  RN: 5, MD: 15, PharmD: 50, CNA: 8, LPN: 8, Finance: 0,
+};
+
+function randomName(used: Set<string>): string {
+  for (let i = 0; i < 50; i++) {
+    const f = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
+    const l = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+    const name = `${f} ${l}`;
+    if (!used.has(name)) {
+      used.add(name);
+      return name;
+    }
+  }
+  return `Staff ${Math.floor(Math.random() * 9999)}`;
+}
 
 const IN_NETWORK_FACILITIES = new Set([
   "Memorial Hospital",
@@ -379,6 +424,10 @@ function AdminDashboard() {
       const nextStatus: Record<string, string> = { ...statusMap };
       let clockedOut = 0;
       let clockedIn = 0;
+      const spawned: StaffMember[] = [];
+      const usedNames = new Set<string>(
+        [...staff, ...spawned].map((s) => s.name).filter(Boolean),
+      );
 
       // 1) Increment hours for On Duty staff
       for (const s of currentStaff) {
@@ -387,22 +436,33 @@ function AdminDashboard() {
         }
       }
 
-      // 2) Work-life balance: clock out anyone > MAX_SHIFT_HOURS
-      //    but ONLY if there's a replacement available (another On Duty same-role)
+      // 2) Work-life balance: NO ONE works past MAX_SHIFT_HOURS.
+      //    When a clinician hits the cap, clock them out and immediately
+      //    spawn a fresh same-role replacement with a random unique name —
+      //    keeps every role continuously covered like a real hospital.
       for (const s of currentStaff) {
         const h = nextHours[s.id] ?? s.effHours;
         const stat = nextStatus[s.id] ?? s.effStatus;
-        if (stat !== "On Duty" || h <= SAFETY_THRESHOLDS.MAX_SHIFT_HOURS) continue;
-        const sameRoleOnDuty = currentStaff.filter(
-          (x) =>
-            x.role === s.role &&
-            x.id !== s.id &&
-            (nextStatus[x.id] ?? x.effStatus) === "On Duty",
-        ).length;
-        if (sameRoleOnDuty >= 1) {
-          nextStatus[s.id] = "Off Duty";
-          clockedOut++;
-        }
+        if (stat !== "On Duty" || h < SAFETY_THRESHOLDS.MAX_SHIFT_HOURS) continue;
+        nextStatus[s.id] = "Off Duty";
+        nextHours[s.id] = SAFETY_THRESHOLDS.MAX_SHIFT_HOURS;
+        clockedOut++;
+        const replId = `auto-${s.role.toLowerCase()}-${Date.now()}-${spawned.length}`;
+        const replName = randomName(usedNames) + (ROLE_SUFFIX[s.role] ?? "");
+        spawned.push({
+          id: replId,
+          name: replName,
+          role: s.role,
+          status: "On Duty",
+          assigned_patients: s.assigned_patients ?? 0,
+          max_capacity: s.max_capacity ?? ROLE_CAP[s.role] ?? 5,
+          hourly_rate: s.hourly_rate ?? ROLE_RATE[s.role] ?? 45,
+          facility_name: facility,
+          hours_worked: 0,
+        });
+        nextStatus[replId] = "On Duty";
+        nextHours[replId] = 0;
+        clockedIn++;
       }
 
       // 3) Acuity scaling: if RN ratio > 5, auto clock-in Off Duty RNs
@@ -416,7 +476,6 @@ function AdminDashboard() {
         (s) => s.role === "RN" && (nextStatus[s.id] ?? s.effStatus) !== "On Duty",
       );
       // Skip all scaling work if there are no patients in this facility (div/0 guard)
-      const spawned: StaffMember[] = [];
       let scaledDown = 0;
       if (censusCount > 0) {
         for (const rn of offDutyRNs) {
@@ -432,12 +491,12 @@ function AdminDashboard() {
           const id = `auto-rn-${Date.now()}-${spawned.length}`;
           spawned.push({
             id,
-            name: `Auto-Deployed RN #${spawned.length + 1}`,
+            name: randomName(usedNames) + ", RN",
             role: "RN",
             status: "On Duty",
             assigned_patients: SAFETY_THRESHOLDS.RN,
             max_capacity: SAFETY_THRESHOLDS.RN,
-            hourly_rate: 0,
+            hourly_rate: ROLE_RATE.RN,
             facility_name: facility,
             hours_worked: 0,
           });
@@ -1017,18 +1076,6 @@ function FacilityAnalytics({
       .slice(0, 10);
   }, [patients]);
 
-  const feed = useMemo(
-    () =>
-      [...patients]
-        .sort(
-          (a, b) =>
-            new Date(b.admission_time ?? 0).getTime() -
-            new Date(a.admission_time ?? 0).getTime(),
-        )
-        .slice(0, 50),
-    [patients],
-  );
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -1096,64 +1143,6 @@ function FacilityAnalytics({
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Live Feed
-            </div>
-            <div className="text-sm font-semibold text-slate-900">
-              Live Admissions Feed — {facility}
-            </div>
-          </div>
-          <span className="text-[11px] text-slate-500">{feed.length} latest</span>
-        </div>
-        <div className="max-h-[420px] overflow-auto">
-          <table className="w-full text-[12px]">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.14em] text-slate-500 sticky top-0">
-              <tr className="border-b border-slate-200">
-                <th className="text-left px-4 py-2 font-semibold">Timestamp</th>
-                <th className="text-left px-4 py-2 font-semibold">MRN</th>
-                <th className="text-left px-4 py-2 font-semibold">Patient</th>
-                <th className="text-left px-4 py-2 font-semibold">Chief Complaint</th>
-                <th className="text-left px-4 py-2 font-semibold">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {feed.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                    No admissions on record for {facility}.
-                  </td>
-                </tr>
-              )}
-              {feed.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-2 font-mono text-slate-600 whitespace-nowrap">
-                    {fmtTs(p.admission_time)}
-                  </td>
-                  <td className="px-4 py-2 font-mono text-slate-900">{p.mrn ?? "—"}</td>
-                  <td className="px-4 py-2 text-slate-900">{fullName(p)}</td>
-                  <td className="px-4 py-2 text-slate-700">{p.chief_complaint ?? "—"}</td>
-                  <td className="px-4 py-2">
-                    <span
-                      className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                        p.status === "Admitted"
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          : p.status === "Discharged"
-                            ? "bg-slate-100 text-slate-600 border-slate-200"
-                            : "bg-amber-50 text-amber-700 border-amber-200"
-                      }`}
-                    >
-                      {p.status ?? "Unknown"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   );
 }
