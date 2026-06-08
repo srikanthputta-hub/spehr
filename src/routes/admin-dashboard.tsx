@@ -20,7 +20,6 @@ import {
   UserCog,
   Trash2,
   Loader2,
-  UserPlus,
   ShieldCheck,
   ShieldAlert,
   Inbox,
@@ -37,15 +36,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetTrigger,
-  SheetFooter,
-} from "@/components/ui/sheet";
 import { Progress } from "@/components/ui/progress";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
@@ -88,38 +78,26 @@ interface StaffMember {
   hours_worked?: number;
 }
 
-const STAFF_ROLES = ["RN", "MD", "PharmD", "Finance", "CNA", "LPN"] as const;
-
-// Ghost HR — auto-scaling safety thresholds
-const SAFETY_THRESHOLDS = {
-  RN: 5,
-  MD: 15,
-  PharmD: 50,
-  MAX_SHIFT_HOURS: 12,
-} as const;
-
-// Simulation tick: 1 simulated hour every 2s so a 12-hour shift completes in
-// ~24s — fast enough to demo rotation, slow enough to read the timer.
+// Roster: exactly 3 staff per role, rotating on strict 12-hour shifts.
+// At any moment, slot 0 is On Duty and slot 1 is Next Shift (queued);
+// slot 2 is resting. The clock advances 1 simulated hour every TICK_MS,
+// and when the on-duty clinician completes 12h the rotation advances
+// (slot 1 takes over, the rested clinician becomes Next Shift).
+const MAX_SHIFT_HOURS = 12;
 const TICK_MS = 2000;
 const HOURS_PER_TICK = 1;
 
-// Random first/last name pools — used to spawn unique replacement staff when
-// an on-duty clinician hits the 12-hour shift cap. Keeps the roster looking
-// like a real hospital instead of "Auto-Deployed RN #1".
-const FIRST_NAMES = [
-  "Aisha","Brandon","Chen","Devon","Elena","Felix","Grace","Hiro","Imani",
-  "Jasmine","Kwame","Lila","Marco","Nadia","Owen","Priya","Quinn","Rafael",
-  "Sasha","Tomas","Uma","Vikram","Willa","Ximena","Yusuf","Zara","Anders",
-  "Bianca","Cyrus","Delphine","Emeka","Farrah","Gus","Hannah","Ines","Jonah",
-  "Kira","Leon","Mira","Noor","Otis","Penelope","Rhea","Soren","Tomoko",
+type RoleKey = "RN" | "MD" | "PharmD" | "CNA" | "LPN" | "Finance";
+const STAFF_ROLES: readonly RoleKey[] = [
+  "RN",
+  "MD",
+  "PharmD",
+  "CNA",
+  "LPN",
+  "Finance",
 ] as const;
-const LAST_NAMES = [
-  "Park","Nguyen","Okafor","Sullivan","Reyes","Carter","Bauer","Khan","Mendez",
-  "Holloway","Brennan","Tanaka","Ortiz","Singh","Adler","Bishop","Costa",
-  "DuBois","Engel","Fontaine","Ghosh","Hayes","Ibanez","Joshi","Kapoor",
-  "Lawrence","Moreau","Navarro","Osei","Patel","Quintero","Romero","Suzuki",
-] as const;
-const ROLE_SUFFIX: Record<string, string> = {
+
+const ROLE_SUFFIX: Record<RoleKey, string> = {
   RN: ", RN",
   MD: ", MD",
   PharmD: ", PharmD",
@@ -127,24 +105,59 @@ const ROLE_SUFFIX: Record<string, string> = {
   LPN: ", LPN",
   Finance: ", CPA",
 };
-const ROLE_RATE: Record<string, number> = {
+const ROLE_RATE: Record<RoleKey, number> = {
   RN: 52, MD: 150, PharmD: 68, CNA: 28, LPN: 36, Finance: 60,
 };
-const ROLE_CAP: Record<string, number> = {
+const ROLE_CAP: Record<RoleKey, number> = {
   RN: 5, MD: 15, PharmD: 50, CNA: 8, LPN: 8, Finance: 0,
 };
 
-function randomName(used: Set<string>): string {
-  for (let i = 0; i < 50; i++) {
-    const f = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
-    const l = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
-    const name = `${f} ${l}`;
-    if (!used.has(name)) {
-      used.add(name);
-      return name;
-    }
+// Deterministic per-facility name pool keeps each hospital's roster
+// consistent across reloads (no random churn between renders).
+const NAME_POOL: Array<[string, string]> = [
+  ["Sarah", "Jenkins"], ["Marcus", "Patel"], ["Elena", "Rostova"],
+  ["David", "Okafor"], ["Aisha", "Bauer"], ["Hiro", "Quintero"],
+  ["Nadia", "Mendez"], ["Owen", "Sullivan"], ["Priya", "Reyes"],
+  ["Felix", "Carter"], ["Grace", "Holloway"], ["Jonah", "Brennan"],
+  ["Kira", "Tanaka"], ["Leon", "Ortiz"], ["Mira", "Singh"],
+  ["Noor", "Adler"], ["Otis", "Bishop"], ["Rhea", "Costa"],
+] as const as Array<[string, string]>;
+
+function hashString(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h * 16777619) >>> 0;
   }
-  return `Staff ${Math.floor(Math.random() * 9999)}`;
+  return h;
+}
+
+function buildRoster(facility: string): Record<RoleKey, string[]> {
+  // 3 unique names per role, deterministic per facility.
+  const seed = hashString(facility || "default");
+  const pool = [...NAME_POOL];
+  // Fisher–Yates with seeded LCG so the same facility always yields the
+  // same shuffle (no rotation just from re-mounting the page).
+  let s = seed || 1;
+  const rand = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0xffffffff;
+  };
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const out = {} as Record<RoleKey, string[]>;
+  let idx = 0;
+  for (const role of STAFF_ROLES) {
+    const names: string[] = [];
+    for (let k = 0; k < 3; k++) {
+      const [f, l] = pool[(idx++) % pool.length];
+      names.push(`${f} ${l}${ROLE_SUFFIX[role]}`);
+    }
+    out[role] = names;
+  }
+  return out;
 }
 
 const IN_NETWORK_FACILITIES = new Set([
@@ -223,16 +236,17 @@ function AdminDashboard() {
   const [cluster, setCluster] = useState("");
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
-  const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [staffLoading, setStaffLoading] = useState(true);
-  // Ghost HR local overlay (UI-only sim; never written to DB)
-  const [hoursMap, setHoursMap] = useState<Record<string, number>>({});
-  const [statusMap, setStatusMap] = useState<Record<string, string>>({});
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newRole, setNewRole] = useState<string>("RN");
-  const [newRate, setNewRate] = useState<string>("");
-  const [saving, setSaving] = useState(false);
+  // Per-role shift clock — drives the 3-staff rotation. `idx` points at the
+  // currently On Duty clinician in the per-role name pool; `hours` counts
+  // simulated hours into the current shift (caps at 12h, then rotates).
+  const roster = useMemo(() => buildRoster(facility), [facility]);
+  const [shiftClock, setShiftClock] = useState<
+    Record<RoleKey, { idx: number; hours: number }>
+  >(() => {
+    const init = {} as Record<RoleKey, { idx: number; hours: number }>;
+    for (const r of STAFF_ROLES) init[r] = { idx: 0, hours: 0 };
+    return init;
+  });
 
   const [transfers, setTransfers] = useState<TransferRequest[]>([]);
   const [transfersLoading, setTransfersLoading] = useState(true);
@@ -257,17 +271,13 @@ function AdminDashboard() {
     })();
   }, []);
 
+  // Reset shift clock when the active facility changes — each hospital has
+  // its own independent rotation that starts from slot 0.
   useEffect(() => {
-    (async () => {
-      const { data, error } = await supabase
-        .from("hospital_staff")
-        .select("id,name,role,status,assigned_patients,max_capacity,hourly_rate,facility_name")
-        .order("role", { ascending: true });
-      if (error) toast.error(error.message);
-      else setStaff((data ?? []) as StaffMember[]);
-      setStaffLoading(false);
-    })();
-  }, []);
+    const init = {} as Record<RoleKey, { idx: number; hours: number }>;
+    for (const r of STAFF_ROLES) init[r] = { idx: 0, hours: 0 };
+    setShiftClock(init);
+  }, [facility]);
 
   const loadTransfers = async () => {
     const { data, error } = await supabase
@@ -363,17 +373,9 @@ function AdminDashboard() {
       ),
     [facilityPatients],
   );
-  const facilityStaff = useMemo(
-    () =>
-      staff
-        .filter((s) => (s.facility_name ?? "Memorial Hospital") === facility)
-        .map((s) => ({
-          ...s,
-          status: statusMap[s.id] ?? s.status,
-          hours_worked: hoursMap[s.id] ?? 0,
-        })),
-    [staff, facility, statusMap, hoursMap],
-  );
+  // No-op placeholder — staffing now derives purely from the shift clock
+  // (see `rosterCards` below). Kept here to preserve memo ordering for
+  // downstream dependent memos.
 
   const acuity = useMemo(
     () =>
@@ -399,194 +401,89 @@ function AdminDashboard() {
   const removeAssignment = (id: string) =>
     setAssignments((a) => a.filter((x) => x.id !== id));
 
-  const onDutyRNs = useMemo(
-    () =>
-      facilityStaff.filter((s) => s.role === "RN" && s.status === "On Duty").length,
-    [facilityStaff],
-  );
-  const census = activePatients.length;
-  const ratio = onDutyRNs > 0 ? census / onDutyRNs : Infinity;
-  const safeRatio = onDutyRNs > 0 && ratio <= SAFETY_THRESHOLDS.RN;
-
-  // ============ Ghost HR Auto-Scaling Engine ============
+  // ============ 12-hour Shift Rotation Engine ============
+  // Every TICK_MS, advance every role's shift clock by HOURS_PER_TICK.
+  // When the current On Duty clinician completes MAX_SHIFT_HOURS, the
+  // queued Next Shift slot takes over and the clock resets to 0.
   useEffect(() => {
-    if (staffLoading) return;
     const interval = setInterval(() => {
-      const currentStaff = staff
-        .filter((s) => (s.facility_name ?? "Memorial Hospital") === facility)
-        .map((s) => ({
-          ...s,
-          effStatus: statusMap[s.id] ?? s.status,
-          effHours: hoursMap[s.id] ?? 0,
-        }));
-
-      const nextHours: Record<string, number> = { ...hoursMap };
-      const nextStatus: Record<string, string> = { ...statusMap };
-      let clockedOut = 0;
-      let clockedIn = 0;
-      const spawned: StaffMember[] = [];
-      const usedNames = new Set<string>(
-        [...staff, ...spawned].map((s) => s.name).filter(Boolean),
-      );
-
-      // 1) Increment hours for On Duty staff
-      for (const s of currentStaff) {
-        if (s.effStatus === "On Duty") {
-          nextHours[s.id] = (nextHours[s.id] ?? s.effHours) + HOURS_PER_TICK;
+      setShiftClock((cur) => {
+        const next: typeof cur = { ...cur };
+        for (const r of STAFF_ROLES) {
+          const c = cur[r];
+          const h = c.hours + HOURS_PER_TICK;
+          if (h >= MAX_SHIFT_HOURS) {
+            // Rotation: next-up takes over, fresh 0h clock.
+            next[r] = { idx: (c.idx + 1) % 3, hours: 0 };
+            toast(
+              `Shift change · ${r}: ${roster[r][(c.idx + 1) % 3]} clocking in.`,
+              { className: "bg-slate-100 text-slate-800" },
+            );
+          } else {
+            next[r] = { idx: c.idx, hours: h };
+          }
         }
-      }
-
-      // 2) Work-life balance: NO ONE works past MAX_SHIFT_HOURS.
-      //    When a clinician hits the cap, clock them out and immediately
-      //    spawn a fresh same-role replacement with a random unique name —
-      //    keeps every role continuously covered like a real hospital.
-      for (const s of currentStaff) {
-        const h = nextHours[s.id] ?? s.effHours;
-        const stat = nextStatus[s.id] ?? s.effStatus;
-        if (stat !== "On Duty" || h < SAFETY_THRESHOLDS.MAX_SHIFT_HOURS) continue;
-        nextStatus[s.id] = "Off Duty";
-        nextHours[s.id] = SAFETY_THRESHOLDS.MAX_SHIFT_HOURS;
-        clockedOut++;
-        const replId = `auto-${s.role.toLowerCase()}-${Date.now()}-${spawned.length}`;
-        const replName = randomName(usedNames) + (ROLE_SUFFIX[s.role] ?? "");
-        spawned.push({
-          id: replId,
-          name: replName,
-          role: s.role,
-          status: "On Duty",
-          assigned_patients: s.assigned_patients ?? 0,
-          max_capacity: s.max_capacity ?? ROLE_CAP[s.role] ?? 5,
-          hourly_rate: s.hourly_rate ?? ROLE_RATE[s.role] ?? 45,
-          facility_name: facility,
-          hours_worked: 0,
-        });
-        nextStatus[replId] = "On Duty";
-        nextHours[replId] = 0;
-        clockedIn++;
-      }
-
-      // 3) Acuity scaling: if RN ratio > 5, auto clock-in Off Duty RNs
-      //    Census is strictly scoped to the active facility AND filters out
-      //    discharged patients. Ghost HR must never staff for empty beds.
-      const censusCount = activePatients.length;
-      let onDutyRNCount = currentStaff.filter(
-        (s) => s.role === "RN" && (nextStatus[s.id] ?? s.effStatus) === "On Duty",
-      ).length;
-      const offDutyRNs = currentStaff.filter(
-        (s) => s.role === "RN" && (nextStatus[s.id] ?? s.effStatus) !== "On Duty",
-      );
-      // Skip all scaling work if there are no patients in this facility (div/0 guard)
-      let scaledDown = 0;
-      if (censusCount > 0) {
-        for (const rn of offDutyRNs) {
-          if (onDutyRNCount > 0 && censusCount / onDutyRNCount <= SAFETY_THRESHOLDS.RN) break;
-          nextStatus[rn.id] = "On Duty";
-          nextHours[rn.id] = 0; // fresh shift
-          onDutyRNCount++;
-          clockedIn++;
-        }
-
-        // 3b) Exhausted Off Duty RNs but ratio still unsafe → spawn Auto-Deployed RNs.
-        while (onDutyRNCount === 0 || censusCount / onDutyRNCount > SAFETY_THRESHOLDS.RN) {
-          const id = `auto-rn-${Date.now()}-${spawned.length}`;
-          spawned.push({
-            id,
-            name: randomName(usedNames) + ", RN",
-            role: "RN",
-            status: "On Duty",
-            assigned_patients: SAFETY_THRESHOLDS.RN,
-            max_capacity: SAFETY_THRESHOLDS.RN,
-            hourly_rate: ROLE_RATE.RN,
-            facility_name: facility,
-            hours_worked: 0,
-          });
-          nextStatus[id] = "On Duty";
-          nextHours[id] = 0;
-          onDutyRNCount++;
-          clockedIn++;
-          if (spawned.length > 300) break;
-        }
-      }
-
-      // 4) Scale-down: if ratio < 1:2 (severely overstaffed), clock out
-      //    Auto-Deployed RNs first to save budget. Keep ratio >= 2.
-      if (onDutyRNCount > 1 && censusCount / onDutyRNCount < 2) {
-        const autoOnDuty = currentStaff.filter(
-          (s) =>
-            s.role === "RN" &&
-            s.id.startsWith("auto-rn-") &&
-            (nextStatus[s.id] ?? s.effStatus) === "On Duty",
-        );
-        for (const rn of autoOnDuty) {
-          if (onDutyRNCount <= 1) break;
-          const projected = censusCount / (onDutyRNCount - 1);
-          if (projected > SAFETY_THRESHOLDS.RN) break; // don't over-correct into understaffed
-          if (censusCount / onDutyRNCount >= 2) break;
-          nextStatus[rn.id] = "Off Duty";
-          onDutyRNCount--;
-          scaledDown++;
-        }
-      }
-
-      if (clockedIn > 0) {
-        toast.success(
-          `Ghost AI: Auto-deploying ${clockedIn} RN${clockedIn === 1 ? "" : "s"} to stabilize Med-Surg ratio.`,
-        );
-      }
-      if (clockedOut > 0) {
-        toast(
-          `Ghost AI: Clocked out ${clockedOut} staff exceeding ${SAFETY_THRESHOLDS.MAX_SHIFT_HOURS}h shift limit.`,
-        );
-      }
-      if (scaledDown > 0) {
-        toast(
-          "Ghost HR: Unit overstaffed. Auto-clocking out surplus RNs to save budget.",
-          { className: "bg-slate-200 text-slate-800" },
-        );
-      }
-
-      setHoursMap(nextHours);
-      if (clockedIn > 0 || clockedOut > 0 || scaledDown > 0) setStatusMap(nextStatus);
-      if (spawned.length > 0) setStaff((prev) => [...spawned, ...prev]);
+        return next;
+      });
     }, TICK_MS);
     return () => clearInterval(interval);
-  }, [staff, staffLoading, facility, activePatients.length, hoursMap, statusMap]);
+  }, [roster]);
 
-  const clockInStaff = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newName.trim() || !newRole) {
-      toast.error("Name and role are required");
-      return;
-    }
-    const rate = parseInt(newRate, 10);
-    setSaving(true);
-    const { data, error } = await supabase
-      .from("hospital_staff")
-      .insert({
-        name: newName.trim(),
-        role: newRole,
-        hourly_rate: Number.isFinite(rate) ? rate : 45,
+  // Derive the visible roster: per role, On Duty + Next Shift only.
+  const census = activePatients.length;
+  const rosterCards = useMemo(() => {
+    type Card = {
+      key: string;
+      role: RoleKey;
+      name: string;
+      status: "On Duty" | "Next Shift";
+      hours: number;
+      rate: number;
+      cap: number;
+      assigned: number;
+    };
+    const out: Card[] = [];
+    for (const role of STAFF_ROLES) {
+      const c = shiftClock[role];
+      const cap = ROLE_CAP[role];
+      const rate = ROLE_RATE[role];
+      // Synthetic patient load — proportional to census, capped at role limit.
+      const loadFactor =
+        role === "RN" ? 0.25 :
+        role === "MD" ? 0.5 :
+        role === "PharmD" ? 0.8 :
+        role === "CNA" || role === "LPN" ? 0.35 : 0;
+      const assigned = cap > 0
+        ? Math.min(cap, Math.max(role === "Finance" ? 0 : 1, Math.round(census * loadFactor)))
+        : 0;
+      out.push({
+        key: `${role}-on`,
+        role,
+        name: roster[role][c.idx],
         status: "On Duty",
-        assigned_patients: 0,
-        max_capacity: newRole === "RN" ? 5 : 10,
-        facility_name: facility,
-      })
-      .select(
-        "id,name,role,status,assigned_patients,max_capacity,hourly_rate,facility_name",
-      )
-      .single();
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+        hours: c.hours,
+        rate,
+        cap,
+        assigned,
+      });
+      out.push({
+        key: `${role}-next`,
+        role,
+        name: roster[role][(c.idx + 1) % 3],
+        status: "Next Shift",
+        hours: 0,
+        rate,
+        cap,
+        assigned: 0,
+      });
     }
-    setStaff((s) => [data as StaffMember, ...s]);
-    toast.success(`${(data as StaffMember).name} clocked in.`);
-    setNewName("");
-    setNewRole("RN");
-    setNewRate("");
-    setSheetOpen(false);
-  };
+    return out;
+  }, [roster, shiftClock, census]);
+
+  // RN ratio: exactly 1 RN is On Duty at any given moment (per design).
+  const onDutyRNs = 1;
+  const ratio = census / onDutyRNs;
+  const safeRatio = ratio <= 5;
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -726,72 +623,9 @@ function AdminDashboard() {
             <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               👥 Active Unit Staffing &amp; Shift Roster
             </h2>
-            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-              <SheetTrigger asChild>
-                <Button
-                  size="sm"
-                  className="bg-[#0c2340] hover:bg-[#0c2340]/90"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Clock-In New Staff
-                </Button>
-              </SheetTrigger>
-              <SheetContent className="sm:max-w-md">
-                <SheetHeader>
-                  <SheetTitle>➕ Clock-In New Staff</SheetTitle>
-                  <SheetDescription>
-                    Add a clinician to the active shift roster.
-                  </SheetDescription>
-                </SheetHeader>
-                <form
-                  onSubmit={clockInStaff}
-                  className="space-y-4 px-4 py-6"
-                >
-                  <div className="space-y-1.5">
-                    <Label>Full Name</Label>
-                    <Input
-                      placeholder="e.g. Jordan Lee"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Role</Label>
-                    <Select value={newRole} onValueChange={setNewRole}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STAFF_ROLES.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {r}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Hourly Rate (USD)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      placeholder="45"
-                      value={newRate}
-                      onChange={(e) => setNewRate(e.target.value)}
-                    />
-                  </div>
-                  <SheetFooter className="px-0">
-                    <Button
-                      type="submit"
-                      disabled={saving}
-                      className="bg-[#0c2340] hover:bg-[#0c2340]/90 w-full"
-                    >
-                      {saving ? "Saving…" : "Save & Clock In"}
-                    </Button>
-                  </SheetFooter>
-                </form>
-              </SheetContent>
-            </Sheet>
+            <span className="text-[11px] text-slate-500 font-mono">
+              3-per-role rotation · {MAX_SHIFT_HOURS}h shifts
+            </span>
           </div>
 
           {/* Safety ratio card */}
@@ -838,83 +672,88 @@ function AdminDashboard() {
 
           {/* Roster cards */}
           <div className="p-5">
-            {staffLoading ? (
-              <div className="grid place-items-center h-32">
-                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-              </div>
-            ) : facilityStaff.length === 0 ? (
-              <p className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-md py-6 text-center">
-                No staff clocked in at {facility}.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {facilityStaff.map((s) => {
-                  const assigned = s.assigned_patients ?? 0;
-                  const cap = s.max_capacity ?? 5;
-                  const pct = Math.min(100, Math.round((assigned / cap) * 100));
-                  const onDuty = s.status === "On Duty";
-                  return (
-                    <div
-                      key={s.id}
-                      className="rounded-lg border border-slate-200 p-4 hover:border-slate-300 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-slate-900">
-                            {s.name}
-                          </span>
-                          <span
-                            className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${roleBadgeClass(
-                              s.role,
-                            )}`}
-                          >
-                            {s.role}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                          <span
-                            className={`h-2 w-2 rounded-full ${
-                              onDuty
-                                ? "bg-emerald-500 animate-pulse"
-                                : "bg-amber-500"
-                            }`}
-                          />
-                          {s.status ?? "—"}
-                        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {rosterCards.map((s) => {
+                const pct = s.cap > 0
+                  ? Math.min(100, Math.round((s.assigned / s.cap) * 100))
+                  : 0;
+                const onDuty = s.status === "On Duty";
+                const hoursRemaining = MAX_SHIFT_HOURS - s.hours;
+                return (
+                  <div
+                    key={s.key}
+                    className={`rounded-lg border p-4 transition-colors ${
+                      onDuty
+                        ? "border-emerald-200 bg-emerald-50/40 hover:border-emerald-300"
+                        : "border-slate-200 bg-slate-50/40 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-900">
+                          {s.name}
+                        </span>
+                        <span
+                          className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${roleBadgeClass(
+                            s.role,
+                          )}`}
+                        >
+                          {s.role}
+                        </span>
                       </div>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span
+                          className={`h-2 w-2 rounded-full ${
+                            onDuty
+                              ? "bg-emerald-500 animate-pulse"
+                              : "bg-sky-500"
+                          }`}
+                        />
+                        <span className={onDuty ? "text-emerald-700 font-medium" : "text-sky-700 font-medium"}>
+                          {s.status}
+                        </span>
+                      </div>
+                    </div>
+                    {s.cap > 0 && (
                       <div className="mt-3">
                         <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
                           <span>
-                            {assigned} / {cap} Patients Assigned
+                            {onDuty
+                              ? `${s.assigned} / ${s.cap} Patients Assigned`
+                              : `Queued for next shift`}
                           </span>
                           <span className="font-medium text-slate-700 flex items-center gap-2">
-                            <span
-                              className={`tabular-nums ${
-                                (s.hours_worked ?? 0) > SAFETY_THRESHOLDS.MAX_SHIFT_HOURS
-                                  ? "text-red-600 font-semibold"
-                                  : (s.hours_worked ?? 0) >= 10
-                                  ? "text-amber-600"
-                                  : "text-slate-500"
-                              }`}
-                              title="Hours worked this shift"
-                            >
-                              ⏱ {(s.hours_worked ?? 0).toFixed(0)}h
-                            </span>
-                            <span>{pct}%</span>
+                            {onDuty ? (
+                              <span
+                                className={`tabular-nums ${
+                                  s.hours >= 11
+                                    ? "text-red-600 font-semibold"
+                                    : s.hours >= 9
+                                    ? "text-amber-600"
+                                    : "text-slate-500"
+                                }`}
+                                title="Hours worked this shift"
+                              >
+                                ⏱ {s.hours.toFixed(0)}h / {MAX_SHIFT_HOURS}h
+                              </span>
+                            ) : (
+                              <span className="text-sky-700 tabular-nums" title="Hours until shift change">
+                                in ~{hoursRemaining.toFixed(0)}h
+                              </span>
+                            )}
+                            {onDuty && <span>{pct}%</span>}
                           </span>
                         </div>
-                        <Progress value={pct} />
+                        {onDuty && <Progress value={pct} />}
                       </div>
-                      {s.hourly_rate != null && (
-                        <div className="mt-2 text-[11px] text-slate-500">
-                          ${s.hourly_rate}/hr
-                        </div>
-                      )}
+                    )}
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      ${s.rate}/hr
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
