@@ -20,7 +20,6 @@ import {
   UserCog,
   Trash2,
   Loader2,
-  UserPlus,
   ShieldCheck,
   ShieldAlert,
   Inbox,
@@ -37,15 +36,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetTrigger,
-  SheetFooter,
-} from "@/components/ui/sheet";
 import { Progress } from "@/components/ui/progress";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
