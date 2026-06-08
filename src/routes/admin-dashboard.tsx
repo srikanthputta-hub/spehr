@@ -236,16 +236,17 @@ function AdminDashboard() {
   const [cluster, setCluster] = useState("");
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
-  const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [staffLoading, setStaffLoading] = useState(true);
-  // Ghost HR local overlay (UI-only sim; never written to DB)
-  const [hoursMap, setHoursMap] = useState<Record<string, number>>({});
-  const [statusMap, setStatusMap] = useState<Record<string, string>>({});
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newRole, setNewRole] = useState<string>("RN");
-  const [newRate, setNewRate] = useState<string>("");
-  const [saving, setSaving] = useState(false);
+  // Per-role shift clock — drives the 3-staff rotation. `idx` points at the
+  // currently On Duty clinician in the per-role name pool; `hours` counts
+  // simulated hours into the current shift (caps at 12h, then rotates).
+  const roster = useMemo(() => buildRoster(facility), [facility]);
+  const [shiftClock, setShiftClock] = useState<
+    Record<RoleKey, { idx: number; hours: number }>
+  >(() => {
+    const init = {} as Record<RoleKey, { idx: number; hours: number }>;
+    for (const r of STAFF_ROLES) init[r] = { idx: 0, hours: 0 };
+    return init;
+  });
 
   const [transfers, setTransfers] = useState<TransferRequest[]>([]);
   const [transfersLoading, setTransfersLoading] = useState(true);
@@ -270,17 +271,13 @@ function AdminDashboard() {
     })();
   }, []);
 
+  // Reset shift clock when the active facility changes — each hospital has
+  // its own independent rotation that starts from slot 0.
   useEffect(() => {
-    (async () => {
-      const { data, error } = await supabase
-        .from("hospital_staff")
-        .select("id,name,role,status,assigned_patients,max_capacity,hourly_rate,facility_name")
-        .order("role", { ascending: true });
-      if (error) toast.error(error.message);
-      else setStaff((data ?? []) as StaffMember[]);
-      setStaffLoading(false);
-    })();
-  }, []);
+    const init = {} as Record<RoleKey, { idx: number; hours: number }>;
+    for (const r of STAFF_ROLES) init[r] = { idx: 0, hours: 0 };
+    setShiftClock(init);
+  }, [facility]);
 
   const loadTransfers = async () => {
     const { data, error } = await supabase
