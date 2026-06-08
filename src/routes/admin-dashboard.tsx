@@ -1076,18 +1076,6 @@ function FacilityAnalytics({
       .slice(0, 10);
   }, [patients]);
 
-  const feed = useMemo(
-    () =>
-      [...patients]
-        .sort(
-          (a, b) =>
-            new Date(b.admission_time ?? 0).getTime() -
-            new Date(a.admission_time ?? 0).getTime(),
-        )
-        .slice(0, 50),
-    [patients],
-  );
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
