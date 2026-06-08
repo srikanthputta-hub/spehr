@@ -312,12 +312,11 @@ function useLabs(mrn: string, complaint?: string | null) {
         });
         if (finalized.length > 0) {
           setRows(finalized);
-        } else if (real.length > 0) {
-          // Real (pending) rows exist but none are released yet — show empty,
-          // do NOT fall back to the pre-filled protocol example values.
-          setRows([]);
         } else {
-          setRows(fallbackLabs(mrn, complaint));
+          // No released labs yet — show empty. Never surface protocol
+          // example values as if they were real results; the chart must
+          // mirror the lab board exactly (only "Reported" rows visible).
+          setRows([]);
         }
       });
     load();
@@ -363,8 +362,10 @@ function useMeds(
           return s === "administered";
         });
         if (released.length > 0) setRows(released);
-        else if (all.length > 0) setRows([]);
-        else setRows(fallbackMeds(patientId, complaint));
+        else setRows([]);
+        // No administered meds yet — show empty. Never surface fallback
+        // "Administered" rows; the chart mirrors the pharmacy queue
+        // exactly (only rows with status === "Administered" are visible).
       });
     load();
     const channel = supabase
