@@ -424,6 +424,10 @@ function AdminDashboard() {
       const nextStatus: Record<string, string> = { ...statusMap };
       let clockedOut = 0;
       let clockedIn = 0;
+      const spawned: StaffMember[] = [];
+      const usedNames = new Set<string>(
+        [...staff, ...spawned].map((s) => s.name).filter(Boolean),
+      );
 
       // 1) Increment hours for On Duty staff
       for (const s of currentStaff) {
@@ -432,22 +436,33 @@ function AdminDashboard() {
         }
       }
 
-      // 2) Work-life balance: clock out anyone > MAX_SHIFT_HOURS
-      //    but ONLY if there's a replacement available (another On Duty same-role)
+      // 2) Work-life balance: NO ONE works past MAX_SHIFT_HOURS.
+      //    When a clinician hits the cap, clock them out and immediately
+      //    spawn a fresh same-role replacement with a random unique name —
+      //    keeps every role continuously covered like a real hospital.
       for (const s of currentStaff) {
         const h = nextHours[s.id] ?? s.effHours;
         const stat = nextStatus[s.id] ?? s.effStatus;
-        if (stat !== "On Duty" || h <= SAFETY_THRESHOLDS.MAX_SHIFT_HOURS) continue;
-        const sameRoleOnDuty = currentStaff.filter(
-          (x) =>
-            x.role === s.role &&
-            x.id !== s.id &&
-            (nextStatus[x.id] ?? x.effStatus) === "On Duty",
-        ).length;
-        if (sameRoleOnDuty >= 1) {
-          nextStatus[s.id] = "Off Duty";
-          clockedOut++;
-        }
+        if (stat !== "On Duty" || h < SAFETY_THRESHOLDS.MAX_SHIFT_HOURS) continue;
+        nextStatus[s.id] = "Off Duty";
+        nextHours[s.id] = SAFETY_THRESHOLDS.MAX_SHIFT_HOURS;
+        clockedOut++;
+        const replId = `auto-${s.role.toLowerCase()}-${Date.now()}-${spawned.length}`;
+        const replName = randomName(usedNames) + (ROLE_SUFFIX[s.role] ?? "");
+        spawned.push({
+          id: replId,
+          name: replName,
+          role: s.role,
+          status: "On Duty",
+          assigned_patients: s.assigned_patients ?? 0,
+          max_capacity: s.max_capacity ?? ROLE_CAP[s.role] ?? 5,
+          hourly_rate: s.hourly_rate ?? ROLE_RATE[s.role] ?? 45,
+          facility_name: facility,
+          hours_worked: 0,
+        });
+        nextStatus[replId] = "On Duty";
+        nextHours[replId] = 0;
+        clockedIn++;
       }
 
       // 3) Acuity scaling: if RN ratio > 5, auto clock-in Off Duty RNs
@@ -461,7 +476,6 @@ function AdminDashboard() {
         (s) => s.role === "RN" && (nextStatus[s.id] ?? s.effStatus) !== "On Duty",
       );
       // Skip all scaling work if there are no patients in this facility (div/0 guard)
-      const spawned: StaffMember[] = [];
       let scaledDown = 0;
       if (censusCount > 0) {
         for (const rn of offDutyRNs) {
@@ -477,12 +491,12 @@ function AdminDashboard() {
           const id = `auto-rn-${Date.now()}-${spawned.length}`;
           spawned.push({
             id,
-            name: `Auto-Deployed RN #${spawned.length + 1}`,
+            name: randomName(usedNames) + ", RN",
             role: "RN",
             status: "On Duty",
             assigned_patients: SAFETY_THRESHOLDS.RN,
             max_capacity: SAFETY_THRESHOLDS.RN,
-            hourly_rate: 0,
+            hourly_rate: ROLE_RATE.RN,
             facility_name: facility,
             hours_worked: 0,
           });
