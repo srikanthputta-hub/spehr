@@ -98,9 +98,54 @@ const SAFETY_THRESHOLDS = {
   MAX_SHIFT_HOURS: 12,
 } as const;
 
-// Simulation tick: every 1s — fast deploy loop so Ghost HR can visibly stabilize ratios
-const TICK_MS = 1000;
+// Simulation tick: 1 simulated hour every 2s so a 12-hour shift completes in
+// ~24s — fast enough to demo rotation, slow enough to read the timer.
+const TICK_MS = 2000;
 const HOURS_PER_TICK = 1;
+
+// Random first/last name pools — used to spawn unique replacement staff when
+// an on-duty clinician hits the 12-hour shift cap. Keeps the roster looking
+// like a real hospital instead of "Auto-Deployed RN #1".
+const FIRST_NAMES = [
+  "Aisha","Brandon","Chen","Devon","Elena","Felix","Grace","Hiro","Imani",
+  "Jasmine","Kwame","Lila","Marco","Nadia","Owen","Priya","Quinn","Rafael",
+  "Sasha","Tomas","Uma","Vikram","Willa","Ximena","Yusuf","Zara","Anders",
+  "Bianca","Cyrus","Delphine","Emeka","Farrah","Gus","Hannah","Ines","Jonah",
+  "Kira","Leon","Mira","Noor","Otis","Penelope","Rhea","Soren","Tomoko",
+] as const;
+const LAST_NAMES = [
+  "Park","Nguyen","Okafor","Sullivan","Reyes","Carter","Bauer","Khan","Mendez",
+  "Holloway","Brennan","Tanaka","Ortiz","Singh","Adler","Bishop","Costa",
+  "DuBois","Engel","Fontaine","Ghosh","Hayes","Ibanez","Joshi","Kapoor",
+  "Lawrence","Moreau","Navarro","Osei","Patel","Quintero","Romero","Suzuki",
+] as const;
+const ROLE_SUFFIX: Record<string, string> = {
+  RN: ", RN",
+  MD: ", MD",
+  PharmD: ", PharmD",
+  CNA: ", CNA",
+  LPN: ", LPN",
+  Finance: ", CPA",
+};
+const ROLE_RATE: Record<string, number> = {
+  RN: 52, MD: 150, PharmD: 68, CNA: 28, LPN: 36, Finance: 60,
+};
+const ROLE_CAP: Record<string, number> = {
+  RN: 5, MD: 15, PharmD: 50, CNA: 8, LPN: 8, Finance: 0,
+};
+
+function randomName(used: Set<string>): string {
+  for (let i = 0; i < 50; i++) {
+    const f = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
+    const l = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+    const name = `${f} ${l}`;
+    if (!used.has(name)) {
+      used.add(name);
+      return name;
+    }
+  }
+  return `Staff ${Math.floor(Math.random() * 9999)}`;
+}
 
 const IN_NETWORK_FACILITIES = new Set([
   "Memorial Hospital",
