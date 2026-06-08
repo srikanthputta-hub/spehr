@@ -623,72 +623,9 @@ function AdminDashboard() {
             <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               👥 Active Unit Staffing &amp; Shift Roster
             </h2>
-            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-              <SheetTrigger asChild>
-                <Button
-                  size="sm"
-                  className="bg-[#0c2340] hover:bg-[#0c2340]/90"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Clock-In New Staff
-                </Button>
-              </SheetTrigger>
-              <SheetContent className="sm:max-w-md">
-                <SheetHeader>
-                  <SheetTitle>➕ Clock-In New Staff</SheetTitle>
-                  <SheetDescription>
-                    Add a clinician to the active shift roster.
-                  </SheetDescription>
-                </SheetHeader>
-                <form
-                  onSubmit={clockInStaff}
-                  className="space-y-4 px-4 py-6"
-                >
-                  <div className="space-y-1.5">
-                    <Label>Full Name</Label>
-                    <Input
-                      placeholder="e.g. Jordan Lee"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Role</Label>
-                    <Select value={newRole} onValueChange={setNewRole}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STAFF_ROLES.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {r}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Hourly Rate (USD)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      placeholder="45"
-                      value={newRate}
-                      onChange={(e) => setNewRate(e.target.value)}
-                    />
-                  </div>
-                  <SheetFooter className="px-0">
-                    <Button
-                      type="submit"
-                      disabled={saving}
-                      className="bg-[#0c2340] hover:bg-[#0c2340]/90 w-full"
-                    >
-                      {saving ? "Saving…" : "Save & Clock In"}
-                    </Button>
-                  </SheetFooter>
-                </form>
-              </SheetContent>
-            </Sheet>
+            <span className="text-[11px] text-slate-500 font-mono">
+              3-per-role rotation · {MAX_SHIFT_HOURS}h shifts
+            </span>
           </div>
 
           {/* Safety ratio card */}
@@ -735,83 +672,88 @@ function AdminDashboard() {
 
           {/* Roster cards */}
           <div className="p-5">
-            {staffLoading ? (
-              <div className="grid place-items-center h-32">
-                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-              </div>
-            ) : facilityStaff.length === 0 ? (
-              <p className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-md py-6 text-center">
-                No staff clocked in at {facility}.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {facilityStaff.map((s) => {
-                  const assigned = s.assigned_patients ?? 0;
-                  const cap = s.max_capacity ?? 5;
-                  const pct = Math.min(100, Math.round((assigned / cap) * 100));
-                  const onDuty = s.status === "On Duty";
-                  return (
-                    <div
-                      key={s.id}
-                      className="rounded-lg border border-slate-200 p-4 hover:border-slate-300 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-slate-900">
-                            {s.name}
-                          </span>
-                          <span
-                            className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${roleBadgeClass(
-                              s.role,
-                            )}`}
-                          >
-                            {s.role}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                          <span
-                            className={`h-2 w-2 rounded-full ${
-                              onDuty
-                                ? "bg-emerald-500 animate-pulse"
-                                : "bg-amber-500"
-                            }`}
-                          />
-                          {s.status ?? "—"}
-                        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {rosterCards.map((s) => {
+                const pct = s.cap > 0
+                  ? Math.min(100, Math.round((s.assigned / s.cap) * 100))
+                  : 0;
+                const onDuty = s.status === "On Duty";
+                const hoursRemaining = MAX_SHIFT_HOURS - s.hours;
+                return (
+                  <div
+                    key={s.key}
+                    className={`rounded-lg border p-4 transition-colors ${
+                      onDuty
+                        ? "border-emerald-200 bg-emerald-50/40 hover:border-emerald-300"
+                        : "border-slate-200 bg-slate-50/40 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-900">
+                          {s.name}
+                        </span>
+                        <span
+                          className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${roleBadgeClass(
+                            s.role,
+                          )}`}
+                        >
+                          {s.role}
+                        </span>
                       </div>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span
+                          className={`h-2 w-2 rounded-full ${
+                            onDuty
+                              ? "bg-emerald-500 animate-pulse"
+                              : "bg-sky-500"
+                          }`}
+                        />
+                        <span className={onDuty ? "text-emerald-700 font-medium" : "text-sky-700 font-medium"}>
+                          {s.status}
+                        </span>
+                      </div>
+                    </div>
+                    {s.cap > 0 && (
                       <div className="mt-3">
                         <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
                           <span>
-                            {assigned} / {cap} Patients Assigned
+                            {onDuty
+                              ? `${s.assigned} / ${s.cap} Patients Assigned`
+                              : `Queued for next shift`}
                           </span>
                           <span className="font-medium text-slate-700 flex items-center gap-2">
-                            <span
-                              className={`tabular-nums ${
-                                (s.hours_worked ?? 0) > SAFETY_THRESHOLDS.MAX_SHIFT_HOURS
-                                  ? "text-red-600 font-semibold"
-                                  : (s.hours_worked ?? 0) >= 10
-                                  ? "text-amber-600"
-                                  : "text-slate-500"
-                              }`}
-                              title="Hours worked this shift"
-                            >
-                              ⏱ {(s.hours_worked ?? 0).toFixed(0)}h
-                            </span>
-                            <span>{pct}%</span>
+                            {onDuty ? (
+                              <span
+                                className={`tabular-nums ${
+                                  s.hours >= 11
+                                    ? "text-red-600 font-semibold"
+                                    : s.hours >= 9
+                                    ? "text-amber-600"
+                                    : "text-slate-500"
+                                }`}
+                                title="Hours worked this shift"
+                              >
+                                ⏱ {s.hours.toFixed(0)}h / {MAX_SHIFT_HOURS}h
+                              </span>
+                            ) : (
+                              <span className="text-sky-700 tabular-nums" title="Hours until shift change">
+                                in ~{hoursRemaining.toFixed(0)}h
+                              </span>
+                            )}
+                            {onDuty && <span>{pct}%</span>}
                           </span>
                         </div>
-                        <Progress value={pct} />
+                        {onDuty && <Progress value={pct} />}
                       </div>
-                      {s.hourly_rate != null && (
-                        <div className="mt-2 text-[11px] text-slate-500">
-                          ${s.hourly_rate}/hr
-                        </div>
-                      )}
+                    )}
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      ${s.rate}/hr
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
