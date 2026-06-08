@@ -78,38 +78,26 @@ interface StaffMember {
   hours_worked?: number;
 }
 
-const STAFF_ROLES = ["RN", "MD", "PharmD", "Finance", "CNA", "LPN"] as const;
-
-// Ghost HR — auto-scaling safety thresholds
-const SAFETY_THRESHOLDS = {
-  RN: 5,
-  MD: 15,
-  PharmD: 50,
-  MAX_SHIFT_HOURS: 12,
-} as const;
-
-// Simulation tick: 1 simulated hour every 2s so a 12-hour shift completes in
-// ~24s — fast enough to demo rotation, slow enough to read the timer.
+// Roster: exactly 3 staff per role, rotating on strict 12-hour shifts.
+// At any moment, slot 0 is On Duty and slot 1 is Next Shift (queued);
+// slot 2 is resting. The clock advances 1 simulated hour every TICK_MS,
+// and when the on-duty clinician completes 12h the rotation advances
+// (slot 1 takes over, the rested clinician becomes Next Shift).
+const MAX_SHIFT_HOURS = 12;
 const TICK_MS = 2000;
 const HOURS_PER_TICK = 1;
 
-// Random first/last name pools — used to spawn unique replacement staff when
-// an on-duty clinician hits the 12-hour shift cap. Keeps the roster looking
-// like a real hospital instead of "Auto-Deployed RN #1".
-const FIRST_NAMES = [
-  "Aisha","Brandon","Chen","Devon","Elena","Felix","Grace","Hiro","Imani",
-  "Jasmine","Kwame","Lila","Marco","Nadia","Owen","Priya","Quinn","Rafael",
-  "Sasha","Tomas","Uma","Vikram","Willa","Ximena","Yusuf","Zara","Anders",
-  "Bianca","Cyrus","Delphine","Emeka","Farrah","Gus","Hannah","Ines","Jonah",
-  "Kira","Leon","Mira","Noor","Otis","Penelope","Rhea","Soren","Tomoko",
+type RoleKey = "RN" | "MD" | "PharmD" | "CNA" | "LPN" | "Finance";
+const STAFF_ROLES: readonly RoleKey[] = [
+  "RN",
+  "MD",
+  "PharmD",
+  "CNA",
+  "LPN",
+  "Finance",
 ] as const;
-const LAST_NAMES = [
-  "Park","Nguyen","Okafor","Sullivan","Reyes","Carter","Bauer","Khan","Mendez",
-  "Holloway","Brennan","Tanaka","Ortiz","Singh","Adler","Bishop","Costa",
-  "DuBois","Engel","Fontaine","Ghosh","Hayes","Ibanez","Joshi","Kapoor",
-  "Lawrence","Moreau","Navarro","Osei","Patel","Quintero","Romero","Suzuki",
-] as const;
-const ROLE_SUFFIX: Record<string, string> = {
+
+const ROLE_SUFFIX: Record<RoleKey, string> = {
   RN: ", RN",
   MD: ", MD",
   PharmD: ", PharmD",
@@ -117,24 +105,59 @@ const ROLE_SUFFIX: Record<string, string> = {
   LPN: ", LPN",
   Finance: ", CPA",
 };
-const ROLE_RATE: Record<string, number> = {
+const ROLE_RATE: Record<RoleKey, number> = {
   RN: 52, MD: 150, PharmD: 68, CNA: 28, LPN: 36, Finance: 60,
 };
-const ROLE_CAP: Record<string, number> = {
+const ROLE_CAP: Record<RoleKey, number> = {
   RN: 5, MD: 15, PharmD: 50, CNA: 8, LPN: 8, Finance: 0,
 };
 
-function randomName(used: Set<string>): string {
-  for (let i = 0; i < 50; i++) {
-    const f = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
-    const l = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
-    const name = `${f} ${l}`;
-    if (!used.has(name)) {
-      used.add(name);
-      return name;
-    }
+// Deterministic per-facility name pool keeps each hospital's roster
+// consistent across reloads (no random churn between renders).
+const NAME_POOL: Array<[string, string]> = [
+  ["Sarah", "Jenkins"], ["Marcus", "Patel"], ["Elena", "Rostova"],
+  ["David", "Okafor"], ["Aisha", "Bauer"], ["Hiro", "Quintero"],
+  ["Nadia", "Mendez"], ["Owen", "Sullivan"], ["Priya", "Reyes"],
+  ["Felix", "Carter"], ["Grace", "Holloway"], ["Jonah", "Brennan"],
+  ["Kira", "Tanaka"], ["Leon", "Ortiz"], ["Mira", "Singh"],
+  ["Noor", "Adler"], ["Otis", "Bishop"], ["Rhea", "Costa"],
+] as const as Array<[string, string]>;
+
+function hashString(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h * 16777619) >>> 0;
   }
-  return `Staff ${Math.floor(Math.random() * 9999)}`;
+  return h;
+}
+
+function buildRoster(facility: string): Record<RoleKey, string[]> {
+  // 3 unique names per role, deterministic per facility.
+  const seed = hashString(facility || "default");
+  const pool = [...NAME_POOL];
+  // Fisher–Yates with seeded LCG so the same facility always yields the
+  // same shuffle (no rotation just from re-mounting the page).
+  let s = seed || 1;
+  const rand = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0xffffffff;
+  };
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const out = {} as Record<RoleKey, string[]>;
+  let idx = 0;
+  for (const role of STAFF_ROLES) {
+    const names: string[] = [];
+    for (let k = 0; k < 3; k++) {
+      const [f, l] = pool[(idx++) % pool.length];
+      names.push(`${f} ${l}${ROLE_SUFFIX[role]}`);
+    }
+    out[role] = names;
+  }
+  return out;
 }
 
 const IN_NETWORK_FACILITIES = new Set([
