@@ -373,17 +373,9 @@ function AdminDashboard() {
       ),
     [facilityPatients],
   );
-  const facilityStaff = useMemo(
-    () =>
-      staff
-        .filter((s) => (s.facility_name ?? "Memorial Hospital") === facility)
-        .map((s) => ({
-          ...s,
-          status: statusMap[s.id] ?? s.status,
-          hours_worked: hoursMap[s.id] ?? 0,
-        })),
-    [staff, facility, statusMap, hoursMap],
-  );
+  // No-op placeholder — staffing now derives purely from the shift clock
+  // (see `rosterCards` below). Kept here to preserve memo ordering for
+  // downstream dependent memos.
 
   const acuity = useMemo(
     () =>
