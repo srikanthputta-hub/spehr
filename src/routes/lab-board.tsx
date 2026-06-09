@@ -130,6 +130,7 @@ function LabBoard() {
   // DB target_role for laboratory tech is "CLT"
   const { can, gate } = useRolePermissions("CLT" as any);
   const [orders, setOrders] = useState<LabOrderRow[]>([]);
+  const [completedOrders, setCompletedOrders] = useState<LabOrderRow[]>([]);
   const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Record<string, LabValue[]>>({});
@@ -138,7 +139,7 @@ function LabBoard() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: labData }, { data: patientData }] = await Promise.all([
+    const [{ data: labData }, { data: completedData }, { data: patientData }] = await Promise.all([
       supabase
         .from("lab_orders")
         .select("*")
@@ -146,6 +147,14 @@ function LabBoard() {
         .in("status", ["Ordered", "ORDERED", "Pending", "PENDING", "Pending Collection", "Processing", "PROCESSING", "Reported", "Resulted", "Completed"])
         .order("created_at", { ascending: false })
         .limit(250),
+      supabase
+        .from("lab_orders")
+        .select("*")
+        .eq("facility_name", facility)
+        .in("status", ["Reported", "Resulted", "Completed"])
+        .order("resulted_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .limit(15),
       supabase
         .from("patients")
         .select("mrn, first_name, last_name, name, admission_time")
@@ -155,6 +164,7 @@ function LabBoard() {
         .limit(25),
     ]);
     setOrders((labData as LabOrderRow[]) ?? []);
+    setCompletedOrders((completedData as LabOrderRow[]) ?? []);
     const rows = (patientData as Array<{
       mrn: string | null;
       first_name: string | null;
@@ -241,7 +251,8 @@ function LabBoard() {
   // per-MRN panel the chart uses (e.g. Patricia Smith → BUN + Urine SG).
   const recentResulted: FeedRow[] = useMemo(() => {
     const rows: FeedRow[] = [];
-    for (const o of visible) {
+    for (const o of completedOrders) {
+      if (o.facility_name !== facility) continue;
       const s = (o.status ?? "").toUpperCase();
       if (s !== "RESULTED" && s !== "COMPLETED" && s !== "REPORTED") continue;
       rows.push({
@@ -269,7 +280,7 @@ function LabBoard() {
       return tb - ta;
     });
     return rows.slice(0, 15);
-  }, [visible]);
+  }, [completedOrders, facility]);
 
   // Pending count for header still reflects real pending orders.
   const completed = recentResulted;
