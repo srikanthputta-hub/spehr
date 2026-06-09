@@ -152,21 +152,13 @@ async function cascadeLab(
  */
 export async function seedAdmission(
   p: NewPatient,
-  opts: { manual?: boolean } = {},
+  opts: { manual?: boolean; immediate?: boolean } = {},
 ) {
   if (!p.mrn) return;
   const manual = !!opts.manual;
+  const immediate = !!opts.immediate;
 
   if (!manual && !(await getAutomationEnabled())) return;
-
-  // De-dupe: if any meds already exist for this MRN, another tab/run is
-  // handling the cascade — bail out.
-  const { data: existing } = await supabase
-    .from("medication_orders")
-    .select("id")
-    .eq("patient_mrn", p.mrn)
-    .limit(1);
-  if (existing && existing.length > 0) return;
 
   const fallbackName = [p.first_name, p.last_name].filter(Boolean).join(" ");
   const patientName = p.name ?? (fallbackName || "Unknown");
@@ -177,10 +169,33 @@ export async function seedAdmission(
 
   const meds = medsForComplaint(p.chief_complaint);
   const labs = labsForComplaint(p.chief_complaint);
+  const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
+
+  const [{ data: existingMeds }, { data: existingLabs }] = await Promise.all([
+    supabase
+      .from("medication_orders")
+      .select("medication_name, drug_name")
+      .eq("patient_mrn", mrn),
+    supabase
+      .from("lab_orders")
+      .select("test_type")
+      .eq("patient_mrn", mrn),
+  ]);
+
+  const existingMedNames = new Set(
+    ((existingMeds as Array<{ medication_name?: string | null; drug_name?: string | null }> | null) ?? [])
+      .map((m) => norm(m.medication_name ?? m.drug_name))
+      .filter(Boolean),
+  );
+  const existingLabNames = new Set(
+    ((existingLabs as Array<{ test_type?: string | null }> | null) ?? [])
+      .map((l) => norm(l.test_type))
+      .filter(Boolean),
+  );
 
   // Schedule meds: T+20s, T+35s, T+50s
-  meds.slice(0, 3).forEach((m, i) => {
-    const t = MED_FIRST_ORDER_DELAY_MS + i * MED_ORDER_GAP_MS;
+  meds.slice(0, 3).filter((m) => !existingMedNames.has(norm(m.name))).forEach((m, i) => {
+    const t = immediate ? i * 500 : MED_FIRST_ORDER_DELAY_MS + i * MED_ORDER_GAP_MS;
     const timer = setTimeout(async () => {
       untrackTimer(mrn, timer);
       const { data, error } = await supabase
@@ -195,6 +210,7 @@ export async function seedAdmission(
           drug_name: m.name,
           dose: m.dose,
           route: m.route,
+          frequency: "Once",
           status: "Ordered",
           ordered_by: orderedBy,
         })
@@ -214,8 +230,8 @@ export async function seedAdmission(
   });
 
   // Schedule labs: T+25s, T+45s
-  labs.slice(0, 2).forEach((l, i) => {
-    const t = LAB_FIRST_ORDER_DELAY_MS + i * LAB_ORDER_GAP_MS;
+  labs.slice(0, 2).filter((l) => !existingLabNames.has(norm(l.name))).forEach((l, i) => {
+    const t = immediate ? i * 500 : LAB_FIRST_ORDER_DELAY_MS + i * LAB_ORDER_GAP_MS;
     const resultSummary = `${l.name}: ${l.resultExample} (ref ${l.referenceRange}${
       l.unit ? ` ${l.unit}` : ""
     })`;
@@ -226,7 +242,7 @@ export async function seedAdmission(
         .insert({
           patient_mrn: mrn,
           patient_name: patientName,
-          facility_name: p.facility_name ?? "Srik Health Clinic",
+          facility_name: p.facility_name ?? "Memorial Hospital",
           requested_by: orderedBy,
           test_type: l.name,
           status: "Ordered",
