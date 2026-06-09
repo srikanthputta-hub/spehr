@@ -312,6 +312,24 @@ export function useAIAutomation() {
       sweepOrphans().catch(() => {});
     }, 30_000);
 
+    const reconcileActiveAdmissions = async () => {
+      const { data } = await supabase
+        .from("patients")
+        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint")
+        .eq("status", "Admitted")
+        .not("mrn", "is", null)
+        .order("admission_time", { ascending: false })
+        .limit(100);
+      for (const p of ((data as NewPatient[] | null) ?? [])) {
+        await seedAdmission(p, { immediate: true }).catch((e) =>
+          console.warn("[admission-reconcile] seed failed", e),
+        );
+      }
+    };
+    reconcileActiveAdmissions().catch((e) =>
+      console.warn("[admission-reconcile] failed", e),
+    );
+
     const channel = supabase
       .channel("admission-randomizer")
       .on(
