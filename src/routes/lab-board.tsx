@@ -143,7 +143,9 @@ function LabBoard() {
         .from("lab_orders")
         .select("*")
         .eq("facility_name", facility)
-        .order("created_at", { ascending: false }),
+        .in("status", ["Ordered", "ORDERED", "Pending", "PENDING", "Pending Collection", "Processing", "PROCESSING", "Reported", "Resulted", "Completed"])
+        .order("created_at", { ascending: false })
+        .limit(250),
       supabase
         .from("patients")
         .select("mrn, first_name, last_name, name, admission_time")
@@ -227,7 +229,7 @@ function LabBoard() {
       visible
         .filter((o) => {
           const s = (o.status ?? "").toUpperCase();
-          return s === "ORDERED" || s === "PROCESSING";
+          return s === "ORDERED" || s === "PENDING" || s === "PENDING COLLECTION" || s === "PROCESSING";
         })
         .sort((a, b) => tsOf(b) - tsOf(a))
         .slice(0, 25),
@@ -238,40 +240,27 @@ function LabBoard() {
   // Real lab_orders rows win; otherwise fall back to the same deterministic
   // per-MRN panel the chart uses (e.g. Patricia Smith → BUN + Urine SG).
   const recentResulted: FeedRow[] = useMemo(() => {
-    const resultedByMrn = new Map<string, LabOrderRow[]>();
+    const rows: FeedRow[] = [];
     for (const o of visible) {
       const s = (o.status ?? "").toUpperCase();
       if (s !== "RESULTED" && s !== "COMPLETED" && s !== "REPORTED") continue;
-      const list = resultedByMrn.get(o.patient_mrn) ?? [];
-      list.push(o);
-      resultedByMrn.set(o.patient_mrn, list);
-    }
-
-    const rows: FeedRow[] = [];
-    for (const p of boardPatients) {
-      const real = resultedByMrn.get(p.mrn);
-      if (real && real.length > 0) {
-        for (const o of real) {
-          rows.push({
-            key: o.id,
-            timestamp:
-              o.resulted_at ?? o.collected_at ?? o.created_at ?? p.admission_time,
-            patient_name: o.patient_name || p.name,
-            patient_mrn: p.mrn,
-            test_type: o.test_type,
-            result_value:
-              o.result_value ??
-              (Array.isArray(o.results_data) && o.results_data.length > 0
-                ? (() => {
-                    const r = o.results_data[0];
-                    return `${r.test}: ${r.value} ${r.unit}${r.flag && r.flag !== "NORMAL" ? ` [${r.flag}]` : ""}`;
-                  })()
-                : null),
-            status: "Reported",
-            physician: o.requested_by || "Dr. Ghost",
-          });
-        }
-      }
+      rows.push({
+        key: o.id,
+        timestamp: o.resulted_at ?? o.collected_at ?? o.created_at,
+        patient_name: o.patient_name || "Unknown",
+        patient_mrn: o.patient_mrn,
+        test_type: o.test_type,
+        result_value:
+          o.result_value ??
+          (Array.isArray(o.results_data) && o.results_data.length > 0
+            ? (() => {
+                const r = o.results_data[0];
+                return `${r.test}: ${r.value} ${r.unit}${r.flag && r.flag !== "NORMAL" ? ` [${r.flag}]` : ""}`;
+              })()
+            : null),
+        status: "Reported",
+        physician: o.requested_by || "Dr. Ghost",
+      });
     }
 
     rows.sort((a, b) => {
@@ -279,8 +268,8 @@ function LabBoard() {
       const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
       return tb - ta;
     });
-    return rows.slice(0, 25);
-  }, [boardPatients, visible]);
+    return rows.slice(0, 15);
+  }, [visible]);
 
   // Pending count for header still reflects real pending orders.
   const completed = recentResulted;
