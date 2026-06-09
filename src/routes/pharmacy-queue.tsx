@@ -247,6 +247,7 @@ function PharmacyQueue() {
         .eq("facility_name", facility)
         .in("status", ["Administered", "ADMINISTERED"])
         .order("administered_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
         .limit(15);
       if (!active) return;
       setDispensed((data ?? []) as any);
