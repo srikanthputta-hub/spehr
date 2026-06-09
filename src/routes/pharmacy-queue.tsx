@@ -100,6 +100,7 @@ function PharmacyQueue() {
       administered_at: string | null;
       created_at: string | null;
       ordering_physician: string | null;
+      facility_name: string | null;
     }[]
   >([]);
   const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
@@ -244,8 +245,9 @@ function PharmacyQueue() {
           "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, administered_at, created_at, ordering_physician, facility_name",
         )
         .eq("facility_name", facility)
+        .in("status", ["Administered", "ADMINISTERED"])
         .order("administered_at", { ascending: false, nullsFirst: false })
-        .limit(200);
+        .limit(15);
       if (!active) return;
       setDispensed((data ?? []) as any);
     };
@@ -288,35 +290,24 @@ function PharmacyQueue() {
       ? `${pharm.name}, PharmD`
       : "Auto-Dispense, PharmD";
 
-    const adminByMrn = new Map<string, typeof dispensed>();
+    const rows: DispensedFeedRow[] = [];
     for (const o of dispensed) {
+      if ((o.facility_name ?? facility) !== facility) continue;
       if ((o.status ?? "").toUpperCase() !== "ADMINISTERED") continue;
       const mrn = o.patient_mrn ?? o.mrn;
       if (!mrn) continue;
-      const list = adminByMrn.get(mrn) ?? [];
-      list.push(o);
-      adminByMrn.set(mrn, list);
-    }
-
-    const rows: DispensedFeedRow[] = [];
-    for (const p of boardPatients) {
-      const real = adminByMrn.get(p.mrn);
-      if (real && real.length > 0) {
-        for (const o of real) {
-          rows.push({
-            key: o.id,
-            timestamp: o.administered_at ?? o.created_at,
-            patient_name: o.patient_name || p.name,
-            patient_mrn: p.mrn,
-            drug_name: o.drug_name ?? o.medication_name ?? "—",
-            dose: o.dose,
-            route: o.route,
-            frequency: o.frequency,
-            status: o.status ?? "Administered",
-            pharmacist: pharmacistName,
-          });
-        }
-      }
+      rows.push({
+        key: o.id,
+        timestamp: o.administered_at ?? o.created_at,
+        patient_name: o.patient_name || "Unknown",
+        patient_mrn: mrn,
+        drug_name: o.drug_name ?? o.medication_name ?? "—",
+        dose: o.dose,
+        route: o.route,
+        frequency: o.frequency,
+        status: o.status ?? "Administered",
+        pharmacist: pharmacistName,
+      });
     }
 
     rows.sort((a, b) => {
@@ -324,8 +315,8 @@ function PharmacyQueue() {
       const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
       return tb - ta;
     });
-    return rows.slice(0, 25);
-  }, [boardPatients, dispensed, pharm?.name]);
+    return rows.slice(0, 15);
+  }, [dispensed, facility, pharm?.name]);
 
   const selected = useMemo(
     () => visibleOrders.find((o) => o.id === selectedId) ?? null,
