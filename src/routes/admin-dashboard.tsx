@@ -273,12 +273,10 @@ function AdminDashboard() {
     })();
   }, []);
 
-  // Reset shift clock when the active facility changes — each hospital has
-  // its own independent rotation that starts from slot 0.
+  // Re-sync immediately when the facility switches so the new tab shows
+  // the correct current shift state without waiting for the next tick.
   useEffect(() => {
-    const init = {} as Record<RoleKey, { idx: number; hours: number }>;
-    for (const r of STAFF_ROLES) init[r] = { idx: 0, hours: 0 };
-    setShiftClock(init);
+    setShiftTick(shiftStateNow());
   }, [facility]);
 
   const loadTransfers = async () => {
