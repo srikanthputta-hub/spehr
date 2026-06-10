@@ -84,8 +84,16 @@ interface StaffMember {
 // and when the on-duty clinician completes 12h the rotation advances
 // (slot 1 takes over, the rested clinician becomes Next Shift).
 const MAX_SHIFT_HOURS = 12;
-const TICK_MS = 2000;
-const HOURS_PER_TICK = 1;
+const SHIFT_MS = MAX_SHIFT_HOURS * 60 * 60 * 1000;
+// Anchor at the Unix epoch so every browser/facility agrees on which
+// 12h block we're in right now. Day shift = blocks at 07:00 local etc.
+// We use UTC math here — shifts roll every 12h on the wall clock.
+function shiftStateNow() {
+  const now = Date.now();
+  const block = Math.floor(now / SHIFT_MS);
+  const intoMs = now - block * SHIFT_MS;
+  return { block, hours: intoMs / 3_600_000 };
+}
 
 type RoleKey = "RN" | "MD" | "PharmD" | "CNA" | "LPN" | "Finance";
 const STAFF_ROLES: readonly RoleKey[] = [
