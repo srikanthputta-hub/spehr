@@ -244,17 +244,11 @@ function AdminDashboard() {
   const [cluster, setCluster] = useState("");
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
-  // Per-role shift clock — drives the 3-staff rotation. `idx` points at the
-  // currently On Duty clinician in the per-role name pool; `hours` counts
-  // simulated hours into the current shift (caps at 12h, then rotates).
+  // Per-role shift clock — driven by real wall-clock time. Every 12h
+  // (UTC-aligned) the on-duty index rotates to the next slot, exactly
+  // like a real hospital handoff.
   const roster = useMemo(() => buildRoster(facility), [facility]);
-  const [shiftClock, setShiftClock] = useState<
-    Record<RoleKey, { idx: number; hours: number }>
-  >(() => {
-    const init = {} as Record<RoleKey, { idx: number; hours: number }>;
-    for (const r of STAFF_ROLES) init[r] = { idx: 0, hours: 0 };
-    return init;
-  });
+  const [shiftTick, setShiftTick] = useState(() => shiftStateNow());
 
   const [transfers, setTransfers] = useState<TransferRequest[]>([]);
   const [transfersLoading, setTransfersLoading] = useState(true);
