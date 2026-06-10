@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
 import { Button } from "@/components/ui/button";
@@ -84,8 +84,16 @@ interface StaffMember {
 // and when the on-duty clinician completes 12h the rotation advances
 // (slot 1 takes over, the rested clinician becomes Next Shift).
 const MAX_SHIFT_HOURS = 12;
-const TICK_MS = 2000;
-const HOURS_PER_TICK = 1;
+const SHIFT_MS = MAX_SHIFT_HOURS * 60 * 60 * 1000;
+// Anchor at the Unix epoch so every browser/facility agrees on which
+// 12h block we're in right now. Day shift = blocks at 07:00 local etc.
+// We use UTC math here — shifts roll every 12h on the wall clock.
+function shiftStateNow() {
+  const now = Date.now();
+  const block = Math.floor(now / SHIFT_MS);
+  const intoMs = now - block * SHIFT_MS;
+  return { block, hours: intoMs / 3_600_000 };
+}
 
 type RoleKey = "RN" | "MD" | "PharmD" | "CNA" | "LPN" | "Finance";
 const STAFF_ROLES: readonly RoleKey[] = [
@@ -236,17 +244,11 @@ function AdminDashboard() {
   const [cluster, setCluster] = useState("");
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
-  // Per-role shift clock — drives the 3-staff rotation. `idx` points at the
-  // currently On Duty clinician in the per-role name pool; `hours` counts
-  // simulated hours into the current shift (caps at 12h, then rotates).
+  // Per-role shift clock — driven by real wall-clock time. Every 12h
+  // (UTC-aligned) the on-duty index rotates to the next slot, exactly
+  // like a real hospital handoff.
   const roster = useMemo(() => buildRoster(facility), [facility]);
-  const [shiftClock, setShiftClock] = useState<
-    Record<RoleKey, { idx: number; hours: number }>
-  >(() => {
-    const init = {} as Record<RoleKey, { idx: number; hours: number }>;
-    for (const r of STAFF_ROLES) init[r] = { idx: 0, hours: 0 };
-    return init;
-  });
+  const [shiftTick, setShiftTick] = useState(() => shiftStateNow());
 
   const [transfers, setTransfers] = useState<TransferRequest[]>([]);
   const [transfersLoading, setTransfersLoading] = useState(true);
@@ -271,12 +273,10 @@ function AdminDashboard() {
     })();
   }, []);
 
-  // Reset shift clock when the active facility changes — each hospital has
-  // its own independent rotation that starts from slot 0.
+  // Re-sync immediately when the facility switches so the new tab shows
+  // the correct current shift state without waiting for the next tick.
   useEffect(() => {
-    const init = {} as Record<RoleKey, { idx: number; hours: number }>;
-    for (const r of STAFF_ROLES) init[r] = { idx: 0, hours: 0 };
-    setShiftClock(init);
+    setShiftTick(shiftStateNow());
   }, [facility]);
 
   const loadTransfers = async () => {
@@ -401,31 +401,26 @@ function AdminDashboard() {
   const removeAssignment = (id: string) =>
     setAssignments((a) => a.filter((x) => x.id !== id));
 
-  // ============ 12-hour Shift Rotation Engine ============
-  // Every TICK_MS, advance every role's shift clock by HOURS_PER_TICK.
-  // When the current On Duty clinician completes MAX_SHIFT_HOURS, the
-  // queued Next Shift slot takes over and the clock resets to 0.
+  // ============ Real-Time 12-hour Shift Rotation ============
+  // Recompute the wall-clock shift state every 30s. When the 12h block
+  // index rolls forward, fire a handoff toast for every role.
+  const lastBlockRef = useRef<number>(shiftTick.block);
   useEffect(() => {
-    const interval = setInterval(() => {
-      setShiftClock((cur) => {
-        const next: typeof cur = { ...cur };
+    const tick = () => {
+      const s = shiftStateNow();
+      setShiftTick(s);
+      if (s.block !== lastBlockRef.current) {
         for (const r of STAFF_ROLES) {
-          const c = cur[r];
-          const h = c.hours + HOURS_PER_TICK;
-          if (h >= MAX_SHIFT_HOURS) {
-            // Rotation: next-up takes over, fresh 0h clock.
-            next[r] = { idx: (c.idx + 1) % 3, hours: 0 };
-            toast(
-              `Shift change · ${r}: ${roster[r][(c.idx + 1) % 3]} clocking in.`,
-              { className: "bg-slate-100 text-slate-800" },
-            );
-          } else {
-            next[r] = { idx: c.idx, hours: h };
-          }
+          const newIdx = s.block % 3;
+          toast(
+            `Shift change · ${r}: ${roster[r][newIdx]} clocking in.`,
+            { className: "bg-slate-100 text-slate-800" },
+          );
         }
-        return next;
-      });
-    }, TICK_MS);
+        lastBlockRef.current = s.block;
+      }
+    };
+    const interval = setInterval(tick, 30_000);
     return () => clearInterval(interval);
   }, [roster]);
 
@@ -443,8 +438,9 @@ function AdminDashboard() {
       assigned: number;
     };
     const out: Card[] = [];
+    const onIdx = shiftTick.block % 3;
+    const curHours = shiftTick.hours;
     for (const role of STAFF_ROLES) {
-      const c = shiftClock[role];
       const cap = ROLE_CAP[role];
       const rate = ROLE_RATE[role];
       // Synthetic patient load — proportional to census, capped at role limit.
@@ -459,9 +455,9 @@ function AdminDashboard() {
       out.push({
         key: `${role}-on`,
         role,
-        name: roster[role][c.idx],
+        name: roster[role][onIdx],
         status: "On Duty",
-        hours: c.hours,
+        hours: curHours,
         rate,
         cap,
         assigned,
@@ -469,16 +465,16 @@ function AdminDashboard() {
       out.push({
         key: `${role}-next`,
         role,
-        name: roster[role][(c.idx + 1) % 3],
+        name: roster[role][(onIdx + 1) % 3],
         status: "Next Shift",
-        hours: 0,
+        hours: curHours,
         rate,
         cap,
         assigned: 0,
       });
     }
     return out;
-  }, [roster, shiftClock, census]);
+  }, [roster, shiftTick, census]);
 
   // RN ratio: exactly 1 RN is On Duty at any given moment (per design).
   const onDutyRNs = 1;

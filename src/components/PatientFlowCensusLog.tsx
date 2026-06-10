@@ -153,7 +153,10 @@ function DischargeSummaryModal({
   const summaryAuthor = "Ghost AI - Auto Discharge";
 
   const administered = meds.filter((m) => (m.status ?? "").toLowerCase() === "administered");
-  const resulted = labs.filter((l) => (l.status ?? "").toLowerCase() === "resulted");
+  const resulted = labs.filter((l) => {
+    const s = (l.status ?? "").toLowerCase();
+    return s === "resulted" || s === "reported";
+  });
   const complaint = patient.chief_complaint || "evaluation";
   const los = durationHrs(patient.admission_time, patient.discharge_time);
   const isDischarged = !!patient.discharge_time;
