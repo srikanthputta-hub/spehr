@@ -41,9 +41,9 @@ interface InsertedOrder {
 // Medication cascade — orders placed at T+20, T+35, T+50.
 const MED_FIRST_ORDER_DELAY_MS = 20_000;
 const MED_ORDER_GAP_MS = 15_000;
-// Lab cascade — orders placed at T+25 and T+45.
-const LAB_FIRST_ORDER_DELAY_MS = 25_000;
-const LAB_ORDER_GAP_MS = 20_000;
+// Lab cascade — orders placed at T+20 and T+35.
+const LAB_FIRST_ORDER_DELAY_MS = 20_000;
+const LAB_ORDER_GAP_MS = 15_000;
 // 3 seconds between status transitions for both engines.
 const TRANSITION_GAP_MS = 3_000;
 
@@ -195,7 +195,7 @@ export async function seedAdmission(
 
   // Schedule meds: T+20s, T+35s, T+50s
   meds.slice(0, 3).filter((m) => !existingMedNames.has(norm(m.name))).forEach((m, i) => {
-    const t = immediate ? i * 500 : MED_FIRST_ORDER_DELAY_MS + i * MED_ORDER_GAP_MS;
+    const t = MED_FIRST_ORDER_DELAY_MS + i * MED_ORDER_GAP_MS;
     const timer = setTimeout(async () => {
       untrackTimer(mrn, timer);
       const { data, error } = await supabase
@@ -231,7 +231,7 @@ export async function seedAdmission(
 
   // Schedule labs: T+25s, T+45s
   labs.slice(0, 2).filter((l) => !existingLabNames.has(norm(l.name))).forEach((l, i) => {
-    const t = immediate ? i * 500 : LAB_FIRST_ORDER_DELAY_MS + i * LAB_ORDER_GAP_MS;
+    const t = LAB_FIRST_ORDER_DELAY_MS + i * LAB_ORDER_GAP_MS;
     const resultSummary = `${l.name}: ${l.resultExample} (ref ${l.referenceRange}${
       l.unit ? ` ${l.unit}` : ""
     })`;
@@ -265,53 +265,34 @@ export function useAIAutomation() {
 
   useEffect(() => {
     if (!automationEnabled) return;
-    // Orphan sweeper — any pharmacy/lab order stuck in a non-terminal state
-    // for >90s (page reload mid-cascade, closed tab, crashed worker) is
-    // finalized so the live boards don't grow stale rows across every
-    // facility. Mirrors the one-shot DB cleanup but keeps running.
+    // Orphan sweeper — finalize only VERY stale rows (>30 min) so a
+    // closed tab mid-cascade doesn't strand pending rows forever, but
+    // active staged cascades (which finish in ~60s) are never touched.
     const sweepOrphans = async () => {
-      const cutoff = new Date(Date.now() - 90_000).toISOString();
+      const cutoff = new Date(Date.now() - 30 * 60_000).toISOString();
       const nowIso = new Date().toISOString();
       await supabase
         .from("medication_orders")
-        .update({
-          status: "Administered",
-          administered_at: nowIso,
-        } as any)
+        .update({ status: "Administered", administered_at: nowIso } as any)
         .lt("created_at", cutoff)
         .in("status", [
-          "Ordered",
-          "Pending",
-          "Pending Verification",
-          "Dispensed",
-          "DUE",
-          "ORDERED",
-          "PENDING",
-          "PENDING_PHARMACY",
-          "PENDING_VERIFICATION",
-          "DISPENSED",
+          "Ordered", "Pending", "Pending Verification", "Dispensed",
+          "ORDERED", "PENDING", "PENDING_VERIFICATION", "DISPENSED",
         ]);
       await supabase
         .from("lab_orders")
-        .update({
-          status: "Reported",
-          resulted_at: nowIso,
-        } as any)
+        .update({ status: "Reported", resulted_at: nowIso } as any)
         .lt("created_at", cutoff)
-        .in("status", [
-          "Ordered",
-          "Processing",
-          "Pending Collection",
-          "Completed",
-          "ORDERED",
-          "PROCESSING",
-        ]);
+        .in("status", ["Ordered", "Processing", "ORDERED", "PROCESSING"]);
     };
-    sweepOrphans().catch((e) => console.warn("[orphan-sweep] failed", e));
+    sweepOrphans().catch(() => {});
     const sweepInterval = setInterval(() => {
       sweepOrphans().catch(() => {});
-    }, 30_000);
+    }, 5 * 60_000);
 
+    // Backfill any admitted patient that has NO orders yet (e.g. admitted
+    // while the tab was closed). Patients that already have orders are
+    // skipped — the cascade for them is owned by whatever tab seeded them.
     const reconcileActiveAdmissions = async () => {
       const { data } = await supabase
         .from("patients")
@@ -321,7 +302,13 @@ export function useAIAutomation() {
         .order("admission_time", { ascending: false })
         .limit(100);
       for (const p of ((data as NewPatient[] | null) ?? [])) {
-        await seedAdmission(p, { immediate: true }).catch((e) =>
+        if (!p.mrn) continue;
+        const [{ count: medCount }, { count: labCount }] = await Promise.all([
+          supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
+          supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
+        ]);
+        if ((medCount ?? 0) > 0 || (labCount ?? 0) > 0) continue;
+        await seedAdmission(p).catch((e) =>
           console.warn("[admission-reconcile] seed failed", e),
         );
       }
@@ -352,7 +339,15 @@ export function useAIAutomation() {
           const mrn = o.patient_mrn ?? o.mrn;
           const source = (o.ordered_by ?? "").toLowerCase();
           if (!mrn || (o.status ?? "").toLowerCase() !== "ordered") return;
-          if (source.includes("admission randomizer") || source.includes("bedside rn")) return;
+          // Only auto-cascade truly manual physician orders. Admission
+          // workflow / randomizer / bedside RN orders own their own
+          // staged cascade — do NOT short-circuit them here.
+          if (
+            source.includes("admission randomizer") ||
+            source.includes("admission workflow") ||
+            source.includes("bedside rn") ||
+            source.includes("ghost ai")
+          ) return;
           cascadeMed(mrn, o.id).catch((e) => console.warn("[order-cascadeMed] failed", e));
         },
       )
@@ -364,7 +359,12 @@ export function useAIAutomation() {
           const mrn = o.patient_mrn ?? o.mrn;
           const source = (o.ordered_by ?? "").toLowerCase();
           if (!mrn || (o.status ?? "").toLowerCase() !== "ordered") return;
-          if (source.includes("admission randomizer") || source.includes("bedside rn")) return;
+          if (
+            source.includes("admission randomizer") ||
+            source.includes("admission workflow") ||
+            source.includes("bedside rn") ||
+            source.includes("ghost ai")
+          ) return;
           cascadeLab(mrn, o.id, `${o.test_type ?? "Lab"}: resulted`).catch((e) =>
             console.warn("[order-cascadeLab] failed", e),
           );
