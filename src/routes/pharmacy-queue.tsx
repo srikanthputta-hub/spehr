@@ -15,6 +15,7 @@ import { BoardHeader } from "@/components/BoardShell";
 import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 type Order = {
   id: string;
@@ -81,6 +82,7 @@ const KEY_LABS = ["creatinine", "potassium", "k+", "k ", "bun", "egfr", "inr", "
 function PharmacyQueue() {
   const { facility } = useFacility();
   const pharm = useActiveStaff("PharmD");
+  const { can } = useRolePermissions("PharmD" as any);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
