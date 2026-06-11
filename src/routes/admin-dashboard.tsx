@@ -39,6 +39,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -236,6 +237,7 @@ function codeColor(c: string | null) {
 function AdminDashboard() {
   const admin = useActiveStaff("Admin");
   const { facility } = useFacility();
+  const { can } = useRolePermissions("Admin" as any);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [pendingPharm, setPendingPharm] = useState(0);
   const [loading, setLoading] = useState(true);
