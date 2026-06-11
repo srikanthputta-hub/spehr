@@ -584,8 +584,9 @@ function AdminDashboard() {
                         <div className="flex items-center gap-2 shrink-0">
                           <Button
                             size="sm"
-                            disabled={busy}
+                            disabled={busy || !can("btn_approve_transfer")}
                             onClick={() => approveTransfer(t)}
+                            title={can("btn_approve_transfer") ? undefined : "Action disabled — contact admin to activate"}
                             className="bg-emerald-600 hover:bg-emerald-700"
                           >
                             {busy ? (
@@ -598,8 +599,9 @@ function AdminDashboard() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={busy}
+                            disabled={busy || !can("btn_deny_transfer")}
                             onClick={() => denyTransfer(t)}
+                            title={can("btn_deny_transfer") ? undefined : "Action disabled — contact admin to activate"}
                             className="border-red-200 text-red-700 hover:bg-red-50"
                           >
                             <X className="h-3.5 w-3.5" />
