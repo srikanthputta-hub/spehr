@@ -585,7 +585,8 @@ function PharmacyQueue() {
                 <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
                   <button
                     onClick={() => actOnOrder(selected.id, "DUE")}
-                    disabled={acting}
+                    disabled={acting || !can("btn_verify_med")}
+                    title={can("btn_verify_med") ? undefined : "Action disabled — contact admin to activate"}
                     className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
                   >
                     {acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -593,7 +594,8 @@ function PharmacyQueue() {
                   </button>
                   <button
                     onClick={() => actOnOrder(selected.id, "REJECTED")}
-                    disabled={acting}
+                    disabled={acting || !can("btn_dispense_med")}
+                    title={can("btn_dispense_med") ? undefined : "Action disabled — contact admin to activate"}
                     className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
                   >
                     <XCircle className="h-4 w-4" />
