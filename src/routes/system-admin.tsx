@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3 } from "lucide-react";
+import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2 } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -42,6 +42,7 @@ const TABS = [
   { id: "users" as const, label: "👥 Users", icon: Users },
   { id: "audit" as const, label: "📜 Audit Log", icon: Activity },
   { id: "analytics" as const, label: "📊 Network Analytics", icon: BarChart3 },
+  { id: "dictionary" as const, label: "📚 Medical Dictionary", icon: BookMarked },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -379,6 +380,11 @@ function SystemAdminPage() {
       {tab === "analytics" && (
         <div className="max-w-6xl mx-auto px-6 pb-8">
           <GlobalNetworkAnalytics embedded />
+        </div>
+      )}
+      {tab === "dictionary" && (
+        <div className="max-w-6xl mx-auto px-6 pb-8">
+          <MedicalDictionary />
         </div>
       )}
     </main>
