@@ -203,6 +203,42 @@ export type Database = {
         }
         Relationships: []
       }
+      medical_terminology: {
+        Row: {
+          category: string | null
+          code: string
+          code_system: string
+          created_at: string
+          description: string | null
+          display: string
+          id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          category?: string | null
+          code: string
+          code_system: string
+          created_at?: string
+          description?: string | null
+          display: string
+          id?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string | null
+          code?: string
+          code_system?: string
+          created_at?: string
+          description?: string | null
+          display?: string
+          id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       medication_orders: {
         Row: {
           administered_at: string | null
