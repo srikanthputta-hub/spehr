@@ -24,6 +24,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
+import {
+  lookupTerminology,
+  toFhirCodeSystem,
+  DEFAULT_CATEGORY,
+  defaultUsage,
+} from "@/lib/terminology-lookup";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
