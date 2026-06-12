@@ -24,6 +24,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
+import {
+  lookupTerminology,
+  toFhirCodeSystem,
+  DEFAULT_CATEGORY,
+  defaultUsage,
+} from "@/lib/terminology-lookup";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -892,6 +898,8 @@ function MedicalDictionary() {
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [looking, setLooking] = useState(false);
+  const [lookupNote, setLookupNote] = useState<string | null>(null);
   const [form, setForm] = useState({
     code_system: "ICD-10",
     code: "",
@@ -913,6 +921,78 @@ function MedicalDictionary() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Debounced auto-lookup: when user enters a code under a code system
+  // that has a public terminology service, resolve display + category +
+  // description automatically. User can still override any field.
+  useEffect(() => {
+    if (!addOpen) return;
+    const code = form.code.trim();
+    if (!code) { setLookupNote(null); return; }
+    let cancelled = false;
+    setLooking(true);
+    setLookupNote(null);
+    const t = setTimeout(async () => {
+      const res = await lookupTerminology(form.code_system, code);
+      if (cancelled) return;
+      setLooking(false);
+      if (!res) {
+        setLookupNote(
+          form.code_system === "VSAC"
+            ? "VSAC requires manual entry — fill the fields below."
+            : "No public match — verify the code or fill manually.",
+        );
+        return;
+      }
+      setLookupNote(`Matched ${form.code_system} · ${code}`);
+      setForm((f) => ({
+        ...f,
+        display: f.display.trim() ? f.display : res.display,
+        category: f.category.trim() ? f.category : res.category,
+        description: f.description.trim() ? f.description : res.description,
+      }));
+    }, 450);
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.code, form.code_system, addOpen]);
+
+  const openAdd = () => {
+    setForm({
+      code_system: activeSystem,
+      code: "",
+      display: "",
+      category: DEFAULT_CATEGORY[activeSystem] ?? "",
+      description: "",
+    });
+    setLookupNote(null);
+    setAddOpen(true);
+  };
+
+  const onSystemChange = (v: string) => {
+    setForm((f) => ({
+      ...f,
+      code_system: v,
+      // Refresh default category when switching systems unless user has typed one
+      category: f.category && f.category !== DEFAULT_CATEGORY[f.code_system]
+        ? f.category
+        : (DEFAULT_CATEGORY[v] ?? ""),
+    }));
+  };
+
+  const exportFhir = () => {
+    const entries = rows
+      .filter((r) => r.code_system === activeSystem)
+      .map((r) => ({ code: r.code, display: r.display, description: r.description }));
+    const doc = toFhirCodeSystem(activeSystem, entries);
+    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/fhir+json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `CodeSystem-${activeSystem.replace(/\s+/g, "_")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("FHIR CodeSystem exported", { description: `${activeSystem} · ${entries.length} concepts` });
+  };
 
   const filtered = rows.filter((r) => {
     if (r.code_system !== activeSystem) return false;
@@ -936,15 +1016,17 @@ function MedicalDictionary() {
       return;
     }
     setSaving(true);
+    const finalCategory = form.category.trim() || DEFAULT_CATEGORY[form.code_system] || null;
+    const finalDescription = form.description.trim() || defaultUsage(form.code_system, form.display.trim());
     const { data, error } = await supabase
       .from("medical_terminology")
-      .insert({
+      .upsert({
         code_system: form.code_system,
         code: form.code.trim(),
         display: form.display.trim(),
-        category: form.category.trim() || null,
-        description: form.description.trim() || null,
-      })
+        category: finalCategory,
+        description: finalDescription,
+      }, { onConflict: "code_system,code" })
       .select()
       .single();
     setSaving(false);
@@ -952,12 +1034,15 @@ function MedicalDictionary() {
       toast.error("Could not add terminology", { description: error.message });
       return;
     }
-    setRows((r) => [...r, data as any].sort((a, b) =>
-      a.code_system.localeCompare(b.code_system) || a.code.localeCompare(b.code),
-    ));
+    setRows((r) => {
+      const without = r.filter((x) => x.id !== (data as any).id);
+      return [...without, data as any].sort(
+        (a, b) => a.code_system.localeCompare(b.code_system) || a.code.localeCompare(b.code),
+      );
+    });
     setActiveSystem(form.code_system);
     setAddOpen(false);
-    setForm({ code_system: form.code_system, code: "", display: "", category: "", description: "" });
+    setForm({ code_system: form.code_system, code: "", display: "", category: DEFAULT_CATEGORY[form.code_system] ?? "", description: "" });
     toast.success("Terminology added", { description: `${form.code_system} · ${form.code}` });
   };
 
@@ -985,9 +1070,14 @@ function MedicalDictionary() {
             LOINC, RxNorm, and curated value sets; extend with site-specific codes.
           </p>
         </div>
-        <Button onClick={() => setAddOpen(true)} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
-          <Plus className="h-4 w-4" /> Add Terminology
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
+            <Download className="h-4 w-4" /> Export FHIR
+          </Button>
+          <Button onClick={openAdd} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
+            <Plus className="h-4 w-4" /> Add Terminology
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -1092,7 +1182,7 @@ function MedicalDictionary() {
           <div className="space-y-3">
             <div>
               <Label className="text-xs">Code System</Label>
-              <Select value={form.code_system} onValueChange={(v) => setForm({ ...form, code_system: v })}>
+              <Select value={form.code_system} onValueChange={onSystemChange}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {CODE_SYSTEMS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
@@ -1101,13 +1191,21 @@ function MedicalDictionary() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Code</Label>
+                <Label className="text-xs flex items-center gap-2">
+                  Code
+                  {looking && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+                </Label>
                 <input
                   value={form.code}
                   onChange={(e) => setForm({ ...form, code: e.target.value })}
                   placeholder="e.g. R07.9"
                   className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30"
                 />
+                {lookupNote && (
+                  <div className={`mt-1 text-[10px] ${lookupNote.startsWith("Matched") ? "text-emerald-600" : "text-amber-600"}`}>
+                    {lookupNote}
+                  </div>
+                )}
               </div>
               <div>
                 <Label className="text-xs">Category</Label>

@@ -5,6 +5,7 @@ import {
   labsForComplaint,
 } from "@/lib/complaint-protocols";
 import { getAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { ensureTerminology } from "@/lib/ensure-terminology";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -169,6 +170,27 @@ export async function seedAdmission(
 
   const meds = medsForComplaint(p.chief_complaint);
   const labs = labsForComplaint(p.chief_complaint);
+
+  // Auto-grow the medical dictionary so every clinical concept that
+  // enters the system shows up in System Admin → Medical Dictionary in
+  // its designated location (ICD-10 / RxNorm / LOINC).
+  if (p.chief_complaint?.trim()) {
+    ensureTerminology("ICD-10", { display: p.chief_complaint.trim() }).catch(() => {});
+  }
+  meds.slice(0, 3).forEach((m) => {
+    ensureTerminology("RxNorm", {
+      display: `${m.name} ${m.dose} ${m.route}`.trim(),
+      category: "Medication",
+    }).catch(() => {});
+  });
+  labs.slice(0, 2).forEach((l) => {
+    ensureTerminology("LOINC", {
+      display: l.name,
+      category: "Laboratory",
+      description: `Reference range ${l.referenceRange}${l.unit ? ` ${l.unit}` : ""}.`,
+    }).catch(() => {});
+  });
+
   const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
 
   const [{ data: existingMeds }, { data: existingLabs }] = await Promise.all([
