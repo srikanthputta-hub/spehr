@@ -864,3 +864,290 @@ function AuditLog() {
     </div>
   );
 }
+
+type DictEntry = {
+  id: string;
+  code_system: string;
+  code: string;
+  display: string;
+  category: string | null;
+  description: string | null;
+  status: string;
+};
+
+const CODE_SYSTEMS = ["ICD-10", "SNOMED CT", "LOINC", "RxNorm", "VSAC"] as const;
+
+const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }> = {
+  "ICD-10":     { tint: "border-rose-200 bg-rose-50/40",       chip: "bg-rose-100 text-rose-800 border-rose-200",         blurb: "Diagnosis & symptom codes" },
+  "SNOMED CT":  { tint: "border-indigo-200 bg-indigo-50/40",   chip: "bg-indigo-100 text-indigo-800 border-indigo-200",   blurb: "Clinical findings & procedures" },
+  "LOINC":      { tint: "border-amber-200 bg-amber-50/40",     chip: "bg-amber-100 text-amber-800 border-amber-200",      blurb: "Laboratory observations" },
+  "RxNorm":     { tint: "border-emerald-200 bg-emerald-50/40", chip: "bg-emerald-100 text-emerald-800 border-emerald-200", blurb: "Medications & doses" },
+  "VSAC":       { tint: "border-sky-200 bg-sky-50/40",         chip: "bg-sky-100 text-sky-800 border-sky-200",            blurb: "Aligned value sets" },
+};
+
+function MedicalDictionary() {
+  const [rows, setRows] = useState<DictEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeSystem, setActiveSystem] = useState<string>("ICD-10");
+  const [search, setSearch] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    code_system: "ICD-10",
+    code: "",
+    display: "",
+    category: "",
+    description: "",
+  });
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("medical_terminology")
+      .select("id, code_system, code, display, category, description, status")
+      .order("code_system")
+      .order("code");
+    if (error) toast.error("Failed to load dictionary", { description: error.message });
+    else setRows((data as any) ?? []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const filtered = rows.filter((r) => {
+    if (r.code_system !== activeSystem) return false;
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      r.code.toLowerCase().includes(q) ||
+      r.display.toLowerCase().includes(q) ||
+      (r.category ?? "").toLowerCase().includes(q)
+    );
+  });
+
+  const counts = CODE_SYSTEMS.reduce<Record<string, number>>((acc, s) => {
+    acc[s] = rows.filter((r) => r.code_system === s).length;
+    return acc;
+  }, {});
+
+  const submit = async () => {
+    if (!form.code.trim() || !form.display.trim()) {
+      toast.error("Code and display name are required");
+      return;
+    }
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("medical_terminology")
+      .insert({
+        code_system: form.code_system,
+        code: form.code.trim(),
+        display: form.display.trim(),
+        category: form.category.trim() || null,
+        description: form.description.trim() || null,
+      })
+      .select()
+      .single();
+    setSaving(false);
+    if (error) {
+      toast.error("Could not add terminology", { description: error.message });
+      return;
+    }
+    setRows((r) => [...r, data as any].sort((a, b) =>
+      a.code_system.localeCompare(b.code_system) || a.code.localeCompare(b.code),
+    ));
+    setActiveSystem(form.code_system);
+    setAddOpen(false);
+    setForm({ code_system: form.code_system, code: "", display: "", category: "", description: "" });
+    toast.success("Terminology added", { description: `${form.code_system} · ${form.code}` });
+  };
+
+  const remove = async (id: string) => {
+    const prev = rows;
+    setRows((r) => r.filter((x) => x.id !== id));
+    const { error } = await supabase.from("medical_terminology").delete().eq("id", id);
+    if (error) {
+      setRows(prev);
+      toast.error("Could not remove entry", { description: error.message });
+      return;
+    }
+    toast.success("Entry removed");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
+            📚 Medical Dictionary
+          </h1>
+          <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+            VSAC-aligned terminology library used across the EHR. Browse SNOMED CT, ICD-10,
+            LOINC, RxNorm, and curated value sets; extend with site-specific codes.
+          </p>
+        </div>
+        <Button onClick={() => setAddOpen(true)} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
+          <Plus className="h-4 w-4" /> Add Terminology
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {CODE_SYSTEMS.map((s) => {
+          const meta = SYSTEM_META[s];
+          const active = activeSystem === s;
+          return (
+            <button
+              key={s}
+              onClick={() => setActiveSystem(s)}
+              className={`text-left rounded-xl border p-3 transition cursor-pointer ${meta.tint} ${
+                active ? "ring-2 ring-[#0c2340] shadow-sm" : "hover:shadow-sm"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${meta.chip}`}>
+                  {s}
+                </span>
+                <span className="text-xs font-semibold text-slate-700">{counts[s] ?? 0}</span>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-600">{meta.blurb}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 bg-slate-50/60">
+          <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${SYSTEM_META[activeSystem].chip}`}>
+            {activeSystem}
+          </span>
+          <div className="text-sm font-semibold text-slate-900">{SYSTEM_META[activeSystem].blurb}</div>
+          <div className="ml-auto relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search code or term…"
+              className="h-8 w-64 rounded-md border border-slate-300 bg-white pl-7 pr-2 text-xs outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30"
+            />
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-slate-500 p-6">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading terminology…
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-8 text-center text-sm text-slate-500">
+            No entries{search ? " match your search" : ""} in {activeSystem}.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="text-left px-4 py-2 font-semibold">Code</th>
+                  <th className="text-left px-4 py-2 font-semibold">Display Name</th>
+                  <th className="text-left px-4 py-2 font-semibold">Category</th>
+                  <th className="text-left px-4 py-2 font-semibold">Usage</th>
+                  <th className="text-left px-4 py-2 font-semibold">Status</th>
+                  <th className="px-4 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filtered.map((e) => (
+                  <tr key={e.id} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{e.code}</td>
+                    <td className="px-4 py-2.5 text-slate-800">{e.display}</td>
+                    <td className="px-4 py-2.5 text-slate-700">{e.category ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{e.description ?? "—"}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        ● {e.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button
+                        onClick={() => remove(e.id)}
+                        className="text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                        title="Remove entry"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Terminology</DialogTitle>
+            <DialogDescription>
+              Add a new code to the medical dictionary. It will be available across the network.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Code System</Label>
+              <Select value={form.code_system} onValueChange={(v) => setForm({ ...form, code_system: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {CODE_SYSTEMS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Code</Label>
+                <input
+                  value={form.code}
+                  onChange={(e) => setForm({ ...form, code: e.target.value })}
+                  placeholder="e.g. R07.9"
+                  className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Category</Label>
+                <input
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  placeholder="e.g. Diagnosis"
+                  className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Display Name</Label>
+              <input
+                value={form.display}
+                onChange={(e) => setForm({ ...form, display: e.target.value })}
+                placeholder="e.g. Chest pain, unspecified"
+                className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Usage / Description</Label>
+              <textarea
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="How is this code used in the EHR?"
+                rows={2}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={submit} disabled={saving} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Add Entry
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
