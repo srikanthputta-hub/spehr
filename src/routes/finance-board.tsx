@@ -558,7 +558,7 @@ function BillModal({
                 <span className="text-slate-900 font-medium">{patient.chief_complaint ?? "—"}</span>
               </div>
               <div className="text-xs mt-1">
-                <span className="text-slate-500">Diagnosis: </span>
+                <span className="text-slate-500">Chief Complaint: </span>
                 <span className="text-slate-900">{patient.diagnosis ?? "—"}</span>
               </div>
               <div className="text-xs mt-1 font-mono">
