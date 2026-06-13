@@ -2062,15 +2062,16 @@ function MedicalDictionary() {
         </div>
         <div className="flex items-center gap-2">
           {subtab === "catalog" && (
-            <>
-              <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
-                <Download className="h-4 w-4" /> Export FHIR
-              </Button>
-              <Button onClick={openAdd} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
-                <Plus className="h-4 w-4" /> Add Terminology
-              </Button>
-            </>
+            <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
+              <Download className="h-4 w-4" /> Export FHIR
+            </Button>
           )}
+          {/* Search Terminology is available across every sub-tab so any
+              workflow (Catalog, NLP Audits, Live Matrix, Safety Alerts)
+              can resolve a code via the UMLS API and view its full record. */}
+          <Button onClick={openAdd} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
+            <Search className="h-4 w-4" /> Search Terminology
+          </Button>
         </div>
       </div>
 
