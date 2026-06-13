@@ -48,6 +48,8 @@ export type NlpResult = {
   confidence: number;        // 0-100; <95 means a human must approve
   banned: BannedAbbrev[];    // Joint Commission "Do Not Use" hits in the raw text
   streamAOk: boolean;        // structured demographics/vitals parsed cleanly without NLP
+  expansions: Array<{ short: string; long: string }>; // shorthand decoded by NLP
+  dosingHazards: Array<{ token: string; reason: string }>; // 5.0 mg / .5 mg etc.
 };
 
 export type NlpAudit = NlpResult & {
@@ -64,6 +66,60 @@ const STOP = new Set([
   "complains","note","noted","mild","severe","acute","chronic","bad","new","old","known","also",
 ]);
 
+/** Clinical shorthand → canonical expansion. Surfaced in the audit log so
+ *  coders can verify the NLP decoded the abbreviation correctly. */
+const ABBREV: Array<{ pattern: RegExp; long: string; short: string }> = [
+  { pattern: /\bhx\b/i,        short: "Hx",    long: "history" },
+  { pattern: /\bpmh\b/i,       short: "PMH",   long: "past medical history" },
+  { pattern: /\bpsh\b/i,       short: "PSH",   long: "past surgical history" },
+  { pattern: /\bc\/o\b/i,      short: "c/o",   long: "complains of" },
+  { pattern: /\bs\/p\b/i,      short: "s/p",   long: "status post" },
+  { pattern: /\br\/o\b/i,      short: "r/o",   long: "rule out" },
+  { pattern: /\bnpo\b/i,       short: "NPO",   long: "nothing by mouth" },
+  { pattern: /\bprn\b/i,       short: "prn",   long: "as needed" },
+  { pattern: /\bpo\b/i,        short: "PO",    long: "by mouth" },
+  { pattern: /\biv\b/i,        short: "IV",    long: "intravenous" },
+  { pattern: /\bim\b/i,        short: "IM",    long: "intramuscular" },
+  { pattern: /\bsob\b/i,       short: "SOB",   long: "shortness of breath" },
+  { pattern: /\bcp\b/i,        short: "CP",    long: "chest pain" },
+  { pattern: /\bn\/v\b/i,      short: "N/V",   long: "nausea and vomiting" },
+  { pattern: /\bloc\b/i,       short: "LOC",   long: "loss of consciousness" },
+  { pattern: /\bnkda\b/i,      short: "NKDA",  long: "no known drug allergies" },
+  { pattern: /\bnka\b/i,       short: "NKA",   long: "no known allergies" },
+  { pattern: /\bbid\b/i,       short: "BID",   long: "twice daily" },
+  { pattern: /\btid\b/i,       short: "TID",   long: "three times daily" },
+  { pattern: /\bqid\b/i,       short: "QID",   long: "four times daily" },
+  { pattern: /\bqhs\b/i,       short: "qhs",   long: "at bedtime" },
+];
+
+function detectExpansions(text: string): Array<{ short: string; long: string }> {
+  if (!text) return [];
+  const seen = new Set<string>();
+  const out: Array<{ short: string; long: string }> = [];
+  for (const a of ABBREV) {
+    if (a.pattern.test(text) && !seen.has(a.short)) {
+      seen.add(a.short);
+      out.push({ short: a.short, long: a.long });
+    }
+  }
+  return out;
+}
+
+/** Joint Commission unsafe dosing patterns — trailing zero "5.0 mg" or
+ *  naked decimal ".5 mg". Either causes 10× dosing errors when faxed. */
+function detectDosingHazards(text: string): Array<{ token: string; reason: string }> {
+  if (!text) return [];
+  const out: Array<{ token: string; reason: string }> = [];
+  const trailing = text.match(/\b\d+\.0+\s*(mg|mcg|ml|g|units?)\b/gi) ?? [];
+  for (const t of trailing) {
+    out.push({ token: t, reason: "Trailing zero — strike (could be read as 10×)" });
+  }
+  const naked = text.match(/(^|\s)\.\d+\s*(mg|mcg|ml|g|units?)\b/gi) ?? [];
+  for (const n of naked) {
+    out.push({ token: n.trim(), reason: "Naked decimal — write a leading 0 (e.g. 0.5 mg)" });
+  }
+  return out;
+}
 /** Common chief-complaint aliases → canonical phrase to seed extra matches. */
 const ALIASES: Array<{ pattern: RegExp; phrases: string[] }> = [
   { pattern: /\b(sob|short(ness)? of breath|dyspnea|difficulty breathing)\b/i, phrases: ["dyspnea","shortness of breath"] },
@@ -229,6 +285,8 @@ export function analyzeNarrative(narrative: string, dict: DictRow[]): NlpResult 
   // Start at 60 if there is *any* match; add per-system coverage; penalize
   // long narratives with few hits and any banned abbreviation.
   const banned = detectBanned(raw);
+  const expansions = detectExpansions(raw);
+  const dosingHazards = detectDosingHazards(raw);
   let confidence = 0;
   if (matches.length > 0) {
     confidence = 60
@@ -241,6 +299,7 @@ export function analyzeNarrative(narrative: string, dict: DictRow[]): NlpResult 
     if (wordCount > 30 && matches.length < 3) confidence -= 10;
   }
   confidence -= banned.length * 8;
+  confidence -= dosingHazards.length * 10;
   confidence = Math.max(0, Math.min(100, confidence));
 
   return {
@@ -258,6 +317,8 @@ export function analyzeNarrative(narrative: string, dict: DictRow[]): NlpResult 
     banned,
     streamAOk: true, // structured intake auto-fill (Stream A) runs server-side
                      // and is always considered "parsed" when an audit is written.
+    expansions,
+    dosingHazards,
   };
 }
 

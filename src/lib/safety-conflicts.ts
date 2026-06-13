@@ -125,15 +125,41 @@ export type SafetyConflict = {
   patient_name: string;
   facility_name: string | null;
   detected_at: string;
-  drug: string;                     // ordered / proposed drug
+  kind: "allergy" | "ddi";          // allergy↔drug OR drug↔drug interaction
+  drug: string;                     // ordered / proposed drug (or "Drug A")
   drug_source: "order" | "nlp";
-  allergy: IntakeAllergy;           // matched allergy on the chart
-  family: string;                   // human-readable cross-reactivity family
+  allergy?: IntakeAllergy;          // populated when kind === "allergy"
+  drug_b?: string;                  // populated when kind === "ddi"
+  family: string;                   // human-readable family / interaction summary
+  severity?: "Major" | "Moderate";  // for DDIs
   status: "Pending" | "Overridden" | "Rejected";
   decided_by?: string;
   decided_at?: string;
   rationale?: string;
 };
+/* ---- Drug ↔ Drug interactions (clinically significant subset) ----- */
+const DDI_RULES: Array<{ a: RegExp; b: RegExp; severity: "Major" | "Moderate"; summary: string }> = [
+  { a: /warfarin/i, b: /aspirin|ibuprofen|naproxen|ketorolac|clopidogrel/i,
+    severity: "Major", summary: "↑ bleeding risk (antiplatelet + anticoagulant)" },
+  { a: /warfarin/i, b: /sulfamethoxazole|trimethoprim|bactrim|ciprofloxacin|metronidazole|fluconazole/i,
+    severity: "Major", summary: "↑ INR — warfarin potentiation" },
+  { a: /(sertraline|fluoxetine|paroxetine|citalopram|escitalopram)/i,
+    b: /(tramadol|linezolid|maoi|triptan|ondansetron)/i,
+    severity: "Major", summary: "Serotonin syndrome risk" },
+  { a: /metformin/i, b: /iohexol|iodixanol|iopamidol|contrast/i,
+    severity: "Major", summary: "Hold metformin around iodinated contrast (lactic acidosis)" },
+  { a: /clopidogrel/i, b: /omeprazole|esomeprazole/i,
+    severity: "Moderate", summary: "PPI ↓ clopidogrel activation (CYP2C19)" },
+  { a: /simvastatin|atorvastatin/i, b: /clarithromycin|erythromycin|itraconazole|ketoconazole/i,
+    severity: "Major", summary: "↑ statin levels — rhabdomyolysis risk" },
+  { a: /digoxin/i, b: /amiodarone|verapamil|clarithromycin/i,
+    severity: "Major", summary: "↑ digoxin levels — toxicity risk" },
+  { a: /lisinopril|enalapril|losartan|valsartan/i, b: /spironolactone|potassium chloride/i,
+    severity: "Moderate", summary: "Hyperkalemia risk" },
+  { a: /(opioid|morphine|hydrocodone|oxycodone|fentanyl|tramadol)/i,
+    b: /(benzodiazepine|alprazolam|lorazepam|diazepam|midazolam|clonazepam)/i,
+    severity: "Major", summary: "Respiratory depression (opioid + benzodiazepine)" },
+];
 
 /* ---- Queue persistence (decisions only; conflicts are recomputed) ---- */
 type Decision = Pick<SafetyConflict, "status" | "decided_by" | "decided_at" | "rationale">;
@@ -188,8 +214,10 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
   for (const p of patients as any[]) {
     const intake = loadIntake(p.mrn);
     const allergies = intake?.drugAllergies ?? [];
-    if (allergies.length === 0) continue;
     const drugs = medsByMrn.get(p.mrn) ?? [];
+    if (allergies.length === 0 && drugs.length < 2) continue;
+
+    // ---- Allergy ↔ Drug
     for (const drug of drugs) {
       for (const allergy of allergies) {
         for (const rule of CROSS_REACT) {
@@ -202,6 +230,7 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
               patient_name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—",
               facility_name: p.facility_name ?? null,
               detected_at: new Date().toISOString(),
+              kind: "allergy",
               drug,
               drug_source: "order",
               allergy,
@@ -213,6 +242,37 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
             });
             break; // first matching rule per (allergy, drug) pair
           }
+        }
+      }
+    }
+
+    // ---- Drug ↔ Drug interactions
+    for (let i = 0; i < drugs.length; i++) {
+      for (let j = i + 1; j < drugs.length; j++) {
+        const da = drugs[i], db = drugs[j];
+        for (const r of DDI_RULES) {
+          const match = (r.a.test(da) && r.b.test(db)) || (r.a.test(db) && r.b.test(da));
+          if (!match) continue;
+          const id = `${p.mrn}|ddi|${[da, db].sort().join("+").toLowerCase()}`;
+          const dec = decisions[id];
+          out.push({
+            id,
+            mrn: p.mrn,
+            patient_name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—",
+            facility_name: p.facility_name ?? null,
+            detected_at: new Date().toISOString(),
+            kind: "ddi",
+            drug: da,
+            drug_b: db,
+            drug_source: "order",
+            family: r.summary,
+            severity: r.severity,
+            status: dec?.status ?? "Pending",
+            decided_by: dec?.decided_by,
+            decided_at: dec?.decided_at,
+            rationale: dec?.rationale,
+          });
+          break;
         }
       }
     }
