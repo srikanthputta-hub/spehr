@@ -1276,6 +1276,25 @@ function ChipGroup({ options, value, onToggle }: { options: string[]; value: str
   );
 }
 
+function Field({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={`flex flex-col gap-1.5 ${className ?? ""}`}>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
 function ConfirmDischargeModal({
   patient,
   onCancel,
