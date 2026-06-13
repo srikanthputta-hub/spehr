@@ -31,7 +31,22 @@ import {
   saveAudit,
   type NlpResult,
 } from "@/lib/nlp-engine";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Wand2, ChevronDown, Plus } from "lucide-react";
+import {
+  autoFillIntake,
+  blankIntake,
+  intakeToSoap,
+  saveIntake,
+  CHRONIC_OPTIONS,
+  CHARACTER_OPTIONS,
+  FAMILY_OPTIONS,
+  ENV_ALLERGY_OPTIONS,
+  RELATIONSHIP_OPTIONS,
+  SEX_OPTIONS,
+  GENDER_IDENTITY_OPTIONS,
+  DURATION_OPTIONS,
+  type IntakeRecord,
+} from "@/lib/intake-record";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
