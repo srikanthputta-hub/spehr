@@ -817,13 +817,15 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: "red
 /* ============================================================ */
 function CustomRulesCard() {
   const [rules, setRules] = useState<CustomRule[]>([]);
-  const [banned, setBanned] = useState<BannedAbbrev[]>([]);
+  const [banned, setBanned] = useState<CustomBanned[]>([]);
   const [newRule, setNewRule] = useState({ phrase: "", canonical: "" });
   const [newBanned, setNewBanned] = useState({ token: "", meaning: "", preferred: "" });
 
   useEffect(() => {
-    setRules(loadCustomRules());
-    setBanned(loadCustomBanned());
+    refreshNlpRulesFromDb().then(() => {
+      setRules(loadCustomRules());
+      setBanned(loadCustomBanned());
+    });
     const onEvt = () => {
       setRules(loadCustomRules());
       setBanned(loadCustomBanned());
@@ -832,31 +834,35 @@ function CustomRulesCard() {
     return () => window.removeEventListener("spehr:nlp-rules", onEvt);
   }, []);
 
-  const addRule = () => {
+  const addRule = async () => {
     if (!newRule.phrase.trim() || !newRule.canonical.trim()) return;
-    const next = [
-      ...rules,
-      { id: `r_${Date.now()}`, phrase: newRule.phrase.trim(), canonical: newRule.canonical.trim() },
-    ];
-    saveCustomRules(next);
-    setRules(next);
-    setNewRule({ phrase: "", canonical: "" });
-    toast.success("Custom NLP rule added");
+    try {
+      await addCustomRuleDb(newRule.phrase.trim(), newRule.canonical.trim());
+      setRules(loadCustomRules());
+      setNewRule({ phrase: "", canonical: "" });
+      toast.success("Custom NLP rule added");
+    } catch (e: any) {
+      toast.error("Could not add rule", { description: e?.message });
+    }
   };
-  const removeRule = (id: string) => {
-    const next = rules.filter((r) => r.id !== id);
-    saveCustomRules(next); setRules(next);
+  const removeRule = async (id: string) => {
+    try { await removeNlpRuleDb(id); setRules(loadCustomRules()); }
+    catch (e: any) { toast.error("Could not remove", { description: e?.message }); }
   };
-  const addBanned = () => {
+  const addBanned = async () => {
     if (!newBanned.token.trim() || !newBanned.meaning.trim()) return;
-    const next = [...banned, { ...newBanned, token: newBanned.token.trim() }];
-    saveCustomBanned(next); setBanned(next);
-    setNewBanned({ token: "", meaning: "", preferred: "" });
-    toast.success("Banned abbreviation added");
+    try {
+      await addBannedDb(newBanned.token.trim(), newBanned.meaning, newBanned.preferred);
+      setBanned(loadCustomBanned());
+      setNewBanned({ token: "", meaning: "", preferred: "" });
+      toast.success("Banned abbreviation added");
+    } catch (e: any) {
+      toast.error("Could not add", { description: e?.message });
+    }
   };
-  const removeBanned = (token: string) => {
-    const next = banned.filter((b) => b.token !== token);
-    saveCustomBanned(next); setBanned(next);
+  const removeBanned = async (id: string) => {
+    try { await removeNlpRuleDb(id); setBanned(loadCustomBanned()); }
+    catch (e: any) { toast.error("Could not remove", { description: e?.message }); }
   };
 
   return (
@@ -935,13 +941,13 @@ function CustomRulesCard() {
           ) : (
             <ul className="divide-y divide-slate-100 border border-slate-200 rounded-md">
               {banned.map((b) => (
-                <li key={b.token} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+                <li key={b.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
                   <div className="min-w-0 truncate">
                     <span className="font-mono font-bold text-red-700">{b.token}</span>
                     <span className="mx-2 text-slate-400">·</span>
                     <span className="text-slate-700">{b.meaning}</span>
                   </div>
-                  <button onClick={() => removeBanned(b.token)} className="text-slate-400 hover:text-rose-600">
+                  <button onClick={() => removeBanned(b.id)} className="text-slate-400 hover:text-rose-600">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </li>
