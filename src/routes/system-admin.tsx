@@ -2108,7 +2108,7 @@ function MedicalDictionary() {
       </div>
 
       {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
-      {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} />}
+      {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue />}
 
       {subtab === "catalog" && (<>
