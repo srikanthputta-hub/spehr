@@ -25,6 +25,13 @@ import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { seedAdmission } from "@/hooks/useAIAutomation";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
+import {
+  analyzeNarrative,
+  loadDictionary,
+  saveAudit,
+  type NlpResult,
+} from "@/lib/nlp-engine";
+import { Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -506,6 +513,19 @@ function Dashboard() {
       toast.error("Could not admit patient", { description: error.message });
       return false;
     }
+    // Persist the NLP audit alongside the admission so the Coding Audit
+    // tab in the Medical Dictionary can replay the physician's narrative.
+    if (input.nlp) {
+      try {
+        saveAudit(input.nlp, {
+          mrn: data.mrn,
+          patient_name: `${data.first_name} ${data.last_name}`,
+          facility_name: data.facility_name,
+        });
+      } catch (e) {
+        console.warn("[admit] saveAudit failed", e);
+      }
+    }
     // Explicitly seed meds + labs into Supabase so the Pharmacy and Lab
     // boards pick this admission up immediately — don't rely solely on the
     // realtime channel, which can be missed on reconnect.
@@ -855,6 +875,7 @@ interface AdmitInput {
   code_status: CodeStatus;
   diagnosis: string;
   mrn?: string;
+  nlp?: NlpResult;
 }
 
 function AdmitModal({
@@ -873,6 +894,34 @@ function AdmitModal({
   const [mrn, setMrn] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [narrative, setNarrative] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [nlp, setNlp] = useState<NlpResult | null>(null);
+  const [suggestedLabs, setSuggestedLabs] = useState<string[]>([]);
+
+  const runAnalyze = async () => {
+    const text = narrative.trim();
+    if (text.length < 6) {
+      toast.error("Enter a longer narrative to analyze");
+      return;
+    }
+    setAnalyzing(true);
+    try {
+      const dict = await loadDictionary();
+      const result = analyzeNarrative(text, dict);
+      setNlp(result);
+      // Auto-fill structured fields (don't overwrite user-edited ones)
+      if (!dx.trim() && result.chiefComplaint) setDx(result.chiefComplaint);
+      setSuggestedLabs(result.suggestedLabs.map((l) => `${l.display} (LOINC ${l.code})`));
+      toast.success("NLP analysis complete", {
+        description: `${result.matches.length} concept${result.matches.length === 1 ? "" : "s"} extracted`,
+      });
+    } catch (e: any) {
+      toast.error("NLP analysis failed", { description: e?.message ?? String(e) });
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -916,6 +965,7 @@ function AdmitModal({
       code_status: code,
       diagnosis: dx,
       mrn: mrn.trim() || undefined,
+      nlp: nlp ?? undefined,
     });
     setSubmitting(false);
     if (ok) onClose();
@@ -927,13 +977,13 @@ function AdmitModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-xl bg-card border border-border shadow-2xl overflow-hidden"
+        className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl bg-card border border-border shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 h-12 bg-[var(--navy)] text-white">
           <div className="flex items-center gap-2">
             <UserPlus className="h-4 w-4 text-[var(--teal)]" />
-            <h2 className="text-sm font-semibold">Admit New Patient</h2>
+            <h2 className="text-sm font-semibold">Smart Intake — Admit New Patient</h2>
           </div>
           <button
             onClick={onClose}
@@ -942,6 +992,70 @@ function AdmitModal({
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+        {/* Smart NLP narrative box */}
+        <div className="px-5 pt-5 pb-3 border-b border-border bg-gradient-to-b from-indigo-50/60 to-transparent">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-indigo-600" />
+              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-indigo-700">
+                Physician Narrative · Clinical NLP
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={runAnalyze}
+              disabled={analyzing}
+              className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white px-3 h-8 text-xs font-semibold shadow-sm transition disabled:opacity-60"
+            >
+              {analyzing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              Analyze &amp; Standardize
+            </button>
+          </div>
+          <textarea
+            value={narrative}
+            onChange={(e) => setNarrative(e.target.value)}
+            rows={3}
+            placeholder="e.g. Pt arrives with severe chest pain and hx of bad hypertension, mild SOB, denies fever."
+            className="w-full rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 transition"
+          />
+          {nlp && (
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap gap-1.5">
+                {nlp.matches.length === 0 && (
+                  <span className="text-[11px] text-amber-700">
+                    No standardized concepts matched — fill the form manually below.
+                  </span>
+                )}
+                {nlp.matches.map((m) => (
+                  <span
+                    key={`${m.code_system}-${m.code}`}
+                    title={`${m.display} — ${m.description ?? ""}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-900"
+                  >
+                    <span className="font-mono text-[9px] uppercase text-indigo-600">
+                      {m.code_system}
+                    </span>
+                    <span className="font-mono">{m.code}</span>
+                    <span className="text-slate-700 font-normal">· {m.display}</span>
+                  </span>
+                ))}
+              </div>
+              {suggestedLabs.length > 0 && (
+                <div className="text-[11px] text-slate-700">
+                  <span className="font-semibold text-slate-900">Suggested labs: </span>
+                  {suggestedLabs.join(" · ")}
+                </div>
+              )}
+              <div className="text-[10px] text-slate-500">
+                Saved to NLP Audit Logs on admit.
+              </div>
+            </div>
+          )}
         </div>
         <form onSubmit={handle} className="p-5 grid grid-cols-2 gap-4">
           <Field label="Patient Name" full>

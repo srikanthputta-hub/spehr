@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2 } from "lucide-react";
+import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
 import {
   lookupTerminology,
@@ -30,6 +31,14 @@ import {
   DEFAULT_CATEGORY,
   defaultUsage,
 } from "@/lib/terminology-lookup";
+import {
+  analyzeNarrative,
+  loadAudits,
+  clearAudits,
+  loadDictionary,
+  type NlpAudit,
+  type DictRow,
+} from "@/lib/nlp-engine";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -604,6 +613,383 @@ function UserDirectory() {
   );
 }
 
+/* ============================================================ */
+/*  NLP Audit Logs — 3-paragraph view of each admission's NLP run */
+/* ============================================================ */
+function NlpAuditLogs() {
+  const [audits, setAudits] = useState<NlpAudit[]>([]);
+  const [demo, setDemo] = useState(true);
+
+  useEffect(() => {
+    const refresh = () => setAudits(loadAudits());
+    refresh();
+    const onEvt = () => refresh();
+    window.addEventListener("spehr:nlp-audit", onEvt);
+    window.addEventListener("storage", onEvt);
+    return () => {
+      window.removeEventListener("spehr:nlp-audit", onEvt);
+      window.removeEventListener("storage", onEvt);
+    };
+  }, []);
+
+  // Seed a demo audit set if the workspace has never run intake — gives
+  // reviewers something to read without forcing a fresh admission.
+  useEffect(() => {
+    if (!demo) return;
+    if (audits.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const dict = await loadDictionary();
+        const samples = [
+          {
+            narrative:
+              "Pt arrives with severe chest pain radiating to the left arm, hx of bad hypertension and mild SOB. Denies fever.",
+            mrn: "DEMO-001",
+            patient_name: "Demo · Chest pain rule-out",
+          },
+          {
+            narrative:
+              "65 y/o with productive cough, fever, and worsening shortness of breath x 3 days; suspect pneumonia, evaluate for sepsis.",
+            mrn: "DEMO-002",
+            patient_name: "Demo · Suspected pneumonia",
+          },
+          {
+            narrative:
+              "Sudden facial droop and slurred speech onset 45 min ago. R/o stroke / CVA, NIHSS pending.",
+            mrn: "DEMO-003",
+            patient_name: "Demo · Stroke alert",
+          },
+        ];
+        const seeded = samples.map((s) => {
+          const res = analyzeNarrative(s.narrative, dict);
+          return {
+            ...res,
+            id: `demo_${s.mrn}`,
+            created_at: new Date().toISOString(),
+            mrn: s.mrn,
+            patient_name: s.patient_name,
+            facility_name: "Memorial Hospital",
+          } as NlpAudit;
+        });
+        if (!cancelled) setAudits(seeded);
+      } catch {/* noop */}
+    })();
+    return () => { cancelled = true; };
+  }, [demo, audits.length]);
+
+  const onClear = () => {
+    clearAudits();
+    setDemo(false);
+    setAudits([]);
+    toast.success("NLP audit log cleared");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-indigo-600" /> NLP Coding Audit Trail
+          </h2>
+          <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+            Every Smart Intake run is captured here in three stages — raw entry,
+            extraction mapping, and standardized output — so coders can audit
+            how the NLP engine interpreted the physician's narrative.
+          </p>
+        </div>
+        <Button variant="outline" onClick={onClear} title="Clear local audit log">
+          <Trash className="h-4 w-4" /> Clear
+        </Button>
+      </div>
+
+      {audits.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
+          No NLP audits yet. Run a Smart Intake admission from the Nursing
+          Board to populate this log.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {audits.map((a) => (
+            <NlpAuditCard key={a.id} audit={a} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NlpAuditCard({ audit }: { audit: NlpAudit }) {
+  const ts = new Date(audit.created_at).toLocaleString();
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-5 py-3 bg-slate-50/70 border-b border-slate-100">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-slate-900 truncate">
+            {audit.patient_name ?? "Unattributed encounter"}
+            {audit.mrn && (
+              <span className="ml-2 font-mono text-[11px] text-slate-500">{audit.mrn}</span>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-500">
+            {ts}{audit.facility_name ? ` · ${audit.facility_name}` : ""} · {audit.matches.length} concept{audit.matches.length === 1 ? "" : "s"}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {(["ICD-10", "SNOMED CT", "LOINC", "RxNorm"] as const).map((sys) => {
+            const n = (audit.byCode[sys] ?? []).length;
+            if (!n) return null;
+            return (
+              <span
+                key={sys}
+                className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${SYSTEM_META[sys].chip}`}
+              >
+                {sys} · {n}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+        <div className="p-4">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500 mb-1.5">
+            ① Raw Physician Entry
+          </div>
+          <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
+            {audit.raw || <span className="text-slate-400">—</span>}
+          </p>
+        </div>
+        <div className="p-4 bg-indigo-50/30">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-700 mb-1.5">
+            ② Extraction Mapping
+          </div>
+          <p className="text-sm text-slate-800 leading-relaxed font-mono whitespace-pre-wrap">
+            {audit.annotated || audit.raw || <span className="text-slate-400">—</span>}
+          </p>
+        </div>
+        <div className="p-4 bg-emerald-50/30">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700 mb-1.5">
+            ③ Final Standardized Output
+          </div>
+          <ul className="space-y-1.5 text-sm text-slate-800">
+            {audit.standardized.map((line, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="text-emerald-600 mt-0.5">•</span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================ */
+/*  Live Terminology Matrix — last 50 patients × code systems    */
+/* ============================================================ */
+
+type MatrixCell = {
+  mrn: string;
+  name: string;
+  facility: string | null;
+  admitted: string | null;
+  chief_complaint: string | null;
+  labs: string[];      // test_type strings
+  meds: string[];      // medication_name strings
+};
+
+function LiveTerminologyMatrix({ dict }: { dict: DictEntry[] }) {
+  const [rows, setRows] = useState<MatrixCell[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data: patients, error } = await supabase
+        .from("patients")
+        .select("mrn, first_name, last_name, facility_name, admission_time, chief_complaint")
+        .order("admission_time", { ascending: false })
+        .limit(50);
+      if (error) {
+        toast.error("Could not load patient matrix", { description: error.message });
+        setLoading(false);
+        return;
+      }
+      const mrns = (patients ?? []).map((p: any) => p.mrn).filter(Boolean);
+      const [labsRes, medsRes] = await Promise.all([
+        supabase.from("lab_orders").select("patient_mrn, test_type").in("patient_mrn", mrns),
+        supabase
+          .from("medication_orders")
+          .select("patient_mrn, medication_name, drug_name")
+          .in("patient_mrn", mrns),
+      ]);
+      const labMap = new Map<string, Set<string>>();
+      for (const r of (labsRes.data ?? []) as any[]) {
+        if (!r.patient_mrn || !r.test_type) continue;
+        (labMap.get(r.patient_mrn) ?? labMap.set(r.patient_mrn, new Set()).get(r.patient_mrn)!).add(r.test_type);
+      }
+      const medMap = new Map<string, Set<string>>();
+      for (const r of (medsRes.data ?? []) as any[]) {
+        const m = r.medication_name || r.drug_name;
+        if (!r.patient_mrn || !m) continue;
+        (medMap.get(r.patient_mrn) ?? medMap.set(r.patient_mrn, new Set()).get(r.patient_mrn)!).add(m);
+      }
+      const cells: MatrixCell[] = (patients ?? []).map((p: any) => ({
+        mrn: p.mrn,
+        name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—",
+        facility: p.facility_name,
+        admitted: p.admission_time,
+        chief_complaint: p.chief_complaint,
+        labs: Array.from(labMap.get(p.mrn) ?? []),
+        meds: Array.from(medMap.get(p.mrn) ?? []),
+      }));
+      if (!cancelled) {
+        setRows(cells);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Build a quick index from display→DictEntry per code system.
+  const indexBySystem = (() => {
+    const idx: Record<string, Array<DictEntry>> = {};
+    for (const r of dict) (idx[r.code_system] ||= []).push(r);
+    return idx;
+  })();
+
+  const findCodes = (system: string, candidates: string[]): DictEntry[] => {
+    const pool = indexBySystem[system] ?? [];
+    const out: DictEntry[] = [];
+    const seen = new Set<string>();
+    for (const c of candidates) {
+      if (!c) continue;
+      const cl = c.toLowerCase();
+      for (const row of pool) {
+        const d = row.display?.toLowerCase() ?? "";
+        if (!d) continue;
+        if (d.includes(cl) || cl.includes(d.split(" ")[0])) {
+          const key = row.code;
+          if (!seen.has(key)) { seen.add(key); out.push(row); }
+        }
+      }
+    }
+    return out.slice(0, 6);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            <Grid3x3 className="h-4 w-4 text-[#0c2340]" /> Live Terminology Matrix
+          </h2>
+          <p className="text-sm text-slate-600 mt-0.5">
+            Last 50 admissions mapped to SNOMED-CT, ICD-10, LOINC, and RxNorm.
+            Click any pill for the canonical display and value-set category.
+          </p>
+        </div>
+        <div className="text-xs text-slate-500">{rows.length} patients</div>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-900 text-slate-100">
+              <tr>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">MRN</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Patient</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">SNOMED CT</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">ICD-10</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">LOINC</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">RxNorm</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                    <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
+                    Loading matrix…
+                  </td>
+                </tr>
+              )}
+              {!loading && rows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                    No admissions to display.
+                  </td>
+                </tr>
+              )}
+              {rows.map((r) => {
+                const cc = r.chief_complaint ? [r.chief_complaint] : [];
+                const snomed = findCodes("SNOMED CT", cc);
+                const icd10 = findCodes("ICD-10", cc);
+                const loinc = findCodes("LOINC", r.labs);
+                const rxnorm = findCodes("RxNorm", r.meds);
+                return (
+                  <tr key={r.mrn} className="hover:bg-slate-50/60">
+                    <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{r.mrn}</td>
+                    <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
+                      <div className="font-medium">{r.name}</div>
+                      <div className="text-[10px] text-slate-500 truncate max-w-[180px]">{r.chief_complaint ?? "—"}</div>
+                    </td>
+                    <td className="px-3 py-2.5"><PillRow entries={snomed} system="SNOMED CT" /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={icd10} system="ICD-10" /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={loinc} system="LOINC" /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={rxnorm} system="RxNorm" /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PillRow({ entries, system }: { entries: DictEntry[]; system: string }) {
+  if (entries.length === 0) return <span className="text-slate-300">—</span>;
+  const chip = SYSTEM_META[system]?.chip ?? "bg-slate-100 text-slate-700 border-slate-200";
+  return (
+    <div className="flex flex-wrap gap-1">
+      {entries.map((e) => (
+        <Popover key={`${system}-${e.code}`}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={`inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold tracking-wider cursor-pointer hover:opacity-80 transition ${chip}`}
+            >
+              {e.code}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="top" className="w-72 text-xs">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${chip}`}>
+                  {system}
+                </span>
+                <span className="font-mono text-[11px] font-semibold text-slate-900">{e.code}</span>
+              </div>
+              <div className="text-sm font-semibold text-slate-900 leading-snug">{e.display}</div>
+              {e.category && (
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Value set: {e.category}
+                </div>
+              )}
+              {e.description && (
+                <div className="text-[11px] text-slate-600 leading-relaxed">{e.description}</div>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      ))}
+    </div>
+  );
+}
+
 type AuditCategory = "SECURITY" | "CLINICAL" | "AUTOMATION" | "SYSTEM";
 type AuditEvent = {
   key: string;
@@ -892,6 +1278,7 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
 };
 
 function MedicalDictionary() {
+  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix">("catalog");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSystem, setActiveSystem] = useState<string>("ICD-10");
@@ -1181,15 +1568,47 @@ function MedicalDictionary() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
-            <Download className="h-4 w-4" /> Export FHIR
-          </Button>
-          <Button onClick={openAdd} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
-            <Plus className="h-4 w-4" /> Add Terminology
-          </Button>
+          {subtab === "catalog" && (
+            <>
+              <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
+                <Download className="h-4 w-4" /> Export FHIR
+              </Button>
+              <Button onClick={openAdd} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
+                <Plus className="h-4 w-4" /> Add Terminology
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
+      {/* Sub-tab nav */}
+      <div className="flex items-center gap-1 border-b border-slate-200">
+        {([
+          { id: "catalog", label: "Catalog", Icon: BookMarked },
+          { id: "audits",  label: "NLP Audit Logs", Icon: Sparkles },
+          { id: "matrix",  label: "Live Terminology Matrix", Icon: Grid3x3 },
+        ] as const).map(({ id, label, Icon }) => {
+          const active = subtab === id;
+          return (
+            <button
+              key={id}
+              onClick={() => setSubtab(id)}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-t-md transition cursor-pointer border-b-2 -mb-px ${
+                active
+                  ? "border-[#0c2340] text-[#0c2340] bg-white"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" /> {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {subtab === "audits" && <NlpAuditLogs />}
+      {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} />}
+
+      {subtab === "catalog" && (<>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {CODE_SYSTEMS.map((s) => {
           const meta = SYSTEM_META[s];
@@ -1280,6 +1699,7 @@ function MedicalDictionary() {
           </div>
         )}
       </div>
+      </>)}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
