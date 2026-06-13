@@ -430,7 +430,7 @@ export function useAIAutomation() {
     const reconcileActiveAdmissions = async () => {
       const { data } = await supabase
         .from("patients")
-        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint")
+        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob")
         .eq("status", "Admitted")
         .not("mrn", "is", null)
         .order("admission_time", { ascending: false })
