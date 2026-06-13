@@ -46,7 +46,6 @@ import {
   saveCustomRules,
   loadCustomBanned,
   saveCustomBanned,
-  detectBanned,
   JC_BANNED,
   type SafetyConflict,
   type CustomRule,
