@@ -209,7 +209,7 @@ function SystemAdminPage() {
     <main className="min-h-screen bg-slate-50">
       <BoardHeader
         title="Command Center · System Administration"
-        subtitle="EHR Specialist"
+        subtitle="Command Center · System Administration"
         badge="EHR"
         hideFacilitySwitcher
       />
@@ -657,7 +657,7 @@ function SafetyQueue() {
     if (rationale === null) return;
     decideConflict(c.id, {
       status,
-      decided_by: "EHR Specialist",
+      decided_by: "Command Center · System Administration",
       decided_at: new Date().toISOString(),
       rationale,
     });
