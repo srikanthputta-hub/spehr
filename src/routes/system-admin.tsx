@@ -2200,6 +2200,12 @@ function MedicalDictionary() {
             VSAC-aligned terminology library used across the EHR. Browse SNOMED CT, ICD-10,
             LOINC, RxNorm, and curated value sets; extend with site-specific codes.
           </p>
+          {subtab === "catalog" && (
+            <p className="text-[11px] mt-1 text-slate-500">
+              Showing only codes referenced by the latest {usageMeta.count} admission{usageMeta.count === 1 ? "" : "s"}
+              {facilityFilter !== "all" ? ` at ${facilityFilter}` : " across the network"}.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {subtab === "catalog" && (
