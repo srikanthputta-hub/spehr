@@ -6,6 +6,7 @@ import {
 } from "@/lib/complaint-protocols";
 import { getAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { ensureTerminology } from "@/lib/ensure-terminology";
+import { ensureNlpRulesHydrated } from "@/lib/safety-conflicts";
 import {
   autoFillIntake,
   intakeToSoap,
@@ -473,6 +474,9 @@ export function useAIAutomation() {
 
   useEffect(() => {
     if (!automationEnabled) return;
+    // Hydrate NLP custom rules / banned tokens from Supabase on boot so the
+    // synchronous detectBanned() cache reflects facility-specific overrides.
+    ensureNlpRulesHydrated().catch(() => {});
     // Orphan sweeper — finalize only VERY stale rows (>30 min) so a
     // closed tab mid-cascade doesn't strand pending rows forever, but
     // active staged cascades (which finish in ~60s) are never touched.
