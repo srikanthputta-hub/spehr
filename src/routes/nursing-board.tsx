@@ -1012,36 +1012,6 @@ function AdmitModal({
           <button onClick={onClose} className="grid place-items-center h-7 w-7 rounded-md hover:bg-white/10 transition" aria-label="Close"><X className="h-4 w-4" /></button>
         </div>
 
-        {/* Smart NLP narrative — Subjective gateway */}
-        <div className="px-5 pt-4 pb-3 border-b border-border bg-gradient-to-b from-indigo-50/60 to-transparent">
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-indigo-600" />
-              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-indigo-700">Physician Narrative · Clinical NLP</span>
-            </div>
-            <button type="button" onClick={runAnalyze} disabled={analyzing} className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white px-3 h-8 text-xs font-semibold shadow-sm transition disabled:opacity-60">
-              {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Analyze &amp; Standardize
-            </button>
-          </div>
-          <textarea value={intake.narrative} onChange={(e) => patch({ narrative: e.target.value })} rows={2} placeholder="e.g. Pt arrives c/o severe chest pain x 2hr, hx HTN, mild SOB, denies fever." className="w-full rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 transition" />
-          {nlp && (
-            <div className="mt-2 space-y-1.5">
-              <div className="flex flex-wrap gap-1.5">
-                {nlp.matches.length === 0 && <span className="text-[11px] text-amber-700">No standardized concepts matched.</span>}
-                {nlp.matches.map((m) => (
-                  <span key={`${m.code_system}-${m.code}`} title={`${m.display} — ${m.description ?? ""}`} className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-900">
-                    <span className="font-mono text-[9px] uppercase text-indigo-600">{m.code_system}</span>
-                    <span className="font-mono">{m.code}</span>
-                    <span className="text-slate-700 font-normal">· {m.display}</span>
-                  </span>
-                ))}
-              </div>
-              {suggestedLabs.length > 0 && <div className="text-[11px] text-slate-700"><span className="font-semibold">Suggested labs:</span> {suggestedLabs.join(" · ")}</div>}
-            </div>
-          )}
-        </div>
-
         <form onSubmit={handle} className="p-5 space-y-3">
           {/* 1. DEMOGRAPHICS */}
           <Section title="1 · Patient Demographics (Administrative & Identity)" open={open.demo} onToggle={() => toggleSection("demo")}>
