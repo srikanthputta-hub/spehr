@@ -14,6 +14,7 @@ import {
   labsForComplaint,
 } from "@/lib/complaint-protocols";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { loadIntake, type IntakeRecord } from "@/lib/intake-record";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
