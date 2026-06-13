@@ -1019,10 +1019,13 @@ function NlpAuditLogs({ facility }: { facility: string }) {
             [p.chief_complaint, p.diagnosis].filter(Boolean).join(". ") ||
             "Admission without recorded narrative.";
           const res = analyzeNarrative(narrative, dict);
+          const createdAt = p.admission_time ?? new Date().toISOString();
+          const autoResolveAt = new Date(new Date(createdAt).getTime() + 60_000).toISOString();
           live.push({
             ...res,
             id: `live_${p.mrn ?? Math.random().toString(36).slice(2)}`,
-            created_at: p.admission_time ?? new Date().toISOString(),
+            created_at: createdAt,
+            auto_resolve_at: autoResolveAt,
             mrn: p.mrn,
             patient_name:
               `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() ||
