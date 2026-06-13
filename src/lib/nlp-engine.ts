@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { detectBanned, type BannedAbbrev } from "@/lib/safety-conflicts";
 
 /**
  * Clinical NLP Engine
@@ -44,6 +45,9 @@ export type NlpResult = {
   suggestedMeds: NlpMatch[];
   symptoms: NlpMatch[];
   byCode: Record<string, NlpMatch[]>;
+  confidence: number;        // 0-100; <95 means a human must approve
+  banned: BannedAbbrev[];    // Joint Commission "Do Not Use" hits in the raw text
+  streamAOk: boolean;        // structured demographics/vitals parsed cleanly without NLP
 };
 
 export type NlpAudit = NlpResult & {
@@ -221,6 +225,24 @@ export function analyzeNarrative(narrative: string, dict: DictRow[]): NlpResult 
   if (standardized.length === 0)
     standardized.push("No standardized concepts matched — manual coding required.");
 
+  /* ---- Confidence heuristic ---------------------------------------- */
+  // Start at 60 if there is *any* match; add per-system coverage; penalize
+  // long narratives with few hits and any banned abbreviation.
+  const banned = detectBanned(raw);
+  let confidence = 0;
+  if (matches.length > 0) {
+    confidence = 60
+      + Math.min(20, matches.length * 4)
+      + (suggestedDiagnoses.length ? 8 : 0)
+      + (symptoms.length ? 4 : 0)
+      + (suggestedLabs.length ? 4 : 0)
+      + (suggestedMeds.length ? 4 : 0);
+    const wordCount = raw.split(/\s+/).filter(Boolean).length;
+    if (wordCount > 30 && matches.length < 3) confidence -= 10;
+  }
+  confidence -= banned.length * 8;
+  confidence = Math.max(0, Math.min(100, confidence));
+
   return {
     raw,
     matches,
@@ -232,6 +254,10 @@ export function analyzeNarrative(narrative: string, dict: DictRow[]): NlpResult 
     suggestedMeds,
     symptoms,
     byCode,
+    confidence,
+    banned,
+    streamAOk: true, // structured intake auto-fill (Stream A) runs server-side
+                     // and is always considered "parsed" when an audit is written.
   };
 }
 

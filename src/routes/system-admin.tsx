@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash } from "lucide-react";
+import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash, ShieldAlert, AlertTriangle, Check, X, FileCheck2, ListChecks } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -39,6 +39,19 @@ import {
   type NlpAudit,
   type DictRow,
 } from "@/lib/nlp-engine";
+import {
+  loadSafetyQueue,
+  decideConflict,
+  loadCustomRules,
+  saveCustomRules,
+  loadCustomBanned,
+  saveCustomBanned,
+  JC_BANNED,
+  type SafetyConflict,
+  type CustomRule,
+  type BannedAbbrev,
+} from "@/lib/safety-conflicts";
+import { Input } from "@/components/ui/input";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -614,6 +627,314 @@ function UserDirectory() {
 }
 
 /* ============================================================ */
+/*  Safety Alerts — drug↔allergy conflict queue                 */
+/* ============================================================ */
+function SafetyQueue() {
+  const [items, setItems] = useState<SafetyConflict[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      setItems(await loadSafetyQueue(50));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+    const onEvt = () => refresh();
+    window.addEventListener("spehr:safety-queue", onEvt);
+    return () => window.removeEventListener("spehr:safety-queue", onEvt);
+  }, []);
+
+  const act = (c: SafetyConflict, status: "Overridden" | "Rejected") => {
+    const rationale = window.prompt(
+      `${status === "Overridden" ? "Override" : "Reject"} this alert — clinical rationale:`,
+      status === "Overridden" ? "Benefit outweighs allergy risk; patient tolerated similar in past." : "Discontinue order; substitute non-cross-reactive agent.",
+    );
+    if (rationale === null) return;
+    decideConflict(c.id, {
+      status,
+      decided_by: "EHR Specialist",
+      decided_at: new Date().toISOString(),
+      rationale,
+    });
+    toast.success(`Alert ${status.toLowerCase()}`);
+    refresh();
+  };
+
+  const pending = items.filter((i) => i.status === "Pending");
+  const decided = items.filter((i) => i.status !== "Pending");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-red-600" /> Intervention & Safety Queue
+          </h2>
+          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
+            Auto-commit halts whenever the NLP engine or an order maps an
+            RxNorm drug that cross-reacts with a documented patient allergy.
+            Pharmacy or an EHR specialist must Override (with rationale) or
+            Reject the order before it reaches the Live Terminology Matrix.
+          </p>
+        </div>
+        <Button variant="outline" onClick={refresh}>
+          <Loader2 className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Stat label="Pending review" value={pending.length} tone="red" />
+        <Stat label="Overridden" value={decided.filter((d) => d.status === "Overridden").length} tone="amber" />
+        <Stat label="Rejected" value={decided.filter((d) => d.status === "Rejected").length} tone="slate" />
+      </div>
+
+      {loading ? (
+        <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+          <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
+          Scanning intake records and medication orders…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 p-8 text-center text-sm text-emerald-800">
+          <FileCheck2 className="inline h-4 w-4 mr-1.5" />
+          No drug↔allergy conflicts detected across the last 50 admissions.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((c) => (
+            <div
+              key={c.id}
+              className={`rounded-xl border bg-white shadow-sm p-4 ${
+                c.status === "Pending" ? "border-red-300" : "border-slate-200 opacity-80"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-700">
+                      <AlertTriangle className="h-3 w-3" /> Auto-commit halted
+                    </span>
+                    <span className="font-mono text-[11px] text-slate-500">{c.mrn}</span>
+                    <span className="text-sm font-semibold text-slate-900">{c.patient_name}</span>
+                    {c.facility_name && (
+                      <span className="text-[11px] text-slate-500">· {c.facility_name}</span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 text-sm text-slate-800">
+                    Ordered <span className="font-semibold">{c.drug}</span> conflicts with
+                    documented allergy to{" "}
+                    <span className="font-semibold">{c.allergy.name}</span>
+                    {c.allergy.reaction ? ` (${c.allergy.reaction})` : ""} —
+                    cross-reactivity family:{" "}
+                    <span className="font-mono text-[11px]">{c.family}</span>.
+                  </div>
+                  {c.rationale && (
+                    <div className="mt-2 text-[11px] text-slate-600 italic">
+                      <span className="font-semibold not-italic">{c.status}</span>
+                      {c.decided_by ? ` by ${c.decided_by}` : ""}
+                      {c.decided_at ? ` · ${new Date(c.decided_at).toLocaleString()}` : ""} — “{c.rationale}”
+                    </div>
+                  )}
+                </div>
+                {c.status === "Pending" ? (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      size="sm"
+                      className="h-7 bg-amber-600 hover:bg-amber-700"
+                      onClick={() => act(c, "Overridden")}
+                    >
+                      <Check className="h-3 w-3" /> Override
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => act(c, "Rejected")}
+                    >
+                      <X className="h-3 w-3" /> Reject
+                    </Button>
+                  </div>
+                ) : (
+                  <span
+                    className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                      c.status === "Overridden"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  >
+                    {c.status}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: number; tone: "red" | "amber" | "slate" }) {
+  const palette = {
+    red:   "bg-red-50 border-red-200 text-red-700",
+    amber: "bg-amber-50 border-amber-200 text-amber-700",
+    slate: "bg-slate-50 border-slate-200 text-slate-700",
+  }[tone];
+  return (
+    <div className={`rounded-xl border p-3 ${palette}`}>
+      <div className="text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</div>
+      <div className="text-2xl font-bold mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+/* ============================================================ */
+/*  Custom NLP Rules & Banned Shorthand (Catalog tab)           */
+/* ============================================================ */
+function CustomRulesCard() {
+  const [rules, setRules] = useState<CustomRule[]>([]);
+  const [banned, setBanned] = useState<BannedAbbrev[]>([]);
+  const [newRule, setNewRule] = useState({ phrase: "", canonical: "" });
+  const [newBanned, setNewBanned] = useState({ token: "", meaning: "", preferred: "" });
+
+  useEffect(() => {
+    setRules(loadCustomRules());
+    setBanned(loadCustomBanned());
+    const onEvt = () => {
+      setRules(loadCustomRules());
+      setBanned(loadCustomBanned());
+    };
+    window.addEventListener("spehr:nlp-rules", onEvt);
+    return () => window.removeEventListener("spehr:nlp-rules", onEvt);
+  }, []);
+
+  const addRule = () => {
+    if (!newRule.phrase.trim() || !newRule.canonical.trim()) return;
+    const next = [
+      ...rules,
+      { id: `r_${Date.now()}`, phrase: newRule.phrase.trim(), canonical: newRule.canonical.trim() },
+    ];
+    saveCustomRules(next);
+    setRules(next);
+    setNewRule({ phrase: "", canonical: "" });
+    toast.success("Custom NLP rule added");
+  };
+  const removeRule = (id: string) => {
+    const next = rules.filter((r) => r.id !== id);
+    saveCustomRules(next); setRules(next);
+  };
+  const addBanned = () => {
+    if (!newBanned.token.trim() || !newBanned.meaning.trim()) return;
+    const next = [...banned, { ...newBanned, token: newBanned.token.trim() }];
+    saveCustomBanned(next); setBanned(next);
+    setNewBanned({ token: "", meaning: "", preferred: "" });
+    toast.success("Banned abbreviation added");
+  };
+  const removeBanned = (token: string) => {
+    const next = banned.filter((b) => b.token !== token);
+    saveCustomBanned(next); setBanned(next);
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center gap-2">
+        <ListChecks className="h-4 w-4 text-[#0c2340]" />
+        <div>
+          <div className="text-sm font-semibold text-slate-900">NLP Custom Rules & Banned Shorthand</div>
+          <div className="text-[11px] text-slate-600">
+            Hospital-specific slang the NLP engine should normalize, plus the
+            local extension to the Joint Commission "Do Not Use" list.
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+        {/* Custom slang rules */}
+        <div className="p-4 space-y-3">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+            Local slang → canonical term
+          </div>
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+            <Input
+              placeholder='e.g. "the big one"'
+              value={newRule.phrase}
+              onChange={(e) => setNewRule({ ...newRule, phrase: e.target.value })}
+            />
+            <Input
+              placeholder='e.g. "myocardial infarction"'
+              value={newRule.canonical}
+              onChange={(e) => setNewRule({ ...newRule, canonical: e.target.value })}
+            />
+            <Button onClick={addRule} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
+              <Plus className="h-3.5 w-3.5" /> Add
+            </Button>
+          </div>
+          {rules.length === 0 ? (
+            <div className="text-[11px] text-slate-500 italic">No local rules yet.</div>
+          ) : (
+            <ul className="divide-y divide-slate-100 border border-slate-200 rounded-md">
+              {rules.map((r) => (
+                <li key={r.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+                  <div className="min-w-0 truncate">
+                    <span className="font-mono text-[11px] text-slate-700">{r.phrase}</span>
+                    <span className="mx-2 text-slate-400">→</span>
+                    <span className="font-semibold text-slate-900">{r.canonical}</span>
+                  </div>
+                  <button onClick={() => removeRule(r.id)} className="text-slate-400 hover:text-rose-600">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Banned abbreviations */}
+        <div className="p-4 space-y-3">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+            "Do Not Use" abbreviations
+          </div>
+          <div className="text-[11px] text-slate-600">
+            Joint Commission core list ships pre-loaded ({JC_BANNED.length} tokens).
+            Add facility-specific extensions below.
+          </div>
+          <div className="grid grid-cols-[1fr_1.4fr_1.4fr_auto] gap-2">
+            <Input placeholder="Token (QD)"  value={newBanned.token}     onChange={(e) => setNewBanned({ ...newBanned, token: e.target.value })} />
+            <Input placeholder="Meaning"     value={newBanned.meaning}   onChange={(e) => setNewBanned({ ...newBanned, meaning: e.target.value })} />
+            <Input placeholder="Preferred"   value={newBanned.preferred} onChange={(e) => setNewBanned({ ...newBanned, preferred: e.target.value })} />
+            <Button onClick={addBanned} className="bg-red-600 hover:bg-red-700">
+              <Plus className="h-3.5 w-3.5" /> Ban
+            </Button>
+          </div>
+          {banned.length === 0 ? (
+            <div className="text-[11px] text-slate-500 italic">No local additions.</div>
+          ) : (
+            <ul className="divide-y divide-slate-100 border border-slate-200 rounded-md">
+              {banned.map((b) => (
+                <li key={b.token} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+                  <div className="min-w-0 truncate">
+                    <span className="font-mono font-bold text-red-700">{b.token}</span>
+                    <span className="mx-2 text-slate-400">·</span>
+                    <span className="text-slate-700">{b.meaning}</span>
+                  </div>
+                  <button onClick={() => removeBanned(b.token)} className="text-slate-400 hover:text-rose-600">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================ */
 /*  NLP Audit Logs — 3-paragraph view of each admission's NLP run */
 /* ============================================================ */
 function NlpAuditLogs() {
@@ -721,6 +1042,27 @@ function NlpAuditLogs() {
 
 function NlpAuditCard({ audit }: { audit: NlpAudit }) {
   const ts = new Date(audit.created_at).toLocaleString();
+  const confidence = (audit as any).confidence ?? 100;
+  const banned: BannedAbbrev[] = (audit as any).banned ?? [];
+  const streamAOk = (audit as any).streamAOk ?? true;
+  const lowConfidence = confidence < 95;
+
+  // Local per-card decision so coders can Approve / Edit / Reject without
+  // a backend round-trip. Persist last decision in localStorage so the
+  // Audit Log shows reviewer state on reload.
+  const decisionKey = `spehr.nlp_decision.${audit.id}`;
+  const [decision, setDecision] = useState<"pending" | "approved" | "edited" | "rejected">(() => {
+    if (typeof window === "undefined") return lowConfidence ? "pending" : "approved";
+    return (window.localStorage.getItem(decisionKey) as any) ?? (lowConfidence ? "pending" : "approved");
+  });
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(audit.standardized.join("\n"));
+
+  const persist = (d: typeof decision) => {
+    setDecision(d);
+    if (typeof window !== "undefined") window.localStorage.setItem(decisionKey, d);
+  };
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-5 py-3 bg-slate-50/70 border-b border-slate-100">
@@ -735,7 +1077,27 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
             {ts}{audit.facility_name ? ` · ${audit.facility_name}` : ""} · {audit.matches.length} concept{audit.matches.length === 1 ? "" : "s"}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+          {streamAOk && (
+            <span
+              title="Structured demographics & vitals parsed successfully without NLP."
+              className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-emerald-700"
+            >
+              <FileCheck2 className="h-3 w-3" /> STREAM A · OK
+            </span>
+          )}
+          <span
+            title={`AI confidence ${confidence}%`}
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold tracking-wider ${
+              confidence >= 95
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : confidence >= 80
+                ? "border-amber-200 bg-amber-50 text-amber-700"
+                : "border-red-200 bg-red-50 text-red-700"
+            }`}
+          >
+            STREAM B · {confidence}%
+          </span>
           {(["ICD-10", "SNOMED CT", "LOINC", "RxNorm"] as const).map((sys) => {
             const n = (audit.byCode[sys] ?? []).length;
             if (!n) return null;
@@ -763,22 +1125,103 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-700 mb-1.5">
             ② Extraction Mapping
           </div>
+          {banned.length > 0 && (
+            <div className="mb-2 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800 flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-bold uppercase tracking-wider text-[10px]">
+                  Banned abbreviation detected
+                </div>
+                {banned.map((b) => (
+                  <div key={b.token}>
+                    <span className="font-mono font-bold">{b.token}</span> — {b.meaning}. {b.preferred}.
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <p className="text-sm text-slate-800 leading-relaxed font-mono whitespace-pre-wrap">
             {audit.annotated || audit.raw || <span className="text-slate-400">—</span>}
           </p>
         </div>
         <div className="p-4 bg-emerald-50/30">
-          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700 mb-1.5">
-            ③ Final Standardized Output
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">
+              ③ Final Standardized Output
+            </div>
+            <span
+              className={`text-[10px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border ${
+                decision === "approved"
+                  ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                  : decision === "edited"
+                  ? "bg-sky-100 text-sky-700 border-sky-200"
+                  : decision === "rejected"
+                  ? "bg-red-100 text-red-700 border-red-200"
+                  : "bg-amber-100 text-amber-800 border-amber-200"
+              }`}
+            >
+              {decision === "pending" ? "Awaiting coder" : decision}
+            </span>
           </div>
-          <ul className="space-y-1.5 text-sm text-slate-800">
-            {audit.standardized.map((line, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="text-emerald-600 mt-0.5">•</span>
-                <span>{line}</span>
-              </li>
-            ))}
-          </ul>
+          {lowConfidence && decision === "pending" && (
+            <div className="mb-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+              Confidence {confidence}% &lt; 95%. Held in audit log — write to Live
+              Terminology Matrix only after a coder approves.
+            </div>
+          )}
+          {editing ? (
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              className="w-full h-32 text-xs font-mono rounded border border-slate-300 p-2"
+            />
+          ) : (
+            <ul className="space-y-1.5 text-sm text-slate-800">
+              {(editing ? editText.split("\n") : audit.standardized).map((line, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-emerald-600 mt-0.5">•</span>
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-3 flex items-center gap-1.5">
+            {editing ? (
+              <>
+                <Button
+                  size="sm"
+                  className="h-7 bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => { persist("edited"); setEditing(false); toast.success("Coder edit saved"); }}
+                >
+                  <Check className="h-3 w-3" /> Save edit
+                </Button>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  className="h-7 bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => { persist("approved"); toast.success("Approved — wrote to Live Terminology Matrix"); }}
+                >
+                  <Check className="h-3 w-3" /> Approve
+                </Button>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => setEditing(true)}>
+                  <Pencil className="h-3 w-3" /> Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={() => { persist("rejected"); toast.success("Rejected — not committed"); }}
+                >
+                  <X className="h-3 w-3" /> Reject
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -1278,7 +1721,7 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
 };
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix">("catalog");
+  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety">("catalog");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSystem, setActiveSystem] = useState<string>("ICD-10");
@@ -1587,6 +2030,7 @@ function MedicalDictionary() {
           { id: "catalog", label: "Catalog", Icon: BookMarked },
           { id: "audits",  label: "NLP Audit Logs", Icon: Sparkles },
           { id: "matrix",  label: "Live Terminology Matrix", Icon: Grid3x3 },
+          { id: "safety",  label: "Safety Alerts", Icon: ShieldAlert },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
           return (
@@ -1607,6 +2051,7 @@ function MedicalDictionary() {
 
       {subtab === "audits" && <NlpAuditLogs />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} />}
+      {subtab === "safety" && <SafetyQueue />}
 
       {subtab === "catalog" && (<>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -1700,6 +2145,7 @@ function MedicalDictionary() {
         )}
       </div>
       </>)}
+      {subtab === "catalog" && <CustomRulesCard />}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
