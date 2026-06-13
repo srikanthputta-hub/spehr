@@ -2038,9 +2038,26 @@ function MedicalDictionary() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
-            📚 Medical Dictionary
-          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
+              📚 Medical Dictionary
+            </h1>
+            <label className="inline-flex items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                🏥 Select Facility Network
+              </span>
+              <select
+                value={facilityFilter}
+                onChange={(e) => setFacilityFilter(e.target.value)}
+                className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none hover:bg-slate-50 focus:border-slate-400 transition cursor-pointer"
+              >
+                <option value="all">All Facilities</option>
+                {FACILITIES.map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           <p className="text-sm text-slate-600 mt-1 max-w-2xl">
             VSAC-aligned terminology library used across the EHR. Browse SNOMED CT, ICD-10,
             LOINC, RxNorm, and curated value sets; extend with site-specific codes.
