@@ -234,7 +234,7 @@ export async function seedAdmission(
     return out;
   };
 
-  const [{ data: rxDict }, { data: loincDict }] = await Promise.all([
+  const [{ data: rxDict }, { data: loincDict }, { data: icdDict }, { data: snomedDict }] = await Promise.all([
     supabase
       .from("medical_terminology")
       .select("code, display, category, description")
@@ -247,11 +247,25 @@ export async function seedAdmission(
       .eq("code_system", "LOINC")
       .eq("status", "active")
       .limit(200),
+    supabase
+      .from("medical_terminology")
+      .select("code, display, category, description")
+      .eq("code_system", "ICD-10")
+      .eq("status", "active")
+      .limit(200),
+    supabase
+      .from("medical_terminology")
+      .select("code, display, category, description")
+      .eq("code_system", "SNOMED CT")
+      .eq("status", "active")
+      .limit(200),
   ]);
 
   type DictRow = { code: string; display: string; category: string | null; description: string | null };
   const rxRows = (rxDict ?? []) as DictRow[];
   const loincRows = (loincDict ?? []) as DictRow[];
+  const icdRows = (icdDict ?? []) as DictRow[];
+  const snomedRows = (snomedDict ?? []) as DictRow[];
 
   const scoreRow = (r: DictRow) => {
     const hay = `${r.display} ${r.description ?? ""}`.toLowerCase();
@@ -297,6 +311,28 @@ export async function seedAdmission(
   }));
   const protocolLabs = labs.map((l) => ({ ...l, loinc: null as string | null }));
   const finalLabs = [...dictLabs, ...protocolLabs].slice(0, 2);
+
+  // ------------------------------------------------------------------
+  // Baseline diagnostic codes: pick at least one ICD-10 + one SNOMED CT
+  // row matching the chief complaint and persist them on the patient.
+  // ------------------------------------------------------------------
+  const pickDiagnosticCodes = (rows: DictRow[], n: number): string[] => {
+    const ranked = rankByComplaint(rows);
+    if (ranked.length === 0) return [];
+    const top = ranked.slice(0, Math.max(n, 4));
+    return pickRandom(top, Math.min(n, top.length)).map((r) => r.code);
+  };
+  const icdCodes = pickDiagnosticCodes(icdRows, 1);
+  const snomedCodes = pickDiagnosticCodes(snomedRows, 1);
+  if (icdCodes.length || snomedCodes.length) {
+    await supabase
+      .from("patients")
+      .update({
+        icd10_codes: icdCodes,
+        snomed_codes: snomedCodes,
+      } as any)
+      .eq("mrn", mrn);
+  }
 
   // Auto-grow the dictionary for the chief complaint itself (ICD-10).
   if (p.chief_complaint?.trim()) {
