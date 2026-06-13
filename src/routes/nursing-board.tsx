@@ -891,6 +891,7 @@ interface AdmitInput {
   diagnosis: string;
   mrn?: string;
   nlp?: NlpResult;
+  intake?: IntakeRecord;
 }
 
 function AdmitModal({
