@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2 } from "lucide-react";
+import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
 import {
   lookupTerminology,
@@ -30,6 +31,14 @@ import {
   DEFAULT_CATEGORY,
   defaultUsage,
 } from "@/lib/terminology-lookup";
+import {
+  analyzeNarrative,
+  loadAudits,
+  clearAudits,
+  loadDictionary,
+  type NlpAudit,
+  type DictRow,
+} from "@/lib/nlp-engine";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
