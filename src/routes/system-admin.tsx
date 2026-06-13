@@ -1576,6 +1576,7 @@ type MatrixCell = {
 function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility: string }) {
   const [rows, setRows] = useState<MatrixCell[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
