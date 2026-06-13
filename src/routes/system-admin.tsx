@@ -53,6 +53,7 @@ import {
   type CustomRule,
   type CustomBanned,
 } from "@/lib/safety-conflicts";
+import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 
 export const Route = createFileRoute("/system-admin")({
