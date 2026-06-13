@@ -171,25 +171,94 @@ export async function seedAdmission(
   const meds = medsForComplaint(p.chief_complaint);
   const labs = labsForComplaint(p.chief_complaint);
 
-  // Auto-grow the medical dictionary so every clinical concept that
-  // enters the system shows up in System Admin → Medical Dictionary in
-  // its designated location (ICD-10 / RxNorm / LOINC).
+  // ------------------------------------------------------------------
+  // Dynamic sourcing — pull live RxNorm + LOINC rows from the
+  // medical_terminology dictionary instead of the static fallback
+  // arrays. The fallback (complaint-protocols) is only used when the
+  // dictionary has fewer than 3 meds / 2 labs configured.
+  // ------------------------------------------------------------------
+  const complaintTokens = (p.chief_complaint ?? "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3);
+
+  const pickRandom = <T,>(arr: T[], n: number): T[] => {
+    const pool = [...arr];
+    const out: T[] = [];
+    while (out.length < n && pool.length > 0) {
+      out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    }
+    return out;
+  };
+
+  const [{ data: rxDict }, { data: loincDict }] = await Promise.all([
+    supabase
+      .from("medical_terminology")
+      .select("code, display, category, description")
+      .eq("code_system", "RxNorm")
+      .eq("status", "active")
+      .limit(200),
+    supabase
+      .from("medical_terminology")
+      .select("code, display, category, description")
+      .eq("code_system", "LOINC")
+      .eq("status", "active")
+      .limit(200),
+  ]);
+
+  type DictRow = { code: string; display: string; category: string | null; description: string | null };
+  const rxRows = (rxDict ?? []) as DictRow[];
+  const loincRows = (loincDict ?? []) as DictRow[];
+
+  const scoreRow = (r: DictRow) => {
+    const hay = `${r.display} ${r.description ?? ""}`.toLowerCase();
+    return complaintTokens.reduce((s, t) => (hay.includes(t) ? s + 1 : s), 0);
+  };
+
+  const rankByComplaint = (rows: DictRow[]): DictRow[] => {
+    if (complaintTokens.length === 0) return rows;
+    const scored = rows.map((r) => ({ r, s: scoreRow(r) }));
+    scored.sort((a, b) => b.s - a.s);
+    return scored.map((x) => x.r);
+  };
+
+  // Parse "Drug 5 mg PO" → { name, dose, route } when possible.
+  const ROUTE_RE = /\b(PO|IV|IM|SQ|SC|SL|PR|TOP|INH|Nebulizer|Topical|Subq)\b/i;
+  const DOSE_RE = /(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|mL|units?|IU|mEq|tabs?|puffs?|L))/i;
+  const parseMed = (display: string) => {
+    const dose = display.match(DOSE_RE)?.[1] ?? "1 dose";
+    const route = display.match(ROUTE_RE)?.[1] ?? "PO";
+    const name = display
+      .replace(DOSE_RE, "")
+      .replace(ROUTE_RE, "")
+      .replace(/\s{2,}/g, " ")
+      .trim() || display;
+    return { name, dose, route };
+  };
+
+  // Build candidate meds: dictionary-first, complaint-fallback to fill.
+  const ranked = rankByComplaint(rxRows);
+  const dictMeds = (ranked.length >= 6 ? pickRandom(ranked.slice(0, 12), 3) : ranked.slice(0, 3))
+    .map((r) => ({ ...parseMed(r.display), rxcui: r.code }));
+  const protocolMeds = meds.map((m) => ({ name: m.name, dose: m.dose, route: m.route, rxcui: null as string | null }));
+  const finalMeds = [...dictMeds, ...protocolMeds].slice(0, 3);
+
+  // Labs: dictionary-first, complaint-fallback to fill.
+  const rankedLabs = rankByComplaint(loincRows);
+  const dictLabs = (rankedLabs.length >= 4 ? pickRandom(rankedLabs.slice(0, 8), 2) : rankedLabs.slice(0, 2)).map((r) => ({
+    name: r.display,
+    unit: "",
+    referenceRange: "",
+    resultExample: `${r.display}: resulted`,
+    loinc: r.code,
+  }));
+  const protocolLabs = labs.map((l) => ({ ...l, loinc: null as string | null }));
+  const finalLabs = [...dictLabs, ...protocolLabs].slice(0, 2);
+
+  // Auto-grow the dictionary for the chief complaint itself (ICD-10).
   if (p.chief_complaint?.trim()) {
     ensureTerminology("ICD-10", { display: p.chief_complaint.trim() }).catch(() => {});
   }
-  meds.slice(0, 3).forEach((m) => {
-    ensureTerminology("RxNorm", {
-      display: `${m.name} ${m.dose} ${m.route}`.trim(),
-      category: "Medication",
-    }).catch(() => {});
-  });
-  labs.slice(0, 2).forEach((l) => {
-    ensureTerminology("LOINC", {
-      display: l.name,
-      category: "Laboratory",
-      description: `Reference range ${l.referenceRange}${l.unit ? ` ${l.unit}` : ""}.`,
-    }).catch(() => {});
-  });
 
   const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
 
@@ -216,7 +285,7 @@ export async function seedAdmission(
   );
 
   // Schedule meds: T+20s, T+35s, T+50s
-  meds.slice(0, 3).filter((m) => !existingMedNames.has(norm(m.name))).forEach((m, i) => {
+  finalMeds.filter((m) => !existingMedNames.has(norm(m.name))).forEach((m, i) => {
     const t = MED_FIRST_ORDER_DELAY_MS + i * MED_ORDER_GAP_MS;
     const timer = setTimeout(async () => {
       untrackTimer(mrn, timer);
@@ -252,7 +321,7 @@ export async function seedAdmission(
   });
 
   // Schedule labs: T+25s, T+45s
-  labs.slice(0, 2).filter((l) => !existingLabNames.has(norm(l.name))).forEach((l, i) => {
+  finalLabs.filter((l) => !existingLabNames.has(norm(l.name))).forEach((l, i) => {
     const t = LAB_FIRST_ORDER_DELAY_MS + i * LAB_ORDER_GAP_MS;
     const resultSummary = `${l.name}: ${l.resultExample} (ref ${l.referenceRange}${
       l.unit ? ` ${l.unit}` : ""
