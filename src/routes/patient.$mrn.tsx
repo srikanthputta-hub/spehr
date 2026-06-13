@@ -1822,3 +1822,125 @@ function DischargeDialog({
     </div>
   );
 }
+/* ============================================================ */
+/* Admission Case History — hospital-style intake recap          */
+/* Reads the structured IntakeRecord saved by the Admit modal    */
+/* and renders it as a real-world EHR case-history widget.        */
+/* ============================================================ */
+function AdmissionCaseHistory({ mrn }: { mrn: string }) {
+  const [rec, setRec] = useState<IntakeRecord | null>(null);
+  useEffect(() => { setRec(loadIntake(mrn)); }, [mrn]);
+  if (!rec) return null;
+
+  const Row = ({ k, v }: { k: string; v: React.ReactNode }) => (
+    <>
+      <dt className="text-slate-600">{k}</dt>
+      <dd className="text-slate-800">{v || "—"}</dd>
+    </>
+  );
+  const Box = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <section className="rounded border border-slate-300 bg-white">
+      <div className="flex items-center px-2.5 py-1.5 border-b border-slate-300 bg-[#eef5ff] text-[12px] font-semibold text-blue-900">
+        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 inline-block mr-1.5" />
+        {title}
+      </div>
+      <div className="px-2.5 py-2 text-[12px]">{children}</div>
+    </section>
+  );
+
+  return (
+    <div className="px-2 pb-3">
+      <div className="rounded border border-blue-300 bg-[#f5faff]">
+        <div className="flex items-center justify-between px-3 py-1.5 border-b border-blue-300 bg-[#e6f1ff]">
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-blue-900">
+            <FileText className="h-4 w-4" /> Admission Case History
+          </div>
+          <span className="text-[10px] font-mono text-blue-700/80">
+            Captured {rec.capturedAt ? new Date(rec.capturedAt).toLocaleString("en-GB") : "—"}
+          </span>
+        </div>
+        <div className="grid grid-cols-12 gap-2 p-2">
+          <div className="col-span-12 lg:col-span-6">
+            <Box title="1 · Demographics & Administrative">
+              <dl className="grid grid-cols-[140px_1fr] gap-y-1">
+                <Row k="Full Name" v={`${rec.firstName} ${rec.lastName}`} />
+                <Row k="Age / DOB" v={`${rec.age || "—"} · ${rec.dob || "—"}`} />
+                <Row k="Sex / Gender" v={`${rec.sex || "—"} · ${rec.genderIdentity || "—"}`} />
+                <Row k="Phone" v={rec.phone} />
+                <Row k="Address" v={rec.address} />
+                <Row k="Occupation" v={rec.occupation} />
+                <Row k="Emergency" v={rec.emergencyName ? `${rec.emergencyName} (${rec.emergencyRelationship}) · ${rec.emergencyPhone}` : "—"} />
+                <Row k="Insurance" v={rec.insuranceProvider ? `${rec.insuranceProvider} · ${rec.insurancePolicy}` : "—"} />
+                <Row k="PCP" v={rec.pcp} />
+                <Row k="Guarantor" v={rec.guarantor} />
+              </dl>
+            </Box>
+          </div>
+          <div className="col-span-12 lg:col-span-6 space-y-2">
+            <Box title="2 · Chief Complaint (Patient's Own Words)">
+              <p className="italic text-slate-800">"{rec.chiefComplaint || "—"}"</p>
+            </Box>
+            <Box title="3 · History of Present Illness (HPI)">
+              <dl className="grid grid-cols-[110px_1fr] gap-y-1">
+                <Row k="Onset" v={rec.hpiOnset} />
+                <Row k="Location" v={rec.hpiLocation} />
+                <Row k="Duration" v={rec.hpiDuration} />
+                <Row k="Character" v={rec.hpiCharacter.join(", ")} />
+                <Row k="Aggravating" v={rec.hpiAggravating} />
+                <Row k="Alleviating" v={rec.hpiAlleviating} />
+                <Row k="Severity" v={`${rec.hpiSeverity}/10`} />
+              </dl>
+            </Box>
+          </div>
+          <div className="col-span-12 lg:col-span-6">
+            <Box title="4 · Past Medical & Surgical History">
+              <dl className="grid grid-cols-[140px_1fr] gap-y-1">
+                <Row k="Chronic Illnesses" v={rec.chronicIllnesses.join(", ") || "None reported"} />
+                <Row k="Prior Surgeries" v={rec.priorSurgeries} />
+                <Row k="Past Hospitalizations" v={rec.pastHospitalizations} />
+              </dl>
+            </Box>
+          </div>
+          <div className="col-span-12 lg:col-span-6">
+            <Box title="5 · Allergies & Current Medications">
+              <div className="space-y-1.5">
+                <div>
+                  <span className="font-semibold text-slate-700">Drug Allergies: </span>
+                  {rec.drugAllergies.length === 0
+                    ? <span className="text-slate-600">NKDA</span>
+                    : rec.drugAllergies.map((a, i) => (
+                        <span key={i} className="inline-block mr-1.5 rounded-full bg-red-50 text-red-700 ring-1 ring-red-200 px-2 py-0.5 text-[11px] font-semibold">
+                          {a.name}{a.reaction ? ` (${a.reaction})` : ""}
+                        </span>
+                      ))}
+                </div>
+                {rec.envAllergies.length > 0 && (
+                  <div><span className="font-semibold text-slate-700">Environmental/Food: </span>{rec.envAllergies.join(", ")}</div>
+                )}
+                <div>
+                  <span className="font-semibold text-slate-700">Current Meds: </span>
+                  {rec.currentMeds.length === 0
+                    ? <span className="text-slate-600">None</span>
+                    : <ul className="list-disc list-inside text-slate-800">
+                        {rec.currentMeds.map((m, i) => (
+                          <li key={i}>{m.name} {m.dose} <span className="text-slate-500">· {m.freq}</span></li>
+                        ))}
+                      </ul>}
+                </div>
+              </div>
+            </Box>
+          </div>
+          <div className="col-span-12">
+            <Box title="6 · Family History">
+              <div>
+                <span className="font-semibold text-slate-700">Conditions: </span>
+                {rec.familyConditions.length ? rec.familyConditions.join(", ") : "Non-contributory"}
+              </div>
+              {rec.familyNotes && <div className="mt-1 text-slate-700">{rec.familyNotes}</div>}
+            </Box>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
