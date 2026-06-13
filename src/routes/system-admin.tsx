@@ -1336,6 +1336,8 @@ type MatrixCell = {
   chief_complaint: string | null;
   labs: string[];      // test_type strings
   meds: string[];      // medication_name strings
+  icd10_codes: string[];
+  snomed_codes: string[];
 };
 
 function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility: string }) {
@@ -1348,7 +1350,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       setLoading(true);
       let pq = supabase
         .from("patients")
-        .select("mrn, first_name, last_name, facility_name, admission_time, chief_complaint")
+        .select("mrn, first_name, last_name, facility_name, admission_time, chief_complaint, icd10_codes, snomed_codes")
         .order("admission_time", { ascending: false })
         .limit(15);
       if (facility && facility !== "all") {
@@ -1387,6 +1389,8 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         chief_complaint: p.chief_complaint,
         labs: Array.from(labMap.get(p.mrn) ?? []),
         meds: Array.from(medMap.get(p.mrn) ?? []),
+        icd10_codes: (p.icd10_codes ?? []) as string[],
+        snomed_codes: (p.snomed_codes ?? []) as string[],
       }));
       if (!cancelled) {
         setRows(cells);
@@ -1420,6 +1424,12 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       }
     }
     return out.slice(0, 6);
+  };
+
+  const findByExactCodes = (system: string, codes: string[]): DictEntry[] => {
+    const pool = indexBySystem[system] ?? [];
+    const want = new Set(codes);
+    return pool.filter((r) => want.has(r.code)).slice(0, 6);
   };
 
   return (
@@ -1468,8 +1478,12 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               )}
               {rows.map((r) => {
                 const cc = r.chief_complaint ? [r.chief_complaint] : [];
-                const snomed = findCodes("SNOMED CT", cc);
-                const icd10 = findCodes("ICD-10", cc);
+                const snomed = r.snomed_codes.length
+                  ? findByExactCodes("SNOMED CT", r.snomed_codes)
+                  : findCodes("SNOMED CT", cc);
+                const icd10 = r.icd10_codes.length
+                  ? findByExactCodes("ICD-10", r.icd10_codes)
+                  : findCodes("ICD-10", cc);
                 const loinc = findCodes("LOINC", r.labs);
                 const rxnorm = findCodes("RxNorm", r.meds);
                 return (
