@@ -43,9 +43,9 @@ const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = 
   { value: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
   { value: "/physician-board", label: "Attending Physician", abbrev: "MD" },
   { value: "/pharmacy-queue", label: "Clinical Pharmacist", abbrev: "PharmD" },
-  { value: "/finance-board", label: "Corporate Finance & Accounts", abbrev: "Finance" },
-  { value: "/admin-dashboard", label: "Unit Administrator", abbrev: "Admin" },
   { value: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
+  { value: "/admin-dashboard", label: "Unit Administrator", abbrev: "Admin" },
+  { value: "/finance-board", label: "Corporate Finance & Accounts", abbrev: "Finance" },
   { value: "/system-admin", label: "Command Center · System Administration", abbrev: "EHR" },
 ];
 
