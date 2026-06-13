@@ -510,7 +510,7 @@ function PhysicianBoard() {
                     accent={selected.code_status === "DNR" || selected.code_status === "DNI" ? "amber" : "default"}
                   />
                   <BannerStat
-                    label="Diagnosis"
+                    label="Chief Complaint"
                     value={selected.diagnosis || selected.chief_complaint || "—"}
                     wide
                   />
