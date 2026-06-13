@@ -2101,6 +2101,7 @@ function MedicalDictionary() {
   const [umlsResults, setUmlsResults] = useState<
     Array<{ ui: string; name: string; rootSource: string }>
   >([]);
+  const [umlsOffline, setUmlsOffline] = useState(false);
   const [importingCode, setImportingCode] = useState<string | null>(null);
 
   // Map UI code system → vocabulary name the proxy understands.
@@ -2129,17 +2130,52 @@ function MedicalDictionary() {
     const t = setTimeout(async () => {
       setUmlsLoading(true);
       setUmlsError(null);
+      // --- Local cache fallback against medical_terminology -----------
+      const runLocalFallback = async (reason: string) => {
+        const { data: local } = await supabase
+          .from("medical_terminology")
+          .select("code, display, code_system")
+          .eq("code_system", form.code_system)
+          .ilike("display", `%${q}%`)
+          .limit(25);
+        if (cancelled) return;
+        const mapped = ((local ?? []) as any[]).map((r) => ({
+          ui: r.code as string,
+          name: r.display as string,
+          rootSource: "LOCAL",
+        }));
+        setUmlsResults(mapped);
+        setUmlsOffline(true);
+        setUmlsError(
+          mapped.length === 0
+            ? `NLM unavailable (${reason}). No local cached matches for "${q}".`
+            : null,
+        );
+      };
       try {
-        const r = await fetch("/api/public/umls-search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ searchTerm: q, vocabulary: vocab }),
-        });
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 8000);
+        let r: Response;
+        try {
+          r = await fetch("/api/public/umls-search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ searchTerm: q, vocabulary: vocab }),
+            signal: ctrl.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+        if (r.status === 429 || r.status === 503 || r.status === 504 || r.status === 502) {
+          await runLocalFallback(`HTTP ${r.status}`);
+          return;
+        }
         const j = await r.json();
         if (cancelled) return;
         if (!r.ok) {
           setUmlsError(j?.error ?? `Lookup failed (${r.status})`);
           setUmlsResults([]);
+          setUmlsOffline(false);
         } else {
           const items = (j?.result?.results ?? []) as Array<{
             ui: string;
@@ -2149,10 +2185,13 @@ function MedicalDictionary() {
           // NLM returns [{ui:"NONE",name:"NO RESULTS"}] for empty.
           const cleaned = items.filter((it) => it.ui && it.ui !== "NONE");
           setUmlsResults(cleaned);
+          setUmlsOffline(false);
           if (cleaned.length === 0) setUmlsError("No matches found.");
         }
       } catch (e: any) {
-        if (!cancelled) setUmlsError(e?.message ?? "Network error");
+        if (cancelled) return;
+        const reason = e?.name === "AbortError" ? "timeout" : (e?.message ?? "network error");
+        await runLocalFallback(reason);
       } finally {
         if (!cancelled) setUmlsLoading(false);
       }
