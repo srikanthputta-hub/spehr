@@ -25,6 +25,13 @@ import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { seedAdmission } from "@/hooks/useAIAutomation";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
+import {
+  analyzeNarrative,
+  loadDictionary,
+  saveAudit,
+  type NlpResult,
+} from "@/lib/nlp-engine";
+import { Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -505,6 +512,19 @@ function Dashboard() {
     if (error) {
       toast.error("Could not admit patient", { description: error.message });
       return false;
+    }
+    // Persist the NLP audit alongside the admission so the Coding Audit
+    // tab in the Medical Dictionary can replay the physician's narrative.
+    if (input.nlp) {
+      try {
+        saveAudit(input.nlp, {
+          mrn: data.mrn,
+          patient_name: `${data.first_name} ${data.last_name}`,
+          facility_name: data.facility_name,
+        });
+      } catch (e) {
+        console.warn("[admit] saveAudit failed", e);
+      }
     }
     // Explicitly seed meds + labs into Supabase so the Pharmacy and Lab
     // boards pick this admission up immediately — don't rely solely on the
