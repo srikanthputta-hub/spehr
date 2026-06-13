@@ -177,6 +177,40 @@ export async function seedAdmission(
     ? "Bedside RN"
     : "Ghost AI - Admission Randomizer";
 
+  // ------------------------------------------------------------------
+  // Intake auto-fill — every admission (manual OR ghost) gets a full
+  // structured case-history record. Manual admits from the Admit
+  // modal already persist their own intake before calling
+  // seedAdmission, so loadIntake() short-circuits and we skip.
+  // ------------------------------------------------------------------
+  try {
+    if (!loadIntake(mrn)) {
+      const intake = autoFillIntake({
+        firstName: p.first_name ?? undefined,
+        lastName: p.last_name ?? undefined,
+        age: typeof p.age === "number" ? p.age : undefined,
+        chiefComplaint: p.chief_complaint ?? undefined,
+      });
+      saveIntake(mrn, intake);
+      const { data: existingNotes } = await supabase
+        .from("clinical_notes")
+        .select("id")
+        .eq("mrn", mrn)
+        .eq("note_type", "Admission Intake (SOAP)")
+        .limit(1);
+      if (!existingNotes || existingNotes.length === 0) {
+        await supabase.from("clinical_notes").insert({
+          mrn,
+          note_type: "Admission Intake (SOAP)",
+          content: intakeToSoap({ ...intake, mrn }),
+          author: manual ? "Admitting Provider" : "Ghost AI - Admission Randomizer",
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[seedAdmission] intake autofill failed", e);
+  }
+
   const meds = medsForComplaint(p.chief_complaint);
   const labs = labsForComplaint(p.chief_complaint);
 
