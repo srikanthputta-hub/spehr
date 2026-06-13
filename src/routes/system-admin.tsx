@@ -1856,43 +1856,21 @@ function MedicalDictionary() {
     };
   }, [umlsQuery, form.code_system, addOpen]);
 
-  const importUmls = async (hit: { ui: string; name: string }) => {
-    setImportingCode(hit.ui);
-    const finalCategory =
-      form.category.trim() || DEFAULT_CATEGORY[form.code_system] || null;
-    const finalDescription = defaultUsage(form.code_system, hit.name);
-    const { data, error } = await supabase
-      .from("medical_terminology")
-      .upsert(
-        {
-          code_system: form.code_system,
-          code: hit.ui,
-          display: hit.name,
-          category: finalCategory,
-          description: finalDescription,
-          status: "active",
-        },
-        { onConflict: "code_system,code" },
-      )
-      .select()
-      .single();
-    setImportingCode(null);
-    if (error) {
-      toast.error("Import failed", { description: error.message });
-      return;
-    }
-    setRows((r) => {
-      const without = r.filter((x) => x.id !== (data as any).id);
-      return [...without, data as any].sort(
-        (a, b) =>
-          a.code_system.localeCompare(b.code_system) ||
-          a.code.localeCompare(b.code),
-      );
-    });
-    setActiveSystem(form.code_system);
-    toast.success("Imported to dictionary", {
-      description: `${form.code_system} · ${hit.ui} — ${hit.name}`,
-    });
+  /**
+   * Populate every form field (Code, Display Name, Category,
+   * Usage / Description) from a single UMLS search hit. The user can
+   * then review the full record inside the assigned boxes before
+   * committing it to the dictionary with "Save to Dictionary".
+   */
+  const useUmlsHit = (hit: { ui: string; name: string }) => {
+    setForm((f) => ({
+      ...f,
+      code: hit.ui,
+      display: hit.name,
+      category: f.category.trim() || DEFAULT_CATEGORY[f.code_system] || "",
+      description: defaultUsage(f.code_system, hit.name),
+    }));
+    setLookupNote(`Matched ${form.code_system} ${hit.ui} — ${hit.name}`);
   };
 
   const load = async () => {
