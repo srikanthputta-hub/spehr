@@ -1414,7 +1414,7 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
 };
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix">("catalog");
+  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety">("catalog");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSystem, setActiveSystem] = useState<string>("ICD-10");
@@ -1723,6 +1723,7 @@ function MedicalDictionary() {
           { id: "catalog", label: "Catalog", Icon: BookMarked },
           { id: "audits",  label: "NLP Audit Logs", Icon: Sparkles },
           { id: "matrix",  label: "Live Terminology Matrix", Icon: Grid3x3 },
+          { id: "safety",  label: "Safety Alerts", Icon: ShieldAlert },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
           return (
@@ -1743,6 +1744,7 @@ function MedicalDictionary() {
 
       {subtab === "audits" && <NlpAuditLogs />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} />}
+      {subtab === "safety" && <SafetyQueue />}
 
       {subtab === "catalog" && (<>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -1836,6 +1838,7 @@ function MedicalDictionary() {
         )}
       </div>
       </>)}
+      {subtab === "catalog" && <CustomRulesCard />}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
