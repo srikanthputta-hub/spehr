@@ -223,6 +223,25 @@ function fmtTime(t: string | null | undefined) {
   } catch { return "—"; }
 }
 
+/** Live HH:MM:SS clock that ticks every second — true execution-clock time. */
+function LiveClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const i = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(i);
+  }, []);
+  return (
+    <span className="font-mono">
+      {now.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      })}
+    </span>
+  );
+}
+
 // --- Per-complaint fallback (used only if DB row hasn't seeded yet) ---
 function fallbackMeds(
   key: string,
@@ -903,7 +922,7 @@ function ClinicalSummary({
               <div className="text-[11px] text-blue-700 underline mb-1 cursor-pointer">Growth Chart</div>
               <div className="grid grid-cols-[60px_1fr] gap-y-1">
                 <span className="text-slate-500 text-[10px] uppercase tracking-wider font-bold col-span-2 border-b border-slate-200 pb-1">
-                  Current — {fmtTime(patient.admission_time).split(",")[0]}
+                  Current — <LiveClock />
                 </span>
                 <span className="text-slate-600">BP</span>
                 <span className={`font-mono ${(patient.bp_systolic ?? 0) >= 140 ? "bg-yellow-200 px-1 rounded font-bold" : ""}`}>

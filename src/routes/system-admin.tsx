@@ -907,6 +907,113 @@ function MedicalDictionary() {
     category: "",
     description: "",
   });
+  // UMLS search panel state inside the Add Terminology dialog.
+  const [umlsQuery, setUmlsQuery] = useState("");
+  const [umlsLoading, setUmlsLoading] = useState(false);
+  const [umlsError, setUmlsError] = useState<string | null>(null);
+  const [umlsResults, setUmlsResults] = useState<
+    Array<{ ui: string; name: string; rootSource: string }>
+  >([]);
+  const [importingCode, setImportingCode] = useState<string | null>(null);
+
+  // Map UI code system → vocabulary name the proxy understands.
+  const umlsVocab = (sys: string) =>
+    sys === "SNOMED CT"
+      ? "SNOMED-CT"
+      : sys === "ICD-10"
+        ? "ICD-10-CM"
+        : sys === "LOINC"
+          ? "LOINC"
+          : sys === "RxNorm"
+            ? "RxNorm"
+            : "";
+
+  // 400ms debounced UMLS search via our secure proxy.
+  useEffect(() => {
+    if (!addOpen) return;
+    const vocab = umlsVocab(form.code_system);
+    const q = umlsQuery.trim();
+    if (!vocab || q.length < 2) {
+      setUmlsResults([]);
+      setUmlsError(vocab ? null : "VSAC is manual-entry only.");
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setUmlsLoading(true);
+      setUmlsError(null);
+      try {
+        const r = await fetch("/api/public/umls-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ searchTerm: q, vocabulary: vocab }),
+        });
+        const j = await r.json();
+        if (cancelled) return;
+        if (!r.ok) {
+          setUmlsError(j?.error ?? `Lookup failed (${r.status})`);
+          setUmlsResults([]);
+        } else {
+          const items = (j?.result?.results ?? []) as Array<{
+            ui: string;
+            name: string;
+            rootSource: string;
+          }>;
+          // NLM returns [{ui:"NONE",name:"NO RESULTS"}] for empty.
+          const cleaned = items.filter((it) => it.ui && it.ui !== "NONE");
+          setUmlsResults(cleaned);
+          if (cleaned.length === 0) setUmlsError("No matches found.");
+        }
+      } catch (e: any) {
+        if (!cancelled) setUmlsError(e?.message ?? "Network error");
+      } finally {
+        if (!cancelled) setUmlsLoading(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [umlsQuery, form.code_system, addOpen]);
+
+  const importUmls = async (hit: { ui: string; name: string }) => {
+    setImportingCode(hit.ui);
+    const finalCategory =
+      form.category.trim() || DEFAULT_CATEGORY[form.code_system] || null;
+    const finalDescription = defaultUsage(form.code_system, hit.name);
+    const { data, error } = await supabase
+      .from("medical_terminology")
+      .upsert(
+        {
+          code_system: form.code_system,
+          code: hit.ui,
+          display: hit.name,
+          category: finalCategory,
+          description: finalDescription,
+          status: "active",
+        },
+        { onConflict: "code_system,code" },
+      )
+      .select()
+      .single();
+    setImportingCode(null);
+    if (error) {
+      toast.error("Import failed", { description: error.message });
+      return;
+    }
+    setRows((r) => {
+      const without = r.filter((x) => x.id !== (data as any).id);
+      return [...without, data as any].sort(
+        (a, b) =>
+          a.code_system.localeCompare(b.code_system) ||
+          a.code.localeCompare(b.code),
+      );
+    });
+    setActiveSystem(form.code_system);
+    toast.success("Imported to dictionary", {
+      description: `${form.code_system} · ${hit.ui} — ${hit.name}`,
+    });
+  };
 
   const load = async () => {
     setLoading(true);
@@ -965,6 +1072,9 @@ function MedicalDictionary() {
       description: "",
     });
     setLookupNote(null);
+    setUmlsQuery("");
+    setUmlsResults([]);
+    setUmlsError(null);
     setAddOpen(true);
   };
 
@@ -1172,7 +1282,7 @@ function MedicalDictionary() {
       </div>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add Terminology</DialogTitle>
             <DialogDescription>
@@ -1188,6 +1298,58 @@ function MedicalDictionary() {
                   {CODE_SYSTEMS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            {/* UMLS search — debounced, secure proxy */}
+            <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 space-y-2">
+              <Label className="text-xs flex items-center gap-2">
+                🔎 UMLS Search ({form.code_system})
+                {umlsLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+              </Label>
+              <input
+                value={umlsQuery}
+                onChange={(e) => setUmlsQuery(e.target.value)}
+                placeholder={
+                  umlsVocab(form.code_system)
+                    ? `Search ${form.code_system} (e.g. ${form.code_system === "RxNorm" ? "ibuprofen" : form.code_system === "LOINC" ? "hemoglobin" : "sepsis"})`
+                    : "VSAC is manual-entry only"
+                }
+                disabled={!umlsVocab(form.code_system)}
+                className="h-9 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30 disabled:bg-slate-100 disabled:cursor-not-allowed"
+              />
+              {umlsError && (
+                <div className="text-[11px] text-amber-700">{umlsError}</div>
+              )}
+              {umlsResults.length > 0 && (
+                <ul className="max-h-56 overflow-y-auto divide-y divide-slate-200 rounded border border-slate-200 bg-white">
+                  {umlsResults.map((hit) => (
+                    <li
+                      key={`${hit.rootSource}-${hit.ui}`}
+                      className="flex items-center justify-between gap-3 px-3 py-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-mono text-[11px] font-semibold text-slate-900">
+                          {hit.ui}
+                        </div>
+                        <div className="text-slate-700 truncate">{hit.name}</div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => importUmls(hit)}
+                        disabled={importingCode === hit.ui}
+                        className="shrink-0"
+                      >
+                        {importingCode === hit.ui ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5" />
+                        )}
+                        Import
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
