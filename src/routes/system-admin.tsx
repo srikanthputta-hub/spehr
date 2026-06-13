@@ -633,44 +633,77 @@ function UserDirectory() {
 /* ============================================================ */
 /*  Safety Alerts — drug↔allergy conflict queue                 */
 /* ============================================================ */
+type DbSafetyAlert = {
+  id: string;
+  mrn: string;
+  patient_name: string | null;
+  facility_name: string | null;
+  kind: "Drug-Allergy" | "Drug-Drug";
+  drug: string;
+  drug_b: string | null;
+  allergy_name: string | null;
+  family: string;
+  severity: string | null;
+  status: "Pending Review" | "Overridden" | "Rejected";
+  decided_by: string | null;
+  decided_at: string | null;
+  rationale: string | null;
+  created_at: string;
+};
+
 function SafetyQueue() {
-  const [items, setItems] = useState<SafetyConflict[]>([]);
+  const [items, setItems] = useState<DbSafetyAlert[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
     setLoading(true);
-    try {
-      setItems(await loadSafetyQueue(50));
-    } finally {
-      setLoading(false);
-    }
+    const { data, error } = await supabase
+      .from("clinical_safety_alerts")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (error) toast.error("Could not load safety alerts", { description: error.message });
+    setItems(((data ?? []) as DbSafetyAlert[]));
+    setLoading(false);
   };
 
   useEffect(() => {
     refresh();
-    const onEvt = () => refresh();
-    window.addEventListener("spehr:safety-queue", onEvt);
-    return () => window.removeEventListener("spehr:safety-queue", onEvt);
+    const channel = supabase
+      .channel("safety-alerts-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "clinical_safety_alerts" },
+        () => refresh(),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const act = (c: SafetyConflict, status: "Overridden" | "Rejected") => {
+  const act = async (c: DbSafetyAlert, status: "Overridden" | "Rejected") => {
     const rationale = window.prompt(
       `${status === "Overridden" ? "Override" : "Reject"} this alert — clinical rationale:`,
-      status === "Overridden" ? "Benefit outweighs allergy risk; patient tolerated similar in past." : "Discontinue order; substitute non-cross-reactive agent.",
+      status === "Overridden"
+        ? "Benefit outweighs risk; patient tolerated similar agent previously."
+        : "Discontinue order; substitute non-cross-reactive agent.",
     );
     if (rationale === null) return;
-    decideConflict(c.id, {
-      status,
-      decided_by: "Command Center · System Administration",
-      decided_at: new Date().toISOString(),
-      rationale,
-    });
+    const { error } = await supabase
+      .from("clinical_safety_alerts")
+      .update({
+        status,
+        decided_by: "Command Center · System Administration",
+        decided_at: new Date().toISOString(),
+        rationale,
+      })
+      .eq("id", c.id);
+    if (error) { toast.error("Update failed", { description: error.message }); return; }
     toast.success(`Alert ${status.toLowerCase()}`);
     refresh();
   };
 
-  const pending = items.filter((i) => i.status === "Pending");
-  const decided = items.filter((i) => i.status !== "Pending");
+  const pending = items.filter((i) => i.status === "Pending Review");
+  const decided = items.filter((i) => i.status !== "Pending Review");
 
   return (
     <div className="space-y-4">
@@ -713,7 +746,7 @@ function SafetyQueue() {
             <div
               key={c.id}
               className={`rounded-xl border bg-white shadow-sm p-4 ${
-                c.status === "Pending" ? "border-red-300" : "border-slate-200 opacity-80"
+                c.status === "Pending Review" ? "border-red-300" : "border-slate-200 opacity-80"
               }`}
             >
               <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -723,11 +756,11 @@ function SafetyQueue() {
                       <AlertTriangle className="h-3 w-3" /> Auto-commit halted
                     </span>
                     <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                      c.kind === "ddi"
+                      c.kind === "Drug-Drug"
                         ? "border-purple-200 bg-purple-50 text-purple-700"
                         : "border-amber-200 bg-amber-50 text-amber-700"
                     }`}>
-                      {c.kind === "ddi" ? `DDI · ${c.severity ?? "Major"}` : "Allergy"}
+                      {c.kind === "Drug-Drug" ? `DDI · ${c.severity ?? "Major"}` : "Drug-Allergy"}
                     </span>
                     <span className="font-mono text-[11px] text-slate-500">{c.mrn}</span>
                     <span className="text-sm font-semibold text-slate-900">{c.patient_name}</span>
@@ -736,7 +769,7 @@ function SafetyQueue() {
                     )}
                   </div>
                   <div className="mt-1.5 text-sm text-slate-800">
-                    {c.kind === "ddi" ? (
+                    {c.kind === "Drug-Drug" ? (
                       <>
                         Co-prescribed <span className="font-semibold">{c.drug}</span> +{" "}
                         <span className="font-semibold">{c.drug_b}</span> —{" "}
@@ -746,8 +779,7 @@ function SafetyQueue() {
                       <>
                         Ordered <span className="font-semibold">{c.drug}</span> conflicts with
                         documented allergy to{" "}
-                        <span className="font-semibold">{c.allergy?.name}</span>
-                        {c.allergy?.reaction ? ` (${c.allergy.reaction})` : ""} —
+                        <span className="font-semibold">{c.allergy_name}</span> —
                         cross-reactivity family:{" "}
                         <span className="font-mono text-[11px]">{c.family}</span>.
                       </>
@@ -761,7 +793,7 @@ function SafetyQueue() {
                     </div>
                   )}
                 </div>
-                {c.status === "Pending" ? (
+                {c.status === "Pending Review" ? (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <Button
                       size="sm"
