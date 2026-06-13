@@ -954,71 +954,77 @@ function CustomRulesCard() {
 /* ============================================================ */
 /*  NLP Audit Logs — 3-paragraph view of each admission's NLP run */
 /* ============================================================ */
-function NlpAuditLogs() {
+function NlpAuditLogs({ facility }: { facility: string }) {
   const [audits, setAudits] = useState<NlpAudit[]>([]);
-  const [demo, setDemo] = useState(true);
 
+  // Load latest 15 patients (filtered by facility if selected) and synthesize
+  // an NLP audit per patient from their chief complaint + recent narrative so
+  // reviewers see live admissions instead of a fixed demo set.
   useEffect(() => {
-    const refresh = () => setAudits(loadAudits());
-    refresh();
-    const onEvt = () => refresh();
+    let cancelled = false;
+    (async () => {
+      try {
+        const dict = await loadDictionary();
+        let q = supabase
+          .from("patients")
+          .select("mrn, first_name, last_name, name, facility_name, admission_time, chief_complaint, diagnosis")
+          .order("admission_time", { ascending: false })
+          .limit(15);
+        if (facility && facility !== "all") {
+          q = q.eq("facility_name", facility);
+        }
+        const { data } = await q;
+        const live: NlpAudit[] = [];
+        for (const p of (data ?? []) as any[]) {
+          const narrative =
+            [p.chief_complaint, p.diagnosis].filter(Boolean).join(". ") ||
+            "Admission without recorded narrative.";
+          const res = analyzeNarrative(narrative, dict);
+          live.push({
+            ...res,
+            id: `live_${p.mrn ?? Math.random().toString(36).slice(2)}`,
+            created_at: p.admission_time ?? new Date().toISOString(),
+            mrn: p.mrn,
+            patient_name:
+              `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() ||
+              p.name ||
+              "Unattributed encounter",
+            facility_name: p.facility_name,
+          } as NlpAudit);
+        }
+        // Merge any locally captured (event-driven) audits, filtered by facility.
+        const local = loadAudits().filter(
+          (a) => facility === "all" || a.facility_name === facility,
+        );
+        const merged = [...local, ...live].slice(0, 15);
+        if (!cancelled) setAudits(merged);
+      } catch {/* noop */}
+    })();
+    return () => { cancelled = true; };
+  }, [facility]);
+
+  // Refresh on live NLP audit events for the currently-viewed facility.
+  useEffect(() => {
+    const onEvt = () => {
+      const local = loadAudits().filter(
+        (a) => facility === "all" || a.facility_name === facility,
+      );
+      setAudits((prev) => {
+        const ids = new Set(local.map((l) => l.id));
+        const keep = prev.filter((p) => !ids.has(p.id));
+        return [...local, ...keep].slice(0, 15);
+      });
+    };
     window.addEventListener("spehr:nlp-audit", onEvt);
     window.addEventListener("storage", onEvt);
     return () => {
       window.removeEventListener("spehr:nlp-audit", onEvt);
       window.removeEventListener("storage", onEvt);
     };
-  }, []);
-
-  // Seed a demo audit set if the workspace has never run intake — gives
-  // reviewers something to read without forcing a fresh admission.
-  useEffect(() => {
-    if (!demo) return;
-    if (audits.length > 0) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const dict = await loadDictionary();
-        const samples = [
-          {
-            narrative:
-              "Pt arrives with severe chest pain radiating to the left arm, hx of bad hypertension and mild SOB. Denies fever.",
-            mrn: "DEMO-001",
-            patient_name: "Demo · Chest pain rule-out",
-          },
-          {
-            narrative:
-              "65 y/o with productive cough, fever, and worsening shortness of breath x 3 days; suspect pneumonia, evaluate for sepsis.",
-            mrn: "DEMO-002",
-            patient_name: "Demo · Suspected pneumonia",
-          },
-          {
-            narrative:
-              "Sudden facial droop and slurred speech onset 45 min ago. R/o stroke / CVA, NIHSS pending.",
-            mrn: "DEMO-003",
-            patient_name: "Demo · Stroke alert",
-          },
-        ];
-        const seeded = samples.map((s) => {
-          const res = analyzeNarrative(s.narrative, dict);
-          return {
-            ...res,
-            id: `demo_${s.mrn}`,
-            created_at: new Date().toISOString(),
-            mrn: s.mrn,
-            patient_name: s.patient_name,
-            facility_name: "Memorial Hospital",
-          } as NlpAudit;
-        });
-        if (!cancelled) setAudits(seeded);
-      } catch {/* noop */}
-    })();
-    return () => { cancelled = true; };
-  }, [demo, audits.length]);
+  }, [facility]);
 
   const onClear = () => {
     clearAudits();
-    setDemo(false);
     setAudits([]);
     toast.success("NLP audit log cleared");
   };
@@ -1031,9 +1037,10 @@ function NlpAuditLogs() {
             <Sparkles className="h-4 w-4 text-indigo-600" /> NLP Coding Audit Trail
           </h2>
           <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-            Every Smart Intake run is captured here in three stages — raw entry,
-            extraction mapping, and standardized output — so coders can audit
-            how the NLP engine interpreted the physician's narrative.
+            Showing the latest {audits.length} admission{audits.length === 1 ? "" : "s"}
+            {facility !== "all" ? ` at ${facility}` : " across the network"} — each
+            captured in three stages (raw entry, extraction mapping, standardized
+            output) so coders can audit how the NLP engine interpreted the narrative.
           </p>
         </div>
         <Button variant="outline" onClick={onClear} title="Clear local audit log">
@@ -1772,6 +1779,7 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
 
 function MedicalDictionary() {
   const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety">("catalog");
+  const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSystem, setActiveSystem] = useState<string>("ICD-10");
@@ -2030,9 +2038,26 @@ function MedicalDictionary() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
-            📚 Medical Dictionary
-          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
+              📚 Medical Dictionary
+            </h1>
+            <label className="inline-flex items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                🏥 Select Facility Network
+              </span>
+              <select
+                value={facilityFilter}
+                onChange={(e) => setFacilityFilter(e.target.value)}
+                className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none hover:bg-slate-50 focus:border-slate-400 transition cursor-pointer"
+              >
+                <option value="all">All Facilities</option>
+                {FACILITIES.map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           <p className="text-sm text-slate-600 mt-1 max-w-2xl">
             VSAC-aligned terminology library used across the EHR. Browse SNOMED CT, ICD-10,
             LOINC, RxNorm, and curated value sets; extend with site-specific codes.
@@ -2078,7 +2103,7 @@ function MedicalDictionary() {
         })}
       </div>
 
-      {subtab === "audits" && <NlpAuditLogs />}
+      {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} />}
       {subtab === "safety" && <SafetyQueue />}
 
