@@ -546,10 +546,11 @@ function Dashboard() {
     // a SOAP-formatted clinical note into the chart timeline.
     if (input.intake) {
       try {
-        saveIntake(data.mrn, { ...input.intake, mrn: data.mrn });
-        const soap = intakeToSoap({ ...input.intake, mrn: data.mrn });
+        const mrnSafe = data.mrn ?? mrn;
+        saveIntake(mrnSafe, { ...input.intake, mrn: mrnSafe });
+        const soap = intakeToSoap({ ...input.intake, mrn: mrnSafe });
         await supabase.from("clinical_notes").insert({
-          mrn: data.mrn,
+          mrn: mrnSafe,
           note_type: "Admission Intake (SOAP)",
           content: soap,
           author: "Admitting Provider",
