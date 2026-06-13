@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash } from "lucide-react";
+import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash, ShieldAlert, AlertTriangle, Check, X, FileCheck2, ListChecks } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -39,6 +39,20 @@ import {
   type NlpAudit,
   type DictRow,
 } from "@/lib/nlp-engine";
+import {
+  loadSafetyQueue,
+  decideConflict,
+  loadCustomRules,
+  saveCustomRules,
+  loadCustomBanned,
+  saveCustomBanned,
+  detectBanned,
+  JC_BANNED,
+  type SafetyConflict,
+  type CustomRule,
+  type BannedAbbrev,
+} from "@/lib/safety-conflicts";
+import { Input } from "@/components/ui/input";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
