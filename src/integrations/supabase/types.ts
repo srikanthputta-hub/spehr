@@ -41,6 +41,60 @@ export type Database = {
         }
         Relationships: []
       }
+      clinical_safety_alerts: {
+        Row: {
+          allergy_name: string | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          drug: string
+          drug_b: string | null
+          facility_name: string | null
+          family: string
+          id: string
+          kind: string
+          mrn: string
+          patient_name: string | null
+          rationale: string | null
+          severity: string | null
+          status: string
+        }
+        Insert: {
+          allergy_name?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          drug: string
+          drug_b?: string | null
+          facility_name?: string | null
+          family: string
+          id?: string
+          kind: string
+          mrn: string
+          patient_name?: string | null
+          rationale?: string | null
+          severity?: string | null
+          status?: string
+        }
+        Update: {
+          allergy_name?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          drug?: string
+          drug_b?: string | null
+          facility_name?: string | null
+          family?: string
+          id?: string
+          kind?: string
+          mrn?: string
+          patient_name?: string | null
+          rationale?: string | null
+          severity?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       hospital_staff: {
         Row: {
           assigned_patients: number | null
@@ -311,6 +365,33 @@ export type Database = {
         }
         Relationships: []
       }
+      nlp_custom_rules: {
+        Row: {
+          canonical_mapping: string | null
+          created_at: string
+          id: string
+          preferred_form: string | null
+          raw_term: string
+          type: string
+        }
+        Insert: {
+          canonical_mapping?: string | null
+          created_at?: string
+          id?: string
+          preferred_form?: string | null
+          raw_term: string
+          type: string
+        }
+        Update: {
+          canonical_mapping?: string | null
+          created_at?: string
+          id?: string
+          preferred_form?: string | null
+          raw_term?: string
+          type?: string
+        }
+        Relationships: []
+      }
       nurse_assignments: {
         Row: {
           assigned_at: string | null
@@ -432,6 +513,7 @@ export type Database = {
           first_name: string | null
           gender: string | null
           hr: number | null
+          icd10_codes: string[]
           id: string
           last_name: string | null
           meds_due_count: number | null
@@ -440,6 +522,7 @@ export type Database = {
           patient_id: string | null
           room: string | null
           rr: number | null
+          snomed_codes: string[]
           spo2: number | null
           status: string
           temp: number | null
@@ -460,6 +543,7 @@ export type Database = {
           first_name?: string | null
           gender?: string | null
           hr?: number | null
+          icd10_codes?: string[]
           id?: string
           last_name?: string | null
           meds_due_count?: number | null
@@ -468,6 +552,7 @@ export type Database = {
           patient_id?: string | null
           room?: string | null
           rr?: number | null
+          snomed_codes?: string[]
           spo2?: number | null
           status?: string
           temp?: number | null
@@ -488,6 +573,7 @@ export type Database = {
           first_name?: string | null
           gender?: string | null
           hr?: number | null
+          icd10_codes?: string[]
           id?: string
           last_name?: string | null
           meds_due_count?: number | null
@@ -496,6 +582,7 @@ export type Database = {
           patient_id?: string | null
           room?: string | null
           rr?: number | null
+          snomed_codes?: string[]
           spo2?: number | null
           status?: string
           temp?: number | null
