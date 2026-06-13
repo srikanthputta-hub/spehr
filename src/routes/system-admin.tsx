@@ -1019,10 +1019,13 @@ function NlpAuditLogs({ facility }: { facility: string }) {
             [p.chief_complaint, p.diagnosis].filter(Boolean).join(". ") ||
             "Admission without recorded narrative.";
           const res = analyzeNarrative(narrative, dict);
+          const createdAt = p.admission_time ?? new Date().toISOString();
+          const autoResolveAt = new Date(new Date(createdAt).getTime() + 60_000).toISOString();
           live.push({
             ...res,
             id: `live_${p.mrn ?? Math.random().toString(36).slice(2)}`,
-            created_at: p.admission_time ?? new Date().toISOString(),
+            created_at: createdAt,
+            auto_resolve_at: autoResolveAt,
             mrn: p.mrn,
             patient_name:
               `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() ||
@@ -1112,21 +1115,193 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
   const streamAOk = (audit as any).streamAOk ?? true;
   const lowConfidence = confidence < 95;
 
-  // Local per-card decision so coders can Approve / Edit / Reject without
-  // a backend round-trip. Persist last decision in localStorage so the
-  // Audit Log shows reviewer state on reload.
+  // Per-card decision persisted in localStorage so reviewer state survives reloads.
+  type Decision = "pending" | "approved" | "auto" | "rejected";
   const decisionKey = `spehr.nlp_decision.${audit.id}`;
-  const [decision, setDecision] = useState<"pending" | "approved" | "edited" | "rejected">(() => {
-    if (typeof window === "undefined") return lowConfidence ? "pending" : "approved";
-    return (window.localStorage.getItem(decisionKey) as any) ?? (lowConfidence ? "pending" : "approved");
-  });
-  const [editing, setEditing] = useState(false);
-  const [editText, setEditText] = useState(audit.standardized.join("\n"));
+  const methodKey = `spehr.nlp_method.${audit.id}`;
+  const codesKey = `spehr.nlp_codes.${audit.id}`;
+  const linesKey = `spehr.nlp_lines.${audit.id}`;
 
-  const persist = (d: typeof decision) => {
+  const initialIcd = (audit.byCode["ICD-10"] ?? []).map((m) => m.code);
+  const initialSno = (audit.byCode["SNOMED CT"] ?? []).map((m) => m.code);
+
+  const [decision, setDecision] = useState<Decision>(() => {
+    if (typeof window === "undefined") return "pending";
+    return (window.localStorage.getItem(decisionKey) as Decision) ?? "pending";
+  });
+  const [method, setMethod] = useState<string>(() => {
+    if (typeof window === "undefined") return "Pending";
+    return window.localStorage.getItem(methodKey) ?? "Pending";
+  });
+  const [icd10Codes, setIcd10Codes] = useState<string[]>(() => {
+    if (typeof window === "undefined") return initialIcd;
+    const raw = window.localStorage.getItem(codesKey);
+    if (!raw) return initialIcd;
+    try { return (JSON.parse(raw).icd10 as string[]) ?? initialIcd; } catch { return initialIcd; }
+  });
+  const [snomedCodes, setSnomedCodes] = useState<string[]>(() => {
+    if (typeof window === "undefined") return initialSno;
+    const raw = window.localStorage.getItem(codesKey);
+    if (!raw) return initialSno;
+    try { return (JSON.parse(raw).snomed as string[]) ?? initialSno; } catch { return initialSno; }
+  });
+  const [lines, setLines] = useState<string[]>(() => {
+    if (typeof window === "undefined") return audit.standardized;
+    const raw = window.localStorage.getItem(linesKey);
+    if (!raw) return audit.standardized;
+    try { return JSON.parse(raw) as string[]; } catch { return audit.standardized; }
+  });
+  const [editOpen, setEditOpen] = useState(false);
+  const [dictSearch, setDictSearch] = useState("");
+  const [dict, setDict] = useState<DictRow[]>([]);
+
+  const persist = (d: Decision) => {
     setDecision(d);
     if (typeof window !== "undefined") window.localStorage.setItem(decisionKey, d);
   };
+  const persistMethod = (m: string) => {
+    setMethod(m);
+    if (typeof window !== "undefined") window.localStorage.setItem(methodKey, m);
+  };
+  const persistCodes = (icd: string[], sno: string[]) => {
+    setIcd10Codes(icd);
+    setSnomedCodes(sno);
+    if (typeof window !== "undefined")
+      window.localStorage.setItem(codesKey, JSON.stringify({ icd10: icd, snomed: sno }));
+  };
+  const persistLines = (l: string[]) => {
+    setLines(l);
+    if (typeof window !== "undefined") window.localStorage.setItem(linesKey, JSON.stringify(l));
+  };
+
+  // --- 60-second SLA countdown ----------------------------------------
+  const autoResolveAt = (() => {
+    const raw = (audit as any).auto_resolve_at as string | undefined;
+    if (raw) return new Date(raw).getTime();
+    return new Date(audit.created_at).getTime() + 60_000;
+  })();
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    if (decision !== "pending") return;
+    const t = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [decision]);
+  const secLeft = Math.max(0, Math.ceil((autoResolveAt - nowTs) / 1000));
+  const pct = Math.max(0, Math.min(100, (secLeft / 60) * 100));
+  const barColor = secLeft <= 15 ? "bg-red-500" : secLeft <= 30 ? "bg-amber-500" : "bg-emerald-500";
+
+  // --- Commit codes to the patient row (Live Terminology Matrix) ------
+  async function commitToPatient(icd: string[], sno: string[]) {
+    if (!audit.mrn) return;
+    try {
+      const { data } = await supabase
+        .from("patients")
+        .select("icd10_codes, snomed_codes")
+        .eq("mrn", audit.mrn)
+        .maybeSingle();
+      const mergedIcd = Array.from(new Set([...(((data as any)?.icd10_codes as string[]) ?? []), ...icd]));
+      const mergedSno = Array.from(new Set([...(((data as any)?.snomed_codes as string[]) ?? []), ...sno]));
+      await supabase
+        .from("patients")
+        .update({ icd10_codes: mergedIcd, snomed_codes: mergedSno } as any)
+        .eq("mrn", audit.mrn);
+      if (typeof window !== "undefined")
+        window.dispatchEvent(new CustomEvent("spehr:matrix-refresh"));
+    } catch (e: any) {
+      toast.error("Commit failed", { description: e?.message });
+    }
+  }
+
+  // --- Approve / Reject ------------------------------------------------
+  const handleApprove = async () => {
+    const hasCodes = icd10Codes.length + snomedCodes.length > 0;
+    if (!hasCodes) {
+      toast.warning("Cannot approve without mapped codes. Click Edit to manually code.");
+      return;
+    }
+    await commitToPatient(icd10Codes, snomedCodes);
+    persistMethod("Human Mapped");
+    persist("approved");
+    toast.success("Approved — committed to Live Terminology Matrix");
+  };
+
+  const handleReject = () => {
+    persistMethod("Rejected");
+    persist("rejected");
+    toast.message("Rejected — codes not committed");
+  };
+
+  // --- AI Auto-Fallback at 0s ------------------------------------------
+  const FALLBACK_MAP: Array<{ kw: RegExp; icd10: string; snomed: string; display: string }> = [
+    { kw: /cough|pneumonia|pna\b/i,            icd10: "J18.9",  snomed: "267036007", display: "Pneumonia, unspecified" },
+    { kw: /chest pain|cp\b|stemi|nstemi|\bmi\b/i, icd10: "I20.9",  snomed: "29857009",  display: "Chest pain / angina" },
+    { kw: /short(ness)? of breath|sob|dyspnea/i, icd10: "R06.02", snomed: "267036007", display: "Shortness of breath" },
+    { kw: /fever|febrile|pyrexia/i,             icd10: "R50.9",  snomed: "386661006", display: "Fever, unspecified" },
+    { kw: /abdominal|abd pain|stomach|belly/i,  icd10: "R10.9",  snomed: "21522001",  display: "Abdominal pain" },
+    { kw: /stroke|cva|tia/i,                    icd10: "I63.9",  snomed: "230690007", display: "Cerebral infarction" },
+    { kw: /sepsis|septic/i,                     icd10: "A41.9",  snomed: "91302008",  display: "Sepsis, unspecified" },
+    { kw: /headache|migraine/i,                 icd10: "R51",    snomed: "25064002",  display: "Headache" },
+  ];
+  const pickFallback = () => {
+    const hit = FALLBACK_MAP.find((m) => m.kw.test(audit.raw));
+    return hit ?? { icd10: "R69", snomed: "64572001", display: "Illness, unspecified" };
+  };
+  const autoFallbackRef = useState({ fired: false })[0];
+  useEffect(() => {
+    if (decision !== "pending") return;
+    if (secLeft > 0) return;
+    if (autoFallbackRef.fired) return;
+    autoFallbackRef.fired = true;
+    (async () => {
+      const fb = pickFallback();
+      const nextIcd = Array.from(new Set([...icd10Codes, fb.icd10]));
+      const nextSno = Array.from(new Set([...snomedCodes, fb.snomed]));
+      persistCodes(nextIcd, nextSno);
+      persistLines([...lines, `AI fallback: ${fb.display} (ICD-10 ${fb.icd10}, SNOMED ${fb.snomed})`]);
+      await commitToPatient(nextIcd, nextSno);
+      persistMethod("AI Auto-Fallback");
+      persist("auto");
+      toast.message("AI Auto-Resolved", {
+        description: `${fb.display} — ICD-10 ${fb.icd10} / SNOMED ${fb.snomed} committed.`,
+      });
+    })();
+  }, [secLeft, decision]);
+
+  // --- Edit modal: dictionary search ----------------------------------
+  useEffect(() => {
+    if (!editOpen || dict.length) return;
+    loadDictionary().then(setDict).catch(() => {});
+  }, [editOpen, dict.length]);
+  const dictMatches = (() => {
+    const q = dictSearch.trim().toLowerCase();
+    if (!q) return [] as DictRow[];
+    return dict
+      .filter((d) => d.code_system === "ICD-10" || d.code_system === "SNOMED CT")
+      .filter((d) => d.display.toLowerCase().includes(q) || d.code.toLowerCase().includes(q))
+      .slice(0, 25);
+  })();
+  const appendCode = (row: DictRow) => {
+    if (row.code_system === "ICD-10") {
+      if (icd10Codes.includes(row.code)) return;
+      persistCodes([...icd10Codes, row.code], snomedCodes);
+    } else if (row.code_system === "SNOMED CT") {
+      if (snomedCodes.includes(row.code)) return;
+      persistCodes(icd10Codes, [...snomedCodes, row.code]);
+    }
+    persistLines([...lines, `Coder added: ${row.display} (${row.code_system} ${row.code})`]);
+    toast.success(`Added ${row.code_system} ${row.code}`);
+  };
+
+  // --- Badge ----------------------------------------------------------
+  const badge = (() => {
+    if (decision === "approved")
+      return { text: `APPROVED · ${method}`, cls: "bg-emerald-100 text-emerald-700 border-emerald-300" };
+    if (decision === "auto")
+      return { text: "AI AUTO-RESOLVED", cls: "bg-amber-100 text-amber-800 border-amber-300" };
+    if (decision === "rejected")
+      return { text: "REJECTED", cls: "bg-red-100 text-red-700 border-red-300" };
+    return { text: "PENDING REVIEW", cls: "bg-amber-50 text-amber-800 border-amber-200" };
+  })();
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -1245,79 +1420,137 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
             <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">
               ③ Final Standardized Output
             </div>
-            <span
-              className={`text-[10px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border ${
-                decision === "approved"
-                  ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-                  : decision === "edited"
-                  ? "bg-sky-100 text-sky-700 border-sky-200"
-                  : decision === "rejected"
-                  ? "bg-red-100 text-red-700 border-red-200"
-                  : "bg-amber-100 text-amber-800 border-amber-200"
-              }`}
-            >
-              {decision === "pending" ? "Awaiting coder" : decision}
+            <span className={`text-[10px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border ${badge.cls}`}>
+              {badge.text}
             </span>
           </div>
-          {lowConfidence && decision === "pending" && (
-            <div className="mb-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-              Confidence {confidence}% &lt; 95%. Held in audit log — write to Live
-              Terminology Matrix only after a coder approves.
+          {/* SLA countdown — only while pending */}
+          {decision === "pending" && (
+            <div className="mb-2">
+              <div className="flex items-center justify-between text-[11px] mb-1">
+                <span className={secLeft <= 15 ? "text-red-700 font-semibold" : "text-slate-600"}>
+                  Auto-fallback in {secLeft}s
+                </span>
+                <span className="text-[10px] text-slate-500">60s SLA</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                <div
+                  className={`h-full ${barColor} transition-all duration-1000 ease-linear`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
             </div>
           )}
-          {editing ? (
-            <textarea
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              className="w-full h-32 text-xs font-mono rounded border border-slate-300 p-2"
-            />
-          ) : (
-            <ul className="space-y-1.5 text-sm text-slate-800">
-              {(editing ? editText.split("\n") : audit.standardized).map((line, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="text-emerald-600 mt-0.5">•</span>
-                  <span>{line}</span>
-                </li>
+          {lowConfidence && decision === "pending" && (
+            <div className="mb-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+              Confidence {confidence}% &lt; 95%. Held in audit log — commits to the
+              Live Terminology Matrix only after a coder approves.
+            </div>
+          )}
+          <ul className="space-y-1.5 text-sm text-slate-800">
+            {lines.map((line, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="text-emerald-600 mt-0.5">•</span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+          {(icd10Codes.length > 0 || snomedCodes.length > 0) && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {icd10Codes.map((c) => (
+                <span key={`i-${c}`} className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-bold text-blue-700">
+                  ICD-10 {c}
+                </span>
               ))}
-            </ul>
+              {snomedCodes.map((c) => (
+                <span key={`s-${c}`} className="inline-flex items-center rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700">
+                  SNOMED {c}
+                </span>
+              ))}
+            </div>
           )}
           <div className="mt-3 flex items-center gap-1.5">
-            {editing ? (
-              <>
-                <Button
-                  size="sm"
-                  className="h-7 bg-emerald-600 hover:bg-emerald-700"
-                  onClick={() => { persist("edited"); setEditing(false); toast.success("Coder edit saved"); }}
-                >
-                  <Check className="h-3 w-3" /> Save edit
-                </Button>
-                <Button size="sm" variant="outline" className="h-7" onClick={() => setEditing(false)}>
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  size="sm"
-                  className="h-7 bg-emerald-600 hover:bg-emerald-700"
-                  onClick={() => { persist("approved"); toast.success("Approved — wrote to Live Terminology Matrix"); }}
-                >
-                  <Check className="h-3 w-3" /> Approve
-                </Button>
-                <Button size="sm" variant="outline" className="h-7" onClick={() => setEditing(true)}>
-                  <Pencil className="h-3 w-3" /> Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-red-600 border-red-200 hover:bg-red-50"
-                  onClick={() => { persist("rejected"); toast.success("Rejected — not committed"); }}
-                >
-                  <X className="h-3 w-3" /> Reject
-                </Button>
-              </>
-            )}
+            <Button
+              size="sm"
+              className="h-7 bg-emerald-600 hover:bg-emerald-700"
+              disabled={decision !== "pending"}
+              onClick={handleApprove}
+            >
+              <Check className="h-3 w-3" /> Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7"
+              onClick={() => setEditOpen(true)}
+            >
+              <Pencil className="h-3 w-3" /> Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-red-600 border-red-200 hover:bg-red-50"
+              disabled={decision !== "pending"}
+              onClick={handleReject}
+            >
+              <X className="h-3 w-3" /> Reject
+            </Button>
           </div>
+
+          <Dialog open={editOpen} onOpenChange={setEditOpen}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Manual coding · {audit.patient_name ?? audit.mrn}</DialogTitle>
+                <DialogDescription>
+                  Search the terminology dictionary and click a row to append it
+                  to this audit's standardized output. ICD-10 and SNOMED CT only.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <Input
+                  placeholder="Search by display name or code (e.g. pneumonia, J18.9)…"
+                  value={dictSearch}
+                  onChange={(e) => setDictSearch(e.target.value)}
+                  autoFocus
+                />
+                <div className="max-h-72 overflow-y-auto rounded border border-slate-200 divide-y divide-slate-100">
+                  {dictSearch.trim() === "" ? (
+                    <div className="p-4 text-center text-xs text-slate-500">
+                      Start typing to search the dictionary.
+                    </div>
+                  ) : dictMatches.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-500">
+                      No matches.
+                    </div>
+                  ) : (
+                    dictMatches.map((row) => (
+                      <button
+                        key={row.id}
+                        type="button"
+                        onClick={() => appendCode(row)}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+                          row.code_system === "ICD-10"
+                            ? "border-blue-200 bg-blue-50 text-blue-700"
+                            : "border-violet-200 bg-violet-50 text-violet-700"
+                        }`}>
+                          {row.code_system} {row.code}
+                        </span>
+                        <span className="text-sm text-slate-800 truncate">{row.display}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Current codes: {icd10Codes.length} ICD-10 · {snomedCodes.length} SNOMED CT
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditOpen(false)}>Done</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>
@@ -1343,6 +1576,7 @@ type MatrixCell = {
 function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility: string }) {
   const [rows, setRows] = useState<MatrixCell[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1398,7 +1632,14 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       }
     })();
     return () => { cancelled = true; };
-  }, [facility]);
+  }, [facility, refreshTick]);
+
+  // Re-fetch when a coder/AI commits new codes from the NLP Audit Logs.
+  useEffect(() => {
+    const onEvt = () => setRefreshTick((t) => t + 1);
+    window.addEventListener("spehr:matrix-refresh", onEvt);
+    return () => window.removeEventListener("spehr:matrix-refresh", onEvt);
+  }, []);
 
   // Build a quick index from display→DictEntry per code system.
   const indexBySystem = (() => {

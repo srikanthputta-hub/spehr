@@ -365,6 +365,45 @@ export type Database = {
         }
         Relationships: []
       }
+      nlp_audit_logs: {
+        Row: {
+          auto_resolve_at: string | null
+          confidence_score: number | null
+          created_at: string | null
+          extraction_mapping: string
+          id: string
+          patient_mrn: string
+          raw_text: string
+          resolution_method: string | null
+          standardized_output: Json
+          status: string | null
+        }
+        Insert: {
+          auto_resolve_at?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          extraction_mapping: string
+          id?: string
+          patient_mrn: string
+          raw_text: string
+          resolution_method?: string | null
+          standardized_output: Json
+          status?: string | null
+        }
+        Update: {
+          auto_resolve_at?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          extraction_mapping?: string
+          id?: string
+          patient_mrn?: string
+          raw_text?: string
+          resolution_method?: string | null
+          standardized_output?: Json
+          status?: string | null
+        }
+        Relationships: []
+      }
       nlp_custom_rules: {
         Row: {
           canonical_mapping: string | null
