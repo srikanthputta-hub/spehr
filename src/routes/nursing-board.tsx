@@ -690,7 +690,7 @@ function Dashboard() {
                   <th className="px-3 py-2 font-bold">Room / Bed</th>
                   <th className="px-3 py-2 font-bold">MRN</th>
                   <th className="px-3 py-2 font-bold">Patient Name</th>
-                  <th className="px-3 py-2 font-bold">Diagnosis</th>
+                  <th className="px-3 py-2 font-bold">Chief Complaint</th>
                   <th className="px-3 py-2 font-bold">Admitted</th>
                   <th className="px-3 py-2 font-bold">Live Vitals</th>
                   <th className="px-3 py-2 font-bold">Clinical Alerts</th>
