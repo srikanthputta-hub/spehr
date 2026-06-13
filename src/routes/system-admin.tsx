@@ -901,6 +901,7 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
 };
 
 function MedicalDictionary() {
+  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix">("catalog");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSystem, setActiveSystem] = useState<string>("ICD-10");
@@ -1190,15 +1191,47 @@ function MedicalDictionary() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
-            <Download className="h-4 w-4" /> Export FHIR
-          </Button>
-          <Button onClick={openAdd} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
-            <Plus className="h-4 w-4" /> Add Terminology
-          </Button>
+          {subtab === "catalog" && (
+            <>
+              <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
+                <Download className="h-4 w-4" /> Export FHIR
+              </Button>
+              <Button onClick={openAdd} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
+                <Plus className="h-4 w-4" /> Add Terminology
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
+      {/* Sub-tab nav */}
+      <div className="flex items-center gap-1 border-b border-slate-200">
+        {([
+          { id: "catalog", label: "Catalog", Icon: BookMarked },
+          { id: "audits",  label: "NLP Audit Logs", Icon: Sparkles },
+          { id: "matrix",  label: "Live Terminology Matrix", Icon: Grid3x3 },
+        ] as const).map(({ id, label, Icon }) => {
+          const active = subtab === id;
+          return (
+            <button
+              key={id}
+              onClick={() => setSubtab(id)}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-t-md transition cursor-pointer border-b-2 -mb-px ${
+                active
+                  ? "border-[#0c2340] text-[#0c2340] bg-white"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" /> {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {subtab === "audits" && <NlpAuditLogs />}
+      {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} />}
+
+      {subtab === "catalog" && (<>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {CODE_SYSTEMS.map((s) => {
           const meta = SYSTEM_META[s];
@@ -1289,6 +1322,7 @@ function MedicalDictionary() {
           </div>
         )}
       </div>
+      </>)}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
