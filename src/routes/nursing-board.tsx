@@ -875,6 +875,7 @@ interface AdmitInput {
   code_status: CodeStatus;
   diagnosis: string;
   mrn?: string;
+  nlp?: NlpResult;
 }
 
 function AdmitModal({
