@@ -2179,9 +2179,12 @@ function MedicalDictionary() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Add Terminology</DialogTitle>
+            <DialogTitle>Search Terminology</DialogTitle>
             <DialogDescription>
-              Add a new code to the medical dictionary. It will be available across the network.
+              Search any SNOMED CT, ICD-10, LOINC, or RxNorm code via the live
+              UMLS API. Selecting a result fills in the Code, Category, Display
+              Name, and Usage boxes so you can review the full record before
+              saving it to the dictionary.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -2230,16 +2233,11 @@ function MedicalDictionary() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => importUmls(hit)}
-                        disabled={importingCode === hit.ui}
+                        onClick={() => useUmlsHit(hit)}
                         className="shrink-0"
                       >
-                        {importingCode === hit.ui ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Plus className="h-3.5 w-3.5" />
-                        )}
-                        Import
+                        <Search className="h-3.5 w-3.5" />
+                        Use
                       </Button>
                     </li>
                   ))}
@@ -2298,7 +2296,7 @@ function MedicalDictionary() {
             <Button variant="outline" onClick={() => setAddOpen(false)} disabled={saving}>Cancel</Button>
             <Button onClick={submit} disabled={saving} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Add Entry
+              Save to Dictionary
             </Button>
           </DialogFooter>
         </DialogContent>
