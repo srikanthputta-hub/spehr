@@ -21,6 +21,7 @@ import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
+import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -82,6 +83,11 @@ const ChartMrnRoute = ChartMrnRouteImport.update({
   path: '/chart/$mrn',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicUmlsSearchRoute = ApiPublicUmlsSearchRouteImport.update({
+  id: '/api/public/umls-search',
+  path: '/api/public/umls-search',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -96,6 +102,7 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof TasksRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
+  '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/tasks': typeof TasksRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
+  '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -125,6 +133,7 @@ export interface FileRoutesById {
   '/tasks': typeof TasksRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
+  '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -141,6 +150,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/chart/$mrn'
     | '/patient/$mrn'
+    | '/api/public/umls-search'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -155,6 +165,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/chart/$mrn'
     | '/patient/$mrn'
+    | '/api/public/umls-search'
   id:
     | '__root__'
     | '/'
@@ -169,6 +180,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/chart/$mrn'
     | '/patient/$mrn'
+    | '/api/public/umls-search'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -184,6 +196,7 @@ export interface RootRouteChildren {
   TasksRoute: typeof TasksRoute
   ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
+  ApiPublicUmlsSearchRoute: typeof ApiPublicUmlsSearchRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -272,6 +285,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChartMrnRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/umls-search': {
+      id: '/api/public/umls-search'
+      path: '/api/public/umls-search'
+      fullPath: '/api/public/umls-search'
+      preLoaderRoute: typeof ApiPublicUmlsSearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -288,7 +308,18 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
+  ApiPublicUmlsSearchRoute: ApiPublicUmlsSearchRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
