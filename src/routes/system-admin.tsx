@@ -2086,7 +2086,7 @@ function MedicalDictionary() {
         })}
       </div>
 
-      {subtab === "audits" && <NlpAuditLogs />}
+      {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} />}
       {subtab === "safety" && <SafetyQueue />}
 
