@@ -1,0 +1,1 @@
+ALTER TABLE public.patients ADD CONSTRAINT patients_mrn_unique UNIQUE (mrn);
