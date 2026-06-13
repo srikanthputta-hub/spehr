@@ -6,6 +6,12 @@ import {
 } from "@/lib/complaint-protocols";
 import { getAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { ensureTerminology } from "@/lib/ensure-terminology";
+import {
+  autoFillIntake,
+  intakeToSoap,
+  loadIntake,
+  saveIntake,
+} from "@/lib/intake-record";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -28,6 +34,9 @@ interface NewPatient {
   name: string | null;
   facility_name: string | null;
   chief_complaint: string | null;
+  age?: number | null;
+  gender?: string | null;
+  dob?: string | null;
 }
 
 interface InsertedOrder {
