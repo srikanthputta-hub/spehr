@@ -40,17 +40,17 @@ import {
   type DictRow,
 } from "@/lib/nlp-engine";
 import {
-  loadSafetyQueue,
-  decideConflict,
   loadCustomRules,
-  saveCustomRules,
   loadCustomBanned,
-  saveCustomBanned,
+  addCustomRuleDb,
+  addBannedDb,
+  removeNlpRuleDb,
+  refreshNlpRulesFromDb,
   JC_BANNED,
-  type SafetyConflict,
   type CustomRule,
-  type BannedAbbrev,
+  type CustomBanned,
 } from "@/lib/safety-conflicts";
+import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 
 export const Route = createFileRoute("/system-admin")({
@@ -630,44 +630,77 @@ function UserDirectory() {
 /* ============================================================ */
 /*  Safety Alerts — drug↔allergy conflict queue                 */
 /* ============================================================ */
+type DbSafetyAlert = {
+  id: string;
+  mrn: string;
+  patient_name: string | null;
+  facility_name: string | null;
+  kind: "Drug-Allergy" | "Drug-Drug";
+  drug: string;
+  drug_b: string | null;
+  allergy_name: string | null;
+  family: string;
+  severity: string | null;
+  status: "Pending Review" | "Overridden" | "Rejected";
+  decided_by: string | null;
+  decided_at: string | null;
+  rationale: string | null;
+  created_at: string;
+};
+
 function SafetyQueue() {
-  const [items, setItems] = useState<SafetyConflict[]>([]);
+  const [items, setItems] = useState<DbSafetyAlert[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
     setLoading(true);
-    try {
-      setItems(await loadSafetyQueue(50));
-    } finally {
-      setLoading(false);
-    }
+    const { data, error } = await supabase
+      .from("clinical_safety_alerts")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (error) toast.error("Could not load safety alerts", { description: error.message });
+    setItems(((data ?? []) as DbSafetyAlert[]));
+    setLoading(false);
   };
 
   useEffect(() => {
     refresh();
-    const onEvt = () => refresh();
-    window.addEventListener("spehr:safety-queue", onEvt);
-    return () => window.removeEventListener("spehr:safety-queue", onEvt);
+    const channel = supabase
+      .channel("safety-alerts-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "clinical_safety_alerts" },
+        () => refresh(),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const act = (c: SafetyConflict, status: "Overridden" | "Rejected") => {
+  const act = async (c: DbSafetyAlert, status: "Overridden" | "Rejected") => {
     const rationale = window.prompt(
       `${status === "Overridden" ? "Override" : "Reject"} this alert — clinical rationale:`,
-      status === "Overridden" ? "Benefit outweighs allergy risk; patient tolerated similar in past." : "Discontinue order; substitute non-cross-reactive agent.",
+      status === "Overridden"
+        ? "Benefit outweighs risk; patient tolerated similar agent previously."
+        : "Discontinue order; substitute non-cross-reactive agent.",
     );
     if (rationale === null) return;
-    decideConflict(c.id, {
-      status,
-      decided_by: "Command Center · System Administration",
-      decided_at: new Date().toISOString(),
-      rationale,
-    });
+    const { error } = await supabase
+      .from("clinical_safety_alerts")
+      .update({
+        status,
+        decided_by: "Command Center · System Administration",
+        decided_at: new Date().toISOString(),
+        rationale,
+      })
+      .eq("id", c.id);
+    if (error) { toast.error("Update failed", { description: error.message }); return; }
     toast.success(`Alert ${status.toLowerCase()}`);
     refresh();
   };
 
-  const pending = items.filter((i) => i.status === "Pending");
-  const decided = items.filter((i) => i.status !== "Pending");
+  const pending = items.filter((i) => i.status === "Pending Review");
+  const decided = items.filter((i) => i.status !== "Pending Review");
 
   return (
     <div className="space-y-4">
@@ -710,7 +743,7 @@ function SafetyQueue() {
             <div
               key={c.id}
               className={`rounded-xl border bg-white shadow-sm p-4 ${
-                c.status === "Pending" ? "border-red-300" : "border-slate-200 opacity-80"
+                c.status === "Pending Review" ? "border-red-300" : "border-slate-200 opacity-80"
               }`}
             >
               <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -720,11 +753,11 @@ function SafetyQueue() {
                       <AlertTriangle className="h-3 w-3" /> Auto-commit halted
                     </span>
                     <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                      c.kind === "ddi"
+                      c.kind === "Drug-Drug"
                         ? "border-purple-200 bg-purple-50 text-purple-700"
                         : "border-amber-200 bg-amber-50 text-amber-700"
                     }`}>
-                      {c.kind === "ddi" ? `DDI · ${c.severity ?? "Major"}` : "Allergy"}
+                      {c.kind === "Drug-Drug" ? `DDI · ${c.severity ?? "Major"}` : "Drug-Allergy"}
                     </span>
                     <span className="font-mono text-[11px] text-slate-500">{c.mrn}</span>
                     <span className="text-sm font-semibold text-slate-900">{c.patient_name}</span>
@@ -733,7 +766,7 @@ function SafetyQueue() {
                     )}
                   </div>
                   <div className="mt-1.5 text-sm text-slate-800">
-                    {c.kind === "ddi" ? (
+                    {c.kind === "Drug-Drug" ? (
                       <>
                         Co-prescribed <span className="font-semibold">{c.drug}</span> +{" "}
                         <span className="font-semibold">{c.drug_b}</span> —{" "}
@@ -743,8 +776,7 @@ function SafetyQueue() {
                       <>
                         Ordered <span className="font-semibold">{c.drug}</span> conflicts with
                         documented allergy to{" "}
-                        <span className="font-semibold">{c.allergy?.name}</span>
-                        {c.allergy?.reaction ? ` (${c.allergy.reaction})` : ""} —
+                        <span className="font-semibold">{c.allergy_name}</span> —
                         cross-reactivity family:{" "}
                         <span className="font-mono text-[11px]">{c.family}</span>.
                       </>
@@ -758,7 +790,7 @@ function SafetyQueue() {
                     </div>
                   )}
                 </div>
-                {c.status === "Pending" ? (
+                {c.status === "Pending Review" ? (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <Button
                       size="sm"
@@ -815,13 +847,15 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: "red
 /* ============================================================ */
 function CustomRulesCard() {
   const [rules, setRules] = useState<CustomRule[]>([]);
-  const [banned, setBanned] = useState<BannedAbbrev[]>([]);
+  const [banned, setBanned] = useState<CustomBanned[]>([]);
   const [newRule, setNewRule] = useState({ phrase: "", canonical: "" });
   const [newBanned, setNewBanned] = useState({ token: "", meaning: "", preferred: "" });
 
   useEffect(() => {
-    setRules(loadCustomRules());
-    setBanned(loadCustomBanned());
+    refreshNlpRulesFromDb().then(() => {
+      setRules(loadCustomRules());
+      setBanned(loadCustomBanned());
+    });
     const onEvt = () => {
       setRules(loadCustomRules());
       setBanned(loadCustomBanned());
@@ -830,31 +864,35 @@ function CustomRulesCard() {
     return () => window.removeEventListener("spehr:nlp-rules", onEvt);
   }, []);
 
-  const addRule = () => {
+  const addRule = async () => {
     if (!newRule.phrase.trim() || !newRule.canonical.trim()) return;
-    const next = [
-      ...rules,
-      { id: `r_${Date.now()}`, phrase: newRule.phrase.trim(), canonical: newRule.canonical.trim() },
-    ];
-    saveCustomRules(next);
-    setRules(next);
-    setNewRule({ phrase: "", canonical: "" });
-    toast.success("Custom NLP rule added");
+    try {
+      await addCustomRuleDb(newRule.phrase.trim(), newRule.canonical.trim());
+      setRules(loadCustomRules());
+      setNewRule({ phrase: "", canonical: "" });
+      toast.success("Custom NLP rule added");
+    } catch (e: any) {
+      toast.error("Could not add rule", { description: e?.message });
+    }
   };
-  const removeRule = (id: string) => {
-    const next = rules.filter((r) => r.id !== id);
-    saveCustomRules(next); setRules(next);
+  const removeRule = async (id: string) => {
+    try { await removeNlpRuleDb(id); setRules(loadCustomRules()); }
+    catch (e: any) { toast.error("Could not remove", { description: e?.message }); }
   };
-  const addBanned = () => {
+  const addBanned = async () => {
     if (!newBanned.token.trim() || !newBanned.meaning.trim()) return;
-    const next = [...banned, { ...newBanned, token: newBanned.token.trim() }];
-    saveCustomBanned(next); setBanned(next);
-    setNewBanned({ token: "", meaning: "", preferred: "" });
-    toast.success("Banned abbreviation added");
+    try {
+      await addBannedDb(newBanned.token.trim(), newBanned.meaning, newBanned.preferred);
+      setBanned(loadCustomBanned());
+      setNewBanned({ token: "", meaning: "", preferred: "" });
+      toast.success("Banned abbreviation added");
+    } catch (e: any) {
+      toast.error("Could not add", { description: e?.message });
+    }
   };
-  const removeBanned = (token: string) => {
-    const next = banned.filter((b) => b.token !== token);
-    saveCustomBanned(next); setBanned(next);
+  const removeBanned = async (id: string) => {
+    try { await removeNlpRuleDb(id); setBanned(loadCustomBanned()); }
+    catch (e: any) { toast.error("Could not remove", { description: e?.message }); }
   };
 
   return (
@@ -933,13 +971,13 @@ function CustomRulesCard() {
           ) : (
             <ul className="divide-y divide-slate-100 border border-slate-200 rounded-md">
               {banned.map((b) => (
-                <li key={b.token} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+                <li key={b.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
                   <div className="min-w-0 truncate">
                     <span className="font-mono font-bold text-red-700">{b.token}</span>
                     <span className="mx-2 text-slate-400">·</span>
                     <span className="text-slate-700">{b.meaning}</span>
                   </div>
-                  <button onClick={() => removeBanned(b.token)} className="text-slate-400 hover:text-rose-600">
+                  <button onClick={() => removeBanned(b.id)} className="text-slate-400 hover:text-rose-600">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </li>
@@ -1298,6 +1336,8 @@ type MatrixCell = {
   chief_complaint: string | null;
   labs: string[];      // test_type strings
   meds: string[];      // medication_name strings
+  icd10_codes: string[];
+  snomed_codes: string[];
 };
 
 function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility: string }) {
@@ -1310,7 +1350,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       setLoading(true);
       let pq = supabase
         .from("patients")
-        .select("mrn, first_name, last_name, facility_name, admission_time, chief_complaint")
+        .select("mrn, first_name, last_name, facility_name, admission_time, chief_complaint, icd10_codes, snomed_codes")
         .order("admission_time", { ascending: false })
         .limit(15);
       if (facility && facility !== "all") {
@@ -1349,6 +1389,8 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         chief_complaint: p.chief_complaint,
         labs: Array.from(labMap.get(p.mrn) ?? []),
         meds: Array.from(medMap.get(p.mrn) ?? []),
+        icd10_codes: (p.icd10_codes ?? []) as string[],
+        snomed_codes: (p.snomed_codes ?? []) as string[],
       }));
       if (!cancelled) {
         setRows(cells);
@@ -1382,6 +1424,12 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       }
     }
     return out.slice(0, 6);
+  };
+
+  const findByExactCodes = (system: string, codes: string[]): DictEntry[] => {
+    const pool = indexBySystem[system] ?? [];
+    const want = new Set(codes);
+    return pool.filter((r) => want.has(r.code)).slice(0, 6);
   };
 
   return (
@@ -1430,8 +1478,12 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               )}
               {rows.map((r) => {
                 const cc = r.chief_complaint ? [r.chief_complaint] : [];
-                const snomed = findCodes("SNOMED CT", cc);
-                const icd10 = findCodes("ICD-10", cc);
+                const snomed = r.snomed_codes.length
+                  ? findByExactCodes("SNOMED CT", r.snomed_codes)
+                  : findCodes("SNOMED CT", cc);
+                const icd10 = r.icd10_codes.length
+                  ? findByExactCodes("ICD-10", r.icd10_codes)
+                  : findCodes("ICD-10", cc);
                 const loinc = findCodes("LOINC", r.labs);
                 const rxnorm = findCodes("RxNorm", r.meds);
                 return (

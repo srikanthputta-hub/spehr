@@ -6,6 +6,7 @@ import {
 } from "@/lib/complaint-protocols";
 import { getAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { ensureTerminology } from "@/lib/ensure-terminology";
+import { ensureNlpRulesHydrated } from "@/lib/safety-conflicts";
 import {
   autoFillIntake,
   intakeToSoap,
@@ -234,7 +235,7 @@ export async function seedAdmission(
     return out;
   };
 
-  const [{ data: rxDict }, { data: loincDict }] = await Promise.all([
+  const [{ data: rxDict }, { data: loincDict }, { data: icdDict }, { data: snomedDict }] = await Promise.all([
     supabase
       .from("medical_terminology")
       .select("code, display, category, description")
@@ -247,11 +248,25 @@ export async function seedAdmission(
       .eq("code_system", "LOINC")
       .eq("status", "active")
       .limit(200),
+    supabase
+      .from("medical_terminology")
+      .select("code, display, category, description")
+      .eq("code_system", "ICD-10")
+      .eq("status", "active")
+      .limit(200),
+    supabase
+      .from("medical_terminology")
+      .select("code, display, category, description")
+      .eq("code_system", "SNOMED CT")
+      .eq("status", "active")
+      .limit(200),
   ]);
 
   type DictRow = { code: string; display: string; category: string | null; description: string | null };
   const rxRows = (rxDict ?? []) as DictRow[];
   const loincRows = (loincDict ?? []) as DictRow[];
+  const icdRows = (icdDict ?? []) as DictRow[];
+  const snomedRows = (snomedDict ?? []) as DictRow[];
 
   const scoreRow = (r: DictRow) => {
     const hay = `${r.display} ${r.description ?? ""}`.toLowerCase();
@@ -297,6 +312,28 @@ export async function seedAdmission(
   }));
   const protocolLabs = labs.map((l) => ({ ...l, loinc: null as string | null }));
   const finalLabs = [...dictLabs, ...protocolLabs].slice(0, 2);
+
+  // ------------------------------------------------------------------
+  // Baseline diagnostic codes: pick at least one ICD-10 + one SNOMED CT
+  // row matching the chief complaint and persist them on the patient.
+  // ------------------------------------------------------------------
+  const pickDiagnosticCodes = (rows: DictRow[], n: number): string[] => {
+    const ranked = rankByComplaint(rows);
+    if (ranked.length === 0) return [];
+    const top = ranked.slice(0, Math.max(n, 4));
+    return pickRandom(top, Math.min(n, top.length)).map((r) => r.code);
+  };
+  const icdCodes = pickDiagnosticCodes(icdRows, 1);
+  const snomedCodes = pickDiagnosticCodes(snomedRows, 1);
+  if (icdCodes.length || snomedCodes.length) {
+    await supabase
+      .from("patients")
+      .update({
+        icd10_codes: icdCodes,
+        snomed_codes: snomedCodes,
+      } as any)
+      .eq("mrn", mrn);
+  }
 
   // Auto-grow the dictionary for the chief complaint itself (ICD-10).
   if (p.chief_complaint?.trim()) {
@@ -363,6 +400,44 @@ export async function seedAdmission(
     trackTimer(mrn, timer);
   });
 
+  // ------------------------------------------------------------------
+  // Pharmacy AI safety net — 10% probability that one of this admission's
+  // scheduled medication orders triggers a Drug-Allergy or Drug-Drug
+  // contraindication. We insert a Pending Review row into
+  // `clinical_safety_alerts` so the Intervention & Safety Queue picks it
+  // up. (The order itself still flows through its normal cascade —
+  // overrides/rejects are tracked separately on the alert.)
+  // ------------------------------------------------------------------
+  if (finalMeds.length > 0 && Math.random() < 0.10) {
+    const safetyTimer = setTimeout(async () => {
+      untrackTimer(mrn, safetyTimer);
+      const SCENARIOS = [
+        { kind: "Drug-Allergy", drug: "Amoxicillin 500 mg PO", allergy: "Penicillin", family: "Beta-lactam / Penicillin family", severity: "Major" },
+        { kind: "Drug-Allergy", drug: "Sulfamethoxazole-Trimethoprim DS", allergy: "Sulfa drugs", family: "Sulfonamide antibiotic", severity: "Major" },
+        { kind: "Drug-Allergy", drug: "Ibuprofen 600 mg PO", allergy: "NSAIDs", family: "NSAID cross-reactivity", severity: "Moderate" },
+        { kind: "Drug-Allergy", drug: "Cefazolin 1 g IV", allergy: "Penicillin", family: "Cephalosporin (β-lactam cross-reactivity)", severity: "Moderate" },
+        { kind: "Drug-Drug", drug: "Warfarin 5 mg PO", drug_b: "Aspirin 81 mg PO", family: "↑ bleeding risk (antiplatelet + anticoagulant)", severity: "Major" },
+        { kind: "Drug-Drug", drug: "Sertraline 50 mg PO", drug_b: "Tramadol 50 mg PO", family: "Serotonin syndrome risk", severity: "Major" },
+        { kind: "Drug-Drug", drug: "Simvastatin 40 mg PO", drug_b: "Clarithromycin 500 mg PO", family: "↑ statin levels — rhabdomyolysis risk", severity: "Major" },
+        { kind: "Drug-Drug", drug: "Lisinopril 20 mg PO", drug_b: "Spironolactone 25 mg PO", family: "Hyperkalemia risk", severity: "Moderate" },
+      ] as const;
+      const s = SCENARIOS[Math.floor(Math.random() * SCENARIOS.length)];
+      await supabase.from("clinical_safety_alerts").insert({
+        mrn,
+        patient_name: patientName,
+        facility_name: p.facility_name,
+        kind: s.kind,
+        drug: s.drug,
+        drug_b: (s as any).drug_b ?? null,
+        allergy_name: (s as any).allergy ?? null,
+        family: s.family,
+        severity: s.severity,
+        status: "Pending Review",
+      });
+    }, MED_FIRST_ORDER_DELAY_MS + 5_000);
+    trackTimer(mrn, safetyTimer);
+  }
+
   // Schedule labs: T+25s, T+45s
   finalLabs.filter((l) => !existingLabNames.has(norm(l.name))).forEach((l, i) => {
     const t = LAB_FIRST_ORDER_DELAY_MS + i * LAB_ORDER_GAP_MS;
@@ -399,6 +474,9 @@ export function useAIAutomation() {
 
   useEffect(() => {
     if (!automationEnabled) return;
+    // Hydrate NLP custom rules / banned tokens from Supabase on boot so the
+    // synchronous detectBanned() cache reflects facility-specific overrides.
+    ensureNlpRulesHydrated().catch(() => {});
     // Orphan sweeper — finalize only VERY stale rows (>30 min) so a
     // closed tab mid-cascade doesn't strand pending rows forever, but
     // active staged cascades (which finish in ~60s) are never touched.

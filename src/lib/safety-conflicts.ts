@@ -39,24 +39,83 @@ export const JC_BANNED: BannedAbbrev[] = [
   { token: "µg",    meaning: "Microgram",          preferred: 'Write "mcg"' },
 ];
 
-const CUSTOM_BANNED_KEY = "spehr.banned_abbrev.v1";
-const CUSTOM_RULES_KEY  = "spehr.nlp_rules.v1";
 const SAFETY_QUEUE_KEY  = "spehr.safety_queue.v1";
 
 export type CustomRule = { id: string; phrase: string; canonical: string };
+export type CustomBanned = BannedAbbrev & { id: string };
 
 function ls(): Storage | null {
   return typeof window === "undefined" ? null : window.localStorage;
 }
 
-/* ---- Custom banned abbreviations ---- */
-export function loadCustomBanned(): BannedAbbrev[] {
-  const s = ls(); if (!s) return [];
-  try { return JSON.parse(s.getItem(CUSTOM_BANNED_KEY) || "[]"); } catch { return []; }
+/* ------------------------------------------------------------------ */
+/*  DB-backed NLP custom rules + banned tokens                        */
+/*  Persisted in `nlp_custom_rules`. Cached in-memory so detectBanned */
+/*  and the NLP engine can stay synchronous.                          */
+/* ------------------------------------------------------------------ */
+
+let _bannedCache: CustomBanned[] = [];
+let _rulesCache: CustomRule[] = [];
+let _hydrated = false;
+let _hydratePromise: Promise<void> | null = null;
+
+export function loadCustomBanned(): CustomBanned[] { return _bannedCache; }
+export function loadCustomRules(): CustomRule[] { return _rulesCache; }
+
+export async function refreshNlpRulesFromDb(): Promise<void> {
+  const { data, error } = await supabase
+    .from("nlp_custom_rules")
+    .select("id, type, raw_term, canonical_mapping, preferred_form, created_at")
+    .order("created_at", { ascending: true });
+  if (error || !data) return;
+  _bannedCache = (data as any[])
+    .filter((r) => r.type === "banned_token")
+    .map((r) => ({
+      id: r.id,
+      token: r.raw_term,
+      meaning: r.canonical_mapping ?? "",
+      preferred: r.preferred_form ?? "",
+    }));
+  _rulesCache = (data as any[])
+    .filter((r) => r.type === "slang_mapping")
+    .map((r) => ({ id: r.id, phrase: r.raw_term, canonical: r.canonical_mapping ?? "" }));
+  _hydrated = true;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("spehr:nlp-rules"));
+  }
 }
-export function saveCustomBanned(list: BannedAbbrev[]) {
-  ls()?.setItem(CUSTOM_BANNED_KEY, JSON.stringify(list));
-  window.dispatchEvent(new CustomEvent("spehr:nlp-rules"));
+
+export function ensureNlpRulesHydrated(): Promise<void> {
+  if (_hydrated) return Promise.resolve();
+  if (!_hydratePromise) _hydratePromise = refreshNlpRulesFromDb().finally(() => { _hydratePromise = null; });
+  return _hydratePromise;
+}
+
+export async function addCustomRuleDb(phrase: string, canonical: string): Promise<void> {
+  const { error } = await supabase.from("nlp_custom_rules").insert({
+    type: "slang_mapping",
+    raw_term: phrase,
+    canonical_mapping: canonical,
+  });
+  if (error) throw error;
+  await refreshNlpRulesFromDb();
+}
+
+export async function addBannedDb(token: string, meaning: string, preferred: string): Promise<void> {
+  const { error } = await supabase.from("nlp_custom_rules").insert({
+    type: "banned_token",
+    raw_term: token,
+    canonical_mapping: meaning,
+    preferred_form: preferred,
+  });
+  if (error) throw error;
+  await refreshNlpRulesFromDb();
+}
+
+export async function removeNlpRuleDb(id: string): Promise<void> {
+  const { error } = await supabase.from("nlp_custom_rules").delete().eq("id", id);
+  if (error) throw error;
+  await refreshNlpRulesFromDb();
 }
 
 export function allBanned(): BannedAbbrev[] {
@@ -79,15 +138,7 @@ export function detectBanned(text: string): BannedAbbrev[] {
   return out;
 }
 
-/* ---- Custom NLP rules ---- */
-export function loadCustomRules(): CustomRule[] {
-  const s = ls(); if (!s) return [];
-  try { return JSON.parse(s.getItem(CUSTOM_RULES_KEY) || "[]"); } catch { return []; }
-}
-export function saveCustomRules(rules: CustomRule[]) {
-  ls()?.setItem(CUSTOM_RULES_KEY, JSON.stringify(rules));
-  window.dispatchEvent(new CustomEvent("spehr:nlp-rules"));
-}
+/* (custom rules getters moved above next to the DB cache) */
 
 /* ------------------------------------------------------------------ */
 /*  Allergy ↔ Drug conflict detection                                 */
