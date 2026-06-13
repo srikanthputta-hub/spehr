@@ -1061,6 +1061,8 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
   const ts = new Date(audit.created_at).toLocaleString();
   const confidence = (audit as any).confidence ?? 100;
   const banned: BannedAbbrev[] = (audit as any).banned ?? [];
+  const expansions: Array<{ short: string; long: string }> = (audit as any).expansions ?? [];
+  const dosingHazards: Array<{ token: string; reason: string }> = (audit as any).dosingHazards ?? [];
   const streamAOk = (audit as any).streamAOk ?? true;
   const lowConfidence = confidence < 95;
 
@@ -1153,6 +1155,37 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
                   <div key={b.token}>
                     <span className="font-mono font-bold">{b.token}</span> — {b.meaning}. {b.preferred}.
                   </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {dosingHazards.length > 0 && (
+            <div className="mb-2 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800 flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-bold uppercase tracking-wider text-[10px]">
+                  Unsafe dosing format
+                </div>
+                {dosingHazards.map((d, i) => (
+                  <div key={i}>
+                    <span className="font-mono font-bold">{d.token}</span> — {d.reason}.
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {expansions.length > 0 && (
+            <div className="mb-2 rounded-md border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-700">
+              <div className="font-bold uppercase tracking-wider text-[10px] text-indigo-700 mb-1">
+                Abbreviations decoded
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {expansions.map((e) => (
+                  <span key={e.short} className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5">
+                    <span className="font-mono font-bold mr-1">{e.short}</span>
+                    <span className="text-slate-400 mr-1">→</span>
+                    {e.long}
+                  </span>
                 ))}
               </div>
             </div>
