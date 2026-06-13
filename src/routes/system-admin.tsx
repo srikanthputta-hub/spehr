@@ -2652,6 +2652,12 @@ function MedicalDictionary() {
                 🔎 UMLS Search ({form.code_system})
                 {umlsLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
               </Label>
+              {umlsOffline && (
+                <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800 flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  ⚠️ NLM Offline — Operating in Local Cached Mode
+                </div>
+              )}
               <input
                 value={umlsQuery}
                 onChange={(e) => setUmlsQuery(e.target.value)}
