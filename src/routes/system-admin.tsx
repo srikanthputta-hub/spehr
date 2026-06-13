@@ -1299,7 +1299,7 @@ type MatrixCell = {
   meds: string[];      // medication_name strings
 };
 
-function LiveTerminologyMatrix({ dict }: { dict: DictEntry[] }) {
+function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility: string }) {
   const [rows, setRows] = useState<MatrixCell[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -1307,11 +1307,15 @@ function LiveTerminologyMatrix({ dict }: { dict: DictEntry[] }) {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const { data: patients, error } = await supabase
+      let pq = supabase
         .from("patients")
         .select("mrn, first_name, last_name, facility_name, admission_time, chief_complaint")
         .order("admission_time", { ascending: false })
-        .limit(50);
+        .limit(15);
+      if (facility && facility !== "all") {
+        pq = pq.eq("facility_name", facility);
+      }
+      const { data: patients, error } = await pq;
       if (error) {
         toast.error("Could not load patient matrix", { description: error.message });
         setLoading(false);
@@ -1351,7 +1355,7 @@ function LiveTerminologyMatrix({ dict }: { dict: DictEntry[] }) {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [facility]);
 
   // Build a quick index from display→DictEntry per code system.
   const indexBySystem = (() => {
@@ -1387,8 +1391,9 @@ function LiveTerminologyMatrix({ dict }: { dict: DictEntry[] }) {
             <Grid3x3 className="h-4 w-4 text-[#0c2340]" /> Live Terminology Matrix
           </h2>
           <p className="text-sm text-slate-600 mt-0.5">
-            Last 50 admissions mapped to SNOMED-CT, ICD-10, LOINC, and RxNorm.
-            Click any pill for the canonical display and value-set category.
+            Last 15 admissions{facility !== "all" ? ` at ${facility}` : " across the network"} mapped to
+            SNOMED-CT, ICD-10, LOINC, and RxNorm. Click any pill for the canonical
+            display and value-set category.
           </p>
         </div>
         <div className="text-xs text-slate-500">{rows.length} patients</div>
@@ -2104,7 +2109,7 @@ function MedicalDictionary() {
       </div>
 
       {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
-      {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} />}
+      {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue />}
 
       {subtab === "catalog" && (<>
