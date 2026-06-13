@@ -399,6 +399,44 @@ export async function seedAdmission(
     trackTimer(mrn, timer);
   });
 
+  // ------------------------------------------------------------------
+  // Pharmacy AI safety net — 10% probability that one of this admission's
+  // scheduled medication orders triggers a Drug-Allergy or Drug-Drug
+  // contraindication. We insert a Pending Review row into
+  // `clinical_safety_alerts` so the Intervention & Safety Queue picks it
+  // up. (The order itself still flows through its normal cascade —
+  // overrides/rejects are tracked separately on the alert.)
+  // ------------------------------------------------------------------
+  if (finalMeds.length > 0 && Math.random() < 0.10) {
+    const safetyTimer = setTimeout(async () => {
+      untrackTimer(mrn, safetyTimer);
+      const SCENARIOS = [
+        { kind: "Drug-Allergy", drug: "Amoxicillin 500 mg PO", allergy: "Penicillin", family: "Beta-lactam / Penicillin family", severity: "Major" },
+        { kind: "Drug-Allergy", drug: "Sulfamethoxazole-Trimethoprim DS", allergy: "Sulfa drugs", family: "Sulfonamide antibiotic", severity: "Major" },
+        { kind: "Drug-Allergy", drug: "Ibuprofen 600 mg PO", allergy: "NSAIDs", family: "NSAID cross-reactivity", severity: "Moderate" },
+        { kind: "Drug-Allergy", drug: "Cefazolin 1 g IV", allergy: "Penicillin", family: "Cephalosporin (β-lactam cross-reactivity)", severity: "Moderate" },
+        { kind: "Drug-Drug", drug: "Warfarin 5 mg PO", drug_b: "Aspirin 81 mg PO", family: "↑ bleeding risk (antiplatelet + anticoagulant)", severity: "Major" },
+        { kind: "Drug-Drug", drug: "Sertraline 50 mg PO", drug_b: "Tramadol 50 mg PO", family: "Serotonin syndrome risk", severity: "Major" },
+        { kind: "Drug-Drug", drug: "Simvastatin 40 mg PO", drug_b: "Clarithromycin 500 mg PO", family: "↑ statin levels — rhabdomyolysis risk", severity: "Major" },
+        { kind: "Drug-Drug", drug: "Lisinopril 20 mg PO", drug_b: "Spironolactone 25 mg PO", family: "Hyperkalemia risk", severity: "Moderate" },
+      ] as const;
+      const s = SCENARIOS[Math.floor(Math.random() * SCENARIOS.length)];
+      await supabase.from("clinical_safety_alerts").insert({
+        mrn,
+        patient_name: patientName,
+        facility_name: p.facility_name,
+        kind: s.kind,
+        drug: s.drug,
+        drug_b: (s as any).drug_b ?? null,
+        allergy_name: (s as any).allergy ?? null,
+        family: s.family,
+        severity: s.severity,
+        status: "Pending Review",
+      });
+    }, MED_FIRST_ORDER_DELAY_MS + 5_000);
+    trackTimer(mrn, safetyTimer);
+  }
+
   // Schedule labs: T+25s, T+45s
   finalLabs.filter((l) => !existingLabNames.has(norm(l.name))).forEach((l, i) => {
     const t = LAB_FIRST_ORDER_DELAY_MS + i * LAB_ORDER_GAP_MS;
