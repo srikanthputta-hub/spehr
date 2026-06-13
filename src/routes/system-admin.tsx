@@ -1856,43 +1856,21 @@ function MedicalDictionary() {
     };
   }, [umlsQuery, form.code_system, addOpen]);
 
-  const importUmls = async (hit: { ui: string; name: string }) => {
-    setImportingCode(hit.ui);
-    const finalCategory =
-      form.category.trim() || DEFAULT_CATEGORY[form.code_system] || null;
-    const finalDescription = defaultUsage(form.code_system, hit.name);
-    const { data, error } = await supabase
-      .from("medical_terminology")
-      .upsert(
-        {
-          code_system: form.code_system,
-          code: hit.ui,
-          display: hit.name,
-          category: finalCategory,
-          description: finalDescription,
-          status: "active",
-        },
-        { onConflict: "code_system,code" },
-      )
-      .select()
-      .single();
-    setImportingCode(null);
-    if (error) {
-      toast.error("Import failed", { description: error.message });
-      return;
-    }
-    setRows((r) => {
-      const without = r.filter((x) => x.id !== (data as any).id);
-      return [...without, data as any].sort(
-        (a, b) =>
-          a.code_system.localeCompare(b.code_system) ||
-          a.code.localeCompare(b.code),
-      );
-    });
-    setActiveSystem(form.code_system);
-    toast.success("Imported to dictionary", {
-      description: `${form.code_system} · ${hit.ui} — ${hit.name}`,
-    });
+  /**
+   * Populate every form field (Code, Display Name, Category,
+   * Usage / Description) from a single UMLS search hit. The user can
+   * then review the full record inside the assigned boxes before
+   * committing it to the dictionary with "Save to Dictionary".
+   */
+  const useUmlsHit = (hit: { ui: string; name: string }) => {
+    setForm((f) => ({
+      ...f,
+      code: hit.ui,
+      display: hit.name,
+      category: f.category.trim() || DEFAULT_CATEGORY[f.code_system] || "",
+      description: defaultUsage(f.code_system, hit.name),
+    }));
+    setLookupNote(`Matched ${form.code_system} ${hit.ui} — ${hit.name}`);
   };
 
   const load = async () => {
@@ -2062,15 +2040,16 @@ function MedicalDictionary() {
         </div>
         <div className="flex items-center gap-2">
           {subtab === "catalog" && (
-            <>
-              <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
-                <Download className="h-4 w-4" /> Export FHIR
-              </Button>
-              <Button onClick={openAdd} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
-                <Plus className="h-4 w-4" /> Add Terminology
-              </Button>
-            </>
+            <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
+              <Download className="h-4 w-4" /> Export FHIR
+            </Button>
           )}
+          {/* Search Terminology is available across every sub-tab so any
+              workflow (Catalog, NLP Audits, Live Matrix, Safety Alerts)
+              can resolve a code via the UMLS API and view its full record. */}
+          <Button onClick={openAdd} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
+            <Search className="h-4 w-4" /> Search Terminology
+          </Button>
         </div>
       </div>
 
@@ -2200,9 +2179,12 @@ function MedicalDictionary() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Add Terminology</DialogTitle>
+            <DialogTitle>Search Terminology</DialogTitle>
             <DialogDescription>
-              Add a new code to the medical dictionary. It will be available across the network.
+              Search any SNOMED CT, ICD-10, LOINC, or RxNorm code via the live
+              UMLS API. Selecting a result fills in the Code, Category, Display
+              Name, and Usage boxes so you can review the full record before
+              saving it to the dictionary.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -2251,16 +2233,11 @@ function MedicalDictionary() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => importUmls(hit)}
-                        disabled={importingCode === hit.ui}
+                        onClick={() => useUmlsHit(hit)}
                         className="shrink-0"
                       >
-                        {importingCode === hit.ui ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Plus className="h-3.5 w-3.5" />
-                        )}
-                        Import
+                        <Search className="h-3.5 w-3.5" />
+                        Use
                       </Button>
                     </li>
                   ))}
@@ -2319,7 +2296,7 @@ function MedicalDictionary() {
             <Button variant="outline" onClick={() => setAddOpen(false)} disabled={saving}>Cancel</Button>
             <Button onClick={submit} disabled={saving} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Add Entry
+              Save to Dictionary
             </Button>
           </DialogFooter>
         </DialogContent>
