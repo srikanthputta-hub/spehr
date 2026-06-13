@@ -223,6 +223,25 @@ function fmtTime(t: string | null | undefined) {
   } catch { return "—"; }
 }
 
+/** Live HH:MM:SS clock that ticks every second — true execution-clock time. */
+function LiveClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const i = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(i);
+  }, []);
+  return (
+    <span className="font-mono">
+      {now.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      })}
+    </span>
+  );
+}
+
 // --- Per-complaint fallback (used only if DB row hasn't seeded yet) ---
 function fallbackMeds(
   key: string,
