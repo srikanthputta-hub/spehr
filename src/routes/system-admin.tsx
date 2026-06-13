@@ -1631,7 +1631,14 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       }
     })();
     return () => { cancelled = true; };
-  }, [facility]);
+  }, [facility, refreshTick]);
+
+  // Re-fetch when a coder/AI commits new codes from the NLP Audit Logs.
+  useEffect(() => {
+    const onEvt = () => setRefreshTick((t) => t + 1);
+    window.addEventListener("spehr:matrix-refresh", onEvt);
+    return () => window.removeEventListener("spehr:matrix-refresh", onEvt);
+  }, []);
 
   // Build a quick index from display→DictEntry per code system.
   const indexBySystem = (() => {
