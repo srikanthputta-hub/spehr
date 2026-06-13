@@ -46,7 +46,7 @@ const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = 
   { value: "/finance-board", label: "Corporate Finance & Accounts", abbrev: "Finance" },
   { value: "/admin-dashboard", label: "Unit Administrator", abbrev: "Admin" },
   { value: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
-  { value: "/system-admin", label: "EHR Specialist", abbrev: "EHR" },
+  { value: "/system-admin", label: "Command Center · System Administration", abbrev: "EHR" },
 ];
 
 function LoginScreen() {
