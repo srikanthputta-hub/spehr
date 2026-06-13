@@ -748,6 +748,8 @@ function ClinicalSummary({
         ● Widget data for {admissionDate} (REG ER)
       </div>
 
+      <AdmissionCaseHistory mrn={patient.mrn} />
+
       <div className="grid grid-cols-12 gap-2 px-2 pb-3">
         {/* LEFT COLUMN — Triage Info + Common Labs */}
         <div className="col-span-12 lg:col-span-5 space-y-2">
