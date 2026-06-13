@@ -541,6 +541,23 @@ function Dashboard() {
         console.warn("[admit] saveAudit failed", e);
       }
     }
+    // Persist the full structured intake record so the patient chart can
+    // render a real hospital-style Admission Case History panel, and drop
+    // a SOAP-formatted clinical note into the chart timeline.
+    if (input.intake) {
+      try {
+        saveIntake(data.mrn, { ...input.intake, mrn: data.mrn });
+        const soap = intakeToSoap({ ...input.intake, mrn: data.mrn });
+        await supabase.from("clinical_notes").insert({
+          mrn: data.mrn,
+          note_type: "Admission Intake (SOAP)",
+          content: soap,
+          author: "Admitting Provider",
+        });
+      } catch (e) {
+        console.warn("[admit] intake persist failed", e);
+      }
+    }
     // Explicitly seed meds + labs into Supabase so the Pharmacy and Lab
     // boards pick this admission up immediately — don't rely solely on the
     // realtime channel, which can be missed on reconnect.
