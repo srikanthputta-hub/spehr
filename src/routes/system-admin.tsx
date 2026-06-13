@@ -43,13 +43,15 @@ import {
   loadSafetyQueue,
   decideConflict,
   loadCustomRules,
-  saveCustomRules,
   loadCustomBanned,
-  saveCustomBanned,
+  addCustomRuleDb,
+  addBannedDb,
+  removeNlpRuleDb,
+  refreshNlpRulesFromDb,
   JC_BANNED,
   type SafetyConflict,
   type CustomRule,
-  type BannedAbbrev,
+  type CustomBanned,
 } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 
