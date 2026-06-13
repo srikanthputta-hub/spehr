@@ -1953,6 +1953,83 @@ function MedicalDictionary() {
 
   useEffect(() => { load(); }, []);
 
+  /* ------------------------------------------------------------ */
+  /*  Latest-15-admissions usage filter                            */
+  /*  Restricts the Catalog to only codes referenced by the most   */
+  /*  recent 15 patients in the selected facility (or network).    */
+  /* ------------------------------------------------------------ */
+  const [usedCodes, setUsedCodes] = useState<Record<string, Set<string>>>({});
+  const [usageMeta, setUsageMeta] = useState<{ count: number; labels: string[]; meds: string[] }>({ count: 0, labels: [], meds: [] });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let pq = supabase
+        .from("patients")
+        .select("mrn, chief_complaint, diagnosis, icd10_codes, snomed_codes")
+        .order("admission_time", { ascending: false })
+        .limit(15);
+      if (facilityFilter && facilityFilter !== "all") {
+        pq = pq.eq("facility_name", facilityFilter);
+      }
+      const { data: patients } = await pq;
+      const list = (patients ?? []) as any[];
+      const mrns = list.map((p) => p.mrn).filter(Boolean);
+      const [labsRes, medsRes] = await Promise.all([
+        mrns.length
+          ? supabase.from("lab_orders").select("patient_mrn, test_type").in("patient_mrn", mrns)
+          : Promise.resolve({ data: [] as any[] }),
+        mrns.length
+          ? supabase.from("medication_orders").select("patient_mrn, medication_name, drug_name").in("patient_mrn", mrns)
+          : Promise.resolve({ data: [] as any[] }),
+      ]);
+      const labLabels = new Set<string>();
+      for (const r of (labsRes.data ?? []) as any[]) if (r.test_type) labLabels.add(String(r.test_type));
+      const medLabels = new Set<string>();
+      for (const r of (medsRes.data ?? []) as any[]) {
+        const m = r.medication_name || r.drug_name;
+        if (m) medLabels.add(String(m));
+      }
+      const ccLabels: string[] = [];
+      const exactIcd = new Set<string>();
+      const exactSnomed = new Set<string>();
+      for (const p of list) {
+        if (p.chief_complaint) ccLabels.push(String(p.chief_complaint));
+        if (p.diagnosis) ccLabels.push(String(p.diagnosis));
+        for (const c of (p.icd10_codes ?? []) as string[]) exactIcd.add(c);
+        for (const c of (p.snomed_codes ?? []) as string[]) exactSnomed.add(c);
+      }
+      if (cancelled) return;
+      setUsageMeta({ count: list.length, labels: Array.from(labLabels), meds: Array.from(medLabels) });
+
+      // Build per-system code sets by matching the dictionary against the
+      // patient cohort's chief complaints / lab test names / med names.
+      const matchSet = (system: string, candidates: string[], exact?: Set<string>): Set<string> => {
+        const pool = rows.filter((r) => r.code_system === system);
+        const out = new Set<string>();
+        if (exact) for (const c of exact) out.add(c);
+        for (const c of candidates) {
+          if (!c) continue;
+          const cl = c.toLowerCase();
+          for (const row of pool) {
+            const d = row.display?.toLowerCase() ?? "";
+            if (!d) continue;
+            if (d.includes(cl) || cl.includes(d.split(" ")[0])) out.add(row.code);
+          }
+        }
+        return out;
+      };
+      setUsedCodes({
+        "ICD-10":    matchSet("ICD-10", ccLabels, exactIcd),
+        "SNOMED CT": matchSet("SNOMED CT", ccLabels, exactSnomed),
+        "LOINC":     matchSet("LOINC", Array.from(labLabels)),
+        "RxNorm":    matchSet("RxNorm", Array.from(medLabels)),
+        "VSAC":      new Set(rows.filter((r) => r.code_system === "VSAC").map((r) => r.code)),
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [facilityFilter, rows]);
+
   // Debounced auto-lookup: when user enters a code under a code system
   // that has a public terminology service, resolve display + category +
   // description automatically. User can still override any field.
@@ -2030,6 +2107,8 @@ function MedicalDictionary() {
 
   const filtered = rows.filter((r) => {
     if (r.code_system !== activeSystem) return false;
+    const used = usedCodes[r.code_system];
+    if (used && !used.has(r.code)) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -2040,7 +2119,8 @@ function MedicalDictionary() {
   });
 
   const counts = CODE_SYSTEMS.reduce<Record<string, number>>((acc, s) => {
-    acc[s] = rows.filter((r) => r.code_system === s).length;
+    const used = usedCodes[s];
+    acc[s] = rows.filter((r) => r.code_system === s && (!used || used.has(r.code))).length;
     return acc;
   }, {});
 
@@ -2120,6 +2200,12 @@ function MedicalDictionary() {
             VSAC-aligned terminology library used across the EHR. Browse SNOMED CT, ICD-10,
             LOINC, RxNorm, and curated value sets; extend with site-specific codes.
           </p>
+          {subtab === "catalog" && (
+            <p className="text-[11px] mt-1 text-slate-500">
+              Showing only codes referenced by the latest {usageMeta.count} admission{usageMeta.count === 1 ? "" : "s"}
+              {facilityFilter !== "all" ? ` at ${facilityFilter}` : " across the network"}.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {subtab === "catalog" && (
