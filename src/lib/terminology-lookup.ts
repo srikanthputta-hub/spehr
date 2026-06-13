@@ -14,7 +14,7 @@ export type LookupResult = {
 };
 
 export const DEFAULT_CATEGORY: Record<string, string> = {
-  "ICD-10": "Diagnosis",
+  "ICD-10": "Chief Complaint",
   "SNOMED CT": "Clinical Finding",
   LOINC: "Laboratory",
   RxNorm: "Medication",
