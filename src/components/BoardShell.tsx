@@ -19,7 +19,7 @@ const ROLE_LINKS: { to: string; label: string; abbrev: string }[] = [
   { to: "/finance-board", label: "Corporate Finance & Accounts", abbrev: "Finance" },
   { to: "/admin-dashboard", label: "Unit Administrator", abbrev: "Admin" },
   { to: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
-  { to: "/system-admin", label: "EHR Specialist", abbrev: "EHR" },
+  { to: "/system-admin", label: "Command Center · System Administration", abbrev: "EHR" },
 ];
 
 export function BoardHeader({
