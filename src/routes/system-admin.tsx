@@ -1779,6 +1779,7 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
 
 function MedicalDictionary() {
   const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety">("catalog");
+  const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSystem, setActiveSystem] = useState<string>("ICD-10");
