@@ -735,6 +735,27 @@ function NlpAuditLogs() {
 
 function NlpAuditCard({ audit }: { audit: NlpAudit }) {
   const ts = new Date(audit.created_at).toLocaleString();
+  const confidence = (audit as any).confidence ?? 100;
+  const banned: BannedAbbrev[] = (audit as any).banned ?? [];
+  const streamAOk = (audit as any).streamAOk ?? true;
+  const lowConfidence = confidence < 95;
+
+  // Local per-card decision so coders can Approve / Edit / Reject without
+  // a backend round-trip. Persist last decision in localStorage so the
+  // Audit Log shows reviewer state on reload.
+  const decisionKey = `spehr.nlp_decision.${audit.id}`;
+  const [decision, setDecision] = useState<"pending" | "approved" | "edited" | "rejected">(() => {
+    if (typeof window === "undefined") return lowConfidence ? "pending" : "approved";
+    return (window.localStorage.getItem(decisionKey) as any) ?? (lowConfidence ? "pending" : "approved");
+  });
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(audit.standardized.join("\n"));
+
+  const persist = (d: typeof decision) => {
+    setDecision(d);
+    if (typeof window !== "undefined") window.localStorage.setItem(decisionKey, d);
+  };
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-5 py-3 bg-slate-50/70 border-b border-slate-100">
@@ -749,7 +770,27 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
             {ts}{audit.facility_name ? ` · ${audit.facility_name}` : ""} · {audit.matches.length} concept{audit.matches.length === 1 ? "" : "s"}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+          {streamAOk && (
+            <span
+              title="Structured demographics & vitals parsed successfully without NLP."
+              className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-emerald-700"
+            >
+              <FileCheck2 className="h-3 w-3" /> STREAM A · OK
+            </span>
+          )}
+          <span
+            title={`AI confidence ${confidence}%`}
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold tracking-wider ${
+              confidence >= 95
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : confidence >= 80
+                ? "border-amber-200 bg-amber-50 text-amber-700"
+                : "border-red-200 bg-red-50 text-red-700"
+            }`}
+          >
+            STREAM B · {confidence}%
+          </span>
           {(["ICD-10", "SNOMED CT", "LOINC", "RxNorm"] as const).map((sys) => {
             const n = (audit.byCode[sys] ?? []).length;
             if (!n) return null;
@@ -777,22 +818,103 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-700 mb-1.5">
             ② Extraction Mapping
           </div>
+          {banned.length > 0 && (
+            <div className="mb-2 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800 flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-bold uppercase tracking-wider text-[10px]">
+                  Banned abbreviation detected
+                </div>
+                {banned.map((b) => (
+                  <div key={b.token}>
+                    <span className="font-mono font-bold">{b.token}</span> — {b.meaning}. {b.preferred}.
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <p className="text-sm text-slate-800 leading-relaxed font-mono whitespace-pre-wrap">
             {audit.annotated || audit.raw || <span className="text-slate-400">—</span>}
           </p>
         </div>
         <div className="p-4 bg-emerald-50/30">
-          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700 mb-1.5">
-            ③ Final Standardized Output
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">
+              ③ Final Standardized Output
+            </div>
+            <span
+              className={`text-[10px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border ${
+                decision === "approved"
+                  ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                  : decision === "edited"
+                  ? "bg-sky-100 text-sky-700 border-sky-200"
+                  : decision === "rejected"
+                  ? "bg-red-100 text-red-700 border-red-200"
+                  : "bg-amber-100 text-amber-800 border-amber-200"
+              }`}
+            >
+              {decision === "pending" ? "Awaiting coder" : decision}
+            </span>
           </div>
-          <ul className="space-y-1.5 text-sm text-slate-800">
-            {audit.standardized.map((line, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="text-emerald-600 mt-0.5">•</span>
-                <span>{line}</span>
-              </li>
-            ))}
-          </ul>
+          {lowConfidence && decision === "pending" && (
+            <div className="mb-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+              Confidence {confidence}% &lt; 95%. Held in audit log — write to Live
+              Terminology Matrix only after a coder approves.
+            </div>
+          )}
+          {editing ? (
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              className="w-full h-32 text-xs font-mono rounded border border-slate-300 p-2"
+            />
+          ) : (
+            <ul className="space-y-1.5 text-sm text-slate-800">
+              {(editing ? editText.split("\n") : audit.standardized).map((line, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-emerald-600 mt-0.5">•</span>
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-3 flex items-center gap-1.5">
+            {editing ? (
+              <>
+                <Button
+                  size="sm"
+                  className="h-7 bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => { persist("edited"); setEditing(false); toast.success("Coder edit saved"); }}
+                >
+                  <Check className="h-3 w-3" /> Save edit
+                </Button>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  className="h-7 bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => { persist("approved"); toast.success("Approved — wrote to Live Terminology Matrix"); }}
+                >
+                  <Check className="h-3 w-3" /> Approve
+                </Button>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => setEditing(true)}>
+                  <Pencil className="h-3 w-3" /> Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={() => { persist("rejected"); toast.success("Rejected — not committed"); }}
+                >
+                  <X className="h-3 w-3" /> Reject
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
