@@ -1391,8 +1391,9 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
             <Grid3x3 className="h-4 w-4 text-[#0c2340]" /> Live Terminology Matrix
           </h2>
           <p className="text-sm text-slate-600 mt-0.5">
-            Last 50 admissions mapped to SNOMED-CT, ICD-10, LOINC, and RxNorm.
-            Click any pill for the canonical display and value-set category.
+            Last 15 admissions{facility !== "all" ? ` at ${facility}` : " across the network"} mapped to
+            SNOMED-CT, ICD-10, LOINC, and RxNorm. Click any pill for the canonical
+            display and value-set category.
           </p>
         </div>
         <div className="text-xs text-slate-500">{rows.length} patients</div>
