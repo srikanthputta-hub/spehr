@@ -550,11 +550,12 @@ function UserDirectory() {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {[
-                        "System Administrator",
-                        "Attending Physician",
                         "Registered Nurse",
-                        "Clinical Lab Tech",
+                        "Attending Physician",
                         "Clinical Pharmacist",
+                        "Clinical Lab Tech",
+                        "System Administrator",
+                        "Corporate Finance & Accounts",
                       ].map((r) => (
                         <SelectItem key={r} value={r}>{r}</SelectItem>
                       ))}
