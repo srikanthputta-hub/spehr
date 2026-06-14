@@ -526,6 +526,12 @@ function Dashboard() {
   });
 
   const handleAdmit = async (input: AdmitInput) => {
+    if (bedCounts.available <= 0) {
+      toast.error("No empty beds available", {
+        description: `${facility} is at full capacity (${bedCounts.total}/${bedCounts.total} occupied). Please direct the patient to the Patient Lounge until a bed is released.`,
+      });
+      return false;
+    }
     const mrn = input.mrn?.trim() || genMRN();
     const [first_name, ...rest] = input.name.trim().split(/\s+/);
     const last_name = rest.join(" ") || "—";
