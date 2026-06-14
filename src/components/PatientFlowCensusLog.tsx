@@ -323,7 +323,7 @@ function MarkdownBlock({ md }: { md: string }) {
   const flushBullets = () => {
     if (bullets.length === 0) return;
     out.push(
-      <ul key={`u-${out.length}`} className="list-disc pl-5 space-y-1 text-[13.5px] text-slate-800">
+      <ul key={`u-${out.length}`} className="list-disc pl-6 space-y-1.5 text-[14.5px] leading-[1.7] text-slate-800">
         {bullets.map((b, i) => (
           <li key={i}>{renderInline(b)}</li>
         ))}
@@ -367,7 +367,7 @@ function MarkdownBlock({ md }: { md: string }) {
       out.push(
         <h3
           key={`h-${out.length}`}
-          className="text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mt-3 mb-1"
+          className="text-[15px] font-bold text-slate-900 mt-5 mb-2 border-b border-slate-300 pb-1"
         >
           {head[1]}
         </h3>,
@@ -375,7 +375,7 @@ function MarkdownBlock({ md }: { md: string }) {
       continue;
     }
     out.push(
-      <p key={`p-${out.length}`} className="text-[13.5px] leading-[1.8] text-slate-800">
+      <p key={`p-${out.length}`} className="text-[14.5px] leading-[1.8] text-slate-800 text-justify">
         {renderInline(line)}
       </p>,
     );
