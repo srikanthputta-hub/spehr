@@ -1724,25 +1724,23 @@ function OrdersDialog({
           </div>
           {kind === "lab" ? (
             <div>
-              <label className="text-[11px] text-slate-600 uppercase tracking-wider">Test Type</label>
-              <select value={testType} onChange={(e) => setTestType(e.target.value)} className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-sm">
-                {["CBC", "BMP", "CMP", "Troponin", "Lipid Panel", "PT/INR", "Urinalysis", "Blood Culture", "CK-MB", "BNP"].map((t) => <option key={t}>{t}</option>)}
-              </select>
+              <label className="text-[11px] text-slate-600 uppercase tracking-wider">Test Type · LOINC</label>
+              <TerminologySearch
+                kind="lab"
+                value={testType}
+                onChange={setTestType}
+                placeholder="Search LOINC (e.g. CBC, troponin, glucose)…"
+              />
             </div>
           ) : (
             <div>
-              <label className="text-[11px] text-slate-600 uppercase tracking-wider">Medication</label>
-              <select value={drug} onChange={(e) => setDrug(e.target.value)} className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-sm">
-                {[
-                  "Acetaminophen 650 mg PO Q6H PRN",
-                  "Ibuprofen 400 mg PO Q6H PRN",
-                  "Aspirin 325 mg PO Daily",
-                  "Ondansetron 4 mg IV Q8H PRN",
-                  "Morphine 2 mg IV Q4H PRN",
-                  "Heparin 5000 units SC Q12H",
-                  "Lisinopril 10 mg PO Daily",
-                ].map((m) => <option key={m}>{m}</option>)}
-              </select>
+              <label className="text-[11px] text-slate-600 uppercase tracking-wider">Medication · RxNorm</label>
+              <TerminologySearch
+                kind="med"
+                value={drug}
+                onChange={setDrug}
+                placeholder="Search RxNorm (e.g. acetaminophen, lisinopril)…"
+              />
             </div>
           )}
           <div className={`text-[11px] rounded px-2 py-1.5 border ${automationEnabled ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
