@@ -37,7 +37,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Progress } from "@/components/ui/progress";
-import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import { useFacility, useActiveStaff, STAFF_BY_FACILITY, type Facility, type StaffRole } from "@/lib/facility-context";
 import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 
@@ -96,13 +96,17 @@ function shiftStateNow() {
   return { block, hours: intoMs / 3_600_000 };
 }
 
-type RoleKey = "RN" | "MD" | "PharmD" | "CNA" | "LPN" | "Finance";
+// Roles mirror the system-wide ordering (RN → MD → PharmD → Lab → Admin → Finance)
+// so the Active Unit Staffing & Shift Roster reflects the exact clinicians
+// signed in for each role at each facility (canonical names come from
+// STAFF_BY_FACILITY — same source of truth used by every board header).
+type RoleKey = StaffRole;
 const STAFF_ROLES: readonly RoleKey[] = [
   "RN",
   "MD",
   "PharmD",
-  "CNA",
-  "LPN",
+  "Lab",
+  "Admin",
   "Finance",
 ] as const;
 
@@ -110,15 +114,15 @@ const ROLE_SUFFIX: Record<RoleKey, string> = {
   RN: ", RN",
   MD: ", MD",
   PharmD: ", PharmD",
-  CNA: ", CNA",
-  LPN: ", LPN",
+  Lab: ", CLT",
+  Admin: ", Admin",
   Finance: ", CPA",
 };
 const ROLE_RATE: Record<RoleKey, number> = {
-  RN: 52, MD: 150, PharmD: 68, CNA: 28, LPN: 36, Finance: 60,
+  RN: 52, MD: 150, PharmD: 68, Lab: 38, Admin: 45, Finance: 60,
 };
 const ROLE_CAP: Record<RoleKey, number> = {
-  RN: 5, MD: 15, PharmD: 50, CNA: 8, LPN: 8, Finance: 0,
+  RN: 5, MD: 15, PharmD: 50, Lab: 20, Admin: 0, Finance: 0,
 };
 
 // Deterministic per-facility name pool keeps each hospital's roster
@@ -142,7 +146,10 @@ function hashString(s: string): number {
 }
 
 function buildRoster(facility: string): Record<RoleKey, string[]> {
-  // 3 unique names per role, deterministic per facility.
+  // Slot 0 of every role is the canonical on-duty clinician for this facility
+  // (pulled from STAFF_BY_FACILITY — the same record the rest of the system
+  // uses on every board). Slots 1 & 2 are deterministically seeded relief
+  // staff so Next Shift / Resting names are stable across reloads.
   const seed = hashString(facility || "default");
   const pool = [...NAME_POOL];
   // Fisher–Yates with seeded LCG so the same facility always yields the
@@ -156,11 +163,16 @@ function buildRoster(facility: string): Record<RoleKey, string[]> {
     const j = Math.floor(rand() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
+  const facilityStaff = STAFF_BY_FACILITY[facility as Facility];
   const out = {} as Record<RoleKey, string[]>;
   let idx = 0;
   for (const role of STAFF_ROLES) {
+    const canonical = facilityStaff?.[role]?.name;
     const names: string[] = [];
-    for (let k = 0; k < 3; k++) {
+    // Slot 0 = the real, system-synced staff member for this role/facility.
+    names.push(canonical ?? `${pool[idx % pool.length][0]} ${pool[idx % pool.length][1]}${ROLE_SUFFIX[role]}`);
+    // Slots 1 & 2 = relief pool for Next Shift / Resting.
+    for (let k = 0; k < 2; k++) {
       const [f, l] = pool[(idx++) % pool.length];
       names.push(`${f} ${l}${ROLE_SUFFIX[role]}`);
     }
@@ -413,9 +425,11 @@ function AdminDashboard() {
       setShiftTick(s);
       if (s.block !== lastBlockRef.current) {
         for (const r of STAFF_ROLES) {
-          const newIdx = s.block % 3;
+          // Relief slot rotates between 1 & 2 each block; the canonical
+          // on-duty clinician (slot 0) stays put for system-wide sync.
+          const reliefIdx = 1 + (s.block % 2);
           toast(
-            `Shift change · ${r}: ${roster[r][newIdx]} clocking in.`,
+            `Shift change · ${r}: ${roster[r][reliefIdx]} queued as next shift.`,
             { className: "bg-slate-100 text-slate-800" },
           );
         }
@@ -440,7 +454,12 @@ function AdminDashboard() {
       assigned: number;
     };
     const out: Card[] = [];
-    const onIdx = shiftTick.block % 3;
+    // Slot 0 is always the canonical, system-synced clinician for this
+    // facility/role — they stay On Duty so every board (nursing,
+    // pharmacy, physician, lab, finance, admin) shows the same name.
+    // Relief staff in slots 1 & 2 rotate through the Next Shift card.
+    const onIdx = 0;
+    const nextIdx = 1 + (shiftTick.block % 2);
     const curHours = shiftTick.hours;
     for (const role of STAFF_ROLES) {
       const cap = ROLE_CAP[role];
@@ -450,9 +469,9 @@ function AdminDashboard() {
         role === "RN" ? 0.25 :
         role === "MD" ? 0.5 :
         role === "PharmD" ? 0.8 :
-        role === "CNA" || role === "LPN" ? 0.35 : 0;
+        role === "Lab" ? 0.4 : 0;
       const assigned = cap > 0
-        ? Math.min(cap, Math.max(role === "Finance" ? 0 : 1, Math.round(census * loadFactor)))
+        ? Math.min(cap, Math.max(1, Math.round(census * loadFactor)))
         : 0;
       out.push({
         key: `${role}-on`,
@@ -467,7 +486,7 @@ function AdminDashboard() {
       out.push({
         key: `${role}-next`,
         role,
-        name: roster[role][(onIdx + 1) % 3],
+        name: roster[role][nextIdx],
         status: "Next Shift",
         hours: curHours,
         rate,
