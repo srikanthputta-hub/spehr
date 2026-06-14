@@ -247,114 +247,13 @@ function DischargeSummaryModal({
             {loading || chartLoading ? (
               <p className="text-sm text-slate-400 italic">Loading discharge summary…</p>
             ) : (
-              <div className="rounded-md border border-slate-200 bg-white px-8 py-7 text-[13.5px] leading-[1.8] text-slate-800 font-serif tracking-[0.005em] space-y-5">
-                <NarrativeBlock title="History of Present Illness">
-                  Patient is a {fullName(patient)} (MRN {patient.mrn ?? "—"}) who presented to {facility} on{" "}
-                  <span className="font-mono">{fmtTs(patient.admission_time)}</span> with a chief complaint of{" "}
-                  <strong>{complaint}</strong>. Patient was admitted to the inpatient service for further evaluation,
-                  monitoring, and management.
-                </NarrativeBlock>
-
-                <NarrativeBlock title="Hospital Course">
-                  During the {los} length of stay, the patient was managed per facility clinical protocols. Vital signs
-                  were monitored continuously and trended within or near acceptable parameters throughout the
-                  encounter. {administered.length > 0
-                    ? `A total of ${administered.length} medication administration${administered.length === 1 ? "" : "s"} ` +
-                      `${resulted.length > 0 ? `and ${resulted.length} laboratory study${resulted.length === 1 ? "" : "ies"} ` : ""}` +
-                      `were completed and documented in the medication administration record and laboratory results below.`
-                    : "Standard clinical observation and supportive care were provided. No discrete medication or laboratory orders were recorded for this encounter."}
-                </NarrativeBlock>
-
-                <div>
-                  <h3 className="flex items-center gap-1.5 text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mb-2">
-                    <Pill className="h-3 w-3" /> Medications Administered ({administered.length})
-                  </h3>
-                  {administered.length === 0 ? (
-                    <p className="text-[12.5px] italic text-slate-500 font-sans">No medications administered during this encounter.</p>
-                  ) : (
-                    <div className="overflow-x-auto rounded-md border border-slate-200">
-                      <table className="w-full text-[12px] font-sans">
-                        <thead className="bg-slate-50 text-slate-600">
-                          <tr>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Medication</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Dose / Route</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Administered</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Ordered By</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {administered.map((m, i) => (
-                            <tr key={i} className="border-t border-slate-100">
-                              <td className="px-3 py-1.5 font-medium text-slate-900">
-                                {m.medication_name || m.drug_name || "—"}
-                              </td>
-                              <td className="px-3 py-1.5 text-slate-700">
-                                {[m.dose, m.route].filter(Boolean).join(" · ") || "—"}
-                              </td>
-                              <td className="px-3 py-1.5 font-mono text-[11.5px] text-slate-700">
-                                {fmtTs(m.administered_at ?? m.created_at ?? null)}
-                              </td>
-                              <td className="px-3 py-1.5 text-slate-600">{m.ordered_by ?? "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <h3 className="flex items-center gap-1.5 text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mb-2">
-                    <FlaskConical className="h-3 w-3" /> Laboratory Results ({resulted.length})
-                  </h3>
-                  {resulted.length === 0 ? (
-                    <p className="text-[12.5px] italic text-slate-500 font-sans">No laboratory studies resulted during this encounter.</p>
-                  ) : (
-                    <div className="overflow-x-auto rounded-md border border-slate-200">
-                      <table className="w-full text-[12px] font-sans">
-                        <thead className="bg-slate-50 text-slate-600">
-                          <tr>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Test</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Result</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Resulted</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Ordered By</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {resulted.map((l, i) => (
-                            <tr key={i} className="border-t border-slate-100">
-                              <td className="px-3 py-1.5 font-medium text-slate-900">{l.test_type ?? "—"}</td>
-                              <td className="px-3 py-1.5 text-slate-700 font-mono text-[11.5px]">{l.result_value ?? "Pending"}</td>
-                              <td className="px-3 py-1.5 font-mono text-[11.5px] text-slate-700">
-                                {fmtTs(l.collected_at ?? l.created_at ?? null)}
-                              </td>
-                              <td className="px-3 py-1.5 text-slate-600">{l.ordered_by ?? l.requested_by ?? "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                <NarrativeBlock title="Assessment & Impression">
-                  {summaryContent ||
-                    `Patient admitted for ${complaint}. Clinical course was uncomplicated. Patient responded appropriately to inpatient interventions.`}
-                </NarrativeBlock>
-
-                <NarrativeBlock title="Discharge Disposition">
-                  {isDischarged ? (
-                    <>
-                      Patient was discharged in stable condition on{" "}
-                      <span className="font-mono">{fmtTs(patient.discharge_time)}</span> with a total length of stay of {los}.
-                      Discharge instructions, medication reconciliation, and follow-up arrangements were provided per
-                      facility standard of care.
-                    </>
-                  ) : (
-                    <>Patient remains admitted under active inpatient care. Disposition pending clinical reassessment.</>
-                  )}
-                </NarrativeBlock>
-              </div>
+              <ClinicalNarrative
+                patient={patient}
+                meds={meds}
+                labs={labs}
+                isDischarged={isDischarged}
+                los={los}
+              />
             )}
           </section>
 
