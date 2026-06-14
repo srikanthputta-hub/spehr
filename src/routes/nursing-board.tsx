@@ -1473,6 +1473,7 @@ function BedManagementBoard({ facility, onClose }: { facility: string; onClose: 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      await reconcileOrphanedBeds(facility).catch(() => {});
       const { data } = await supabase
         .from("bed_management")
         .select("id, facility_name, room_number, bed_letter, status, current_patient_mrn, status_updated_at")
@@ -1490,6 +1491,11 @@ function BedManagementBoard({ facility, onClose }: { facility: string; onClose: 
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` },
+        () => load(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
         () => load(),
       )
       .subscribe();
