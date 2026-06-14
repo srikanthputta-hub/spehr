@@ -340,7 +340,6 @@ function MarkdownBlock({ md }: { md: string }) {
       >
         {quote.map((q, i) => (
           <div key={i} className="flex items-start gap-2">
-            {i === 0 && <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />}
             <span className={i === 0 ? "font-semibold" : "pl-5"}>{renderInline(q)}</span>
           </div>
         ))}
@@ -404,21 +403,30 @@ function ClinicalNarrative({
     const s = (l.status ?? "").toLowerCase();
     return s === "resulted" || s === "reported";
   });
-  const flags = computeSafetyFlags(patient, administered, resulted);
   const md = buildDischargeMarkdown(patient, administered, resulted);
   return (
-    <div className="rounded-md border border-slate-200 bg-white px-8 py-7 font-sans">
-      {flags.length === 0 && (
-        <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
-          ✓ Clinical Sanity Check Passed
-        </div>
-      )}
+    <div
+      className="rounded-sm border border-slate-300 bg-white px-10 py-8"
+      style={{ fontFamily: '"Times New Roman", Times, serif' }}
+    >
       <MarkdownBlock md={md} />
-      <div className="mt-5 pt-3 border-t border-slate-200 text-[11px] text-slate-500">
+      <div className="mt-6 pt-3 border-t border-slate-300 text-[12px] text-slate-600">
         Disposition:{" "}
         {isDischarged
           ? <>Discharged in stable condition · Length of stay <span className="font-mono">{los}</span></>
           : <>Active inpatient — disposition pending clinical reassessment.</>}
+      </div>
+      <div className="mt-8 grid grid-cols-2 gap-8 text-[12.5px] text-slate-700">
+        <div>
+          <div className="border-t border-slate-400 pt-1 mt-10">
+            Attending Physician — Signature &amp; Date
+          </div>
+        </div>
+        <div>
+          <div className="border-t border-slate-400 pt-1 mt-10">
+            Patient / Authorized Representative — Signature &amp; Date
+          </div>
+        </div>
       </div>
     </div>
   );
