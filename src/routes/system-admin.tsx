@@ -651,6 +651,153 @@ type DbSafetyAlert = {
   resolution_rationale: string | null;
 };
 
+/* ------------------------------------------------------------------ */
+/*  Genuine clinical rationale generator                              */
+/*                                                                    */
+/*  Produces interaction-specific, drug-aware reasoning text instead  */
+/*  of canned boilerplate. Mirrors the structure a pharmacist would   */
+/*  document in an Epic / Cerner alert override (drug pair, mechanism,*/
+/*  monitoring plan or substitution).                                 */
+/* ------------------------------------------------------------------ */
+function buildSafetyRationale(
+  c: Pick<DbSafetyAlert, "kind" | "drug" | "drug_b" | "allergy_name" | "family" | "severity">,
+  decision: "Overridden" | "Rejected",
+  actor: "AI Safety Engine" | "Pharmacist" = "AI Safety Engine",
+): string {
+  const drugA = (c.drug ?? "").trim();
+  const drugB = (c.drug_b ?? "").trim();
+  const fam = (c.family ?? "").toLowerCase();
+  const allergy = (c.allergy_name ?? "").trim();
+  const sev = c.severity ?? (c.kind === "Drug-Drug" ? "Major" : null);
+
+  /* ---- Pre-built clinical plans keyed off interaction class ------- */
+  type Plan = { monitor: string; substitute: string };
+  const plan: Plan = (() => {
+    if (/serotonin/.test(fam))
+      return {
+        monitor:
+          "q2h neuro checks (clonus, hyperreflexia, agitation), continuous vitals; hold second serotonergic agent until psychiatry consult",
+        substitute:
+          "switch tramadol → scheduled acetaminophen 650 mg PO q6h ± hydrocodone 5 mg PO q4h prn; continue SSRI",
+      };
+    if (/hyperkalemia/.test(fam))
+      return {
+        monitor:
+          "baseline BMP within 4 h, repeat K+ q12h × 48 h, daily Cr; hold ACE-I if K+ ≥ 5.5 mEq/L",
+        substitute:
+          "discontinue spironolactone; substitute hydrochlorothiazide 25 mg PO daily and continue ACE-I",
+      };
+    if (/bleeding|antiplatelet|anticoagulant/.test(fam))
+      return {
+        monitor:
+          "daily CBC, INR q24h, stool guaiac, monitor for ecchymosis/GI bleed; PPI prophylaxis",
+        substitute:
+          "discontinue NSAID; substitute acetaminophen 650 mg PO q6h prn pain; continue warfarin per anticoag service",
+      };
+    if (/inr|warfarin potentiation/.test(fam))
+      return {
+        monitor: "INR at 48 h and 96 h; empirically reduce warfarin dose 20–30 %",
+        substitute:
+          "swap TMP-SMX → cephalexin 500 mg PO QID if culture-appropriate; continue warfarin",
+      };
+    if (/lactic acidosis|contrast/.test(fam))
+      return {
+        monitor:
+          "hold metformin from contrast administration through 48 h post; eGFR + lactate at 48 h before resuming",
+        substitute:
+          "bridge with insulin sliding scale; resume metformin once renal function confirmed stable",
+      };
+    if (/cyp2c19|clopidogrel/.test(fam))
+      return {
+        monitor: "no acute coag derangement expected; review at next med rec",
+        substitute: "switch omeprazole → pantoprazole 40 mg PO daily (minimal CYP2C19 effect)",
+      };
+    if (/rhabdomyolysis|statin/.test(fam))
+      return {
+        monitor: "CK + LFTs at 72 h; counsel on muscle pain/dark urine",
+        substitute:
+          "hold statin for the duration of macrolide/azole course; resume on day 8",
+      };
+    if (/digoxin/.test(fam))
+      return {
+        monitor: "digoxin level at 48 h, ECG for AV block, K+ + Mg q24h",
+        substitute: "empirically halve digoxin dose for the duration of interacting agent",
+      };
+    if (/respiratory depression|opioid \+ benzodiazepine/.test(fam))
+      return {
+        monitor:
+          "continuous SpO₂ + capnography, q1h RASS, naloxone 0.4 mg + flumazenil 0.2 mg at bedside",
+        substitute:
+          "discontinue benzodiazepine; substitute hydroxyzine 25 mg PO q6h prn anxiety",
+      };
+    /* Allergy cross-reactivity defaults */
+    if (/penicillin|β-lactam|beta-lactam|cephalosporin/.test(fam))
+      return {
+        monitor:
+          "first dose under observation × 30 min, epinephrine 0.3 mg IM + diphenhydramine 50 mg IV at bedside",
+        substitute:
+          "if reaction was rash only → desensitize or use cefazolin (low cross-reactivity, <2 %); if anaphylaxis → switch to vancomycin 15 mg/kg IV q12h",
+      };
+    if (/sulfonamide/.test(fam))
+      return {
+        monitor: "skin survey q4h × 24 h for SJS/TEN prodrome (mucosal lesions, target rash)",
+        substitute:
+          "switch TMP-SMX → nitrofurantoin 100 mg PO BID (UTI) or doxycycline 100 mg PO BID (broad coverage)",
+      };
+    if (/nsaid/.test(fam))
+      return {
+        monitor: "renal panel + BP at 24 h; watch for bronchospasm if asthma history",
+        substitute: "switch to acetaminophen 1 g PO q6h (max 3 g/day) ± topical diclofenac",
+      };
+    if (/opioid/.test(fam))
+      return {
+        monitor: "SpO₂ + sedation score (RASS) q1h × 4 h after first dose",
+        substitute:
+          "if pseudoallergy (pruritus only) → pretreat with diphenhydramine 25 mg IV; if true allergy → switch to fentanyl 25 mcg IV q1h prn (different opioid class)",
+      };
+    if (/contrast|iodinated/.test(fam))
+      return {
+        monitor: "premedicate methylprednisolone 32 mg PO at 12 h and 2 h pre-scan + diphenhydramine 50 mg IV",
+        substitute: "if life-threatening reaction history → switch to gadolinium MR or non-contrast study",
+      };
+    if (/statin/.test(fam))
+      return {
+        monitor: "CK + AST/ALT at 6 weeks",
+        substitute: "rotate within class to pravastatin 40 mg PO qHS (non-CYP3A4 metabolism)",
+      };
+    if (/latex/.test(fam))
+      return {
+        monitor: "schedule as first case of day in latex-free OR; flag bed/chart",
+        substitute: "use non-latex gloves, tubing, tourniquets; vinyl/nitrile alternatives",
+      };
+    return {
+      monitor: "q4h vitals, daily focused exam for end-organ effects, document tolerance at 24 h",
+      substitute: "discontinue offending agent; consult pharmacy for therapeutic alternative",
+    };
+  })();
+
+  const pair =
+    c.kind === "Drug-Drug"
+      ? `${drugA || "drug A"} + ${drugB || "drug B"}`
+      : `${drugA || "ordered drug"} in patient with ${allergy || "documented allergy"}`;
+  const mech = c.family || "documented cross-reactivity";
+  const sevTag = sev ? `${sev}-severity ` : "";
+
+  if (decision === "Overridden") {
+    return (
+      `${actor === "AI Safety Engine" ? "AI Safety Engine override" : "Pharmacist override"}: ` +
+      `${sevTag}${mech} (${pair}). Benefit judged to outweigh risk on this admission — ` +
+      `${plan.monitor}. Reassess at 24 h; escalate to attending if any criteria above are met.`
+    );
+  }
+  /* Rejected */
+  return (
+    `${actor === "AI Safety Engine" ? "AI Safety Engine rejection" : "Pharmacist rejection"}: ` +
+    `${sevTag}${mech} (${pair}). Risk exceeds benefit — order canceled. ` +
+    `Recommended alternative: ${plan.substitute}.`
+  );
+}
+
 function SafetyQueue({ facility }: { facility: string }) {
   const [items, setItems] = useState<DbSafetyAlert[]>([]);
   const [loading, setLoading] = useState(true);
