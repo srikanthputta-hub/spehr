@@ -44,6 +44,7 @@ export type Database = {
       clinical_safety_alerts: {
         Row: {
           allergy_name: string | null
+          auto_resolve_at: string | null
           created_at: string
           decided_at: string | null
           decided_by: string | null
@@ -56,11 +57,14 @@ export type Database = {
           mrn: string
           patient_name: string | null
           rationale: string | null
+          resolution_rationale: string | null
+          resolved_by: string | null
           severity: string | null
           status: string
         }
         Insert: {
           allergy_name?: string | null
+          auto_resolve_at?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
@@ -73,11 +77,14 @@ export type Database = {
           mrn: string
           patient_name?: string | null
           rationale?: string | null
+          resolution_rationale?: string | null
+          resolved_by?: string | null
           severity?: string | null
           status?: string
         }
         Update: {
           allergy_name?: string | null
+          auto_resolve_at?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
@@ -90,6 +97,8 @@ export type Database = {
           mrn?: string
           patient_name?: string | null
           rationale?: string | null
+          resolution_rationale?: string | null
+          resolved_by?: string | null
           severity?: string | null
           status?: string
         }
