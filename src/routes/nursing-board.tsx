@@ -84,15 +84,6 @@ function normalizeCode(s: string | null | undefined): CodeStatus {
   return "Full Code";
 }
 
-// Deterministic mock room from MRN so it stays stable across renders.
-function mockRoom(mrn: string): string {
-  let h = 0;
-  for (let i = 0; i < mrn.length; i++) h = (h * 31 + mrn.charCodeAt(i)) >>> 0;
-  const num = 400 + (h % 60); // 400 – 459
-  const bed = ["A", "B", "C", "D"][h % 4];
-  return `${num}-${bed}`;
-}
-
 /**
  * Release any beds whose `current_patient_mrn` no longer maps to an
  * actively admitted patient (discharged, deleted, or status mismatch).
@@ -657,6 +648,20 @@ function Dashboard() {
     } catch (e: any) {
       console.warn("[admit] seedAdmission failed", e);
     }
+    // Verify a real bed was claimed — seedAdmission auto-deletes the
+    // patient row when none was available (race with ghost cron). Surface
+    // the same "No empty beds available" disclaimer in that case.
+    const { data: bedCheck } = await supabase
+      .from("bed_management")
+      .select("id")
+      .eq("current_patient_mrn", mrn)
+      .maybeSingle();
+    if (!bedCheck) {
+      toast.error("No empty beds available", {
+        description: `${facility} just filled up. Please direct the patient to the Patient Lounge until a bed is released.`,
+      });
+      return false;
+    }
     setPatients((prev) =>
       prev.some((p) => p.mrn === mrn) ? prev : [...prev, toRow(data)],
     );
@@ -825,7 +830,7 @@ function Dashboard() {
                   </tr>
                 )}
                 {!loading && !fetchError && rows.map((p, i) => {
-                  const room = p.room?.trim() || "ED/Triage";
+                  const room = p.room?.trim() || "—";
                   return (
                     <tr
                       key={p.mrn}
@@ -1430,7 +1435,7 @@ function bedTone(status: string): { wrap: string; label: string; dot: string } {
     return { wrap: "bg-emerald-50 border-emerald-300", label: "text-emerald-800", dot: "bg-emerald-500" };
   if (s.startsWith("occupied"))
     return { wrap: "bg-sky-50 border-sky-300", label: "text-sky-800", dot: "bg-sky-500" };
-  if (s.includes("deep cleaning") || s.startsWith("discharged"))
+  if (s.startsWith("cleaning") || s.includes("deep cleaning") || s.startsWith("discharged"))
     return { wrap: "bg-amber-50 border-amber-300", label: "text-amber-900", dot: "bg-amber-500 animate-pulse" };
   if (s.startsWith("disinfecting"))
     return { wrap: "bg-indigo-50 border-indigo-300", label: "text-indigo-800", dot: "bg-indigo-500 animate-pulse" };
@@ -1447,7 +1452,10 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
   const elapsed = Math.max(0, now - new Date(updatedAt).getTime());
   const pct = Math.min(100, (elapsed / CLEAN_PHASE_MS) * 100);
   const remain = Math.max(0, Math.ceil((CLEAN_PHASE_MS - elapsed) / 1000));
-  const isClean = status.toLowerCase().includes("deep cleaning") || status.toLowerCase().startsWith("discharged");
+  const isClean =
+    status.toLowerCase().startsWith("cleaning") ||
+    status.toLowerCase().includes("deep cleaning") ||
+    status.toLowerCase().startsWith("discharged");
   const isDis = status.toLowerCase().startsWith("disinfecting");
   if (!isClean && !isDis) return null;
   return (
@@ -1459,7 +1467,7 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
         />
       </div>
       <div className="mt-1 text-[10px] font-mono tabular-nums text-slate-600">
-        {isClean ? "Deep Cleaning" : "Disinfecting"} · {remain}s remaining
+        {isClean ? "Cleaning" : "Disinfecting"} · {remain}s remaining
       </div>
     </div>
   );

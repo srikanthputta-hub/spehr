@@ -147,11 +147,9 @@ async function assignBedForPatient(p: NewPatient): Promise<string | null> {
     await supabase.from("patients").update({ room } as any).eq("mrn", p.mrn);
     return room;
   }
-  // No bed available — hold patient in ED/Triage.
-  await supabase
-    .from("patients")
-    .update({ room: "ED/Triage" } as any)
-    .eq("mrn", p.mrn);
+  // No bed available — DO NOT fabricate an ED/Triage placeholder. Caller
+  // is responsible for rejecting the admission and surfacing the
+  // "No empty beds available" disclaimer.
   return null;
 }
 
@@ -166,7 +164,7 @@ async function startBedCleaningCycle(mrn: string) {
   await supabase
     .from("bed_management")
     .update({
-      status: "Discharged - Deep Cleaning In Progress",
+      status: "Cleaning",
       current_patient_mrn: null,
       status_updated_at: new Date().toISOString(),
     } as any)
@@ -177,16 +175,16 @@ async function sweepBedCleaningCycles() {
   const now = Date.now();
   const cutoff60 = new Date(now - 60_000).toISOString();
   const cutoff120 = new Date(now - 120_000).toISOString();
-  // Phase 1 → Phase 2 (60s elapsed)
+  // Cleaning → Disinfecting (60s elapsed)
   await supabase
     .from("bed_management")
     .update({
       status: "Disinfecting",
       status_updated_at: new Date().toISOString(),
     } as any)
-    .in("status", ["Discharged - Deep Cleaning In Progress", "Discharged"])
+    .in("status", ["Cleaning", "Discharged - Deep Cleaning In Progress", "Discharged"])
     .lt("status_updated_at", cutoff60);
-  // Phase 2 → Available (another 60s elapsed = 120s total since discharge)
+  // Disinfecting → Available (another 60s elapsed = 120s total since discharge)
   await supabase
     .from("bed_management")
     .update({
@@ -274,10 +272,19 @@ export async function seedAdmission(
   // Allocate a physical bed from the facility's bed_management pool.
   // Manual or auto admissions both go through here so the floor grid
   // always reflects the real bed assignment.
+  let assignedRoom: string | null = null;
   try {
-    await assignBedForPatient(p);
+    assignedRoom = await assignBedForPatient(p);
   } catch (e) {
     console.warn("[seedAdmission] bed assignment failed", e);
+  }
+  // Hard guarantee: if no bed could be claimed for this admission, undo
+  // the patient row so the network never holds a roomless ghost. The
+  // floor census, bed board and "No empty beds available" disclaimer
+  // stay perfectly in sync this way.
+  if (!assignedRoom) {
+    await supabase.from("patients").delete().eq("mrn", p.mrn);
+    return;
   }
 
   const fallbackName = [p.first_name, p.last_name].filter(Boolean).join(" ");
