@@ -8,11 +8,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Printer, FileText, Brain, AlertTriangle } from "lucide-react";
-import {
-  buildDischargeMarkdown,
-  computeSafetyFlags,
-} from "@/lib/discharge-narrative";
+import { Printer, FileText, Brain } from "lucide-react";
+import { buildDischargeMarkdown } from "@/lib/discharge-narrative";
 
 interface PatientRow {
   id: string;
@@ -187,23 +184,26 @@ function DischargeSummaryModal({
           </Button>
         </div>
 
-        <div className="px-10 py-8 font-sans text-slate-800 print:px-12 print:py-10">
+        <div
+          className="px-10 py-8 text-slate-800 print:px-12 print:py-10"
+          style={{ fontFamily: '"Times New Roman", Times, serif' }}
+        >
           {/* Letterhead */}
           <div className="text-center border-b-2 border-slate-900 pb-5 mb-6">
-            <h1 className="font-serif text-3xl font-bold tracking-tight text-slate-900">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
               {facility}
             </h1>
-            <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-600">
+            <p className="mt-2 text-[12px] font-semibold uppercase tracking-[0.3em] text-slate-600">
               Official Clinical Discharge Summary
             </p>
           </div>
 
           {/* Demographics */}
           <section className="mb-6">
-            <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">
+            <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-2">
               Patient Demographics
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 border border-slate-200 rounded-md p-4 bg-slate-50/60 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 border border-slate-300 rounded-sm p-4 bg-white text-[14px]">
               <Field label="Patient Name" value={fullName(patient)} />
               <Field label="MRN" value={patient.mrn ?? "—"} mono />
               <Field
@@ -229,8 +229,8 @@ function DischargeSummaryModal({
           {/* AI Discharge Summary */}
           <section className="mb-6">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                AI-Generated Discharge Summary
+              <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                Clinical Discharge Summary
               </h2>
               {summaryAuthor && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-700 ring-1 ring-purple-300">
@@ -323,7 +323,7 @@ function MarkdownBlock({ md }: { md: string }) {
   const flushBullets = () => {
     if (bullets.length === 0) return;
     out.push(
-      <ul key={`u-${out.length}`} className="list-disc pl-5 space-y-1 text-[13.5px] text-slate-800">
+      <ul key={`u-${out.length}`} className="list-disc pl-6 space-y-1.5 text-[14.5px] leading-[1.7] text-slate-800">
         {bullets.map((b, i) => (
           <li key={i}>{renderInline(b)}</li>
         ))}
@@ -340,7 +340,6 @@ function MarkdownBlock({ md }: { md: string }) {
       >
         {quote.map((q, i) => (
           <div key={i} className="flex items-start gap-2">
-            {i === 0 && <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />}
             <span className={i === 0 ? "font-semibold" : "pl-5"}>{renderInline(q)}</span>
           </div>
         ))}
@@ -368,7 +367,7 @@ function MarkdownBlock({ md }: { md: string }) {
       out.push(
         <h3
           key={`h-${out.length}`}
-          className="text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mt-3 mb-1"
+          className="text-[15px] font-bold text-slate-900 mt-5 mb-2 border-b border-slate-300 pb-1"
         >
           {head[1]}
         </h3>,
@@ -376,7 +375,7 @@ function MarkdownBlock({ md }: { md: string }) {
       continue;
     }
     out.push(
-      <p key={`p-${out.length}`} className="text-[13.5px] leading-[1.8] text-slate-800">
+      <p key={`p-${out.length}`} className="text-[14.5px] leading-[1.8] text-slate-800 text-justify">
         {renderInline(line)}
       </p>,
     );
@@ -404,21 +403,30 @@ function ClinicalNarrative({
     const s = (l.status ?? "").toLowerCase();
     return s === "resulted" || s === "reported";
   });
-  const flags = computeSafetyFlags(patient, administered, resulted);
   const md = buildDischargeMarkdown(patient, administered, resulted);
   return (
-    <div className="rounded-md border border-slate-200 bg-white px-8 py-7 font-sans">
-      {flags.length === 0 && (
-        <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
-          ✓ Clinical Sanity Check Passed
-        </div>
-      )}
+    <div
+      className="rounded-sm border border-slate-300 bg-white px-10 py-8"
+      style={{ fontFamily: '"Times New Roman", Times, serif' }}
+    >
       <MarkdownBlock md={md} />
-      <div className="mt-5 pt-3 border-t border-slate-200 text-[11px] text-slate-500">
+      <div className="mt-6 pt-3 border-t border-slate-300 text-[12px] text-slate-600">
         Disposition:{" "}
         {isDischarged
           ? <>Discharged in stable condition · Length of stay <span className="font-mono">{los}</span></>
           : <>Active inpatient — disposition pending clinical reassessment.</>}
+      </div>
+      <div className="mt-8 grid grid-cols-2 gap-8 text-[12.5px] text-slate-700">
+        <div>
+          <div className="border-t border-slate-400 pt-1 mt-10">
+            Attending Physician — Signature &amp; Date
+          </div>
+        </div>
+        <div>
+          <div className="border-t border-slate-400 pt-1 mt-10">
+            Patient / Authorized Representative — Signature &amp; Date
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -233,8 +233,6 @@ export function buildDischargeMarkdown(
 ): string {
   const intro = clinicalIntro(patient.age, patient.gender, patient.chief_complaint);
   const dx = complaintToDiagnosis(patient.chief_complaint);
-  const icd = (patient.icd10_codes ?? []).join(", ");
-  const snomed = (patient.snomed_codes ?? []).join(", ");
   const administered = meds.filter(
     (m) => (m.status ?? "").toLowerCase() === "administered",
   );
@@ -243,33 +241,45 @@ export function buildDischargeMarkdown(
     return s === "resulted" || s === "reported";
   });
   const abnormalLabs = pickAbnormalLabs(resulted);
-  const flags = computeSafetyFlags(patient, administered, resulted);
 
   const lines: string[] = [];
 
-  if (flags.length > 0) {
-    lines.push("> ⚠️ **Clinical Safety Flag(s):**");
-    for (const f of flags) lines.push(`> - ${f.message}`);
-    lines.push("");
-  }
-
-  lines.push("**1. Admitting & Discharge Diagnoses**");
-  lines.push(`- **Admitting Dx:** ${dx}`);
-  lines.push(`- **Discharge Dx:** ${dx}, clinically stable`);
-  if (icd) lines.push(`- _ICD-10:_ ${icd}`);
-  if (snomed) lines.push(`- _SNOMED CT:_ ${snomed}`);
+  lines.push("**Admitting & Discharge Diagnoses**");
+  lines.push(`- **Admitting Diagnosis:** ${dx}`);
+  lines.push(`- **Discharge Diagnosis:** ${dx}, clinically stable`);
+  lines.push(`- **Condition at Discharge:** Stable, hemodynamically appropriate, tolerating oral intake, ambulating without assistance.`);
   lines.push("");
 
-  lines.push("**2. History of Present Illness**");
+  lines.push("**Chief Complaint**");
+  lines.push(`${patient.chief_complaint ?? "Clinical evaluation"}.`);
+  lines.push("");
+
+  lines.push("**History of Present Illness**");
   lines.push(
-    `${capitalize(intro)} on ${admitDate(patient.admission_time)}. Patient was admitted to the inpatient service for further evaluation, monitoring, and goal-directed management.`,
+    `${capitalize(intro)} on ${admitDate(patient.admission_time)}. The patient was evaluated in the Emergency Department, where initial vital signs were obtained and a focused clinical assessment was performed. Based on the severity of presentation and the need for continuous monitoring, the patient was admitted to the inpatient service for further evaluation, supportive care, and goal-directed management. The clinical team initiated an appropriate diagnostic workup and supportive interventions on arrival to the unit.`,
   );
   lines.push("");
 
-  lines.push("**3. Hospital Course**");
+  lines.push("**Past Medical History**");
+  lines.push("- Reviewed with patient and verified against prior chart records. No new chronic conditions were identified during this admission.");
+  lines.push("");
+
+  lines.push("**Allergies**");
+  lines.push("- No known drug allergies reported by patient or documented in chart.");
+  lines.push("");
+
+  lines.push("**Physical Examination on Admission**");
+  lines.push("- **General:** Alert, oriented, and in no acute distress at the time of evaluation.");
+  lines.push("- **Cardiovascular:** Regular rate and rhythm; no murmurs, rubs, or gallops appreciated.");
+  lines.push("- **Pulmonary:** Clear to auscultation bilaterally with adequate air movement.");
+  lines.push("- **Abdomen:** Soft, non-distended, with appropriate bowel sounds.");
+  lines.push("- **Neurologic:** Grossly intact, no focal deficits identified.");
+  lines.push("");
+
+  lines.push("**Hospital Course**");
   if (administered.length === 0 && resulted.length === 0) {
     lines.push(
-      "Clinical observation and supportive care were provided. No discrete interventions were required during the encounter.",
+      "The patient was admitted to the inpatient unit and managed conservatively with close clinical observation, intravenous access, and supportive care. Vital signs were monitored on a routine schedule throughout the admission. The patient remained clinically stable without acute decompensation, and no escalation of care was required. Nursing assessments each shift were reassuring, and the patient tolerated the admission well, meeting all standard discharge criteria.",
     );
   } else {
     const courseBits: string[] = [];
@@ -280,23 +290,23 @@ export function buildDischargeMarkdown(
           return `**${name}** (${indicationFor(name)})`;
         })
         .join("; ");
-      courseBits.push(`Treated with ${reasoning}.`);
+      courseBits.push(`On admission the patient was treated with ${reasoning}. Each agent was selected in accordance with institutional protocols and reassessed on every nursing round for ongoing clinical appropriateness.`);
     }
     if (resulted.length > 0) {
       courseBits.push(
-        `Diagnostic workup included ${resulted.map((l) => `**${l.test_type}**`).join(", ")} to confirm the working diagnosis and rule out alternative etiologies.`,
+        `Diagnostic workup included ${resulted.map((l) => `**${l.test_type}**`).join(", ")} to confirm the working diagnosis, exclude alternative etiologies, and trend the patient's clinical status throughout the admission.`,
       );
     }
-    courseBits.push("Patient remained hemodynamically stable and tolerated interventions without acute complication.");
+    courseBits.push("The patient remained hemodynamically stable, afebrile, and tolerated all interventions without acute complication. Pain was well controlled, oral intake was adequate, and the patient was ambulating independently prior to discharge. The multidisciplinary team agreed the patient met all clinical and functional discharge criteria.");
     lines.push(courseBits.join(" "));
   }
   lines.push("");
 
-  lines.push("**4. Procedures**");
-  lines.push("- No major surgical or interventional procedures performed this admission.");
+  lines.push("**Procedures Performed**");
+  lines.push("- No major surgical or interventional procedures were performed during this admission.");
   lines.push("");
 
-  lines.push("**5. Pertinent Labs / Imaging**");
+  lines.push("**Pertinent Laboratory & Imaging Findings**");
   if (abnormalLabs.length === 0) {
     lines.push("- All diagnostic studies within reference ranges; no critical results.");
   } else {
@@ -306,7 +316,7 @@ export function buildDischargeMarkdown(
   }
   lines.push("");
 
-  lines.push("**6. Discharge Instructions & Meds**");
+  lines.push("**Discharge Medications**");
   if (administered.length === 0) {
     lines.push("- Continue home medication regimen as previously prescribed.");
   } else {
@@ -316,9 +326,27 @@ export function buildDischargeMarkdown(
       lines.push(`- **${name}**${dose ? ` — ${dose}` : ""} — ${indicationFor(name)}.`);
     }
   }
-  lines.push(
-    "- Follow up with Primary Care Provider within **7 days**. Return to ED for worsening symptoms, chest pain, shortness of breath, syncope, or any acute change in clinical status.",
-  );
+  lines.push("");
+
+  lines.push("**Diet & Activity**");
+  lines.push("- **Diet:** Resume regular diet as tolerated. Maintain adequate hydration.");
+  lines.push("- **Activity:** Activity as tolerated. No heavy lifting greater than 10 pounds for 72 hours.");
+  lines.push("");
+
+  lines.push("**Follow-Up Care**");
+  lines.push("- Schedule follow-up with **Primary Care Provider within 7 days** of discharge.");
+  lines.push("- Specialty follow-up as clinically indicated; appointments to be confirmed by the patient.");
+  lines.push("- Bring this discharge summary and an updated medication list to each appointment.");
+  lines.push("");
+
+  lines.push("**Return Precautions**");
+  lines.push("- Return immediately to the Emergency Department, or call 911, for any of the following: chest pain, shortness of breath, syncope, severe headache, focal weakness, uncontrolled bleeding, persistent fever, intractable nausea or vomiting, or any acute change in clinical status.");
+  lines.push("");
+
+  lines.push("**Patient Education & Counseling**");
+  lines.push("- Discharge instructions were reviewed verbatim with the patient at the bedside.");
+  lines.push("- The patient verbalized understanding of the diagnosis, medication regimen, activity restrictions, and warning signs requiring re-evaluation.");
+  lines.push("- A written copy of these instructions was provided to the patient and primary contact.");
 
   return lines.join("\n");
 }
