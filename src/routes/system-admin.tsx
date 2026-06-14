@@ -646,11 +646,21 @@ type DbSafetyAlert = {
   decided_at: string | null;
   rationale: string | null;
   created_at: string;
+  auto_resolve_at: string | null;
+  resolved_by: string | null;
+  resolution_rationale: string | null;
 };
 
 function SafetyQueue({ facility }: { facility: string }) {
   const [items, setItems] = useState<DbSafetyAlert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [nowTs, setNowTs] = useState<number>(Date.now());
+
+  // 1s ticker drives the live countdown UI on each pending card.
+  useEffect(() => {
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const refresh = async () => {
     setLoading(true);
@@ -684,12 +694,14 @@ function SafetyQueue({ facility }: { facility: string }) {
 
   /* ----------------------------------------------------------------
    * AI Auto-Resolver — every Pending Review alert is auto-decided
-   * 2 minutes after creation. The AI Safety Engine randomly chooses
-   * Override (70%) vs Reject (30%) and writes a clinical rationale.
+   * the moment its `auto_resolve_at` SLA expires (2-minute window).
+   * The AI Safety Engine randomly chooses Override (70%) vs Reject
+   * (30%) and writes the mandated professional clinical line into
+   * resolution_rationale + resolved_by = "AI Safety Engine".
    * Mirrors the NLP Audit Log auto-fallback pattern.
    * ---------------------------------------------------------------- */
   useEffect(() => {
-    const AUTO_RESOLVE_MS = 2 * 60_000;
+    const FALLBACK_MS = 2 * 60_000;
     const inflight = new Set<string>();
     const tick = async () => {
       const now = Date.now();
@@ -697,26 +709,47 @@ function SafetyQueue({ facility }: { facility: string }) {
         (i) =>
           i.status === "Pending Review" &&
           !inflight.has(i.id) &&
-          now - new Date(i.created_at).getTime() >= AUTO_RESOLVE_MS,
+          now >=
+            (i.auto_resolve_at
+              ? new Date(i.auto_resolve_at).getTime()
+              : new Date(i.created_at).getTime() + FALLBACK_MS),
       );
       for (const c of due) {
         inflight.add(c.id);
         const override = Math.random() < 0.7;
         const status: "Overridden" | "Rejected" = override ? "Overridden" : "Rejected";
         const rationale = override
-          ? c.kind === "Drug-Drug"
-            ? "AI Safety Engine: interaction acknowledged; clinical benefit outweighs risk — monitor labs and vitals per protocol."
-            : "AI Safety Engine: documented exposure tolerated previously; proceeding with enhanced monitoring."
-          : c.kind === "Drug-Drug"
-            ? "AI Safety Engine: interaction risk exceeds benefit — substituting non-interacting agent."
-            : "AI Safety Engine: cross-reactivity risk confirmed — order discontinued, alternative agent recommended.";
+          ? "Overridden by AI Safety Engine: Automatic SLA resolution. Cross-reactivity risk evaluated as low-tier; proceeding with enhanced nursing metric monitoring."
+          : "Rejected by AI Safety Engine: Automatic SLA timeout. High-tier severe contraindicated interaction profile detected; order canceled for patient safety.";
+
+        // Optimistically update the local list the instant the SLA expires
+        // so the metric tiles (Pending / Overridden / Rejected) move on the
+        // same millisecond as the timeout.
+        setItems((prev) =>
+          prev.map((row) =>
+            row.id === c.id
+              ? {
+                  ...row,
+                  status,
+                  decided_by: "AI Safety Engine",
+                  decided_at: new Date().toISOString(),
+                  resolved_by: "AI Safety Engine",
+                  resolution_rationale: rationale,
+                  rationale,
+                }
+              : row,
+          ),
+        );
+
         const { error } = await supabase
           .from("clinical_safety_alerts")
           .update({
             status,
-            decided_by: "AI Safety Engine · Auto-Resolved",
+            decided_by: "AI Safety Engine",
             decided_at: new Date().toISOString(),
             rationale,
+            resolved_by: "AI Safety Engine",
+            resolution_rationale: rationale,
           })
           .eq("id", c.id)
           .eq("status", "Pending Review");
@@ -728,26 +761,33 @@ function SafetyQueue({ facility }: { facility: string }) {
         }
       }
     };
-    const id = setInterval(tick, 5_000);
+    const id = setInterval(tick, 1_000);
     tick();
     return () => clearInterval(id);
   }, [items]);
 
   const act = async (c: DbSafetyAlert, status: "Overridden" | "Rejected") => {
-    const rationale = window.prompt(
-      `${status === "Overridden" ? "Override" : "Reject"} this alert — clinical rationale:`,
+    const defaultRationale =
       status === "Overridden"
         ? "Benefit outweighs risk; patient tolerated similar agent previously."
-        : "Discontinue order; substitute non-cross-reactive agent.",
-    );
+        : "Discontinue order; substitute non-cross-reactive agent.";
+    const rationale =
+      status === "Overridden"
+        ? window.prompt(
+            "Override this alert — clinical rationale:",
+            defaultRationale,
+          )
+        : defaultRationale;
     if (rationale === null) return;
     const { error } = await supabase
       .from("clinical_safety_alerts")
       .update({
         status,
-        decided_by: "Command Center · System Administration",
+        decided_by: "Human Clinician",
         decided_at: new Date().toISOString(),
         rationale,
+        resolved_by: "Human Clinician",
+        resolution_rationale: rationale,
       })
       .eq("id", c.id);
     if (error) { toast.error("Update failed", { description: error.message }); return; }
@@ -846,13 +886,19 @@ function SafetyQueue({ facility }: { facility: string }) {
                   {c.rationale && (
                     <div className="mt-2 text-[11px] text-slate-600 italic">
                       <span className="font-semibold not-italic">{c.status}</span>
-                      {c.decided_by ? ` by ${c.decided_by}` : ""}
+                      {(c.resolved_by ?? c.decided_by) ? ` by ${c.resolved_by ?? c.decided_by}` : ""}
                       {c.decided_at ? ` · ${new Date(c.decided_at).toLocaleString()}` : ""} — “{c.rationale}”
                     </div>
                   )}
                 </div>
                 {c.status === "Pending Review" ? (
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <SlaCountdown
+                      autoResolveAt={c.auto_resolve_at}
+                      createdAt={c.created_at}
+                      nowTs={nowTs}
+                    />
+                    <div className="flex items-center gap-1.5">
                     <Button
                       size="sm"
                       className="h-7 bg-amber-600 hover:bg-amber-700"
@@ -868,6 +914,7 @@ function SafetyQueue({ facility }: { facility: string }) {
                     >
                       <X className="h-3 w-3" /> Reject
                     </Button>
+                    </div>
                   </div>
                 ) : (
                   <span
@@ -885,6 +932,58 @@ function SafetyQueue({ facility }: { facility: string }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------
+ * Live 2-minute SLA countdown badge + progress bar.
+ * Flips amber under 30s, red+pulsing under 10s.
+ * ---------------------------------------------------------------- */
+function SlaCountdown({
+  autoResolveAt,
+  createdAt,
+  nowTs,
+}: {
+  autoResolveAt: string | null;
+  createdAt: string;
+  nowTs: number;
+}) {
+  const TOTAL_MS = 2 * 60_000;
+  const end = autoResolveAt
+    ? new Date(autoResolveAt).getTime()
+    : new Date(createdAt).getTime() + TOTAL_MS;
+  const remaining = Math.max(0, end - nowTs);
+  const secs = Math.ceil(remaining / 1000);
+  const mm = Math.floor(secs / 60);
+  const ss = secs % 60;
+  const pct = Math.max(0, Math.min(100, (remaining / TOTAL_MS) * 100));
+  const critical = remaining <= 10_000;
+  const warning = remaining <= 30_000 && !critical;
+  const tone = critical
+    ? "border-red-300 bg-red-50 text-red-700"
+    : warning
+      ? "border-amber-300 bg-amber-50 text-amber-700"
+      : "border-slate-300 bg-slate-50 text-slate-700";
+  const barColor = critical
+    ? "bg-red-500"
+    : warning
+      ? "bg-amber-500"
+      : "bg-emerald-500";
+  return (
+    <div className={`w-44 rounded-md border px-2 py-1 ${tone} ${critical ? "animate-pulse" : ""}`}>
+      <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider">
+        <span>SLA Auto-Fallback</span>
+        <span className="font-mono">
+          {String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/60">
+        <div
+          className={`h-full ${barColor} transition-[width] duration-500 ease-linear`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }
