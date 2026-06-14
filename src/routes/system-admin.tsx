@@ -1418,12 +1418,12 @@ function NlpAuditLogs({ facility }: { facility: string }) {
   // Load latest 15 patients (filtered by facility if selected) and synthesize
   // an NLP audit per patient from their chief complaint + recent narrative so
   // reviewers see live admissions instead of a fixed demo set.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const dict = await loadDictionary();
-        let q = supabase
+  // Extracted so the realtime subscription below can re-run it on every
+  // insert/update across the network.
+  const refresh = async () => {
+    try {
+      const dict = await loadDictionary();
+      let q = supabase
           .from("patients")
           .select("mrn, first_name, last_name, name, facility_name, admission_time, chief_complaint, diagnosis")
           .order("admission_time", { ascending: false })
@@ -1458,10 +1458,25 @@ function NlpAuditLogs({ facility }: { facility: string }) {
           (a) => facility === "all" || a.facility_name === facility,
         );
         const merged = [...local, ...live].slice(0, 15);
-        if (!cancelled) setAudits(merged);
+        setAudits(merged);
       } catch {/* noop */}
-    })();
-    return () => { cancelled = true; };
+  };
+
+  // Initial load + realtime subscription. Any insert/update on the
+  // patients table (e.g. a new admission, a diagnosis edit) re-synthesizes
+  // the audit trail across every open System Admin dashboard.
+  useEffect(() => {
+    refresh();
+    const channel = supabase
+      .channel("nlp-audit-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "patients" },
+        () => refresh(),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facility]);
 
   // Refresh on live NLP audit events for the currently-viewed facility.
