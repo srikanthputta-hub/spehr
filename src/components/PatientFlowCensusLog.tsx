@@ -290,17 +290,6 @@ function Field({
   );
 }
 
-function NarrativeBlock({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h3 className="text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mb-1.5">
-        {title}
-      </h3>
-      <p className="text-[13.5px] leading-[1.85] text-slate-800">{children}</p>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Clinical narrative — 6-part discharge structure with safety flags. */
 /* ------------------------------------------------------------------ */
