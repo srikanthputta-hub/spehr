@@ -674,10 +674,10 @@ function Dashboard() {
           />
           <StatCard
             icon={BedDouble}
-            label="Bed Management"
-            value="Bed Management"
+            label="Available Beds"
+            value={`${bedCounts.available}`}
             tone="teal"
-            sub={undefined}
+            sub={`${bedCounts.available} of ${bedCounts.total} beds open · click to manage`}
             interactive
             active={bedBoardOpen}
             onClick={() => setBedBoardOpen(true)}
