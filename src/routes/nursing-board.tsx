@@ -84,15 +84,6 @@ function normalizeCode(s: string | null | undefined): CodeStatus {
   return "Full Code";
 }
 
-// Deterministic mock room from MRN so it stays stable across renders.
-function mockRoom(mrn: string): string {
-  let h = 0;
-  for (let i = 0; i < mrn.length; i++) h = (h * 31 + mrn.charCodeAt(i)) >>> 0;
-  const num = 400 + (h % 60); // 400 – 459
-  const bed = ["A", "B", "C", "D"][h % 4];
-  return `${num}-${bed}`;
-}
-
 /**
  * Release any beds whose `current_patient_mrn` no longer maps to an
  * actively admitted patient (discharged, deleted, or status mismatch).
