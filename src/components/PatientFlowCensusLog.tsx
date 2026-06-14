@@ -8,7 +8,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Printer, FileText, Brain, Pill, FlaskConical } from "lucide-react";
+import { Printer, FileText, Brain, AlertTriangle } from "lucide-react";
+import {
+  buildDischargeMarkdown,
+  computeSafetyFlags,
+} from "@/lib/discharge-narrative";
 
 interface PatientRow {
   id: string;
@@ -21,6 +25,10 @@ interface PatientRow {
   admission_time: string | null;
   discharge_time: string | null;
   discharge_summary: string | null;
+  age: number | null;
+  gender: string | null;
+  icd10_codes: string[] | null;
+  snomed_codes: string[] | null;
 }
 
 interface DischargeNote {
