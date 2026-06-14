@@ -1668,7 +1668,7 @@ function TerminologySearch({
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2 || q === value) { setResults([]); return; }
+    if (q.length < 2) { setResults([]); return; }
     let cancelled = false;
     setLoading(true);
     const t = setTimeout(async () => {
@@ -1693,7 +1693,7 @@ function TerminologySearch({
       }
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [query, kind, value]);
+  }, [query, kind]);
 
   const pick = (display: string) => {
     onChange(display);
