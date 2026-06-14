@@ -272,10 +272,19 @@ export async function seedAdmission(
   // Allocate a physical bed from the facility's bed_management pool.
   // Manual or auto admissions both go through here so the floor grid
   // always reflects the real bed assignment.
+  let assignedRoom: string | null = null;
   try {
-    await assignBedForPatient(p);
+    assignedRoom = await assignBedForPatient(p);
   } catch (e) {
     console.warn("[seedAdmission] bed assignment failed", e);
+  }
+  // Hard guarantee: if no bed could be claimed for this admission, undo
+  // the patient row so the network never holds a roomless ghost. The
+  // floor census, bed board and "No empty beds available" disclaimer
+  // stay perfectly in sync this way.
+  if (!assignedRoom) {
+    await supabase.from("patients").delete().eq("mrn", p.mrn);
+    return;
   }
 
   const fallbackName = [p.first_name, p.last_name].filter(Boolean).join(" ");
