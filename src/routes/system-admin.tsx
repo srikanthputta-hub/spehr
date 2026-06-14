@@ -1320,7 +1320,7 @@ function NlpAuditLogs({ facility }: { facility: string }) {
           const narrative =
             [p.chief_complaint, p.diagnosis].filter(Boolean).join(". ") ||
             "Admission without recorded narrative.";
-          const res = analyzeNarrative(narrative, dict);
+          const res = enrichAuditResult(analyzeNarrative(narrative, dict), narrative);
           const createdAt = p.admission_time ?? new Date().toISOString();
           const autoResolveAt = new Date(new Date(createdAt).getTime() + 60_000).toISOString();
           live.push({
