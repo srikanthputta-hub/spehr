@@ -1659,7 +1659,7 @@ function OrdersDialog({
 }) {
   const [kind, setKind] = useState<"lab" | "med">("lab");
   const [testType, setTestType] = useState("");
-  const [drug, setDrug] = useState("Acetaminophen 650 mg PO Q6H PRN");
+  const [drug, setDrug] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const patientName = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown";
 
