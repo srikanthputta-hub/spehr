@@ -1430,7 +1430,7 @@ function bedTone(status: string): { wrap: string; label: string; dot: string } {
     return { wrap: "bg-emerald-50 border-emerald-300", label: "text-emerald-800", dot: "bg-emerald-500" };
   if (s.startsWith("occupied"))
     return { wrap: "bg-sky-50 border-sky-300", label: "text-sky-800", dot: "bg-sky-500" };
-  if (s.includes("deep cleaning") || s.startsWith("discharged"))
+  if (s.startsWith("cleaning") || s.includes("deep cleaning") || s.startsWith("discharged"))
     return { wrap: "bg-amber-50 border-amber-300", label: "text-amber-900", dot: "bg-amber-500 animate-pulse" };
   if (s.startsWith("disinfecting"))
     return { wrap: "bg-indigo-50 border-indigo-300", label: "text-indigo-800", dot: "bg-indigo-500 animate-pulse" };
@@ -1447,7 +1447,10 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
   const elapsed = Math.max(0, now - new Date(updatedAt).getTime());
   const pct = Math.min(100, (elapsed / CLEAN_PHASE_MS) * 100);
   const remain = Math.max(0, Math.ceil((CLEAN_PHASE_MS - elapsed) / 1000));
-  const isClean = status.toLowerCase().includes("deep cleaning") || status.toLowerCase().startsWith("discharged");
+  const isClean =
+    status.toLowerCase().startsWith("cleaning") ||
+    status.toLowerCase().includes("deep cleaning") ||
+    status.toLowerCase().startsWith("discharged");
   const isDis = status.toLowerCase().startsWith("disinfecting");
   if (!isClean && !isDis) return null;
   return (
@@ -1459,7 +1462,7 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
         />
       </div>
       <div className="mt-1 text-[10px] font-mono tabular-nums text-slate-600">
-        {isClean ? "Deep Cleaning" : "Disinfecting"} · {remain}s remaining
+        {isClean ? "Cleaning" : "Disinfecting"} · {remain}s remaining
       </div>
     </div>
   );
