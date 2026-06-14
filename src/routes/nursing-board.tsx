@@ -322,6 +322,7 @@ function Dashboard() {
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
   const [showOnlyMedsDue, setShowOnlyMedsDue] = useState(false);
   const [bedBoardOpen, setBedBoardOpen] = useState(false);
+  const [bedCounts, setBedCounts] = useState<{ available: number; total: number }>({ available: 0, total: 0 });
   const automationEnabled = useAutomationEnabled();
   const { gate } = useRolePermissions("RN");
 
@@ -338,6 +339,35 @@ function Dashboard() {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if (!facility) return;
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("bed_management")
+        .select("status")
+        .eq("facility_name", facility);
+      if (cancelled || !data) return;
+      const available = data.filter((b: { status: string | null }) => (b.status ?? "").toLowerCase() === "available").length;
+      setBedCounts({ available, total: data.length });
+    };
+    load();
+    const ch = supabase
+      .channel(`bed-count-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` },
+        () => load(),
+      )
+      .subscribe();
+    const interval = setInterval(load, 5000);
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(ch);
+      clearInterval(interval);
+    };
+  }, [facility]);
 
   useEffect(() => {
     if (!ready) return;
@@ -644,10 +674,10 @@ function Dashboard() {
           />
           <StatCard
             icon={BedDouble}
-            label="Bed Management"
-            value="Bed Management"
+            label="Available Beds"
+            value={`${bedCounts.available}`}
             tone="teal"
-            sub={undefined}
+            sub={`${bedCounts.available} of ${bedCounts.total} beds open · click to manage`}
             interactive
             active={bedBoardOpen}
             onClick={() => setBedBoardOpen(true)}
