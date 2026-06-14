@@ -306,6 +306,140 @@ function NarrativeBlock({ title, children }: { title: string; children: React.Re
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Clinical narrative — 6-part discharge structure with safety flags. */
+/* ------------------------------------------------------------------ */
+
+function renderInline(text: string): React.ReactNode {
+  // Bold **...** and italic _..._ ; everything else verbatim.
+  const parts: React.ReactNode[] = [];
+  const re = /(\*\*[^*]+\*\*|_[^_]+_)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**")) {
+      parts.push(<strong key={key++} className="font-semibold text-slate-900">{tok.slice(2, -2)}</strong>);
+    } else {
+      parts.push(<em key={key++} className="text-slate-700">{tok.slice(1, -1)}</em>);
+    }
+    last = m.index + tok.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+function MarkdownBlock({ md }: { md: string }) {
+  const lines = md.split("\n");
+  const out: React.ReactNode[] = [];
+  let bullets: string[] = [];
+  let quote: string[] = [];
+  const flushBullets = () => {
+    if (bullets.length === 0) return;
+    out.push(
+      <ul key={`u-${out.length}`} className="list-disc pl-5 space-y-1 text-[13.5px] text-slate-800">
+        {bullets.map((b, i) => (
+          <li key={i}>{renderInline(b)}</li>
+        ))}
+      </ul>,
+    );
+    bullets = [];
+  };
+  const flushQuote = () => {
+    if (quote.length === 0) return;
+    out.push(
+      <div
+        key={`q-${out.length}`}
+        className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-[12.5px] text-amber-900 space-y-1"
+      >
+        {quote.map((q, i) => (
+          <div key={i} className="flex items-start gap-2">
+            {i === 0 && <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />}
+            <span className={i === 0 ? "font-semibold" : "pl-5"}>{renderInline(q)}</span>
+          </div>
+        ))}
+      </div>,
+    );
+    quote = [];
+  };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (line.startsWith("> ")) {
+      flushBullets();
+      quote.push(line.slice(2).replace(/^-\s*/, ""));
+      continue;
+    }
+    flushQuote();
+    if (line.startsWith("- ")) {
+      bullets.push(line.slice(2));
+      continue;
+    }
+    flushBullets();
+    if (line === "") continue;
+    // Section header like **1. Foo**
+    const head = line.match(/^\*\*(.+)\*\*$/);
+    if (head) {
+      out.push(
+        <h3
+          key={`h-${out.length}`}
+          className="text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mt-3 mb-1"
+        >
+          {head[1]}
+        </h3>,
+      );
+      continue;
+    }
+    out.push(
+      <p key={`p-${out.length}`} className="text-[13.5px] leading-[1.8] text-slate-800">
+        {renderInline(line)}
+      </p>,
+    );
+  }
+  flushBullets();
+  flushQuote();
+  return <div className="space-y-2">{out}</div>;
+}
+
+function ClinicalNarrative({
+  patient,
+  meds,
+  labs,
+  isDischarged,
+  los,
+}: {
+  patient: PatientRow;
+  meds: MedAdminRow[];
+  labs: LabResultRow[];
+  isDischarged: boolean;
+  los: string;
+}) {
+  const administered = meds.filter((m) => (m.status ?? "").toLowerCase() === "administered");
+  const resulted = labs.filter((l) => {
+    const s = (l.status ?? "").toLowerCase();
+    return s === "resulted" || s === "reported";
+  });
+  const flags = computeSafetyFlags(patient, administered, resulted);
+  const md = buildDischargeMarkdown(patient, administered, resulted);
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-8 py-7 font-sans">
+      {flags.length === 0 && (
+        <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
+          ✓ Clinical Sanity Check Passed
+        </div>
+      )}
+      <MarkdownBlock md={md} />
+      <div className="mt-5 pt-3 border-t border-slate-200 text-[11px] text-slate-500">
+        Disposition:{" "}
+        {isDischarged
+          ? <>Discharged in stable condition · Length of stay <span className="font-mono">{los}</span></>
+          : <>Active inpatient — disposition pending clinical reassessment.</>}
+      </div>
+    </div>
+  );
+}
+
 export function PatientFlowCensusLog() {
   const { facility } = useFacility();
   const [rows, setRows] = useState<PatientRow[]>([]);
