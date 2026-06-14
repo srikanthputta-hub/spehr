@@ -657,6 +657,20 @@ function Dashboard() {
     } catch (e: any) {
       console.warn("[admit] seedAdmission failed", e);
     }
+    // Verify a real bed was claimed — seedAdmission auto-deletes the
+    // patient row when none was available (race with ghost cron). Surface
+    // the same "No empty beds available" disclaimer in that case.
+    const { data: bedCheck } = await supabase
+      .from("bed_management")
+      .select("id")
+      .eq("current_patient_mrn", mrn)
+      .maybeSingle();
+    if (!bedCheck) {
+      toast.error("No empty beds available", {
+        description: `${facility} just filled up. Please direct the patient to the Patient Lounge until a bed is released.`,
+      });
+      return false;
+    }
     setPatients((prev) =>
       prev.some((p) => p.mrn === mrn) ? prev : [...prev, toRow(data)],
     );
