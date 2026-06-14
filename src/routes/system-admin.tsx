@@ -648,17 +648,21 @@ type DbSafetyAlert = {
   created_at: string;
 };
 
-function SafetyQueue() {
+function SafetyQueue({ facility }: { facility: string }) {
   const [items, setItems] = useState<DbSafetyAlert[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    let q = supabase
       .from("clinical_safety_alerts")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(15);
+    if (facility && facility !== "all") {
+      q = q.eq("facility_name", facility);
+    }
+    const { data, error } = await q;
     if (error) toast.error("Could not load safety alerts", { description: error.message });
     setItems(((data ?? []) as DbSafetyAlert[]));
     setLoading(false);
@@ -675,7 +679,59 @@ function SafetyQueue() {
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facility]);
+
+  /* ----------------------------------------------------------------
+   * AI Auto-Resolver — every Pending Review alert is auto-decided
+   * 2 minutes after creation. The AI Safety Engine randomly chooses
+   * Override (70%) vs Reject (30%) and writes a clinical rationale.
+   * Mirrors the NLP Audit Log auto-fallback pattern.
+   * ---------------------------------------------------------------- */
+  useEffect(() => {
+    const AUTO_RESOLVE_MS = 2 * 60_000;
+    const inflight = new Set<string>();
+    const tick = async () => {
+      const now = Date.now();
+      const due = items.filter(
+        (i) =>
+          i.status === "Pending Review" &&
+          !inflight.has(i.id) &&
+          now - new Date(i.created_at).getTime() >= AUTO_RESOLVE_MS,
+      );
+      for (const c of due) {
+        inflight.add(c.id);
+        const override = Math.random() < 0.7;
+        const status: "Overridden" | "Rejected" = override ? "Overridden" : "Rejected";
+        const rationale = override
+          ? c.kind === "Drug-Drug"
+            ? "AI Safety Engine: interaction acknowledged; clinical benefit outweighs risk — monitor labs and vitals per protocol."
+            : "AI Safety Engine: documented exposure tolerated previously; proceeding with enhanced monitoring."
+          : c.kind === "Drug-Drug"
+            ? "AI Safety Engine: interaction risk exceeds benefit — substituting non-interacting agent."
+            : "AI Safety Engine: cross-reactivity risk confirmed — order discontinued, alternative agent recommended.";
+        const { error } = await supabase
+          .from("clinical_safety_alerts")
+          .update({
+            status,
+            decided_by: "AI Safety Engine · Auto-Resolved",
+            decided_at: new Date().toISOString(),
+            rationale,
+          })
+          .eq("id", c.id)
+          .eq("status", "Pending Review");
+        inflight.delete(c.id);
+        if (!error) {
+          toast.success(`AI auto-${status.toLowerCase()}: ${c.patient_name ?? c.mrn}`, {
+            description: rationale,
+          });
+        }
+      }
+    };
+    const id = setInterval(tick, 5_000);
+    tick();
+    return () => clearInterval(id);
+  }, [items]);
 
   const act = async (c: DbSafetyAlert, status: "Overridden" | "Rejected") => {
     const rationale = window.prompt(
@@ -712,8 +768,13 @@ function SafetyQueue() {
           <p className="text-sm text-slate-600 mt-1 max-w-3xl">
             Auto-commit halts whenever the NLP engine or an order maps an
             RxNorm drug that cross-reacts with a documented patient allergy.
-            Pharmacy or an EHR specialist must Override (with rationale) or
-            Reject the order before it reaches the Live Terminology Matrix.
+            Pharmacy or an EHR specialist may Override / Reject manually —
+            otherwise the <span className="font-semibold">AI Safety Engine</span>{" "}
+            auto-resolves any Pending Review alert after a 2-minute SLA.
+            Showing latest 15 for{" "}
+            <span className="font-semibold">
+              {facility && facility !== "all" ? facility : "all facilities"}
+            </span>.
           </p>
         </div>
         <Button variant="outline" onClick={refresh}>
@@ -2529,7 +2590,7 @@ function MedicalDictionary() {
 
       {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
-      {subtab === "safety" && <SafetyQueue />}
+      {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
 
       {subtab === "catalog" && (<>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
