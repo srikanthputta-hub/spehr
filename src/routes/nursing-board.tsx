@@ -645,9 +645,9 @@ function Dashboard() {
           <StatCard
             icon={BedDouble}
             label="Bed Management"
-            value={facility}
+            value="Bed Management"
             tone="teal"
-            sub="Click to open MEDITECH Expanse board"
+            sub={undefined}
             interactive
             active={bedBoardOpen}
             onClick={() => setBedBoardOpen(true)}
@@ -1375,6 +1375,7 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
 function BedManagementBoard({ facility, onClose }: { facility: string; onClose: () => void }) {
   const [beds, setBeds] = useState<BedRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
@@ -1424,7 +1425,7 @@ function BedManagementBoard({ facility, onClose }: { facility: string; onClose: 
       <div className="flex items-center justify-between px-6 h-14 border-b border-slate-700 bg-[#0c2340] text-white">
         <div>
           <div className="text-[10px] uppercase tracking-[0.24em] text-white/55">
-            MEDITECH Expanse · Unit Bed Allocation
+            Unit Bed Allocation
           </div>
           <div className="text-base font-semibold">{facility} — Floor Bed Board</div>
         </div>
@@ -1450,8 +1451,19 @@ function BedManagementBoard({ facility, onClose }: { facility: string; onClose: 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 max-w-[1400px] mx-auto">
             {beds.map((b) => {
               const tone = bedTone(b.status);
+              const isOccupied = b.status.toLowerCase().startsWith("occupied") && b.current_patient_mrn;
+              const handleClick = () => {
+                if (!isOccupied || !b.current_patient_mrn) return;
+                onClose();
+                navigate({ to: "/patient/$mrn", params: { mrn: b.current_patient_mrn } }).catch(() => {});
+              };
               return (
-                <div key={b.id} className={`rounded-xl border-2 ${tone.wrap} p-4 shadow-sm`}>
+                <div
+                  key={b.id}
+                  onClick={handleClick}
+                  className={`rounded-xl border-2 ${tone.wrap} p-4 shadow-sm ${isOccupied ? "cursor-pointer hover:shadow-md hover:scale-[1.01] transition" : ""}`}
+                  title={isOccupied ? `Open chart · ${b.current_patient_mrn}` : undefined}
+                >
                   <div className="flex items-center justify-between">
                     <div className="font-mono font-bold text-slate-900 text-lg tabular-nums">
                       {b.room_number}-{b.bed_letter}
@@ -1462,7 +1474,11 @@ function BedManagementBoard({ facility, onClose }: { facility: string; onClose: 
                     {b.status}
                   </div>
                   <div className="mt-2 text-xs text-slate-700 min-h-[18px] font-mono">
-                    {b.current_patient_mrn ? b.current_patient_mrn : "—"}
+                    {b.current_patient_mrn ? (
+                      <span className="underline decoration-dotted">{b.current_patient_mrn}</span>
+                    ) : (
+                      "—"
+                    )}
                   </div>
                   <CleaningMeter status={b.status} updatedAt={b.status_updated_at} />
                 </div>
