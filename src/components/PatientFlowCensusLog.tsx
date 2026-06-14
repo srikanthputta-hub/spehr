@@ -156,16 +156,11 @@ function DischargeSummaryModal({
     };
   }, [patient.mrn]);
 
-  const summaryContent =
-    patient.discharge_summary ?? note?.content ?? null;
-  const summaryAuthor = "Ghost AI - Auto Discharge";
-
-  const administered = meds.filter((m) => (m.status ?? "").toLowerCase() === "administered");
-  const resulted = labs.filter((l) => {
-    const s = (l.status ?? "").toLowerCase();
-    return s === "resulted" || s === "reported";
-  });
-  const complaint = patient.chief_complaint || "evaluation";
+  // Surface that a persisted text summary exists (legacy field) but the
+  // rendered narrative below is rebuilt fresh from the structured chart.
+  void patient.discharge_summary;
+  void note;
+  const summaryAuthor = "Ghost AI - Clinical Narrative";
   const los = durationHrs(patient.admission_time, patient.discharge_time);
   const isDischarged = !!patient.discharge_time;
 
