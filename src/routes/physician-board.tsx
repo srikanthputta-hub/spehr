@@ -1119,10 +1119,37 @@ function PhysicianBoard() {
                             // 2-second simulated AI generation
                             await new Promise((r) => setTimeout(r, 2000));
 
-                            const hasAiData = medsList.length > 0 || labsList.length > 0;
-                            const summary = hasAiData
-                              ? `Patient admitted for ${complaint}. Treated successfully with ${medsList.join(", ") || "supportive care"}. Labs processed: ${labsList.join(", ") || "none"}. Discharged in stable condition.`
-                              : `Patient admitted for ${complaint}. Standard clinical observation and care provided. No specific medication or laboratory data recorded for this encounter. Discharged in stable condition.`;
+                            const { buildDischargeMarkdown } = await import("@/lib/discharge-narrative");
+                            const adminMeds = (Array.isArray(fullPatient.meds) ? fullPatient.meds : []).map((m: any) => ({
+                              medication_name: m.name,
+                              dose: m.dose,
+                              route: m.route,
+                              status: "Administered",
+                            }));
+                            const resultedLabs = (Array.isArray(fullPatient.labs) ? fullPatient.labs : []).map((l: any) => ({
+                              test_type: l.name,
+                              status: "Reported",
+                              result_value: l.resultExample ?? l.result ?? null,
+                            }));
+                            const summary = buildDischargeMarkdown(
+                              {
+                                first_name: (p as any).first_name ?? null,
+                                last_name: (p as any).last_name ?? null,
+                                name: (p as any).name ?? null,
+                                mrn,
+                                age: (p as any).age ?? null,
+                                gender: (p as any).gender ?? null,
+                                chief_complaint: complaint,
+                                admission_time: (p as any).admission_time ?? null,
+                                discharge_time: new Date().toISOString(),
+                                icd10_codes: (p as any).icd10_codes ?? null,
+                                snomed_codes: (p as any).snomed_codes ?? null,
+                              },
+                              adminMeds,
+                              resultedLabs,
+                            );
+                            // Silence unused locals retained for diagnostic logging.
+                            void medsList; void labsList;
 
                             const { error: insertErr } = await supabase
                               .from("clinical_notes")

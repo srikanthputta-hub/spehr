@@ -8,7 +8,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Printer, FileText, Brain, Pill, FlaskConical } from "lucide-react";
+import { Printer, FileText, Brain, AlertTriangle } from "lucide-react";
+import {
+  buildDischargeMarkdown,
+  computeSafetyFlags,
+} from "@/lib/discharge-narrative";
 
 interface PatientRow {
   id: string;
@@ -21,6 +25,10 @@ interface PatientRow {
   admission_time: string | null;
   discharge_time: string | null;
   discharge_summary: string | null;
+  age: number | null;
+  gender: string | null;
+  icd10_codes: string[] | null;
+  snomed_codes: string[] | null;
 }
 
 interface DischargeNote {
@@ -148,16 +156,11 @@ function DischargeSummaryModal({
     };
   }, [patient.mrn]);
 
-  const summaryContent =
-    patient.discharge_summary ?? note?.content ?? null;
-  const summaryAuthor = "Ghost AI - Auto Discharge";
-
-  const administered = meds.filter((m) => (m.status ?? "").toLowerCase() === "administered");
-  const resulted = labs.filter((l) => {
-    const s = (l.status ?? "").toLowerCase();
-    return s === "resulted" || s === "reported";
-  });
-  const complaint = patient.chief_complaint || "evaluation";
+  // Surface that a persisted text summary exists (legacy field) but the
+  // rendered narrative below is rebuilt fresh from the structured chart.
+  void patient.discharge_summary;
+  void note;
+  const summaryAuthor = "Ghost AI - Clinical Narrative";
   const los = durationHrs(patient.admission_time, patient.discharge_time);
   const isDischarged = !!patient.discharge_time;
 
@@ -239,114 +242,13 @@ function DischargeSummaryModal({
             {loading || chartLoading ? (
               <p className="text-sm text-slate-400 italic">Loading discharge summary…</p>
             ) : (
-              <div className="rounded-md border border-slate-200 bg-white px-8 py-7 text-[13.5px] leading-[1.8] text-slate-800 font-serif tracking-[0.005em] space-y-5">
-                <NarrativeBlock title="History of Present Illness">
-                  Patient is a {fullName(patient)} (MRN {patient.mrn ?? "—"}) who presented to {facility} on{" "}
-                  <span className="font-mono">{fmtTs(patient.admission_time)}</span> with a chief complaint of{" "}
-                  <strong>{complaint}</strong>. Patient was admitted to the inpatient service for further evaluation,
-                  monitoring, and management.
-                </NarrativeBlock>
-
-                <NarrativeBlock title="Hospital Course">
-                  During the {los} length of stay, the patient was managed per facility clinical protocols. Vital signs
-                  were monitored continuously and trended within or near acceptable parameters throughout the
-                  encounter. {administered.length > 0
-                    ? `A total of ${administered.length} medication administration${administered.length === 1 ? "" : "s"} ` +
-                      `${resulted.length > 0 ? `and ${resulted.length} laboratory study${resulted.length === 1 ? "" : "ies"} ` : ""}` +
-                      `were completed and documented in the medication administration record and laboratory results below.`
-                    : "Standard clinical observation and supportive care were provided. No discrete medication or laboratory orders were recorded for this encounter."}
-                </NarrativeBlock>
-
-                <div>
-                  <h3 className="flex items-center gap-1.5 text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mb-2">
-                    <Pill className="h-3 w-3" /> Medications Administered ({administered.length})
-                  </h3>
-                  {administered.length === 0 ? (
-                    <p className="text-[12.5px] italic text-slate-500 font-sans">No medications administered during this encounter.</p>
-                  ) : (
-                    <div className="overflow-x-auto rounded-md border border-slate-200">
-                      <table className="w-full text-[12px] font-sans">
-                        <thead className="bg-slate-50 text-slate-600">
-                          <tr>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Medication</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Dose / Route</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Administered</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Ordered By</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {administered.map((m, i) => (
-                            <tr key={i} className="border-t border-slate-100">
-                              <td className="px-3 py-1.5 font-medium text-slate-900">
-                                {m.medication_name || m.drug_name || "—"}
-                              </td>
-                              <td className="px-3 py-1.5 text-slate-700">
-                                {[m.dose, m.route].filter(Boolean).join(" · ") || "—"}
-                              </td>
-                              <td className="px-3 py-1.5 font-mono text-[11.5px] text-slate-700">
-                                {fmtTs(m.administered_at ?? m.created_at ?? null)}
-                              </td>
-                              <td className="px-3 py-1.5 text-slate-600">{m.ordered_by ?? "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <h3 className="flex items-center gap-1.5 text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mb-2">
-                    <FlaskConical className="h-3 w-3" /> Laboratory Results ({resulted.length})
-                  </h3>
-                  {resulted.length === 0 ? (
-                    <p className="text-[12.5px] italic text-slate-500 font-sans">No laboratory studies resulted during this encounter.</p>
-                  ) : (
-                    <div className="overflow-x-auto rounded-md border border-slate-200">
-                      <table className="w-full text-[12px] font-sans">
-                        <thead className="bg-slate-50 text-slate-600">
-                          <tr>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Test</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Result</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Resulted</th>
-                            <th className="text-left px-3 py-1.5 font-semibold uppercase tracking-wider text-[10px]">Ordered By</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {resulted.map((l, i) => (
-                            <tr key={i} className="border-t border-slate-100">
-                              <td className="px-3 py-1.5 font-medium text-slate-900">{l.test_type ?? "—"}</td>
-                              <td className="px-3 py-1.5 text-slate-700 font-mono text-[11.5px]">{l.result_value ?? "Pending"}</td>
-                              <td className="px-3 py-1.5 font-mono text-[11.5px] text-slate-700">
-                                {fmtTs(l.collected_at ?? l.created_at ?? null)}
-                              </td>
-                              <td className="px-3 py-1.5 text-slate-600">{l.ordered_by ?? l.requested_by ?? "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                <NarrativeBlock title="Assessment & Impression">
-                  {summaryContent ||
-                    `Patient admitted for ${complaint}. Clinical course was uncomplicated. Patient responded appropriately to inpatient interventions.`}
-                </NarrativeBlock>
-
-                <NarrativeBlock title="Discharge Disposition">
-                  {isDischarged ? (
-                    <>
-                      Patient was discharged in stable condition on{" "}
-                      <span className="font-mono">{fmtTs(patient.discharge_time)}</span> with a total length of stay of {los}.
-                      Discharge instructions, medication reconciliation, and follow-up arrangements were provided per
-                      facility standard of care.
-                    </>
-                  ) : (
-                    <>Patient remains admitted under active inpatient care. Disposition pending clinical reassessment.</>
-                  )}
-                </NarrativeBlock>
-              </div>
+              <ClinicalNarrative
+                patient={patient}
+                meds={meds}
+                labs={labs}
+                isDischarged={isDischarged}
+                los={los}
+              />
             )}
           </section>
 
@@ -388,13 +290,136 @@ function Field({
   );
 }
 
-function NarrativeBlock({ title, children }: { title: string; children: React.ReactNode }) {
+/* ------------------------------------------------------------------ */
+/* Clinical narrative — 6-part discharge structure with safety flags. */
+/* ------------------------------------------------------------------ */
+
+function renderInline(text: string): React.ReactNode {
+  // Bold **...** and italic _..._ ; everything else verbatim.
+  const parts: React.ReactNode[] = [];
+  const re = /(\*\*[^*]+\*\*|_[^_]+_)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**")) {
+      parts.push(<strong key={key++} className="font-semibold text-slate-900">{tok.slice(2, -2)}</strong>);
+    } else {
+      parts.push(<em key={key++} className="text-slate-700">{tok.slice(1, -1)}</em>);
+    }
+    last = m.index + tok.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+function MarkdownBlock({ md }: { md: string }) {
+  const lines = md.split("\n");
+  const out: React.ReactNode[] = [];
+  let bullets: string[] = [];
+  let quote: string[] = [];
+  const flushBullets = () => {
+    if (bullets.length === 0) return;
+    out.push(
+      <ul key={`u-${out.length}`} className="list-disc pl-5 space-y-1 text-[13.5px] text-slate-800">
+        {bullets.map((b, i) => (
+          <li key={i}>{renderInline(b)}</li>
+        ))}
+      </ul>,
+    );
+    bullets = [];
+  };
+  const flushQuote = () => {
+    if (quote.length === 0) return;
+    out.push(
+      <div
+        key={`q-${out.length}`}
+        className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-[12.5px] text-amber-900 space-y-1"
+      >
+        {quote.map((q, i) => (
+          <div key={i} className="flex items-start gap-2">
+            {i === 0 && <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />}
+            <span className={i === 0 ? "font-semibold" : "pl-5"}>{renderInline(q)}</span>
+          </div>
+        ))}
+      </div>,
+    );
+    quote = [];
+  };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (line.startsWith("> ")) {
+      flushBullets();
+      quote.push(line.slice(2).replace(/^-\s*/, ""));
+      continue;
+    }
+    flushQuote();
+    if (line.startsWith("- ")) {
+      bullets.push(line.slice(2));
+      continue;
+    }
+    flushBullets();
+    if (line === "") continue;
+    // Section header like **1. Foo**
+    const head = line.match(/^\*\*(.+)\*\*$/);
+    if (head) {
+      out.push(
+        <h3
+          key={`h-${out.length}`}
+          className="text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mt-3 mb-1"
+        >
+          {head[1]}
+        </h3>,
+      );
+      continue;
+    }
+    out.push(
+      <p key={`p-${out.length}`} className="text-[13.5px] leading-[1.8] text-slate-800">
+        {renderInline(line)}
+      </p>,
+    );
+  }
+  flushBullets();
+  flushQuote();
+  return <div className="space-y-2">{out}</div>;
+}
+
+function ClinicalNarrative({
+  patient,
+  meds,
+  labs,
+  isDischarged,
+  los,
+}: {
+  patient: PatientRow;
+  meds: MedAdminRow[];
+  labs: LabResultRow[];
+  isDischarged: boolean;
+  los: string;
+}) {
+  const administered = meds.filter((m) => (m.status ?? "").toLowerCase() === "administered");
+  const resulted = labs.filter((l) => {
+    const s = (l.status ?? "").toLowerCase();
+    return s === "resulted" || s === "reported";
+  });
+  const flags = computeSafetyFlags(patient, administered, resulted);
+  const md = buildDischargeMarkdown(patient, administered, resulted);
   return (
-    <div>
-      <h3 className="text-[11px] font-sans font-bold uppercase tracking-widest text-slate-600 mb-1.5">
-        {title}
-      </h3>
-      <p className="text-[13.5px] leading-[1.85] text-slate-800">{children}</p>
+    <div className="rounded-md border border-slate-200 bg-white px-8 py-7 font-sans">
+      {flags.length === 0 && (
+        <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
+          ✓ Clinical Sanity Check Passed
+        </div>
+      )}
+      <MarkdownBlock md={md} />
+      <div className="mt-5 pt-3 border-t border-slate-200 text-[11px] text-slate-500">
+        Disposition:{" "}
+        {isDischarged
+          ? <>Discharged in stable condition · Length of stay <span className="font-mono">{los}</span></>
+          : <>Active inpatient — disposition pending clinical reassessment.</>}
+      </div>
     </div>
   );
 }
@@ -413,7 +438,7 @@ export function PatientFlowCensusLog() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "id, mrn, first_name, last_name, name, chief_complaint, status, admission_time, discharge_time, discharge_summary",
+          "id, mrn, first_name, last_name, name, chief_complaint, status, admission_time, discharge_time, discharge_summary, age, gender, icd10_codes, snomed_codes",
         )
         .eq("facility_name", facility)
         .order("admission_time", { ascending: false })
