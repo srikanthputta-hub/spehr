@@ -452,7 +452,12 @@ function AdminDashboard() {
       assigned: number;
     };
     const out: Card[] = [];
-    const onIdx = shiftTick.block % 3;
+    // Slot 0 is always the canonical, system-synced clinician for this
+    // facility/role — they stay On Duty so every board (nursing,
+    // pharmacy, physician, lab, finance, admin) shows the same name.
+    // Relief staff in slots 1 & 2 rotate through the Next Shift card.
+    const onIdx = 0;
+    const nextIdx = 1 + (shiftTick.block % 2);
     const curHours = shiftTick.hours;
     for (const role of STAFF_ROLES) {
       const cap = ROLE_CAP[role];
@@ -462,9 +467,9 @@ function AdminDashboard() {
         role === "RN" ? 0.25 :
         role === "MD" ? 0.5 :
         role === "PharmD" ? 0.8 :
-        role === "CNA" || role === "LPN" ? 0.35 : 0;
+        role === "Lab" ? 0.4 : 0;
       const assigned = cap > 0
-        ? Math.min(cap, Math.max(role === "Finance" ? 0 : 1, Math.round(census * loadFactor)))
+        ? Math.min(cap, Math.max(1, Math.round(census * loadFactor)))
         : 0;
       out.push({
         key: `${role}-on`,
@@ -479,7 +484,7 @@ function AdminDashboard() {
       out.push({
         key: `${role}-next`,
         role,
-        name: roster[role][(onIdx + 1) % 3],
+        name: roster[role][nextIdx],
         status: "Next Shift",
         hours: curHours,
         rate,
