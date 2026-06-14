@@ -99,6 +99,99 @@ function trackedDelay(mrn: string, ms: number) {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Bed allocation + 1-minute cleaning state machine                    */
+/* ------------------------------------------------------------------ */
+
+async function assignBedForPatient(p: NewPatient): Promise<string | null> {
+  if (!p.mrn || !p.facility_name) return null;
+  // Skip if this patient already has a bed.
+  const { data: existing } = await supabase
+    .from("bed_management")
+    .select("id, room_number, bed_letter")
+    .eq("current_patient_mrn", p.mrn)
+    .maybeSingle();
+  if (existing) {
+    const room = `${existing.room_number}-${existing.bed_letter}`;
+    await supabase.from("patients").update({ room } as any).eq("mrn", p.mrn);
+    return room;
+  }
+  const { data: open } = await supabase
+    .from("bed_management")
+    .select("id, room_number, bed_letter")
+    .eq("facility_name", p.facility_name)
+    .eq("status", "Available")
+    .order("room_number", { ascending: true })
+    .order("bed_letter", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!open) {
+    // Hold patient in ED/Triage state when no bed is available.
+    await supabase
+      .from("patients")
+      .update({ room: "ED/Triage" } as any)
+      .eq("mrn", p.mrn);
+    return null;
+  }
+  const { error } = await supabase
+    .from("bed_management")
+    .update({
+      status: "Occupied",
+      current_patient_mrn: p.mrn,
+      status_updated_at: new Date().toISOString(),
+    } as any)
+    .eq("id", open.id)
+    .eq("status", "Available"); // optimistic guard
+  if (error) return null;
+  const room = `${open.room_number}-${open.bed_letter}`;
+  await supabase.from("patients").update({ room } as any).eq("mrn", p.mrn);
+  return room;
+}
+
+async function startBedCleaningCycle(mrn: string) {
+  // Find the bed currently holding this MRN and kick off the cleaning cycle.
+  const { data: bed } = await supabase
+    .from("bed_management")
+    .select("id")
+    .eq("current_patient_mrn", mrn)
+    .maybeSingle();
+  if (!bed) return;
+  await supabase
+    .from("bed_management")
+    .update({
+      status: "Discharged - Deep Cleaning In Progress",
+      current_patient_mrn: null,
+      status_updated_at: new Date().toISOString(),
+    } as any)
+    .eq("id", bed.id);
+}
+
+async function sweepBedCleaningCycles() {
+  const now = Date.now();
+  const cutoff60 = new Date(now - 60_000).toISOString();
+  const cutoff120 = new Date(now - 120_000).toISOString();
+  // Phase 1 → Phase 2 (60s elapsed)
+  await supabase
+    .from("bed_management")
+    .update({
+      status: "Disinfecting",
+      status_updated_at: new Date().toISOString(),
+    } as any)
+    .in("status", ["Discharged - Deep Cleaning In Progress", "Discharged"])
+    .lt("status_updated_at", cutoff60);
+  // Phase 2 → Available (another 60s elapsed = 120s total since discharge)
+  await supabase
+    .from("bed_management")
+    .update({
+      status: "Available",
+      current_patient_mrn: null,
+      status_updated_at: new Date().toISOString(),
+    } as any)
+    .eq("status", "Disinfecting")
+    .lt("status_updated_at", cutoff120);
+}
+
+
 async function cascadeMed(mrn: string, orderId: string) {
   // Ordered → Pending Verification → Dispensed → Administered (final).
   // The chart only surfaces the order once status === "Administered".
@@ -170,6 +263,15 @@ export async function seedAdmission(
   const immediate = !!opts.immediate;
 
   if (!manual && !(await getAutomationEnabled())) return;
+
+  // Allocate a physical bed from the facility's bed_management pool.
+  // Manual or auto admissions both go through here so the floor grid
+  // always reflects the real bed assignment.
+  try {
+    await assignBedForPatient(p);
+  } catch (e) {
+    console.warn("[seedAdmission] bed assignment failed", e);
+  }
 
   const fallbackName = [p.first_name, p.last_name].filter(Boolean).join(" ");
   const patientName = p.name ?? (fallbackName || "Unknown");
@@ -545,6 +647,34 @@ export function useAIAutomation() {
       )
       .on(
         "postgres_changes",
+        { event: "DELETE", schema: "public", table: "patients" },
+        (payload) => {
+          const mrn = (payload.old as any)?.mrn;
+          if (!mrn) return;
+          startBedCleaningCycle(mrn).catch((e) =>
+            console.warn("[discharge] startBedCleaningCycle failed", e),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "patients" },
+        (payload) => {
+          const newRow = payload.new as any;
+          const oldRow = payload.old as any;
+          if (
+            (oldRow?.status ?? "").toLowerCase() === "admitted" &&
+            (newRow?.status ?? "").toLowerCase() === "discharged" &&
+            newRow?.mrn
+          ) {
+            startBedCleaningCycle(newRow.mrn).catch((e) =>
+              console.warn("[discharge-update] startBedCleaningCycle failed", e),
+            );
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
         { event: "INSERT", schema: "public", table: "medication_orders" },
         (payload) => {
           const o = payload.new as InsertedOrder;
@@ -584,10 +714,18 @@ export function useAIAutomation() {
       )
       .subscribe();
 
+    // Bed cleaning state machine sweeper — every 5s the active client
+    // advances any bed that has crossed its 60s / 120s threshold.
+    sweepBedCleaningCycles().catch(() => {});
+    const bedSweep = setInterval(() => {
+      sweepBedCleaningCycles().catch(() => {});
+    }, 5_000);
+
     return () => {
       supabase.removeChannel(channel);
       clearAllTimers();
       clearInterval(sweepInterval);
+      clearInterval(bedSweep);
     };
   }, [automationEnabled]);
 }
