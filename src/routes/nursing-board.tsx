@@ -7,7 +7,7 @@ import {
   Search,
   Users,
   AlertTriangle,
-  Pill,
+  BedDouble,
   ChevronRight,
   Activity,
   UserPlus,
@@ -16,9 +16,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  hrOutOfRange,
-  bpOutOfRange,
-  o2OutOfRange,
   type CodeStatus,
 } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
@@ -324,6 +321,7 @@ function Dashboard() {
   const [admitOpen, setAdmitOpen] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
   const [showOnlyMedsDue, setShowOnlyMedsDue] = useState(false);
+  const [bedBoardOpen, setBedBoardOpen] = useState(false);
   const automationEnabled = useAutomationEnabled();
   const { gate } = useRolePermissions("RN");
 
@@ -640,19 +638,19 @@ function Dashboard() {
           <StatCard
             icon={AlertTriangle}
             label="Critical Alerts"
-            value={`${facilityPatients.filter((p) => hrOutOfRange(p.hr) || bpOutOfRange(p.bp) || o2OutOfRange(p.o2)).length}`}
+            value={`${facilityPatients.filter((p) => p.o2 < 90 || p.hr > 115).length}`}
             tone="red"
-            sub="Vitals out of range"
+            sub="SpO₂ < 90% or HR > 115 bpm"
           />
           <StatCard
-            icon={Pill}
-            label="Meds Due · Next Hour"
-            value={`${facilityPatients.reduce((sum, p) => sum + (p.medsDue ?? 0), 0)}`}
+            icon={BedDouble}
+            label="Bed Management"
+            value={facility}
             tone="teal"
-            sub="Across all patients"
+            sub="Click to open MEDITECH Expanse board"
             interactive
-            active={showOnlyMedsDue}
-            onClick={() => setShowOnlyMedsDue((v) => !v)}
+            active={bedBoardOpen}
+            onClick={() => setBedBoardOpen(true)}
           />
         </section>
 
@@ -817,6 +815,9 @@ function Dashboard() {
             await handleDischarge(p);
           }}
         />
+      )}
+      {bedBoardOpen && (
+        <BedManagementBoard facility={facility} onClose={() => setBedBoardOpen(false)} />
       )}
     </main>
   );
