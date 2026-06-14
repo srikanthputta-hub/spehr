@@ -645,9 +645,9 @@ function Dashboard() {
           <StatCard
             icon={BedDouble}
             label="Bed Management"
-            value={facility}
+            value="Bed Management"
             tone="teal"
-            sub="Click to open MEDITECH Expanse board"
+            sub={undefined}
             interactive
             active={bedBoardOpen}
             onClick={() => setBedBoardOpen(true)}
