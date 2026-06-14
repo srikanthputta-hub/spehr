@@ -454,7 +454,7 @@ export function PatientFlowCensusLog() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "id, mrn, first_name, last_name, name, chief_complaint, status, admission_time, discharge_time, discharge_summary",
+          "id, mrn, first_name, last_name, name, chief_complaint, status, admission_time, discharge_time, discharge_summary, age, gender, icd10_codes, snomed_codes",
         )
         .eq("facility_name", facility)
         .order("admission_time", { ascending: false })
