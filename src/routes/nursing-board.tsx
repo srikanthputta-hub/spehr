@@ -655,7 +655,16 @@ function Dashboard() {
             </div>
           </div>
           <button
-            {...gate("btn_admit_patient", () => setAdmitOpen(true))}
+            {...gate("btn_admit_patient", () => {
+              if (bedCounts.available <= 0) {
+                toast.error("No empty beds available", {
+                  description: `${facility} is at full capacity (${bedCounts.total}/${bedCounts.total} occupied). Please ask the patient to wait in the Patient Lounge until a bed is released.`,
+                });
+                return;
+              }
+              setAdmitOpen(true);
+            })}
+            title={bedCounts.available <= 0 ? "No empty beds — patient must wait in the Patient Lounge" : undefined}
             className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 px-3 h-9 text-xs font-semibold text-white shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <UserPlus className="h-3.5 w-3.5" /> Admit Patient
