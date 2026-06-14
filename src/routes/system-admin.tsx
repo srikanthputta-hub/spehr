@@ -2590,7 +2590,7 @@ function MedicalDictionary() {
 
       {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
-      {subtab === "safety" && <SafetyQueue />}
+      {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
 
       {subtab === "catalog" && (<>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
