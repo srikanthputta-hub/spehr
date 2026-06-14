@@ -825,7 +825,7 @@ function Dashboard() {
                   </tr>
                 )}
                 {!loading && !fetchError && rows.map((p, i) => {
-                  const room = p.room?.trim() || mockRoom(p.mrn);
+                  const room = p.room?.trim() || "ED/Triage";
                   return (
                     <tr
                       key={p.mrn}

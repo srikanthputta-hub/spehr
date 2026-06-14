@@ -116,36 +116,43 @@ async function assignBedForPatient(p: NewPatient): Promise<string | null> {
     await supabase.from("patients").update({ room } as any).eq("mrn", p.mrn);
     return room;
   }
-  const { data: open } = await supabase
+  // Try up to 5 Available beds in order; the optimistic guard
+  // (.eq("status","Available") + .is("current_patient_mrn", null))
+  // ensures only one concurrent admission wins each row. If we lose
+  // the race we move on to the next open bed instead of silently
+  // double-booking.
+  const { data: candidates } = await supabase
     .from("bed_management")
     .select("id, room_number, bed_letter")
     .eq("facility_name", p.facility_name)
     .eq("status", "Available")
+    .is("current_patient_mrn", null)
     .order("room_number", { ascending: true })
     .order("bed_letter", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (!open) {
-    // Hold patient in ED/Triage state when no bed is available.
-    await supabase
-      .from("patients")
-      .update({ room: "ED/Triage" } as any)
-      .eq("mrn", p.mrn);
-    return null;
+    .limit(5);
+  for (const open of candidates ?? []) {
+    const { data: claimed, error } = await supabase
+      .from("bed_management")
+      .update({
+        status: "Occupied",
+        current_patient_mrn: p.mrn,
+        status_updated_at: new Date().toISOString(),
+      } as any)
+      .eq("id", open.id)
+      .eq("status", "Available")
+      .is("current_patient_mrn", null) // hard guard against double-booking
+      .select("id");
+    if (error || !claimed || claimed.length === 0) continue; // lost race, try next
+    const room = `${open.room_number}-${open.bed_letter}`;
+    await supabase.from("patients").update({ room } as any).eq("mrn", p.mrn);
+    return room;
   }
-  const { error } = await supabase
-    .from("bed_management")
-    .update({
-      status: "Occupied",
-      current_patient_mrn: p.mrn,
-      status_updated_at: new Date().toISOString(),
-    } as any)
-    .eq("id", open.id)
-    .eq("status", "Available"); // optimistic guard
-  if (error) return null;
-  const room = `${open.room_number}-${open.bed_letter}`;
-  await supabase.from("patients").update({ room } as any).eq("mrn", p.mrn);
-  return room;
+  // No bed available — hold patient in ED/Triage.
+  await supabase
+    .from("patients")
+    .update({ room: "ED/Triage" } as any)
+    .eq("mrn", p.mrn);
+  return null;
 }
 
 async function startBedCleaningCycle(mrn: string) {
