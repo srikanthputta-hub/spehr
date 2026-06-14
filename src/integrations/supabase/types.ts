@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      bed_management: {
+        Row: {
+          bed_letter: string
+          current_patient_mrn: string | null
+          facility_name: string
+          id: string
+          room_number: string
+          status: string | null
+          status_updated_at: string | null
+        }
+        Insert: {
+          bed_letter: string
+          current_patient_mrn?: string | null
+          facility_name: string
+          id?: string
+          room_number: string
+          status?: string | null
+          status_updated_at?: string | null
+        }
+        Update: {
+          bed_letter?: string
+          current_patient_mrn?: string | null
+          facility_name?: string
+          id?: string
+          room_number?: string
+          status?: string | null
+          status_updated_at?: string | null
+        }
+        Relationships: []
+      }
       clinical_notes: {
         Row: {
           author: string | null
