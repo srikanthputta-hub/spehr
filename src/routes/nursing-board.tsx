@@ -93,6 +93,48 @@ function mockRoom(mrn: string): string {
   return `${num}-${bed}`;
 }
 
+/**
+ * Release any beds whose `current_patient_mrn` no longer maps to an
+ * actively admitted patient (discharged, deleted, or status mismatch).
+ * Keeps bed_management in sync with the patients table even when the AI
+ * automation sweeper is disabled or the discharge happened while the
+ * client was offline.
+ */
+async function reconcileOrphanedBeds(facility: string): Promise<void> {
+  if (!facility) return;
+  const { data: beds } = await supabase
+    .from("bed_management")
+    .select("id, current_patient_mrn, status")
+    .eq("facility_name", facility);
+  if (!beds || beds.length === 0) return;
+  const occupied = beds.filter(
+    (b: any) => b.current_patient_mrn && (b.status ?? "").toLowerCase().startsWith("occupied"),
+  );
+  if (occupied.length === 0) return;
+  const mrns = Array.from(new Set(occupied.map((b: any) => b.current_patient_mrn as string)));
+  const { data: active } = await supabase
+    .from("patients")
+    .select("mrn, status")
+    .in("mrn", mrns);
+  const activeSet = new Set(
+    (active ?? [])
+      .filter((p: any) => (p.status ?? "").toLowerCase() === "admitted")
+      .map((p: any) => p.mrn),
+  );
+  const orphanIds = occupied
+    .filter((b: any) => !activeSet.has(b.current_patient_mrn))
+    .map((b: any) => b.id);
+  if (orphanIds.length === 0) return;
+  await supabase
+    .from("bed_management")
+    .update({
+      status: "Available",
+      current_patient_mrn: null,
+      status_updated_at: new Date().toISOString(),
+    } as any)
+    .in("id", orphanIds);
+}
+
 type AlertKind = "sepsis" | "stemi" | "dka" | "stroke" | "pending";
 function classifyAlert(dx: string | null | undefined): AlertKind {
   const d = (dx ?? "").toLowerCase();
