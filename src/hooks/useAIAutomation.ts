@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
   medsForComplaint,
@@ -284,6 +285,24 @@ export async function seedAdmission(
   // stay perfectly in sync this way.
   if (!assignedRoom) {
     await supabase.from("patients").delete().eq("mrn", p.mrn);
+    // Surface the same "No empty beds available" disclaimer used by the
+    // manual Admit flow so the on-screen viewer sees automation rejections
+    // too — but only when the failed admission is at the facility they
+    // are currently viewing, to avoid cross-facility toast noise.
+    try {
+      const activeFacility =
+        typeof window !== "undefined"
+          ? localStorage.getItem("spehr.activeFacility")
+          : null;
+      if (
+        p.facility_name &&
+        (!activeFacility || activeFacility === p.facility_name)
+      ) {
+        toast.error("No empty beds available", {
+          description: `${p.facility_name} is at full capacity. Please direct the patient to the Patient Lounge until a bed is released.`,
+        });
+      }
+    } catch {}
     return;
   }
 
