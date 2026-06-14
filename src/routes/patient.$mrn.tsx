@@ -1650,6 +1650,88 @@ function ToolbarBtn({
   );
 }
 
+/* ---------- Terminology search (LOINC / RxNorm autocomplete) ---------- */
+function TerminologySearch({
+  kind, value, onChange, placeholder,
+}: {
+  kind: "lab" | "med";
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [query, setQuery] = useState(value);
+  const [results, setResults] = useState<{ code: string; display: string }[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { setQuery(value); }, [value]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2 || q === value) { setResults([]); return; }
+    let cancelled = false;
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const url = kind === "lab"
+          ? `https://clinicaltables.nlm.nih.gov/api/loinc_items/v3/search?terms=${encodeURIComponent(q)}&df=LOINC_NUM,LONG_COMMON_NAME&maxList=10`
+          : `https://clinicaltables.nlm.nih.gov/api/rxterms/v3/search?terms=${encodeURIComponent(q)}&maxList=10`;
+        const r = await fetch(url);
+        const j = await r.json();
+        if (cancelled) return;
+        const rows: string[][] = Array.isArray(j?.[3]) ? j[3] : [];
+        const codes: string[] = Array.isArray(j?.[1]) ? j[1] : [];
+        const out = kind === "lab"
+          ? rows.map((row) => ({ code: row[0] ?? "", display: row[1] ?? row[0] ?? "" }))
+          : codes.map((c, i) => ({ code: c, display: rows[i]?.[0] ?? c }));
+        setResults(out.filter((x) => x.display));
+        setOpen(true);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [query, kind, value]);
+
+  const pick = (display: string) => {
+    onChange(display);
+    setQuery(display);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative mt-1">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); onChange(e.target.value); }}
+        onFocus={() => results.length && setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder={placeholder}
+        className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
+      {open && (results.length > 0 || loading) && (
+        <div className="absolute z-10 mt-1 w-full max-h-60 overflow-auto bg-white border border-slate-200 rounded shadow-lg">
+          {loading && <div className="px-2 py-1.5 text-[11px] text-slate-500">Searching {kind === "lab" ? "LOINC" : "RxNorm"}…</div>}
+          {results.map((r, i) => (
+            <button
+              key={`${r.code}-${i}`}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); pick(r.display); }}
+              className="w-full text-left px-2 py-1.5 text-xs hover:bg-blue-50 border-b border-slate-100 last:border-0"
+            >
+              <div className="text-slate-900">{r.display}</div>
+              {r.code && <div className="text-[10px] text-slate-500 font-mono">{kind === "lab" ? "LOINC" : "RxCUI"} {r.code}</div>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OrdersDialog({
   patient, automationEnabled, onClose,
 }: {
