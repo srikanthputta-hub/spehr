@@ -386,6 +386,7 @@ function Dashboard() {
     if (!facility) return;
     let cancelled = false;
     const load = async () => {
+      await reconcileOrphanedBeds(facility).catch(() => {});
       const { data } = await supabase
         .from("bed_management")
         .select("status")
@@ -400,6 +401,11 @@ function Dashboard() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` },
+        () => load(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
         () => load(),
       )
       .subscribe();
