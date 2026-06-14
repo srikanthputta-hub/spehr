@@ -11,6 +11,7 @@ import {
 import appCss from "../styles.css?url";
 import { FacilityProvider } from "@/lib/facility-context";
 import { useAIAutomation } from "@/hooks/useAIAutomation";
+import { Toaster } from "sonner";
 
 function NotFoundComponent() {
   return (
@@ -122,6 +123,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <FacilityProvider>
         <Outlet />
+        <Toaster position="top-center" richColors closeButton theme="dark" />
       </FacilityProvider>
     </QueryClientProvider>
   );
