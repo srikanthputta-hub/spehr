@@ -865,9 +865,7 @@ function SafetyQueue({ facility }: { facility: string }) {
         inflight.add(c.id);
         const override = Math.random() < 0.7;
         const status: "Overridden" | "Rejected" = override ? "Overridden" : "Rejected";
-        const rationale = override
-          ? "Overridden by AI Safety Engine: Automatic SLA resolution. Cross-reactivity risk evaluated as low-tier; proceeding with enhanced nursing metric monitoring."
-          : "Rejected by AI Safety Engine: Automatic SLA timeout. High-tier severe contraindicated interaction profile detected; order canceled for patient safety.";
+        const rationale = buildSafetyRationale(c, status, "AI Safety Engine");
 
         // Optimistically update the local list the instant the SLA expires
         // so the metric tiles (Pending / Overridden / Rejected) move on the
@@ -914,10 +912,7 @@ function SafetyQueue({ facility }: { facility: string }) {
   }, [items]);
 
   const act = async (c: DbSafetyAlert, status: "Overridden" | "Rejected") => {
-    const defaultRationale =
-      status === "Overridden"
-        ? "Benefit outweighs risk; patient tolerated similar agent previously."
-        : "Discontinue order; substitute non-cross-reactive agent.";
+    const defaultRationale = buildSafetyRationale(c, status, "Pharmacist");
     const rationale =
       status === "Overridden"
         ? window.prompt(
