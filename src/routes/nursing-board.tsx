@@ -825,7 +825,7 @@ function Dashboard() {
                   </tr>
                 )}
                 {!loading && !fetchError && rows.map((p, i) => {
-                  const room = p.room?.trim() || "ED/Triage";
+                  const room = p.room?.trim() || "—";
                   return (
                     <tr
                       key={p.mrn}
