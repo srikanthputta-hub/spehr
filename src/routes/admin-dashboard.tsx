@@ -425,9 +425,11 @@ function AdminDashboard() {
       setShiftTick(s);
       if (s.block !== lastBlockRef.current) {
         for (const r of STAFF_ROLES) {
-          const newIdx = s.block % 3;
+          // Relief slot rotates between 1 & 2 each block; the canonical
+          // on-duty clinician (slot 0) stays put for system-wide sync.
+          const reliefIdx = 1 + (s.block % 2);
           toast(
-            `Shift change · ${r}: ${roster[r][newIdx]} clocking in.`,
+            `Shift change · ${r}: ${roster[r][reliefIdx]} queued as next shift.`,
             { className: "bg-slate-100 text-slate-800" },
           );
         }
