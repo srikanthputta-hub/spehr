@@ -11,6 +11,7 @@ import {
 import appCss from "../styles.css?url";
 import { FacilityProvider } from "@/lib/facility-context";
 import { useAIAutomation } from "@/hooks/useAIAutomation";
+import { useAutomationWatchdog } from "@/hooks/useAutomationWatchdog";
 import { Toaster } from "sonner";
 
 function NotFoundComponent() {
@@ -118,6 +119,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   useAIAutomation();
+  useAutomationWatchdog();
 
   return (
     <QueryClientProvider client={queryClient}>

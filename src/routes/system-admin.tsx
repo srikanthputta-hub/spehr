@@ -52,10 +52,95 @@ import {
 } from "@/lib/safety-conflicts";
 import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
+import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
+import { Wrench, ShieldCheck, Radar } from "lucide-react";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
 });
+
+function WatchdogStatusWidget() {
+  const latest = useLatestWatchdogLog();
+  const ts = latest ? new Date(latest.checker_timestamp) : null;
+  const ago = ts
+    ? Math.max(0, Math.round((Date.now() - ts.getTime()) / 1000))
+    : null;
+  const agoLabel =
+    ago === null
+      ? "—"
+      : ago < 60
+        ? `${ago}s ago`
+        : ago < 3600
+          ? `${Math.round(ago / 60)} min ago`
+          : `${Math.round(ago / 3600)} h ago`;
+  const recentHeal =
+    latest?.issues_detected &&
+    (latest.healed_engines?.length ?? 0) > 0 &&
+    ago !== null &&
+    ago < 120;
+
+  return (
+    <div className="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between gap-6 px-6 py-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="relative grid place-items-center h-10 w-10 rounded-lg bg-sky-50 text-sky-600">
+            <Radar className="h-5 w-5" />
+            <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-500" />
+            </span>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+              Watchdog Status
+            </div>
+            <div className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+              Watchdog Active · Monitoring Loops
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              Last Systematic Health Check: <span className="font-mono text-slate-700">{agoLabel}</span>
+              {ts && (
+                <span className="text-slate-400"> · {ts.toLocaleTimeString()}</span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            Global Control
+          </div>
+          <div
+            className={`text-xs font-bold ${
+              latest?.global_control_status === "ON"
+                ? "text-emerald-700"
+                : "text-slate-500"
+            }`}
+          >
+            {latest?.global_control_status ?? "—"}
+          </div>
+        </div>
+      </div>
+      {recentHeal && (
+        <div className="flex items-start gap-2 border-t border-amber-200 bg-amber-50 px-6 py-3 text-amber-900">
+          <Wrench className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="text-xs">
+            <div className="font-bold">
+              🔧 System Auto-Healed: Restarted Stalled Core Engines
+            </div>
+            <div className="text-[11px] mt-0.5">
+              Engines repaired:{" "}
+              <span className="font-semibold">
+                {latest!.healed_engines.join(", ")}
+              </span>
+              . {latest!.actions_taken}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 type Perm = {
   id: string;
@@ -237,6 +322,9 @@ function SystemAdminPage() {
       </div>
 
       <section className="max-w-6xl mx-auto px-6 py-8">
+        {isAdmin && tab === "feature_controls" && (
+        <WatchdogStatusWidget />
+        )}
         {isAdmin && tab === "feature_controls" && (
         <div
           className={`mb-6 rounded-xl border shadow-sm overflow-hidden ${
