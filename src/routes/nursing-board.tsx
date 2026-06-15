@@ -411,29 +411,112 @@ function Dashboard() {
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       setLoading(true);
       setFetchError(null);
+      // Floor census is bed-driven. The authoritative list of patients
+      // currently on the unit is "every Occupied bed in this facility".
+      // We then hydrate patient rows by MRN so the Floor Overview count
+      // ALWAYS matches the occupied-bed KPI / Bed Allocation matrix.
+      const { data: occBeds, error: bedErr } = await supabase
+        .from("bed_management")
+        .select("current_patient_mrn, room_number, bed_letter, status")
+        .eq("facility_name", facility)
+        .ilike("status", "Occupied%")
+        .not("current_patient_mrn", "is", null);
+      if (cancelled) return;
+      if (bedErr) {
+        setFetchError(bedErr.message);
+        setLoading(false);
+        return;
+      }
+      const bedByMrn = new Map<string, { room: string }>();
+      for (const b of (occBeds ?? []) as any[]) {
+        if (!b.current_patient_mrn) continue;
+        bedByMrn.set(b.current_patient_mrn, {
+          room: `${b.room_number}-${b.bed_letter}`,
+        });
+      }
+      const mrns = Array.from(bedByMrn.keys());
+      if (mrns.length === 0) {
+        setPatients([]);
+        setLoading(false);
+        return;
+      }
       const { data, error } = await supabase
         .from("patients")
         .select(
           "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
         )
-        .eq("status", "Admitted")
-        .eq("facility_name", facility)
-        .order("admission_time", { ascending: false })
-        .limit(200);
+        .in("mrn", mrns);
       if (cancelled) return;
       if (error) {
         setFetchError(error.message);
         setLoading(false);
         return;
       }
-      setPatients((data ?? []).map(toRow));
+      const patientByMrn = new Map<string, any>();
+      for (const p of (data ?? []) as any[]) patientByMrn.set(p.mrn, p);
+      // Build one row per occupied bed. If clinical/intake data hasn't
+      // initialized yet, surface a minimal "Initializing…" placeholder
+      // so the row count still matches the bed tally exactly.
+      const rows: PatientRow[] = mrns.map((mrn) => {
+        const p = patientByMrn.get(mrn);
+        const bed = bedByMrn.get(mrn)!;
+        if (p) {
+          const row = toRow(p);
+          // Prefer the live bed assignment over any stale patient.room.
+          return { ...row, room: bed.room, facility };
+        }
+        return {
+          mrn,
+          name: "Initializing…",
+          room: bed.room,
+          age: 0,
+          sex: "",
+          code: "Full Code",
+          diagnosis: "Awaiting intake",
+          hr: 0,
+          bp: "—/—",
+          o2: 0,
+          rr: 0,
+          temp: 0,
+          task: "—",
+          medsDue: 0,
+          facility,
+          unreadLabs: false,
+          admittedAt: null,
+        };
+      });
+      // Sort: real patients first (newest admission), placeholders last by room.
+      rows.sort((a, b) => {
+        if (!!a.admittedAt !== !!b.admittedAt) return a.admittedAt ? -1 : 1;
+        if (a.admittedAt && b.admittedAt)
+          return b.admittedAt.localeCompare(a.admittedAt);
+        return (a.room ?? "").localeCompare(b.room ?? "");
+      });
+      setPatients(rows);
       setLoading(false);
-    })();
+    };
+    load();
+    // Re-load whenever bed_management OR patients change for this facility
+    // so the Floor Overview tally never drifts from the bed KPI.
+    const ch = supabase
+      .channel(`floor-census-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` },
+        () => load(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
+        () => load(),
+      )
+      .subscribe();
     return () => {
       cancelled = true;
+      supabase.removeChannel(ch);
     };
   }, [ready, facility]);
 
