@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
@@ -231,7 +231,7 @@ export interface WatchdogLogRow {
 }
 
 export function useLatestWatchdogLog(): WatchdogLogRow | null {
-  const [row, setRow] = (require("react") as typeof import("react")).useState<WatchdogLogRow | null>(null);
+  const [row, setRow] = useState<WatchdogLogRow | null>(null);
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
