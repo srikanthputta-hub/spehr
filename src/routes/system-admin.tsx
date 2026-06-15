@@ -323,6 +323,9 @@ function SystemAdminPage() {
 
       <section className="max-w-6xl mx-auto px-6 py-8">
         {isAdmin && tab === "feature_controls" && (
+        <WatchdogStatusWidget />
+        )}
+        {isAdmin && tab === "feature_controls" && (
         <div
           className={`mb-6 rounded-xl border shadow-sm overflow-hidden ${
             automation
