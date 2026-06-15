@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      automation_watchdog_logs: {
+        Row: {
+          actions_taken: string | null
+          checker_timestamp: string | null
+          engines_checked: Json
+          global_control_status: string | null
+          healed_engines: string[] | null
+          id: string
+          issues_detected: boolean | null
+        }
+        Insert: {
+          actions_taken?: string | null
+          checker_timestamp?: string | null
+          engines_checked: Json
+          global_control_status?: string | null
+          healed_engines?: string[] | null
+          id?: string
+          issues_detected?: boolean | null
+        }
+        Update: {
+          actions_taken?: string | null
+          checker_timestamp?: string | null
+          engines_checked?: Json
+          global_control_status?: string | null
+          healed_engines?: string[] | null
+          id?: string
+          issues_detected?: boolean | null
+        }
+        Relationships: []
+      }
       bed_management: {
         Row: {
           bed_letter: string
