@@ -771,9 +771,13 @@ function Dashboard() {
       past_surgical_history: it?.priorSurgeries?.trim() || null,
       past_hospitalizations: it?.pastHospitalizations?.trim() || null,
       family_history: familyHistoryText,
-      environmental_allergies: it?.envAllergies?.length ? it.envAllergies.join(", ") : null,
-      allergies_text: drugAllergyText,
-      current_medications_text: currentMedsText,
+      environmental_allergies: [
+        drugAllergyText ? `Drug: ${drugAllergyText}` : null,
+        currentMedsText ? `Current Meds: ${currentMedsText}` : null,
+        it?.envAllergies?.length ? `Env: ${it.envAllergies.join(", ")}` : null,
+      ]
+        .filter(Boolean)
+        .join(" | ") || null,
     };
     const { data, error } = await supabase.from("patients").insert(payload).select().single();
     if (error) {
