@@ -657,12 +657,23 @@ function Dashboard() {
     const mrn = input.mrn?.trim() || genMRN();
     const [first_name, ...rest] = input.name.trim().split(/\s+/);
     const last_name = rest.join(" ") || "—";
+    // Normalize to FHIR-compliant values to satisfy the
+    // patients_gender_fhir_chk CHECK constraint (male/female/other/unknown).
+    const rawGender = (input.gender ?? "").toString().trim().toLowerCase();
+    const fhirGender =
+      rawGender === "m" || rawGender === "male"
+        ? "male"
+        : rawGender === "f" || rawGender === "female"
+          ? "female"
+          : rawGender === "o" || rawGender === "other"
+            ? "other"
+            : "unknown";
     const payload = {
       mrn,
       first_name,
       last_name,
       age: input.age,
-      gender: input.gender,
+      gender: fhirGender,
       room: input.room.trim() || null,
       code_status: input.code_status,
       chief_complaint: input.diagnosis.trim(),
