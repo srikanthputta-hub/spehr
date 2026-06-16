@@ -790,12 +790,14 @@ export type Database = {
           address: string | null
           admission_time: string | null
           age: number | null
+          allergies: string | null
           biological_sex: string
           bp: string | null
           bp_diastolic: number | null
           bp_systolic: number | null
           chief_complaint: string | null
           code_status: string | null
+          current_medications: string | null
           diagnosis: string | null
           discharge_summary: string | null
           discharge_time: string | null
@@ -846,12 +848,14 @@ export type Database = {
           address?: string | null
           admission_time?: string | null
           age?: number | null
+          allergies?: string | null
           biological_sex?: string
           bp?: string | null
           bp_diastolic?: number | null
           bp_systolic?: number | null
           chief_complaint?: string | null
           code_status?: string | null
+          current_medications?: string | null
           diagnosis?: string | null
           discharge_summary?: string | null
           discharge_time?: string | null
@@ -902,12 +906,14 @@ export type Database = {
           address?: string | null
           admission_time?: string | null
           age?: number | null
+          allergies?: string | null
           biological_sex?: string
           bp?: string | null
           bp_diastolic?: number | null
           bp_systolic?: number | null
           chief_complaint?: string | null
           code_status?: string | null
+          current_medications?: string | null
           diagnosis?: string | null
           discharge_summary?: string | null
           discharge_time?: string | null
