@@ -925,7 +925,54 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      fhir_lab_view: {
+        Row: {
+          fhir_payload: Json | null
+          id: string | null
+          mrn: string | null
+          patient_uuid: string | null
+        }
+        Relationships: []
+      }
+      fhir_medication_view: {
+        Row: {
+          fhir_payload: Json | null
+          id: string | null
+          mrn: string | null
+          patient_id: string | null
+        }
+        Insert: {
+          fhir_payload?: never
+          id?: string | null
+          mrn?: string | null
+          patient_id?: string | null
+        }
+        Update: {
+          fhir_payload?: never
+          id?: string | null
+          mrn?: string | null
+          patient_id?: string | null
+        }
+        Relationships: []
+      }
+      fhir_patient_view: {
+        Row: {
+          fhir_payload: Json | null
+          id: string | null
+          mrn: string | null
+        }
+        Insert: {
+          fhir_payload?: never
+          id?: string | null
+          mrn?: string | null
+        }
+        Update: {
+          fhir_payload?: never
+          id?: string | null
+          mrn?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       auto_administer_ghost_meds: { Args: never; Returns: undefined }
