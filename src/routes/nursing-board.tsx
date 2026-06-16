@@ -828,7 +828,11 @@ function Dashboard() {
             label="Available Beds"
             value={`${bedCounts.available}`}
             tone="teal"
-            sub={`${bedCounts.available} of ${bedCounts.total} beds open · click to manage`}
+            sub={
+              bedCounts.available === 0 && bedCounts.total > 0
+                ? `⚠ No empty beds available · 0 of ${bedCounts.total} open · click to manage`
+                : `${bedCounts.available} of ${bedCounts.total} beds open · click to manage`
+            }
             interactive
             active={bedBoardOpen}
             onClick={() => setBedBoardOpen(true)}
