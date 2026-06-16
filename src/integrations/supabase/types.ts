@@ -74,6 +74,36 @@ export type Database = {
         }
         Relationships: []
       }
+      clinical_keyword_mappings: {
+        Row: {
+          category: string | null
+          created_at: string | null
+          icd10_array: Json
+          id: string
+          is_active: boolean | null
+          keyword: string
+          snomed_array: Json
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string | null
+          icd10_array?: Json
+          id?: string
+          is_active?: boolean | null
+          keyword: string
+          snomed_array?: Json
+        }
+        Update: {
+          category?: string | null
+          created_at?: string | null
+          icd10_array?: Json
+          id?: string
+          is_active?: boolean | null
+          keyword?: string
+          snomed_array?: Json
+        }
+        Relationships: []
+      }
       clinical_notes: {
         Row: {
           author: string | null
@@ -609,6 +639,7 @@ export type Database = {
         Row: {
           admission_time: string | null
           age: number | null
+          biological_sex: string | null
           bp: string | null
           bp_diastolic: number | null
           bp_systolic: number | null
@@ -617,9 +648,11 @@ export type Database = {
           diagnosis: string | null
           discharge_summary: string | null
           discharge_time: string | null
+          dob: string | null
           facility_name: string
           first_name: string | null
           gender: string | null
+          gender_identity: string | null
           hr: number | null
           icd10_codes: string[]
           id: string
@@ -628,10 +661,12 @@ export type Database = {
           mrn: string | null
           name: string | null
           patient_id: string | null
+          phone: string | null
           room: string | null
           rr: number | null
           snomed_codes: string[]
           spo2: number | null
+          standardized_output: Json | null
           status: string
           temp: number | null
           unread_labs_alert: boolean | null
@@ -639,6 +674,7 @@ export type Database = {
         Insert: {
           admission_time?: string | null
           age?: number | null
+          biological_sex?: string | null
           bp?: string | null
           bp_diastolic?: number | null
           bp_systolic?: number | null
@@ -647,9 +683,11 @@ export type Database = {
           diagnosis?: string | null
           discharge_summary?: string | null
           discharge_time?: string | null
+          dob?: string | null
           facility_name?: string
           first_name?: string | null
           gender?: string | null
+          gender_identity?: string | null
           hr?: number | null
           icd10_codes?: string[]
           id?: string
@@ -658,10 +696,12 @@ export type Database = {
           mrn?: string | null
           name?: string | null
           patient_id?: string | null
+          phone?: string | null
           room?: string | null
           rr?: number | null
           snomed_codes?: string[]
           spo2?: number | null
+          standardized_output?: Json | null
           status?: string
           temp?: number | null
           unread_labs_alert?: boolean | null
@@ -669,6 +709,7 @@ export type Database = {
         Update: {
           admission_time?: string | null
           age?: number | null
+          biological_sex?: string | null
           bp?: string | null
           bp_diastolic?: number | null
           bp_systolic?: number | null
@@ -677,9 +718,11 @@ export type Database = {
           diagnosis?: string | null
           discharge_summary?: string | null
           discharge_time?: string | null
+          dob?: string | null
           facility_name?: string
           first_name?: string | null
           gender?: string | null
+          gender_identity?: string | null
           hr?: number | null
           icd10_codes?: string[]
           id?: string
@@ -688,10 +731,12 @@ export type Database = {
           mrn?: string | null
           name?: string | null
           patient_id?: string | null
+          phone?: string | null
           room?: string | null
           rr?: number | null
           snomed_codes?: string[]
           spo2?: number | null
+          standardized_output?: Json | null
           status?: string
           temp?: number | null
           unread_labs_alert?: boolean | null
@@ -824,6 +869,24 @@ export type Database = {
         }
         Relationships: []
       }
+      simulation_chief_complaints: {
+        Row: {
+          complaint_text: string
+          id: number
+          last_used_at: string | null
+        }
+        Insert: {
+          complaint_text: string
+          id?: number
+          last_used_at?: string | null
+        }
+        Update: {
+          complaint_text?: string
+          id?: number
+          last_used_at?: string | null
+        }
+        Relationships: []
+      }
       system_settings: {
         Row: {
           automation_enabled: boolean | null
@@ -871,6 +934,7 @@ export type Database = {
       auto_order_ghost_labs: { Args: never; Returns: undefined }
       auto_result_ghost_labs: { Args: never; Returns: undefined }
       cascade_clinical_automation: { Args: never; Returns: undefined }
+      get_next_ghost_complaint: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -878,6 +942,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_facility_full: { Args: { target_facility: string }; Returns: boolean }
     }
     Enums: {
       app_role: "registrar" | "nurse" | "physician" | "it_admin"
