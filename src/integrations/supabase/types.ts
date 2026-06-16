@@ -765,7 +765,7 @@ export type Database = {
         Insert: {
           admission_time?: string | null
           age?: number | null
-          biological_sex: string
+          biological_sex?: string
           bp?: string | null
           bp_diastolic?: number | null
           bp_systolic?: number | null
@@ -774,7 +774,7 @@ export type Database = {
           diagnosis?: string | null
           discharge_summary?: string | null
           discharge_time?: string | null
-          dob: string
+          dob?: string
           facility_name?: string
           first_name?: string | null
           gender?: string
