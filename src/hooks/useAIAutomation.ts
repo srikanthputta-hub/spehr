@@ -260,32 +260,63 @@ async function cascadeLab(
   // survives a refresh and shows up in downstream reports/exports — not just
   // the in-memory lab_orders queue.
   if (labMeta) {
-    const numericMatch = labMeta.resultExample.match(/-?\d+(?:\.\d+)?/);
+    // The result_value column in lab_results is numeric, so we MUST extract
+    // only the raw number from strings like "WBC: 12.8 k/uL [HIGH]". Purely
+    // textual results (e.g. "Blood Culture: No growth") have no number and
+    // must be persisted as null instead of the formatted string — otherwise
+    // PostgREST rejects the insert with an invalid_text_representation error.
+    const sample = labMeta.resultExample ?? "";
+    const numericMatch = sample.match(/-?\d+(?:\.\d+)?/);
     const result_value = numericMatch ? Number(numericMatch[0]) : null;
-    const flagMatch = labMeta.resultExample.match(/\[([^\]]+)\]/);
-    const flag = flagMatch
-      ? flagMatch[1].toUpperCase().includes("CRITICAL")
-        ? "CRITICAL"
-        : flagMatch[1].toUpperCase().includes("HIGH")
-          ? "HIGH"
-          : flagMatch[1].toUpperCase().includes("LOW")
-            ? "LOW"
-            : flagMatch[1].toUpperCase().includes("ABNORMAL")
-              ? "ABNORMAL"
-              : "NORMAL"
-      : "NORMAL";
-    await supabase
+
+    const flagMatch = sample.match(/\[([^\]]+)\]/);
+    const flagUpper = flagMatch ? flagMatch[1].toUpperCase() : "";
+    const flag = flagUpper.includes("CRITICAL")
+      ? "CRITICAL"
+      : flagUpper.includes("HIGH")
+        ? "HIGH"
+        : flagUpper.includes("LOW")
+          ? "LOW"
+          : flagUpper.includes("ABNORMAL")
+            ? "ABNORMAL"
+            : result_value === null
+              ? null
+              : "NORMAL";
+
+    // Unit: prefer the catalog unit, fall back to parsing it out of the
+    // sample (e.g. "12.8 k/uL" -> "k/uL").
+    let unit: string | null = labMeta.unit?.trim() || null;
+    if (!unit && numericMatch) {
+      const afterNumber = sample.slice(
+        (numericMatch.index ?? 0) + numericMatch[0].length,
+      );
+      const unitMatch = afterNumber.match(/^\s*([A-Za-z%/µμ°][A-Za-z0-9%/.^*·µμ°-]*)/);
+      unit = unitMatch ? unitMatch[1] : null;
+    }
+
+    const { error: labInsertError } = await supabase
       .from("lab_results")
       .insert({
         mrn,
         test_name: labMeta.name,
         panel_name: labMeta.name,
         result_value,
-        unit: labMeta.unit || null,
+        unit,
         reference_range: labMeta.referenceRange || null,
         flag,
         time_drawn: resultedAt,
       } as any);
+    if (labInsertError) {
+      console.error("[cascadeLab] lab_results insert failed", {
+        mrn,
+        test_name: labMeta.name,
+        result_value,
+        unit,
+        flag,
+        sample,
+        error: labInsertError,
+      });
+    }
   }
 }
 
