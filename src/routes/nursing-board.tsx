@@ -716,6 +716,14 @@ function Dashboard() {
     const familyHistoryText = it
       ? [it.familyConditions?.join(", "), it.familyNotes].filter(Boolean).join(" — ") || null
       : null;
+    const drugAllergiesText = it?.drugAllergies
+      ?.map((a) => [a.name?.trim(), a.reaction?.trim() ? `(${a.reaction.trim()})` : ""].filter(Boolean).join(" "))
+      .filter(Boolean)
+      .join("; ") || null;
+    const currentMedicationsText = it?.currentMeds
+      ?.map((m) => [m.name?.trim(), m.dose?.trim(), m.freq?.trim()].filter(Boolean).join(" "))
+      .filter(Boolean)
+      .join("; ") || null;
     const payload = {
       mrn,
       first_name,
@@ -760,6 +768,8 @@ function Dashboard() {
       past_hospitalizations: it?.pastHospitalizations?.trim() || null,
       family_history: familyHistoryText,
       environmental_allergies: it?.envAllergies?.length ? it.envAllergies.join(", ") : null,
+      allergies: drugAllergiesText,
+      current_medications: currentMedicationsText,
     };
     const { data, error } = await supabase.from("patients").insert(payload).select().single();
     if (error) {
