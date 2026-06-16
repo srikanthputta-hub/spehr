@@ -712,6 +712,10 @@ function Dashboard() {
     const last_name = rest.join(" ") || "—";
     const fhirGender = normalizeFhirGender(input.intake?.sex ?? input.gender);
     const genderIdentity = normalizeFhirGender(input.intake?.genderIdentity ?? fhirGender);
+    const it = input.intake;
+    const familyHistoryText = it
+      ? [it.familyConditions?.join(", "), it.familyNotes].filter(Boolean).join(" — ") || null
+      : null;
     const payload = {
       mrn,
       first_name,
@@ -734,6 +738,28 @@ function Dashboard() {
       status: "Admitted",
       facility_name: facility,
       admission_time: new Date().toISOString(),
+      // Extended intake fields (FHIR-aligned demographics + HPI + history)
+      occupation: it?.occupation?.trim() || null,
+      address: it?.address?.trim() || null,
+      emergency_contact_name: it?.emergencyName?.trim() || null,
+      emergency_contact_relationship: it?.emergencyRelationship || null,
+      emergency_contact_phone: it?.emergencyPhone?.trim() || null,
+      insurance_provider: it?.insuranceProvider?.trim() || null,
+      insurance_policy_number: it?.insurancePolicy?.trim() || null,
+      guarantor: it?.guarantor?.trim() || null,
+      primary_care_physician: it?.pcp?.trim() || null,
+      hpi_onset: it?.hpiOnset?.trim() || null,
+      hpi_location: it?.hpiLocation?.trim() || null,
+      hpi_duration: it?.hpiDuration || null,
+      hpi_character: it?.hpiCharacter?.length ? it.hpiCharacter.join(", ") : null,
+      hpi_aggravating_factors: it?.hpiAggravating?.trim() || null,
+      hpi_alleviating_factors: it?.hpiAlleviating?.trim() || null,
+      hpi_severity: it?.hpiSeverity != null ? `${it.hpiSeverity}/10` : null,
+      past_medical_history: it?.chronicIllnesses?.length ? it.chronicIllnesses.join(", ") : null,
+      past_surgical_history: it?.priorSurgeries?.trim() || null,
+      past_hospitalizations: it?.pastHospitalizations?.trim() || null,
+      family_history: familyHistoryText,
+      environmental_allergies: it?.envAllergies?.length ? it.envAllergies.join(", ") : null,
     };
     const { data, error } = await supabase.from("patients").insert(payload).select().single();
     if (error) {
