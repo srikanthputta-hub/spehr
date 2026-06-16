@@ -14,65 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      allergies: {
-        Row: {
-          id: string
-          logged_at: string | null
-          mrn: string | null
-          reaction: string | null
-          severity: string | null
-          status: string | null
-          substance: string
-        }
-        Insert: {
-          id?: string
-          logged_at?: string | null
-          mrn?: string | null
-          reaction?: string | null
-          severity?: string | null
-          status?: string | null
-          substance: string
-        }
-        Update: {
-          id?: string
-          logged_at?: string | null
-          mrn?: string | null
-          reaction?: string | null
-          severity?: string | null
-          status?: string | null
-          substance?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "allergies_mrn_fkey"
-            columns: ["mrn"]
-            isOneToOne: false
-            referencedRelation: "fhir_export_view"
-            referencedColumns: ["mrn"]
-          },
-          {
-            foreignKeyName: "allergies_mrn_fkey"
-            columns: ["mrn"]
-            isOneToOne: false
-            referencedRelation: "fhir_patient_view"
-            referencedColumns: ["mrn"]
-          },
-          {
-            foreignKeyName: "allergies_mrn_fkey"
-            columns: ["mrn"]
-            isOneToOne: false
-            referencedRelation: "patients"
-            referencedColumns: ["mrn"]
-          },
-          {
-            foreignKeyName: "allergies_mrn_fkey"
-            columns: ["mrn"]
-            isOneToOne: false
-            referencedRelation: "unified_patient_view"
-            referencedColumns: ["mrn"]
-          },
-        ]
-      }
       automation_watchdog_logs: {
         Row: {
           actions_taken: string | null

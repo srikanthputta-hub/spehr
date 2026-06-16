@@ -20,7 +20,6 @@ import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
-import { Route as DashboardMrnRouteImport } from './routes/dashboard.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
 import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
 
@@ -79,11 +78,6 @@ const PatientMrnRoute = PatientMrnRouteImport.update({
   path: '/patient/$mrn',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardMrnRoute = DashboardMrnRouteImport.update({
-  id: '/dashboard/$mrn',
-  path: '/dashboard/$mrn',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ChartMrnRoute = ChartMrnRouteImport.update({
   id: '/chart/$mrn',
   path: '/chart/$mrn',
@@ -107,7 +101,6 @@ export interface FileRoutesByFullPath {
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/chart/$mrn': typeof ChartMrnRoute
-  '/dashboard/$mrn': typeof DashboardMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
 }
@@ -123,7 +116,6 @@ export interface FileRoutesByTo {
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/chart/$mrn': typeof ChartMrnRoute
-  '/dashboard/$mrn': typeof DashboardMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
 }
@@ -140,7 +132,6 @@ export interface FileRoutesById {
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/chart/$mrn': typeof ChartMrnRoute
-  '/dashboard/$mrn': typeof DashboardMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
 }
@@ -158,7 +149,6 @@ export interface FileRouteTypes {
     | '/system-admin'
     | '/tasks'
     | '/chart/$mrn'
-    | '/dashboard/$mrn'
     | '/patient/$mrn'
     | '/api/public/umls-search'
   fileRoutesByTo: FileRoutesByTo
@@ -174,7 +164,6 @@ export interface FileRouteTypes {
     | '/system-admin'
     | '/tasks'
     | '/chart/$mrn'
-    | '/dashboard/$mrn'
     | '/patient/$mrn'
     | '/api/public/umls-search'
   id:
@@ -190,7 +179,6 @@ export interface FileRouteTypes {
     | '/system-admin'
     | '/tasks'
     | '/chart/$mrn'
-    | '/dashboard/$mrn'
     | '/patient/$mrn'
     | '/api/public/umls-search'
   fileRoutesById: FileRoutesById
@@ -207,7 +195,6 @@ export interface RootRouteChildren {
   SystemAdminRoute: typeof SystemAdminRoute
   TasksRoute: typeof TasksRoute
   ChartMrnRoute: typeof ChartMrnRoute
-  DashboardMrnRoute: typeof DashboardMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
   ApiPublicUmlsSearchRoute: typeof ApiPublicUmlsSearchRoute
 }
@@ -291,13 +278,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PatientMrnRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard/$mrn': {
-      id: '/dashboard/$mrn'
-      path: '/dashboard/$mrn'
-      fullPath: '/dashboard/$mrn'
-      preLoaderRoute: typeof DashboardMrnRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/chart/$mrn': {
       id: '/chart/$mrn'
       path: '/chart/$mrn'
@@ -327,7 +307,6 @@ const rootRouteChildren: RootRouteChildren = {
   SystemAdminRoute: SystemAdminRoute,
   TasksRoute: TasksRoute,
   ChartMrnRoute: ChartMrnRoute,
-  DashboardMrnRoute: DashboardMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
   ApiPublicUmlsSearchRoute: ApiPublicUmlsSearchRoute,
 }
