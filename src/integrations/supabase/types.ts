@@ -728,6 +728,7 @@ export type Database = {
       }
       patients: {
         Row: {
+          address: string | null
           admission_time: string | null
           age: number | null
           biological_sex: string
@@ -740,19 +741,39 @@ export type Database = {
           discharge_summary: string | null
           discharge_time: string | null
           dob: string
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
+          emergency_contact_relationship: string | null
+          environmental_allergies: string | null
           facility_name: string
+          family_history: string | null
           first_name: string | null
           gender: string
           gender_identity: string | null
+          guarantor: string | null
+          hpi_aggravating_factors: string | null
+          hpi_alleviating_factors: string | null
+          hpi_character: string | null
+          hpi_duration: string | null
+          hpi_location: string | null
+          hpi_onset: string | null
+          hpi_severity: string | null
           hr: number | null
           icd10_codes: string[]
           id: string
+          insurance_policy_number: string | null
+          insurance_provider: string | null
           last_name: string | null
           meds_due_count: number | null
           mrn: string | null
           name: string | null
+          occupation: string | null
+          past_hospitalizations: string | null
+          past_medical_history: string | null
+          past_surgical_history: string | null
           patient_id: string | null
           phone: string | null
+          primary_care_physician: string | null
           room: string | null
           rr: number | null
           snomed_codes: string[]
@@ -763,6 +784,7 @@ export type Database = {
           unread_labs_alert: boolean | null
         }
         Insert: {
+          address?: string | null
           admission_time?: string | null
           age?: number | null
           biological_sex?: string
@@ -775,19 +797,39 @@ export type Database = {
           discharge_summary?: string | null
           discharge_time?: string | null
           dob?: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
+          environmental_allergies?: string | null
           facility_name?: string
+          family_history?: string | null
           first_name?: string | null
           gender?: string
           gender_identity?: string | null
+          guarantor?: string | null
+          hpi_aggravating_factors?: string | null
+          hpi_alleviating_factors?: string | null
+          hpi_character?: string | null
+          hpi_duration?: string | null
+          hpi_location?: string | null
+          hpi_onset?: string | null
+          hpi_severity?: string | null
           hr?: number | null
           icd10_codes?: string[]
           id?: string
+          insurance_policy_number?: string | null
+          insurance_provider?: string | null
           last_name?: string | null
           meds_due_count?: number | null
           mrn?: string | null
           name?: string | null
+          occupation?: string | null
+          past_hospitalizations?: string | null
+          past_medical_history?: string | null
+          past_surgical_history?: string | null
           patient_id?: string | null
           phone?: string | null
+          primary_care_physician?: string | null
           room?: string | null
           rr?: number | null
           snomed_codes?: string[]
@@ -798,6 +840,7 @@ export type Database = {
           unread_labs_alert?: boolean | null
         }
         Update: {
+          address?: string | null
           admission_time?: string | null
           age?: number | null
           biological_sex?: string
@@ -810,19 +853,39 @@ export type Database = {
           discharge_summary?: string | null
           discharge_time?: string | null
           dob?: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
+          environmental_allergies?: string | null
           facility_name?: string
+          family_history?: string | null
           first_name?: string | null
           gender?: string
           gender_identity?: string | null
+          guarantor?: string | null
+          hpi_aggravating_factors?: string | null
+          hpi_alleviating_factors?: string | null
+          hpi_character?: string | null
+          hpi_duration?: string | null
+          hpi_location?: string | null
+          hpi_onset?: string | null
+          hpi_severity?: string | null
           hr?: number | null
           icd10_codes?: string[]
           id?: string
+          insurance_policy_number?: string | null
+          insurance_provider?: string | null
           last_name?: string | null
           meds_due_count?: number | null
           mrn?: string | null
           name?: string | null
+          occupation?: string | null
+          past_hospitalizations?: string | null
+          past_medical_history?: string | null
+          past_surgical_history?: string | null
           patient_id?: string | null
           phone?: string | null
+          primary_care_physician?: string | null
           room?: string | null
           rr?: number | null
           snomed_codes?: string[]
