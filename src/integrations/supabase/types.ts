@@ -194,6 +194,97 @@ export type Database = {
         }
         Relationships: []
       }
+      fhir_medication_requests: {
+        Row: {
+          created_at: string | null
+          id: string
+          patient_mrn: string
+          resource: Json
+          status: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          patient_mrn: string
+          resource: Json
+          status: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          patient_mrn?: string
+          resource?: Json
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fhir_medication_requests_patient_mrn_fkey"
+            columns: ["patient_mrn"]
+            isOneToOne: false
+            referencedRelation: "fhir_patients"
+            referencedColumns: ["mrn"]
+          },
+        ]
+      }
+      fhir_observations: {
+        Row: {
+          code: string
+          created_at: string | null
+          id: string
+          patient_mrn: string
+          resource: Json
+          status: string
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          id?: string
+          patient_mrn: string
+          resource: Json
+          status: string
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          id?: string
+          patient_mrn?: string
+          resource?: Json
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fhir_observations_patient_mrn_fkey"
+            columns: ["patient_mrn"]
+            isOneToOne: false
+            referencedRelation: "fhir_patients"
+            referencedColumns: ["mrn"]
+          },
+        ]
+      }
+      fhir_patients: {
+        Row: {
+          created_at: string | null
+          id: string
+          mrn: string
+          resource: Json
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          mrn: string
+          resource: Json
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          mrn?: string
+          resource?: Json
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       hospital_staff: {
         Row: {
           assigned_patients: number | null
@@ -925,6 +1016,13 @@ export type Database = {
       }
     }
     Views: {
+      fhir_export_view: {
+        Row: {
+          fhir_bundle: Json | null
+          mrn: string | null
+        }
+        Relationships: []
+      }
       fhir_lab_view: {
         Row: {
           fhir_payload: Json | null
@@ -970,6 +1068,13 @@ export type Database = {
           fhir_payload?: never
           id?: string | null
           mrn?: string | null
+        }
+        Relationships: []
+      }
+      unified_patient_view: {
+        Row: {
+          mrn: string | null
+          unified_bundle: Json | null
         }
         Relationships: []
       }
