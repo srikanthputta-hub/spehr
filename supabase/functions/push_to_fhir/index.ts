@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const FHIR_SERVER_URL = Deno.env.get('FHIR_SERVER_URL') ?? '';
+const FHIR_SERVER_URL = 'https://fhir.medblocks.com/fhir/fnlKawgKJy9DShaZuK5iCCCF2ArQjVGq';
 const FHIR_BEARER_TOKEN = Deno.env.get('FHIR_BEARER_TOKEN') ?? '';
 
 const corsHeaders = {
