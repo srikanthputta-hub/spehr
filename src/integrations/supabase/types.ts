@@ -1214,6 +1214,7 @@ export type Database = {
       auto_order_ghost_labs: { Args: never; Returns: undefined }
       auto_result_ghost_labs: { Args: never; Returns: undefined }
       cascade_clinical_automation: { Args: never; Returns: undefined }
+      get_fhir_bundle: { Args: { target_mrn: string }; Returns: Json }
       get_next_ghost_complaint: { Args: never; Returns: string }
       has_role: {
         Args: {
