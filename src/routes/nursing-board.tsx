@@ -828,7 +828,12 @@ function Dashboard() {
             label="Available Beds"
             value={`${bedCounts.available}`}
             tone="teal"
-            sub={`${bedCounts.available} of ${bedCounts.total} beds open · click to manage`}
+            sub={
+              bedCounts.available === 0 && bedCounts.total > 0
+                ? `⚠ No empty beds available · 0 of ${bedCounts.total} open · click to manage`
+                : `${bedCounts.available} of ${bedCounts.total} beds open · click to manage`
+            }
+            warn={bedCounts.available === 0 && bedCounts.total > 0}
             interactive
             active={bedBoardOpen}
             onClick={() => setBedBoardOpen(true)}
@@ -1030,6 +1035,7 @@ function StatCard({
   interactive,
   active,
   onClick,
+  warn,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -1039,6 +1045,7 @@ function StatCard({
   interactive?: boolean;
   active?: boolean;
   onClick?: () => void;
+  warn?: boolean;
 }) {
   const tones = {
     navy: "bg-[var(--navy)] text-white",
@@ -1075,7 +1082,15 @@ function StatCard({
           <div className="text-2xl font-semibold tracking-tight tabular-nums">
             {value}
           </div>
-          {sub && <div className="text-xs text-muted-foreground truncate">{sub}</div>}
+          {sub && (
+            <div
+              className={`text-xs truncate ${
+                warn ? "text-red-600 font-semibold" : "text-muted-foreground"
+              }`}
+            >
+              {sub}
+            </div>
+          )}
         </div>
       </div>
     </Comp>
