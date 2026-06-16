@@ -385,7 +385,7 @@ export type Database = {
           mrn: string | null
           panel_name: string | null
           reference_range: string | null
-          result_value: number | null
+          result_value: string | null
           test_name: string | null
           time_drawn: string | null
           unit: string | null
@@ -396,7 +396,7 @@ export type Database = {
           mrn?: string | null
           panel_name?: string | null
           reference_range?: string | null
-          result_value?: number | null
+          result_value?: string | null
           test_name?: string | null
           time_drawn?: string | null
           unit?: string | null
@@ -407,7 +407,7 @@ export type Database = {
           mrn?: string | null
           panel_name?: string | null
           reference_range?: string | null
-          result_value?: number | null
+          result_value?: string | null
           test_name?: string | null
           time_drawn?: string | null
           unit?: string | null
@@ -742,7 +742,7 @@ export type Database = {
           dob: string | null
           facility_name: string
           first_name: string | null
-          gender: string | null
+          gender: string
           gender_identity: string | null
           hr: number | null
           icd10_codes: string[]
@@ -777,7 +777,7 @@ export type Database = {
           dob?: string | null
           facility_name?: string
           first_name?: string | null
-          gender?: string | null
+          gender?: string
           gender_identity?: string | null
           hr?: number | null
           icd10_codes?: string[]
@@ -812,7 +812,7 @@ export type Database = {
           dob?: string | null
           facility_name?: string
           first_name?: string | null
-          gender?: string | null
+          gender?: string
           gender_identity?: string | null
           hr?: number | null
           icd10_codes?: string[]
