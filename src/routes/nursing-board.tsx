@@ -331,6 +331,22 @@ function genMRN() {
   return `MRN-${Math.floor(100000 + Math.random() * 900000)}`;
 }
 
+function normalizeFhirGender(value: string | null | undefined): "male" | "female" | "other" | "unknown" {
+  const raw = (value ?? "").toString().trim().toLowerCase();
+  if (raw === "m" || raw === "male" || raw === "man") return "male";
+  if (raw === "f" || raw === "female" || raw === "woman") return "female";
+  if (raw === "o" || raw === "other" || raw === "non-binary" || raw === "nonbinary") return "other";
+  return "unknown";
+}
+
+function safeDob(rawDob: string | null | undefined, age: number): string {
+  if (rawDob && /^\d{4}-\d{2}-\d{2}$/.test(rawDob)) return rawDob;
+  const years = Number.isFinite(age) ? Math.max(0, Math.min(120, Math.floor(age))) : 0;
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - years);
+  return d.toISOString().slice(0, 10);
+}
+
 function fmtAdmitted(ts: string | null | undefined): string {
   if (!ts) return "—";
   const d = new Date(ts);
@@ -657,23 +673,19 @@ function Dashboard() {
     const mrn = input.mrn?.trim() || genMRN();
     const [first_name, ...rest] = input.name.trim().split(/\s+/);
     const last_name = rest.join(" ") || "—";
-    // Normalize to FHIR-compliant values to satisfy the
-    // patients_gender_fhir_chk CHECK constraint (male/female/other/unknown).
-    const rawGender = (input.gender ?? "").toString().trim().toLowerCase();
-    const fhirGender =
-      rawGender === "m" || rawGender === "male"
-        ? "male"
-        : rawGender === "f" || rawGender === "female"
-          ? "female"
-          : rawGender === "o" || rawGender === "other"
-            ? "other"
-            : "unknown";
+    const fhirGender = normalizeFhirGender(input.intake?.sex ?? input.gender);
+    const genderIdentity = normalizeFhirGender(input.intake?.genderIdentity ?? fhirGender);
     const payload = {
       mrn,
       first_name,
       last_name,
+      name: `${first_name} ${last_name}`,
       age: input.age,
       gender: fhirGender,
+      dob: safeDob(input.intake?.dob, input.age),
+      biological_sex: fhirGender,
+      gender_identity: genderIdentity,
+      phone: input.intake?.phone?.trim() || null,
       room: input.room.trim() || null,
       code_status: input.code_status,
       chief_complaint: input.diagnosis.trim(),
