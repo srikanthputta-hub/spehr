@@ -231,6 +231,12 @@ async function cascadeLab(
   mrn: string,
   orderId: string,
   resultSummary: string,
+  labMeta?: {
+    name: string;
+    unit: string;
+    referenceRange: string;
+    resultExample: string;
+  },
 ) {
   // Ordered → Processing → Reported (final).
   await trackedDelay(mrn, TRANSITION_GAP_MS);
@@ -249,6 +255,38 @@ async function cascadeLab(
       resulted_at: resultedAt,
     } as any)
     .eq("id", orderId);
+
+  // Persist the simulated result into the canonical lab_results table so it
+  // survives a refresh and shows up in downstream reports/exports — not just
+  // the in-memory lab_orders queue.
+  if (labMeta) {
+    const numericMatch = labMeta.resultExample.match(/-?\d+(?:\.\d+)?/);
+    const result_value = numericMatch ? Number(numericMatch[0]) : null;
+    const flagMatch = labMeta.resultExample.match(/\[([^\]]+)\]/);
+    const flag = flagMatch
+      ? flagMatch[1].toUpperCase().includes("CRITICAL")
+        ? "CRITICAL"
+        : flagMatch[1].toUpperCase().includes("HIGH")
+          ? "HIGH"
+          : flagMatch[1].toUpperCase().includes("LOW")
+            ? "LOW"
+            : flagMatch[1].toUpperCase().includes("ABNORMAL")
+              ? "ABNORMAL"
+              : "NORMAL"
+      : "NORMAL";
+    await supabase
+      .from("lab_results")
+      .insert({
+        mrn,
+        test_name: labMeta.name,
+        panel_name: labMeta.name,
+        result_value,
+        unit: labMeta.unit || null,
+        reference_range: labMeta.referenceRange || null,
+        flag,
+        time_drawn: resultedAt,
+      } as any);
+  }
 }
 
 /**
@@ -595,7 +633,12 @@ export async function seedAdmission(
         .select("id")
         .single();
       if (error || !data) return; // unique-index collision → another tab wins
-      cascadeLab(mrn, data.id, resultSummary).catch((e) =>
+      cascadeLab(mrn, data.id, resultSummary, {
+        name: l.name,
+        unit: l.unit ?? "",
+        referenceRange: l.referenceRange ?? "",
+        resultExample: l.resultExample ?? "",
+      }).catch((e) =>
         console.warn("[cascadeLab] failed", e),
       );
     }, t);
