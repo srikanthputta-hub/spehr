@@ -1034,6 +1034,7 @@ function StatCard({
   interactive,
   active,
   onClick,
+  warn,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -1043,6 +1044,7 @@ function StatCard({
   interactive?: boolean;
   active?: boolean;
   onClick?: () => void;
+  warn?: boolean;
 }) {
   const tones = {
     navy: "bg-[var(--navy)] text-white",
@@ -1079,7 +1081,15 @@ function StatCard({
           <div className="text-2xl font-semibold tracking-tight tabular-nums">
             {value}
           </div>
-          {sub && <div className="text-xs text-muted-foreground truncate">{sub}</div>}
+          {sub && (
+            <div
+              className={`text-xs truncate ${
+                warn ? "text-red-600 font-semibold" : "text-muted-foreground"
+              }`}
+            >
+              {sub}
+            </div>
+          )}
         </div>
       </div>
     </Comp>
