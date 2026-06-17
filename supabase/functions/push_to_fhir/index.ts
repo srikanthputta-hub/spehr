@@ -30,6 +30,8 @@ serve(async (req) => {
 
     if (error) throw error;
 
+    console.log('FHIR BUNDLE:', JSON.stringify(fhirBundle, null, 2));
+
     const response = await fetch(FHIR_SERVER_URL, {
       method: "POST",
       headers: {
