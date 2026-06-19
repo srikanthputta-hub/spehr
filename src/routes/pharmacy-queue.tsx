@@ -2,13 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  AlertTriangle,
   CheckCircle2,
-  FlaskConical,
   Inbox,
   Loader2,
   Pill,
-  ShieldAlert,
   XCircle,
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
