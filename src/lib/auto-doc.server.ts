@@ -155,11 +155,41 @@ export async function runAutoDocPipeline(mrn: string) {
 
   const tpl: ConditionTemplate = templateForDepartment(department);
 
-  // STAGE: order
+  // STAGE: order — strictly idempotent. Auto Doc is the SOLE source of
+  // diagnostics and medications, so we only insert rows that are not
+  // already present for this MRN (covers rerun/replay scenarios and
+  // parallel trigger paths: DB trigger + in-app fire-and-forget).
   await setRunStage(mrn, "order");
-  await log(mrn, "order", `Ordering ${tpl.meds.length} med(s) and ${tpl.labs.length} lab(s) for ${tpl.condition}`);
   const nowIso = new Date().toISOString();
-  const medRows = tpl.meds.map((m) => ({
+  const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
+  const [{ data: existingMedsRaw }, { data: existingLabsRaw }] = await Promise.all([
+    sb
+      .from("medication_orders")
+      .select("medication_name, drug_name")
+      .eq("patient_mrn", mrn),
+    sb
+      .from("lab_orders")
+      .select("test_type")
+      .eq("patient_mrn", mrn),
+  ]);
+  const existingMedNames = new Set(
+    ((existingMedsRaw as Array<{ medication_name?: string | null; drug_name?: string | null }> | null) ?? [])
+      .map((m) => norm(m.medication_name ?? m.drug_name))
+      .filter(Boolean),
+  );
+  const existingLabNames = new Set(
+    ((existingLabsRaw as Array<{ test_type?: string | null }> | null) ?? [])
+      .map((l) => norm(l.test_type))
+      .filter(Boolean),
+  );
+  const medsToInsert = tpl.meds.filter((m) => !existingMedNames.has(norm(m.name)));
+  const labsToInsert = tpl.labs.filter((l) => !existingLabNames.has(norm(l.name)));
+  await log(
+    mrn,
+    "order",
+    `Ordering ${medsToInsert.length}/${tpl.meds.length} med(s) and ${labsToInsert.length}/${tpl.labs.length} lab(s) for ${tpl.condition} (skipping duplicates already on chart)`,
+  );
+  const medRows = medsToInsert.map((m) => ({
     patient_mrn: mrn,
     mrn,
     patient_name: p.name ?? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
@@ -179,7 +209,7 @@ export async function runAutoDocPipeline(mrn: string) {
     const { error } = await sb.from("medication_orders").insert(medRows as never);
     if (error) await log(mrn, "order", `Med insert warning: ${error.message}`, null, "warn");
   }
-  const labOrderRows = tpl.labs.map((l) => ({
+  const labOrderRows = labsToInsert.map((l) => ({
     patient_mrn: mrn,
     patient_name: p.name ?? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
     test_type: l.name,
@@ -196,9 +226,21 @@ export async function runAutoDocPipeline(mrn: string) {
     if (error) await log(mrn, "order", `Lab order insert warning: ${error.message}`, null, "warn");
   }
 
-  // STAGE: result
+  // STAGE: result — only generate results for labs we just inserted, and
+  // only if no result row already exists for that (mrn, test_name).
   await setRunStage(mrn, "result");
-  const labResults = tpl.labs.map((l) => {
+  const { data: existingResultsRaw } = await sb
+    .from("lab_results")
+    .select("test_name")
+    .eq("mrn", mrn);
+  const existingResultNames = new Set(
+    ((existingResultsRaw as Array<{ test_name?: string | null }> | null) ?? [])
+      .map((r) => norm(r.test_name))
+      .filter(Boolean),
+  );
+  const labResults = labsToInsert
+    .filter((l) => !existingResultNames.has(norm(l.name)))
+    .map((l) => {
     const r = l.gen();
     return {
       mrn,
