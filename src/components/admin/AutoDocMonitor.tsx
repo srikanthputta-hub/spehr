@@ -43,7 +43,7 @@ export function AutoDocMonitor() {
         .from("auto_doc_logs")
         .select("id, mrn, stage, level, message, created_at")
         .order("created_at", { ascending: false })
-        .limit(100);
+        .limit(50);
       if (cancelled) return;
       if (l) setLogs(l as any);
     };
@@ -54,7 +54,7 @@ export function AutoDocMonitor() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "auto_doc_logs" },
         (payload) =>
-          setLogs((prev) => [payload.new as any, ...prev].slice(0, 100)),
+          setLogs((prev) => [payload.new as any, ...prev].slice(0, 50)),
       )
       .subscribe();
     const poll = setInterval(load, 15_000);
