@@ -1295,7 +1295,6 @@ export type Database = {
       }
     }
     Functions: {
-      auto_administer_ghost_meds: { Args: never; Returns: undefined }
       auto_admit_ghost_patient: { Args: never; Returns: undefined }
       auto_discharge_ghost_patients: { Args: never; Returns: undefined }
       auto_order_ghost_labs: { Args: never; Returns: undefined }
