@@ -1347,6 +1347,9 @@ function SlaCountdown({
 }
 
 function Stat({ label, value, tone }: { label: string; value: number; tone: "red" | "amber" | "slate" }) {
+  return _StatImpl({ label, value, tone });
+}
+function _StatImpl({ label, value, tone }: { label: string; value: number; tone: "red" | "amber" | "slate" }) {
   const palette = {
     red:   "bg-red-50 border-red-200 text-red-700",
     amber: "bg-amber-50 border-amber-200 text-amber-700",
@@ -1356,6 +1359,84 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: "red
     <div className={`rounded-xl border p-3 ${palette}`}>
       <div className="text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</div>
       <div className="text-2xl font-bold mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Safety alert FHIR context — shows the offending drug + allergen as */
+/*  FHIR R4 CodeableConcepts so coders can audit why the AI flagged.   */
+/* ------------------------------------------------------------------ */
+function SafetyFhirContext({ alert }: { alert: DbSafetyAlert }) {
+  const [open, setOpen] = useState(false);
+  // Allergen → SNOMED CT clinical finding · Drug → RxNorm ingredient
+  // We don't have the codes on the row, so we expose the canonical FHIR
+  // tuple shape with the human-readable values that drove the alert.
+  const drugConcept = toCodeableConcept(
+    "RxNorm",
+    `LOCAL:${(alert.drug ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    alert.drug,
+  );
+  const drugBConcept = alert.drug_b
+    ? toCodeableConcept(
+        "RxNorm",
+        `LOCAL:${alert.drug_b.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        alert.drug_b,
+      )
+    : null;
+  const allergyConcept = alert.allergy_name
+    ? toCodeableConcept(
+        "SNOMED CT",
+        `LOCAL:${alert.allergy_name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        alert.allergy_name,
+      )
+    : null;
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0c2340] hover:underline"
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        Why flagged — FHIR CodeableConcept context
+      </button>
+      {open && (
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+          <FhirConceptCard label="MedicationRequest · drug" cc={drugConcept} />
+          {drugBConcept && (
+            <FhirConceptCard label="MedicationRequest · co-prescribed" cc={drugBConcept} />
+          )}
+          {allergyConcept && (
+            <FhirConceptCard label="AllergyIntolerance · documented" cc={allergyConcept} />
+          )}
+          <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
+            <div className="font-bold uppercase tracking-wider text-[9px] mb-1">
+              Cross-reactivity family
+            </div>
+            <div className="font-mono">{alert.family || "—"}</div>
+            <div className="mt-1 text-[10px] text-amber-800">
+              Cross-referenced against the active 48 h Catalog taxonomy.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FhirConceptCard({ label, cc }: { label: string; cc: CodeableConcept }) {
+  const coding = cc.coding[0];
+  return (
+    <div className="rounded border border-slate-200 bg-white p-2 text-[11px]">
+      <div className="font-bold uppercase tracking-wider text-[9px] text-slate-500 mb-1">
+        {label}
+      </div>
+      <div className="font-mono text-slate-700 space-y-0.5">
+        <div className="truncate"><span className="text-slate-500">system:</span> {coding.system}</div>
+        <div><span className="text-slate-500">code:</span> {coding.code}</div>
+        <div><span className="text-slate-500">display:</span> {coding.display}</div>
+      </div>
     </div>
   );
 }
