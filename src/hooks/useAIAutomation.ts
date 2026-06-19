@@ -460,6 +460,16 @@ export async function seedAdmission(
     const t = MED_FIRST_ORDER_DELAY_MS + i * MED_ORDER_GAP_MS;
     const timer = setTimeout(async () => {
       untrackTimer(mrn, timer);
+      // Live dedup — another tab/client may have inserted this same
+      // (mrn, drug) pair while our timer was pending. Re-check right
+      // before the insert so concurrent admissions never duplicate.
+      const { data: dupe } = await supabase
+        .from("medication_orders")
+        .select("id")
+        .eq("patient_mrn", mrn)
+        .ilike("drug_name", m.name)
+        .limit(1);
+      if (dupe && dupe.length > 0) return;
       const { data, error } = await supabase
         .from("medication_orders")
         .insert({
@@ -492,6 +502,13 @@ export async function seedAdmission(
     const resultSummary = `${l.name}: ${sample.value} ${l.unit} [${sample.flag}] (ref ${l.ref} ${l.unit})`;
     const timer = setTimeout(async () => {
       untrackTimer(mrn, timer);
+      const { data: dupeLab } = await supabase
+        .from("lab_orders")
+        .select("id")
+        .eq("patient_mrn", mrn)
+        .ilike("test_type", l.name)
+        .limit(1);
+      if (dupeLab && dupeLab.length > 0) return;
       const { data, error } = await supabase
         .from("lab_orders")
         .insert({
