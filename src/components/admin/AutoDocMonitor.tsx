@@ -43,7 +43,7 @@ export function AutoDocMonitor() {
         .from("auto_doc_logs")
         .select("id, mrn, stage, level, message, created_at")
         .order("created_at", { ascending: false })
-        .limit(100);
+        .limit(50);
       if (cancelled) return;
       if (l) setLogs(l as any);
     };
