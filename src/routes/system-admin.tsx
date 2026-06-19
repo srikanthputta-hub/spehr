@@ -2508,7 +2508,15 @@ function FhirInteroperability({ facility }: { facility: string }) {
   const [bundleLoading, setBundleLoading] = useState(false);
   const [activeRow, setActiveRow] = useState<FhirEncounterRow | null>(null);
   const [pushing, setPushing] = useState(false);
-  const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>({});
+  const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem("fhir.pushedMrns");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   // Live Streaming Mode -------------------------------------------------
   const AUTO_LOOP_STORAGE_KEY = "fhir.autoLoop.enabled";
   const [autoOn, setAutoOn] = useState<boolean>(() => {
@@ -2531,7 +2539,42 @@ function FhirInteroperability({ facility }: { facility: string }) {
   }, [autoOn]);
   const [autoStatus, setAutoStatus] = useState<
     Record<string, "queued" | "syncing" | "ok" | "err">
-  >({});
+  >(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem("fhir.autoStatus");
+      const parsed = raw ? JSON.parse(raw) : {};
+      const out: Record<string, "ok" | "err"> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if (v === "ok" || v === "err") out[k] = v as any;
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  });
+  // Persist terminal auto-statuses so successful patients never revert to In Queue
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const toPersist: Record<string, "ok" | "err"> = {};
+      for (const [k, v] of Object.entries(autoStatus)) {
+        if (v === "ok" || v === "err") toPersist[k] = v;
+      }
+      window.localStorage.setItem("fhir.autoStatus", JSON.stringify(toPersist));
+    } catch {
+      /* ignore quota / private-mode errors */
+    }
+  }, [autoStatus]);
+  // Persist pushed MRN outcomes so they survive refreshes across the system
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("fhir.pushedMrns", JSON.stringify(pushedMrns));
+    } catch {
+      /* ignore quota / private-mode errors */
+    }
+  }, [pushedMrns]);
   const [autoTick, setAutoTick] = useState(0);
 
   useEffect(() => {
