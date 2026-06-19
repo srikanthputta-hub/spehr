@@ -636,7 +636,8 @@ export function useAIAutomation() {
             source.includes("admission randomizer") ||
             source.includes("admission workflow") ||
             source.includes("bedside rn") ||
-            source.includes("ghost ai")
+            source.includes("ghost ai") ||
+            source.includes("auto doc")
           ) return;
           cascadeMed(mrn, o.id).catch((e) => console.warn("[order-cascadeMed] failed", e));
         },
@@ -653,7 +654,8 @@ export function useAIAutomation() {
             source.includes("admission randomizer") ||
             source.includes("admission workflow") ||
             source.includes("bedside rn") ||
-            source.includes("ghost ai")
+            source.includes("ghost ai") ||
+            source.includes("auto doc")
           ) return;
           cascadeLab(mrn, o.id, `${o.test_type ?? "Lab"}: resulted`).catch((e) =>
             console.warn("[order-cascadeLab] failed", e),
