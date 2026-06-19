@@ -9,6 +9,8 @@ import {
   loadIntake,
   saveIntake,
 } from "@/lib/intake-record";
+import { routeDepartment } from "@/lib/chief-complaints";
+import { templateForDepartment } from "@/lib/auto-doc-catalog";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -45,8 +47,14 @@ interface InsertedOrder {
   test_type?: string | null;
 }
 
-// 3 seconds between status transitions for both engines (used by the
-// realtime cascade for manual physician orders).
+// Auto Doc staged admission cascade — matches the legacy timeline:
+//   • meds inserted at T+20s, T+35s, T+50s
+//   • labs inserted at T+20s, T+35s
+//   • each row transitions through its statuses with a 3s gap.
+const MED_FIRST_ORDER_DELAY_MS = 20_000;
+const MED_ORDER_GAP_MS = 15_000;
+const LAB_FIRST_ORDER_DELAY_MS = 20_000;
+const LAB_ORDER_GAP_MS = 15_000;
 const TRANSITION_GAP_MS = 3_000;
 
 /* ------------------------------------------------------------------ */
@@ -404,12 +412,110 @@ export async function seedAdmission(
   }
 
   // ------------------------------------------------------------------
-  // Diagnostics & Medications are owned exclusively by Auto Doc.
-  // The DB trigger `patients_auto_doc_after_insert` fires the headless
-  // pipeline immediately after admission so labs + meds are placed
-  // per the patient's condition (no duplicates, no randomized cascade).
+  // Diagnostics & Medications — owned exclusively by Auto Doc, but
+  // inserted through the SAME staged admission cascade timeline as the
+  // legacy ghost admission flow. The headless Auto Doc pipeline (DB
+  // trigger) handles notes / UMLS / FHIR / discharge; the client below
+  // stages the condition-specific orders so the Pharmacy & Lab queues
+  // see the live ORDERED → … → ADMINISTERED / REPORTED transitions.
   // ------------------------------------------------------------------
-  void patientName;
+  const department = routeDepartment(p.chief_complaint ?? "");
+  const tpl = templateForDepartment(department);
+
+  const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
+  const [{ data: existingMeds }, { data: existingLabs }] = await Promise.all([
+    supabase
+      .from("medication_orders")
+      .select("medication_name, drug_name")
+      .eq("patient_mrn", mrn),
+    supabase
+      .from("lab_orders")
+      .select("test_type")
+      .eq("patient_mrn", mrn),
+  ]);
+  const existingMedNames = new Set(
+    ((existingMeds as Array<{ medication_name?: string | null; drug_name?: string | null }> | null) ?? [])
+      .map((m) => norm(m.medication_name ?? m.drug_name))
+      .filter(Boolean),
+  );
+  const existingLabNames = new Set(
+    ((existingLabs as Array<{ test_type?: string | null }> | null) ?? [])
+      .map((l) => norm(l.test_type))
+      .filter(Boolean),
+  );
+
+  // Persist the chosen department on the patient so Auto Doc's server-side
+  // pipeline (notes / UMLS / FHIR) uses the same condition the client cascade
+  // is staging — keeps the two sides perfectly in sync.
+  await supabase
+    .from("patients")
+    .update({ assigned_department: department } as any)
+    .eq("mrn", mrn);
+
+  // First 3 meds, first 2 labs — same shape as the legacy cascade.
+  const finalMeds = tpl.meds.filter((m) => !existingMedNames.has(norm(m.name))).slice(0, 3);
+  const finalLabs = tpl.labs.filter((l) => !existingLabNames.has(norm(l.name))).slice(0, 2);
+
+  finalMeds.forEach((m, i) => {
+    const t = MED_FIRST_ORDER_DELAY_MS + i * MED_ORDER_GAP_MS;
+    const timer = setTimeout(async () => {
+      untrackTimer(mrn, timer);
+      const { data, error } = await supabase
+        .from("medication_orders")
+        .insert({
+          patient_id: p.id,
+          patient_mrn: mrn,
+          mrn,
+          patient_name: patientName,
+          facility_name: p.facility_name,
+          medication_name: m.name,
+          drug_name: m.name,
+          dose: m.dose,
+          route: m.route,
+          frequency: m.frequency,
+          status: "Ordered",
+          ordered_by: "Auto Doc",
+        })
+        .select("id")
+        .single();
+      if (error || !data) return; // unique-index collision → another client wins
+      cascadeMed(mrn, data.id).catch((e) =>
+        console.warn("[cascadeMed] failed", e),
+      );
+    }, t);
+    trackTimer(mrn, timer);
+  });
+
+  finalLabs.forEach((l, i) => {
+    const t = LAB_FIRST_ORDER_DELAY_MS + i * LAB_ORDER_GAP_MS;
+    const sample = l.gen();
+    const resultSummary = `${l.name}: ${sample.value} ${l.unit} [${sample.flag}] (ref ${l.ref} ${l.unit})`;
+    const timer = setTimeout(async () => {
+      untrackTimer(mrn, timer);
+      const { data, error } = await supabase
+        .from("lab_orders")
+        .insert({
+          patient_mrn: mrn,
+          patient_name: patientName,
+          facility_name: p.facility_name ?? "Memorial Hospital",
+          requested_by: "Auto Doc",
+          test_type: l.name,
+          clinical_condition: tpl.condition,
+          status: "Ordered",
+          ordered_by: "Auto Doc",
+        } as any)
+        .select("id")
+        .single();
+      if (error || !data) return;
+      cascadeLab(mrn, data.id, resultSummary, {
+        name: l.name,
+        unit: l.unit,
+        referenceRange: l.ref,
+        resultExample: `${sample.value} ${l.unit} [${sample.flag}]`,
+      }).catch((e) => console.warn("[cascadeLab] failed", e));
+    }, t);
+    trackTimer(mrn, timer);
+  });
 }
 
 export function useAIAutomation() {
