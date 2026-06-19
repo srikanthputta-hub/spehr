@@ -380,6 +380,9 @@ function buildEncounterResource(p: EncounterPatient) {
   return {
     resourceType: "Encounter",
     id: `enc-${p.mrn}`,
+    identifier: [
+      { system: "urn:spehr:encounter", value: `enc-${p.mrn}` },
+    ],
     status,
     class: {
       system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
