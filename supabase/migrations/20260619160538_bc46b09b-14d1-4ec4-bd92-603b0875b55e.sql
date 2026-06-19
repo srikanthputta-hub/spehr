@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS public.generate_default_orders_for_new_patient() CASCADE; DROP FUNCTION IF EXISTS public.seed_orders_for_admitted_patient() CASCADE;

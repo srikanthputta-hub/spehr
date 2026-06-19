@@ -58,6 +58,87 @@ const LAB_ORDER_GAP_MS = 15_000;
 const TRANSITION_GAP_MS = 3_000;
 
 /* ------------------------------------------------------------------ */
+/* Lab specimen / methodology / interpretation reference data.        */
+/* Used to render an elaborative, hospital-grade report narrative     */
+/* on every cascade-released lab result so the chart, lab board and   */
+/* FHIR Observation exports all show the same rich clinical context.  */
+/* ------------------------------------------------------------------ */
+const LAB_PROFILE: Record<string, { specimen: string; method: string; tat: string; loinc?: string }> = {
+  WBC: { specimen: "Whole Blood, EDTA (lavender top)", method: "Automated impedance / flow cytometry (CBC analyzer)", tat: "≤ 45 min", loinc: "6690-2" },
+  Hemoglobin: { specimen: "Whole Blood, EDTA", method: "Spectrophotometry (cyanmethemoglobin)", tat: "≤ 45 min", loinc: "718-7" },
+  Platelets: { specimen: "Whole Blood, EDTA", method: "Impedance count, smear confirmation if flagged", tat: "≤ 45 min", loinc: "777-3" },
+  Glucose: { specimen: "Serum / Plasma (gold top SST)", method: "Hexokinase enzymatic assay", tat: "≤ 30 min", loinc: "2345-7" },
+  Creatinine: { specimen: "Serum (gold top SST)", method: "Jaffe kinetic / enzymatic IDMS-traceable", tat: "≤ 60 min", loinc: "2160-0" },
+  Sodium: { specimen: "Serum / Plasma", method: "Indirect ion-selective electrode (ISE)", tat: "≤ 30 min", loinc: "2951-2" },
+  Potassium: { specimen: "Serum / Plasma", method: "Indirect ion-selective electrode (ISE)", tat: "≤ 30 min", loinc: "2823-3" },
+  "Troponin I": { specimen: "Serum / Plasma (lithium heparin)", method: "High-sensitivity chemiluminescent immunoassay", tat: "≤ 60 min", loinc: "10839-9" },
+  "Creatine Kinase": { specimen: "Serum", method: "NAC-activated enzymatic UV", tat: "≤ 60 min", loinc: "2157-6" },
+  "PT/INR": { specimen: "Citrated Plasma (blue top, 3.2%)", method: "Optical clot detection, ISI-corrected", tat: "≤ 60 min", loinc: "5902-2" },
+  Lactate: { specimen: "Arterial / Venous whole blood, fluoride", method: "Enzymatic amperometric (lactate oxidase)", tat: "≤ 20 min STAT", loinc: "2532-0" },
+  Fibrinogen: { specimen: "Citrated Plasma (blue top)", method: "Clauss clotting method", tat: "≤ 90 min", loinc: "3255-7" },
+  "Lactate Dehydrogenase": { specimen: "Serum (avoid hemolysis)", method: "Lactate-to-pyruvate UV kinetic", tat: "≤ 90 min", loinc: "14804-9" },
+};
+
+const DEFAULT_LAB_PROFILE = {
+  specimen: "Per laboratory collection protocol",
+  method: "Standard reference laboratory methodology",
+  tat: "Per facility TAT",
+};
+
+function interpretLab(name: string, value: number, ref: string, flag: "L" | "H" | "N" | "C"): string {
+  const trend =
+    flag === "C"
+      ? "Critical value — provider notified per facility critical-value policy. Immediate clinical correlation required."
+      : flag === "H"
+        ? `Result is ABOVE the reference interval (${ref}); clinical correlation recommended.`
+        : flag === "L"
+          ? `Result is BELOW the reference interval (${ref}); clinical correlation recommended.`
+          : `Result is within the reference interval (${ref}); no acute action indicated by this analyte alone.`;
+  // Light-weight, lab-specific commentary so the narrative reads like a
+  // real hospital report instead of a single numeric line.
+  const commentary: Record<string, string> = {
+    WBC: flag === "H" ? "Leukocytosis — consider infectious / inflammatory / stress response." : flag === "L" ? "Leukopenia — consider marrow suppression, viral process, sepsis." : "",
+    Hemoglobin: flag === "L" ? "Anemia — evaluate iron studies, reticulocyte count and occult blood loss." : flag === "H" ? "Polycythemia — consider dehydration vs primary erythrocytosis." : "",
+    Platelets: flag === "L" ? "Thrombocytopenia — review medication list and consider peripheral smear." : flag === "H" ? "Thrombocytosis — reactive vs essential thrombocythemia." : "",
+    Glucose: flag === "H" ? "Hyperglycemia — correlate with A1c and clinical hydration status." : flag === "L" ? "Hypoglycemia — repeat fingerstick and treat per hypoglycemia protocol." : "",
+    Creatinine: flag === "H" ? "Reduced glomerular filtration — calculate eGFR and review nephrotoxic agents." : "",
+    "Troponin I": flag === "H" || flag === "C" ? "Elevated cardiac troponin — repeat in 3 hours, obtain ECG and cardiology consult." : "",
+    Lactate: flag === "H" || flag === "C" ? "Elevated lactate — assess tissue perfusion and initiate sepsis bundle if clinically indicated." : "",
+    Potassium: flag === "H" ? "Hyperkalemia — obtain ECG, recheck specimen for hemolysis." : flag === "L" ? "Hypokalemia — replete IV/PO per protocol, monitor cardiac rhythm." : "",
+    Sodium: flag === "H" ? "Hypernatremia — assess free water deficit." : flag === "L" ? "Hyponatremia — assess volume status and serum osmolality." : "",
+    "PT/INR": flag === "H" ? "Prolonged INR — review anticoagulation, hepatic function and vitamin K status." : "",
+  };
+  const note = commentary[name] ?? "";
+  return note ? `${trend} ${note}` : trend;
+}
+
+function buildLabReport(
+  name: string,
+  value: number,
+  unit: string,
+  ref: string,
+  flag: "L" | "H" | "N" | "C",
+  collectedIso: string,
+  reportedIso: string,
+): string {
+  const profile = LAB_PROFILE[name] ?? DEFAULT_LAB_PROFILE;
+  const flagWord = flag === "C" ? "CRITICAL" : flag === "H" ? "HIGH" : flag === "L" ? "LOW" : "NORMAL";
+  const interp = interpretLab(name, value, ref, flag);
+  const tFmt = (iso: string) => {
+    try { return new Date(iso).toLocaleString(undefined, { hour12: false }); } catch { return iso; }
+  };
+  return [
+    `${name}: ${value} ${unit} [${flagWord}]  (Reference ${ref} ${unit})`,
+    `Specimen: ${profile.specimen}`,
+    `Method: ${profile.method}`,
+    `LOINC: ${profile.loinc ?? "—"}  •  TAT: ${profile.tat}`,
+    `Collected: ${tFmt(collectedIso)}  •  Reported: ${tFmt(reportedIso)}`,
+    `Interpretation: ${interp}`,
+    `Performing lab: SPEHR Central Laboratory  •  Verified by: Auto Doc Pipeline`,
+  ].join("\n");
+}
+
+/* ------------------------------------------------------------------ */
 /* MRN-keyed timer registry — every setTimeout scheduled by the       */
 /* cascade is tracked here so the hook's effect cleanup (and per-MRN  */
 /* re-seed checks) can cancel anything still pending. Prevents leaks  */
@@ -234,9 +315,16 @@ async function cascadeLab(
     unit: string;
     referenceRange: string;
     resultExample: string;
+    numericValue?: number;
+    flagCode?: "L" | "H" | "N" | "C";
   },
 ) {
   // Ordered → Processing → Reported (final).
+  const collectedAt = new Date().toISOString();
+  await supabase
+    .from("lab_orders")
+    .update({ collected_at: collectedAt } as any)
+    .eq("id", orderId);
   await trackedDelay(mrn, TRANSITION_GAP_MS);
   await supabase
     .from("lab_orders")
@@ -244,12 +332,26 @@ async function cascadeLab(
     .eq("id", orderId);
   await trackedDelay(mrn, TRANSITION_GAP_MS);
   const resultedAt = new Date().toISOString();
+  // Build the elaborative narrative AT report time so timestamps in the
+  // body match the actual collected/reported events on the order.
+  let elaborate = resultSummary;
+  if (labMeta && typeof labMeta.numericValue === "number" && labMeta.flagCode) {
+    elaborate = buildLabReport(
+      labMeta.name,
+      labMeta.numericValue,
+      labMeta.unit,
+      labMeta.referenceRange,
+      labMeta.flagCode,
+      collectedAt,
+      resultedAt,
+    );
+  }
   await supabase
     .from("lab_orders")
     .update({
       status: "Reported",
-      result_value: resultSummary,
-      collected_at: resultedAt,
+      result_value: elaborate,
+      collected_at: collectedAt,
       resulted_at: resultedAt,
     } as any)
     .eq("id", orderId);
@@ -512,6 +614,8 @@ export async function seedAdmission(
         unit: l.unit,
         referenceRange: l.ref,
         resultExample: `${sample.value} ${l.unit} [${sample.flag}]`,
+        numericValue: sample.value,
+        flagCode: sample.flag,
       }).catch((e) => console.warn("[cascadeLab] failed", e));
     }, t);
     trackTimer(mrn, timer);
