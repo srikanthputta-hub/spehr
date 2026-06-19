@@ -2608,6 +2608,185 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
   "VSAC":       { tint: "border-sky-200 bg-sky-50/40",         chip: "bg-sky-100 text-sky-800 border-sky-200",            blurb: "Aligned value sets" },
 };
 
+/* ============================================================ */
+/*  Taxonomy Tree — collapsible SNOMED-browser-style view of    */
+/*  the active terminology over the last 48 h.                  */
+/* ============================================================ */
+function TaxonomyTree({
+  rows,
+  usedCodes,
+  onDelete,
+}: {
+  rows: DictEntry[];
+  usedCodes: Record<string, Set<string>>;
+  onDelete: (id: string) => void;
+}) {
+  const [recentOnly, setRecentOnly] = useState(true);
+  const [openRoots, setOpenRoots] = useState<Record<string, boolean>>({
+    "ICD-10": true,
+    "SNOMED CT": false,
+    LOINC: false,
+    RxNorm: false,
+    VSAC: false,
+  });
+  const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
+  const [search, setSearch] = useState("");
+
+  const roots: TaxonomyRoot[] = buildTaxonomy(
+    rows as any,
+    usedCodes,
+    {},
+    CODE_SYSTEMS as unknown as string[],
+    recentOnly,
+  );
+
+  const q = search.trim().toLowerCase();
+  const matchLeaf = (l: { code: string; display: string }) =>
+    !q || l.code.toLowerCase().includes(q) || l.display.toLowerCase().includes(q);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-slate-100 bg-slate-50/60">
+        <FolderTree className="h-4 w-4 text-[#0c2340]" />
+        <div className="text-sm font-semibold text-slate-900">Taxonomy Tree</div>
+        <span className="text-[11px] text-slate-500">
+          Hierarchical view · auto-populated from codes used in the last 48 h
+        </span>
+        <div className="ml-auto flex items-center gap-3">
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700">
+            <Switch checked={recentOnly} onCheckedChange={setRecentOnly} />
+            Last 48h only
+          </label>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter codes…"
+              className="h-8 w-56 rounded-md border border-slate-300 bg-white pl-7 pr-2 text-xs outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30"
+            />
+          </div>
+        </div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {roots.map((root) => {
+          const meta = SYSTEM_META[root.system];
+          const open = openRoots[root.system];
+          return (
+            <div key={root.system}>
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenRoots((s) => ({ ...s, [root.system]: !s[root.system] }))
+                }
+                className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-slate-50/70 transition text-left"
+              >
+                {open ? (
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                )}
+                <span
+                  className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${meta.chip}`}
+                >
+                  {root.system}
+                </span>
+                <span className="text-sm font-semibold text-slate-900">
+                  {meta.blurb}
+                </span>
+                <span className="ml-auto inline-flex items-center gap-2 text-[11px]">
+                  <span className="rounded-full bg-slate-100 text-slate-700 px-2 py-0.5 font-semibold">
+                    {root.totalCodes} codes
+                  </span>
+                  {root.recentCount > 0 && (
+                    <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 font-semibold">
+                      ● {root.recentCount} live 48h
+                    </span>
+                  )}
+                </span>
+              </button>
+              {open && (
+                <div className="pb-2">
+                  {root.categories.length === 0 ? (
+                    <div className="px-12 py-3 text-[11px] italic text-slate-400">
+                      No active concepts in this code system over the last 48 h.
+                    </div>
+                  ) : (
+                    root.categories.map((cat) => {
+                      const catKey = `${root.system}::${cat.name}`;
+                      const catOpen = openCats[catKey] ?? true;
+                      const filtered = cat.leaves.filter(matchLeaf);
+                      if (q && filtered.length === 0) return null;
+                      return (
+                        <div key={catKey}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOpenCats((s) => ({ ...s, [catKey]: !catOpen }))
+                            }
+                            className="w-full flex items-center gap-2 pl-10 pr-4 py-1.5 hover:bg-slate-50/70 transition text-left"
+                          >
+                            {catOpen ? (
+                              <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
+                            ) : (
+                              <ChevronRight className="h-3 w-3 text-slate-400 shrink-0" />
+                            )}
+                            <span className="text-[12px] font-medium text-slate-700">
+                              {cat.name}
+                            </span>
+                            <span className="ml-auto text-[10px] text-slate-500">
+                              {filtered.length} / {cat.leaves.length}
+                            </span>
+                          </button>
+                          {catOpen && (
+                            <ul className="pb-1">
+                              {filtered.map((leaf) => (
+                                <li
+                                  key={leaf.id}
+                                  className="group flex items-center gap-2 pl-16 pr-4 py-1 hover:bg-slate-50/60"
+                                >
+                                  <span className="h-1.5 w-1.5 rounded-full bg-slate-300 shrink-0" />
+                                  <span className="font-mono text-[11px] font-semibold text-slate-900 shrink-0 min-w-[80px]">
+                                    {leaf.code}
+                                  </span>
+                                  <span className="text-[12px] text-slate-700 truncate">
+                                    {leaf.display}
+                                  </span>
+                                  {leaf.recentlyUsed && (
+                                    <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider">
+                                      ● live
+                                    </span>
+                                  )}
+                                  <span className="ml-auto inline-flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                                    <span className="text-[10px] text-slate-400 font-mono truncate max-w-[180px]">
+                                      {FHIR_SYSTEM_URI[root.system] ?? "—"}
+                                    </span>
+                                    <button
+                                      onClick={() => onDelete(leaf.id)}
+                                      className="text-slate-400 hover:text-rose-600"
+                                      title="Remove entry"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MedicalDictionary() {
   const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety">("catalog");
   const [facilityFilter, setFacilityFilter] = useState<string>("all");
