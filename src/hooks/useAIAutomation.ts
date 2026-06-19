@@ -237,6 +237,11 @@ async function cascadeLab(
   },
 ) {
   // Ordered → Processing → Reported (final).
+  const collectedAt = new Date().toISOString();
+  await supabase
+    .from("lab_orders")
+    .update({ collected_at: collectedAt } as any)
+    .eq("id", orderId);
   await trackedDelay(mrn, TRANSITION_GAP_MS);
   await supabase
     .from("lab_orders")
@@ -249,7 +254,7 @@ async function cascadeLab(
     .update({
       status: "Reported",
       result_value: resultSummary,
-      collected_at: resultedAt,
+      collected_at: collectedAt,
       resulted_at: resultedAt,
     } as any)
     .eq("id", orderId);
