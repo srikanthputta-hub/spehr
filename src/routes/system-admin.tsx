@@ -2469,7 +2469,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
           discharge_time: p.discharge_time ?? null,
           status: p.status ?? null,
           chief_complaint: p.chief_complaint ?? null,
-        }));
+        }))
+        .slice(0, 50);
       setRows(out);
       setLoading(false);
     })();
