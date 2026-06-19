@@ -45,13 +45,8 @@ interface InsertedOrder {
   test_type?: string | null;
 }
 
-// Medication cascade — orders placed at T+20, T+35, T+50.
-const MED_FIRST_ORDER_DELAY_MS = 20_000;
-const MED_ORDER_GAP_MS = 15_000;
-// Lab cascade — orders placed at T+20 and T+35.
-const LAB_FIRST_ORDER_DELAY_MS = 20_000;
-const LAB_ORDER_GAP_MS = 15_000;
-// 3 seconds between status transitions for both engines.
+// 3 seconds between status transitions for both engines (used by the
+// realtime cascade for manual physician orders).
 const TRANSITION_GAP_MS = 3_000;
 
 /* ------------------------------------------------------------------ */
