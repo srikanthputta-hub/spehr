@@ -2681,11 +2681,13 @@ function FhirInteroperability({ facility }: { facility: string }) {
             </DialogTitle>
             <DialogDescription>
               Strict FHIR R4 <span className="font-mono">Bundle</span>{" "}
-              (type=<span className="font-mono">document</span>) containing the
+              (type=<span className="font-mono">transaction</span>) containing the
               Composition, Patient, Encounter, Observations (vitals + labs),
               MedicationRequest, MedicationAdministration, DocumentReference,
-              CarePlan, and follow-up Appointment — the exact payload pumped to
-              the external FHIR server via <span className="font-mono">push_to_fhir</span>.
+              CarePlan, and follow-up Appointment. Each entry carries a per-resource
+              <span className="font-mono"> request </span>directive (PUT upsert for
+              Patient/Encounter, POST append for everything else) — the exact
+              payload pushed live to the Medblocks FHIR server.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-md border border-slate-200 bg-slate-950 text-slate-100 max-h-[60vh] overflow-auto p-3">
