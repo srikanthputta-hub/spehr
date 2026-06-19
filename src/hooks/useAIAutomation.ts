@@ -671,13 +671,23 @@ export function useAIAutomation() {
     const reconcileActiveAdmissions = async () => {
       const { data } = await supabase
         .from("patients")
-        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob")
+        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob, snomed_codes, icd10_codes")
         .eq("status", "Admitted")
         .not("mrn", "is", null)
         .order("admission_time", { ascending: false })
         .limit(100);
-      for (const p of ((data as NewPatient[] | null) ?? [])) {
+      for (const p of ((data as Array<NewPatient & { snomed_codes?: string[] | null; icd10_codes?: string[] | null }> | null) ?? [])) {
         if (!p.mrn) continue;
+        // Backfill Auto Doc codes for any admission missing SNOMED-CT or
+        // ICD-10 (Auto Doc is idempotent — completed runs short-circuit).
+        const needsCodes =
+          !(p.snomed_codes && p.snomed_codes.length) ||
+          !(p.icd10_codes && p.icd10_codes.length);
+        if (needsCodes) {
+          runAutoDoc({ data: { mrn: p.mrn } }).catch((e) =>
+            console.warn("[admission-reconcile] runAutoDoc failed", e),
+          );
+        }
         const [{ count: medCount }, { count: labCount }] = await Promise.all([
           supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
           supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
