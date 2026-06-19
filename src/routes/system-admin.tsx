@@ -251,7 +251,7 @@ function SystemAdminPage() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [selectedFacility, setSelectedFacility] = useState<Facility>("Memorial Hospital");
-  const [automation, setAutomation] = useState<boolean | null>(null);
+  const [automation, setAutomation] = useState<boolean | null>(true);
   const [automationSaving, setAutomationSaving] = useState(false);
   const [isAdmin, setIsAdmin] = useState(true);
 
@@ -284,9 +284,11 @@ function SystemAdminPage() {
       if (!active) return;
       if (error) {
         toast.error("Failed to load automation state", { description: error.message });
-        setAutomation(false);
+        setAutomation(true);
       } else {
-        setAutomation(Boolean((data as any)?.automation_enabled));
+        // Default ON unless explicitly set to false
+        const val = (data as any)?.automation_enabled;
+        setAutomation(val === false ? false : true);
       }
     })();
     return () => {
@@ -2510,11 +2512,13 @@ function FhirInteroperability({ facility }: { facility: string }) {
   // Live Streaming Mode -------------------------------------------------
   const AUTO_LOOP_STORAGE_KEY = "fhir.autoLoop.enabled";
   const [autoOn, setAutoOn] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined") return true;
     try {
-      return window.localStorage.getItem(AUTO_LOOP_STORAGE_KEY) === "1";
+      const stored = window.localStorage.getItem(AUTO_LOOP_STORAGE_KEY);
+      // Default ON unless user explicitly turned it off (stored as "0")
+      return stored === "0" ? false : true;
     } catch {
-      return false;
+      return true;
     }
   });
   useEffect(() => {
