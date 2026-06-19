@@ -380,6 +380,9 @@ function buildEncounterResource(p: EncounterPatient) {
   return {
     resourceType: "Encounter",
     id: `enc-${p.mrn}`,
+    identifier: [
+      { system: "urn:spehr:encounter", value: `enc-${p.mrn}` },
+    ],
     status,
     class: {
       system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
@@ -612,6 +615,28 @@ export function buildEncounterBundle(opts: {
     ],
   };
 
+  // Transaction-bundle request wrappers. Patient + Encounter use PUT with an
+  // identifier-based conditional URL (upsert) so re-pushing the same encounter
+  // updates instead of duplicating. Everything else is a plain POST (append).
+  const requestFor = (r: any): { method: string; url: string } => {
+    switch (r.resourceType) {
+      case "Patient":
+        return {
+          method: "PUT",
+          url: `Patient?identifier=urn:spehr:mrn|${patient.mrn}`,
+        };
+      case "Encounter": {
+        const ident = r.identifier?.[0];
+        const value = ident?.value ?? r.id;
+        const system = ident?.system;
+        const q = system ? `${system}|${value}` : value;
+        return { method: "PUT", url: `Encounter?identifier=${q}` };
+      }
+      default:
+        return { method: "POST", url: r.resourceType };
+    }
+  };
+
   const all: any[] = [
     composition,
     patientRes,
@@ -628,9 +653,13 @@ export function buildEncounterBundle(opts: {
   return {
     resourceType: "Bundle",
     id: `encounter-${patient.mrn}-${Date.now()}`,
-    type: "document",
+    type: "transaction",
     timestamp: new Date().toISOString(),
-    entry: all.map((r) => ({ fullUrl: `urn:uuid:${r.resourceType}-${r.id}`, resource: r })),
+    entry: all.map((r) => ({
+      fullUrl: `urn:uuid:${r.resourceType}-${r.id}`,
+      resource: r,
+      request: requestFor(r),
+    })),
   };
 }
 
