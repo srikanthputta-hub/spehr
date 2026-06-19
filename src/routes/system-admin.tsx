@@ -2665,11 +2665,14 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setAutoStatus((prev) => {
       const next = { ...prev };
       for (const r of rows) {
+        // Skip patients already successfully pushed — never re-queue them
+        // to avoid duplicate transactions on the FHIR server.
+        if (pushedMrns[r.mrn] === "ok" || next[r.mrn] === "ok") continue;
         if (!next[r.mrn]) next[r.mrn] = "queued";
       }
       return next;
     });
-  }, [autoOn, rows]);
+  }, [autoOn, rows, pushedMrns]);
 
   // The 10-second streaming heartbeat. Cleaned up on toggle-off / unmount.
   useEffect(() => {
@@ -2685,7 +2688,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
     if (!autoOn) return;
     const inFlight = Object.values(autoStatus).some((v) => v === "syncing");
     if (inFlight) return;
-    const next = rows.find((r) => (autoStatus[r.mrn] ?? "queued") === "queued");
+    const next = rows.find(
+      (r) =>
+        autoStatus[r.mrn] === "queued" &&
+        autoStatus[r.mrn] !== "ok" &&
+        pushedMrns[r.mrn] !== "ok",
+    );
     if (!next) return;
     void autoPushRow(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
