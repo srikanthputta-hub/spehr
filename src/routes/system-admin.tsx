@@ -1686,6 +1686,40 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
   const [editOpen, setEditOpen] = useState(false);
   const [dictSearch, setDictSearch] = useState("");
   const [dict, setDict] = useState<DictRow[]>([]);
+  const [reportOpen, setReportOpen] = useState(false);
+
+  // Build the FHIR R4 Bundle (type=document) for this audit — the exact
+  // payload format pumped into the external FHIR server.
+  const bundle = (() => {
+    const conditions: CodeableConcept[] = [];
+    for (const c of icd10Codes) {
+      const match = (audit.byCode["ICD-10"] ?? []).find((m) => m.code === c);
+      conditions.push(
+        toCodeableConcept("ICD-10", c, match?.display ?? `ICD-10 ${c}`),
+      );
+    }
+    for (const c of snomedCodes) {
+      const match = (audit.byCode["SNOMED CT"] ?? []).find((m) => m.code === c);
+      conditions.push(
+        toCodeableConcept("SNOMED CT", c, match?.display ?? `SNOMED ${c}`),
+      );
+    }
+    const observations = (audit.byCode["LOINC"] ?? []).map((m) =>
+      toCodeableConcept("LOINC", m.code, m.display),
+    );
+    const meds = (audit.byCode["RxNorm"] ?? []).map((m) =>
+      toCodeableConcept("RxNorm", m.code, m.display),
+    );
+    return buildPatientBundle({
+      mrn: audit.mrn ?? "UNKNOWN",
+      patientName: audit.patient_name,
+      facility: audit.facility_name ?? null,
+      conditions,
+      observations,
+      medicationRequests: meds,
+      title: `S.P.E.H.R Admission Summary — ${audit.patient_name ?? audit.mrn}`,
+    });
+  })();
 
   const persist = (d: Decision) => {
     setDecision(d);
