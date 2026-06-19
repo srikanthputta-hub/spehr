@@ -66,7 +66,6 @@ import { Input } from "@/components/ui/input";
 import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
-import { runAutoDoc } from "@/lib/auto-doc.functions";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
