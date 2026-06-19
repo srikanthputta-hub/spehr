@@ -1247,6 +1247,7 @@ function SafetyQueue({ facility }: { facility: string }) {
                       {c.decided_at ? ` · ${new Date(c.decided_at).toLocaleString()}` : ""} — “{c.rationale}”
                     </div>
                   )}
+                  <SafetyFhirContext alert={c} />
                 </div>
                 {c.status === "Pending Review" ? (
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
