@@ -17,15 +17,6 @@ interface LogRow {
   created_at: string;
 }
 
-interface RunRow {
-  mrn: string;
-  status: string;
-  stage: string;
-  department: string | null;
-  started_at: string;
-  completed_at: string | null;
-}
-
 const STAGE_ORDER = [
   "analyze",
   "order",
@@ -55,26 +46,17 @@ function stageBadge(stage: string) {
 export function AutoDocMonitor() {
   const [open, setOpen] = useState(true);
   const [logs, setLogs] = useState<LogRow[]>([]);
-  const [runs, setRuns] = useState<RunRow[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [{ data: l }, { data: r }] = await Promise.all([
-        supabase
-          .from("auto_doc_logs")
-          .select("id, mrn, stage, level, message, created_at")
-          .order("created_at", { ascending: false })
-          .limit(100),
-        supabase
-          .from("auto_doc_runs")
-          .select("mrn, status, stage, department, started_at, completed_at")
-          .order("started_at", { ascending: false })
-          .limit(20),
-      ]);
+      const { data: l } = await supabase
+        .from("auto_doc_logs")
+        .select("id, mrn, stage, level, message, created_at")
+        .order("created_at", { ascending: false })
+        .limit(100);
       if (cancelled) return;
       if (l) setLogs(l as any);
-      if (r) setRuns(r as any);
     };
     load();
     const ch = supabase
@@ -94,11 +76,10 @@ export function AutoDocMonitor() {
     };
   }, []);
 
-  const totals = {
-    running: runs.filter((r) => r.status === "running").length,
-    complete: runs.filter((r) => r.status === "complete").length,
-    failed: runs.filter((r) => r.status === "failed").length,
-  };
+  const latest = logs[0];
+  const statusText = latest
+    ? `Latest: ${latest.stage} · MRN-${latest.mrn}`
+    : "Waiting for activity…";
 
   return (
     <div className="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -119,54 +100,14 @@ export function AutoDocMonitor() {
               Auto Doc Pipeline Monitor
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5">
-              Headless clinical reasoning agent · Running {totals.running} · Complete {totals.complete} · Failed {totals.failed}
+              Headless clinical reasoning agent · {statusText}
             </div>
           </div>
         </div>
         <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="border-t border-slate-200 divide-y divide-slate-100">
-          <div className="px-6 py-3 bg-slate-50/60">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 mb-2">
-              Recent Runs
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
-              {runs.length === 0 && (
-                <div className="text-[11px] text-slate-500 italic">
-                  No Auto Doc runs yet. The next admission will trigger the pipeline.
-                </div>
-              )}
-              {runs.map((r) => {
-                const idx = STAGE_ORDER.indexOf(r.stage);
-                const pct = idx < 0 ? 0 : Math.round(((idx + 1) / STAGE_ORDER.length) * 100);
-                return (
-                  <div
-                    key={r.mrn}
-                    className="rounded-md border border-slate-200 bg-white px-3 py-2"
-                  >
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <div className="font-mono font-semibold text-slate-800">
-                        MRN-{r.mrn}
-                      </div>
-                      {stageBadge(r.stage)}
-                    </div>
-                    <div className="text-[10px] text-slate-500 mt-0.5 truncate">
-                      {r.department ?? "—"}
-                    </div>
-                    <div className="mt-1.5 h-1 w-full rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className={`h-full ${
-                          r.status === "failed" ? "bg-red-500" : r.status === "complete" ? "bg-emerald-500" : "bg-sky-500"
-                        }`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        <div className="border-t border-slate-200">
           <div className="px-6 py-3 max-h-72 overflow-y-auto">
             <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 mb-2">
               Live Pipeline Log
