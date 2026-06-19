@@ -2440,6 +2440,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
   const [activeRow, setActiveRow] = useState<FhirEncounterRow | null>(null);
   const [pushing, setPushing] = useState(false);
   const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>({});
+  // Live Streaming Mode -------------------------------------------------
+  const [autoOn, setAutoOn] = useState(false);
+  const [autoStatus, setAutoStatus] = useState<
+    Record<string, "queued" | "syncing" | "ok" | "err">
+  >({});
+  const [autoTick, setAutoTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
