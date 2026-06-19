@@ -2575,6 +2575,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
       /* ignore quota / private-mode errors */
     }
   }, [pushedMrns]);
+  const [autoTick, setAutoTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
