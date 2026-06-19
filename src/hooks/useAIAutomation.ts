@@ -614,6 +614,8 @@ export async function seedAdmission(
         unit: l.unit,
         referenceRange: l.ref,
         resultExample: `${sample.value} ${l.unit} [${sample.flag}]`,
+        numericValue: sample.value,
+        flagCode: sample.flag,
       }).catch((e) => console.warn("[cascadeLab] failed", e));
     }, t);
     trackTimer(mrn, timer);
