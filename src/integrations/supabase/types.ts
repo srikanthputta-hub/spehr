@@ -73,6 +73,69 @@ export type Database = {
           },
         ]
       }
+      auto_doc_logs: {
+        Row: {
+          created_at: string
+          id: string
+          level: string
+          message: string
+          meta: Json | null
+          mrn: string
+          stage: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          level?: string
+          message: string
+          meta?: Json | null
+          mrn: string
+          stage: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          level?: string
+          message?: string
+          meta?: Json | null
+          mrn?: string
+          stage?: string
+        }
+        Relationships: []
+      }
+      auto_doc_runs: {
+        Row: {
+          completed_at: string | null
+          department: string | null
+          error: string | null
+          mrn: string
+          stage: string
+          started_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          department?: string | null
+          error?: string | null
+          mrn: string
+          stage?: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          department?: string | null
+          error?: string | null
+          mrn?: string
+          stage?: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       automation_watchdog_logs: {
         Row: {
           actions_taken: string | null
@@ -791,6 +854,7 @@ export type Database = {
           admission_time: string | null
           age: number | null
           allergies: string | null
+          assigned_department: string | null
           biological_sex: string
           bp: string | null
           bp_diastolic: number | null
@@ -849,6 +913,7 @@ export type Database = {
           admission_time?: string | null
           age?: number | null
           allergies?: string | null
+          assigned_department?: string | null
           biological_sex?: string
           bp?: string | null
           bp_diastolic?: number | null
@@ -907,6 +972,7 @@ export type Database = {
           admission_time?: string | null
           age?: number | null
           allergies?: string | null
+          assigned_department?: string | null
           biological_sex?: string
           bp?: string | null
           bp_diastolic?: number | null
@@ -1118,6 +1184,27 @@ export type Database = {
         Update: {
           automation_enabled?: boolean | null
           id?: number
+        }
+        Relationships: []
+      }
+      umls_term_cache: {
+        Row: {
+          codes: Json
+          fetched_at: string
+          term: string
+          vocabulary: string
+        }
+        Insert: {
+          codes: Json
+          fetched_at?: string
+          term: string
+          vocabulary: string
+        }
+        Update: {
+          codes?: Json
+          fetched_at?: string
+          term?: string
+          vocabulary?: string
         }
         Relationships: []
       }
