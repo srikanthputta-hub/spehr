@@ -65,6 +65,7 @@ import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
+import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -98,6 +99,7 @@ function WatchdogStatusWidget() {
     { key: "Vitals", label: "Vitals Simulation Loop", group: "Nursing" },
     { key: "Discharge", label: "Auto Discharge Engine", group: "Patient Flow" },
     { key: "FHIR Sync", label: "FHIR Interoperability Sync", group: "Interop" },
+    { key: "Auto Doc", label: "Auto Doc Clinical Reasoning Engine", group: "Backbone" },
     { key: "Watchdog", label: "Watchdog Self-Heartbeat", group: "Core" },
   ];
   const healedSet = new Set(latest?.healed_engines ?? []);
@@ -404,6 +406,9 @@ function SystemAdminPage() {
       <section className="max-w-6xl mx-auto px-6 py-8">
         {isAdmin && tab === "feature_controls" && (
         <WatchdogStatusWidget />
+        )}
+        {isAdmin && tab === "feature_controls" && (
+        <AutoDocMonitor />
         )}
         {isAdmin && tab === "feature_controls" && (
         <div

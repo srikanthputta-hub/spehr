@@ -1,60 +1,86 @@
-## System Admin / Medical Dictionary Redesign
+# Auto Doc Backend Architecture — Implementation Plan
 
-Comprehensive overhaul of the Medical Dictionary tab in `src/routes/system-admin.tsx` covering all 4 sub-tabs to enforce FHIR R4 compliance, hierarchical taxonomy, and automated NLP pipeline.
+A three-phase backend upgrade. No new clinical UI surfaces — only the existing Watch Dog area gets a new monitoring panel.
 
----
+## Phase 1 — Expanded Patient-Voice Chief Complaints
 
-### 1. Catalog → Taxonomy Tree View
+**Goal:** Replace the small, repetitive complaint pool with a large, patient-voice library, each entry pre-tagged with one of the 22 clinical departments.
 
-Replace the flat category-card + table layout with a collapsible SNOMED-browser-style tree.
+- New file `src/lib/chief-complaints.ts` exporting:
+  - `Department` union of all 22 departments.
+  - `PATIENT_COMPLAINTS: { text: string; department: Department; acuity: "low"|"med"|"high"|"critical" }[]` — ~150+ entries written in lay language ("My chest feels incredibly tight and I'm dizzy", "I can't keep any food down since last night", etc.).
+  - `pickComplaint()` — rotates through the pool with low recent-repeat probability (in-memory recency set).
+  - `routeDepartment(text)` — keyword-based fallback router used when complaints arrive from other sources.
+- Update `simulation_chief_complaints` table seeding via a data-insert: replace contents with the new lay-language pool (keeps existing `get_next_ghost_complaint()` DB rotation working for the SQL `auto_admit_ghost_patient` path).
+- Update the in-app admission seed (the front-end Live Automation Loop) to use `pickComplaint()` + assign `department` onto the new patient record (stored in `patients.assigned_department` — added via migration).
 
-- **Root nodes** (5): `ICD-10`, `SNOMED CT`, `LOINC`, `RxNorm`, `VSAC` — each with code-system colored badge and count.
-- **Child grouping** — auto-derive subfolders from each row's `category` field (e.g. ICD-10 → "Diagnosis", "Chief Complaint"; LOINC → "Laboratory", "Chemistry"). Uncategorized rows fall under `Uncategorized`.
-- **Leaf nodes** — `code · display` with status pill + delete action.
-- **48-hour filter** — derive "active" code set from rows referenced by `patients`, `lab_orders`, `medication_orders`, `nlp_audit_logs` updated within last 48h. Show toggle "Last 48h only / All" (default 48h) with active counts.
-- **Expand/collapse** with chevron, persist expansion in component state.
-- Keep `Search Terminology` + `Export FHIR` actions in the header.
+## Phase 2 — "Auto Doc" Headless Clinical Reasoning Engine
 
-### 2. NLP Audit Logs → Automated FHIR Pipeline
+A pure server-side pipeline. No chat UI, no avatar.
 
-- **Auto-pull on admission** — subscribe via supabase realtime to `patients` INSERT; when a new admission arrives, auto-generate an audit entry (raw chief complaint → extraction → FHIR output) and prepend to the trail. Show a small "Live · listening" indicator.
-- **Three-stage pipeline visual** — keep current 3-column layout but restyle as a connected pipeline (arrows between cards, stage badges 1/2/3, color-coded).
-- **FHIR R4 mapping** in stage 3 — render structured resources:
-  - Symptoms / dx → `Condition` (code = CodeableConcept{ICD-10 | SNOMED})
-  - Labs → `Observation` (code = LOINC CodeableConcept)
-  - Meds → `MedicationRequest` (medicationCodeableConcept = RxNorm)
-  - Each rendered as a card with the JSON snippet inspectable.
-- **Approve / Edit / Reject** controls per resource (existing AI auto-resolve preserved); state stored in localStorage keyed by audit id + resource index.
-- **NEW: Standard Report column** — per-patient "Generate FHIR Bundle" button that compiles all approved resources into a full FHIR R4 `Bundle` (type = `document`, with `Composition` first entry, then Patient + all approved Conditions/Observations/MedicationRequests). Displayed in a Dialog with copy-to-clipboard + download `.json`, formatted exactly as the payload pushed to the external FHIR server (`push_to_fhir` shape).
+**Trigger:** runs on patient admission. Two trigger paths kept in sync:
+1. Frontend Live Automation Loop calls `runAutoDoc({ mrn })` server fn right after inserting a patient.
+2. SQL `auto_admit_ghost_patient` path: a DB trigger on `patients` INSERT calls a `notify_auto_doc` function (pg_net → `/api/public/hooks/auto-doc`) so admissions created in pg_cron also get processed.
 
-### 3. Live Terminology Matrix → FHIR CodeableConcept
+**New server function:** `src/lib/auto-doc.functions.ts` → `runAutoDoc({ mrn })` (no auth — internal endpoint, idempotent via `auto_doc_runs` row check).
 
-- Keep patient-row layout. Each pill now backed by a CodeableConcept tuple `{system, code, display}` and the click popover shows all three fields plus category.
-- Map system URIs:
-  - SNOMED CT → `http://snomed.info/sct`
-  - ICD-10 → `http://hl7.org/fhir/sid/icd-10-cm`
-  - LOINC → `http://loinc.org`
-  - RxNorm → `http://www.nlm.nih.gov/research/umls/rxnorm`
-- Add "Export Patient Crosswalk" button per row → downloads a `Bundle` (type = `collection`) of CodeableConcept-wrapped resources for that MRN.
-- Add summary chip: total unique systems / total codes used during admission.
+**Pipeline steps (each writes a log row to `auto_doc_logs`):**
+1. `analyze` — load patient, read chief_complaint + assigned_department.
+2. `order` — pick condition-specific meds/labs from a per-department catalog in `src/lib/auto-doc-catalog.ts` (RxNorm-coded meds, LOINC-coded labs). Insert into `medication_orders` and `lab_orders` with `ordered_by = 'Auto Doc'`.
+3. `result` — generate realistic numeric lab results (value, unit, reference range, abnormal flag) and write to `lab_results` + update `lab_orders.status = 'Resulted'`.
+4. `document` — author HPI / Assessment / Plan notes into `clinical_notes`.
+5. `umls` — call the existing UMLS server fn for each condition/lab/med term; collect **all** returned SNOMED-CT / ICD-10 / LOINC / RxNorm codes and write the full arrays into `patients.standardized_output` (merging, not overwriting). Cached per term in a new `umls_term_cache` table to stay under rate limits.
+6. `fhir` — build a FHIR R4 transaction bundle (Patient, Encounter, Condition, Observation, MedicationRequest, DiagnosticReport, Composition) via `buildEncounterBundle` + a new `buildDiagnosticReport` helper added to `src/lib/fhir-bundle.ts`. Persist to `fhir_bundles` table; the existing FHIR push path picks it up.
+7. `discharge` — after a configurable dwell (default 6 min sim time), author a discharge summary into `patients.discharge_summary`, flip status to Discharged, free the bed.
 
-### 4. Safety Alerts → FHIR-Aware Context
+**Tables (migration):**
+- `auto_doc_runs (mrn pk, started_at, completed_at, status, stage)` — idempotency + current stage.
+- `auto_doc_logs (id, mrn, stage, message, level, created_at)` — append-only stream for Watch Dog.
+- `umls_term_cache (term pk, codes jsonb, fetched_at)`.
+- `patients.assigned_department text` column add.
+- All tables get GRANT + RLS + service_role policies per project rules.
 
-- Each alert card extended to show the offending RxNorm + Allergen as CodeableConcept tuples (system / code / display).
-- "Why flagged" expandable section that cross-references the 48h Catalog: shows the matching ICD-10 (allergy condition), RxNorm (drug), and the SNOMED cross-reactivity finding, each linked back to its position in the taxonomy tree.
-- AllergyIntolerance + MedicationRequest mini-cards (FHIR R4) rendered inline so the rationale is auditable.
+**Public hook:** `src/routes/api/public/hooks/auto-doc.ts` — POST `{ mrn }`, calls `runAutoDoc`. Used by the DB trigger and pg_cron sweep that retries any `auto_doc_runs` stuck in non-terminal state > 2 min.
 
----
+## Phase 3 — Watch Dog "Systematic Health Check Cycle" Panel
 
-### Technical notes
+Inside the existing Watch Dog section of `src/routes/system-admin.tsx`:
 
-- All work confined to `src/routes/system-admin.tsx` (Medical Dictionary section) + a new helper module `src/lib/fhir-bundle.ts` for CodeableConcept + Bundle builders.
-- New helper `src/lib/terminology-taxonomy.ts` builds the tree from `medical_terminology` + recent-usage joins.
-- No DB schema changes — read from existing `medical_terminology`, `patients`, `lab_orders`, `medication_orders`, `nlp_audit_logs`, `clinical_safety_alerts`, `allergies`.
-- Reuse existing shadcn `Collapsible`, `Dialog`, `Popover`, `Badge`, `Card`, `ScrollArea`.
+- New collapsible panel **"Auto Doc Pipeline Monitor"** (admin-only, no clinical surface).
+- Live tail of last 100 rows from `auto_doc_logs` (realtime channel subscription), grouped by MRN, with stage badges: Analyze ▸ Order ▸ Result ▸ Document ▸ UMLS ▸ FHIR ▸ Discharge.
+- Aggregate counters for the current cycle: runs started, completed, failed, avg duration per stage.
+- Each "Systematic Health Check Cycle" tick (existing watchdog loop) verifies: no run stuck > 2 min, UMLS cache hit rate, FHIR bundles generated count — adds a ✓/✗ next to "Auto Doc" in the existing automations checklist.
 
-### Out of scope
+No changes anywhere else in clinical dashboards.
 
-- No edge function changes (push_to_fhir untouched).
-- No new tables / migrations.
-- Other System Admin tabs (UI Controls, Users, Audit Log, Network Analytics) unchanged.
+## Technical Details
+
+**Files to add**
+- `src/lib/chief-complaints.ts`
+- `src/lib/auto-doc-catalog.ts` (per-department med/lab templates with RxNorm/LOINC codes + reference ranges)
+- `src/lib/auto-doc.functions.ts` (server fn `runAutoDoc`)
+- `src/lib/auto-doc.server.ts` (pipeline helpers, UMLS client, FHIR builder calls)
+- `src/routes/api/public/hooks/auto-doc.ts` (POST hook)
+- `src/components/admin/AutoDocMonitor.tsx` (Watch Dog panel)
+
+**Files to edit**
+- `src/lib/fhir-bundle.ts` — add `buildDiagnosticReport`, expose it from `buildEncounterBundle`.
+- `src/routes/system-admin.tsx` — embed `<AutoDocMonitor/>` inside the existing Watch Dog section and append "Auto Doc" to the automations checklist.
+- The front-end Live Automation Loop block in `system-admin.tsx` — after inserting a new patient, fire-and-forget call `runAutoDoc({ mrn })`.
+
+**Migration**
+- Add `patients.assigned_department`.
+- Create `auto_doc_runs`, `auto_doc_logs`, `umls_term_cache`, `fhir_bundles` (if not present).
+- Replace `simulation_chief_complaints` rows with the new lay-language pool.
+- DB trigger `patients_auto_doc_after_insert` → `net.http_post` to `/api/public/hooks/auto-doc`.
+- pg_cron sweeper every minute to retry stuck runs.
+- Grants + RLS as required.
+
+**Idempotency / dedup**
+- `runAutoDoc` short-circuits if an `auto_doc_runs` row for the MRN exists in a terminal state.
+- Continues from `stage` on partial-failure re-entry.
+- FHIR push reuses existing "successful = never re-queue" logic already in `system-admin.tsx`.
+
+**Out of scope**
+- No new clinical-facing UI, no chatbot, no avatar.
+- No changes to existing Auth, role gates, or unrelated dashboards.
