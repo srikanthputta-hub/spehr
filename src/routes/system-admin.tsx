@@ -2438,6 +2438,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
   const [bundle, setBundle] = useState<any | null>(null);
   const [bundleLoading, setBundleLoading] = useState(false);
   const [activeRow, setActiveRow] = useState<FhirEncounterRow | null>(null);
+  const [pushing, setPushing] = useState(false);
+  const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -2548,6 +2550,27 @@ function FhirInteroperability({ facility }: { facility: string }) {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "—";
     return d.toLocaleString();
+  };
+
+  const pushBundle = async () => {
+    if (!bundle || !activeRow) return;
+    setPushing(true);
+    const tid = toast.loading(`Syncing ${activeRow.mrn} to Medblocks FHIR…`);
+    try {
+      const { data, error } = await supabase.functions.invoke("push_to_fhir", {
+        body: { mrn: activeRow.mrn, bundle },
+      });
+      if (error) throw error;
+      if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
+      toast.success(`200 OK · Sync successful for ${activeRow.mrn}`, { id: tid });
+      setPushedMrns((m) => ({ ...m, [activeRow.mrn]: "ok" }));
+    } catch (e: any) {
+      const msg = typeof e?.message === "string" ? e.message : "Sync failed";
+      toast.error(`Sync failed · ${msg}`, { id: tid });
+      setPushedMrns((m) => ({ ...m, [activeRow.mrn]: "err" }));
+    } finally {
+      setPushing(false);
+    }
   };
 
   return (
@@ -2709,6 +2732,17 @@ function FhirInteroperability({ facility }: { facility: string }) {
               }}
             >
               <Download className="h-3.5 w-3.5" /> Download .json
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={!bundle || pushing}
+              onClick={pushBundle}
+            >
+              {pushing ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Syncing…</>
+              ) : (
+                <>↗ Push to FHIR Server</>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
