@@ -32,6 +32,16 @@ import {
   defaultUsage,
 } from "@/lib/terminology-lookup";
 import {
+  FHIR_SYSTEM_URI,
+  toCodeableConcept,
+  buildPatientBundle,
+  buildCrosswalkBundle,
+  downloadJson,
+  type CodeableConcept,
+} from "@/lib/fhir-bundle";
+import { buildTaxonomy, type TaxonomyRoot } from "@/lib/terminology-taxonomy";
+import { ChevronRight, ChevronDown, FolderTree, FileJson, Network } from "lucide-react";
+import {
   analyzeNarrative,
   loadAudits,
   clearAudits,
