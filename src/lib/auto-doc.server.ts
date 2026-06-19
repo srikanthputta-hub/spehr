@@ -78,6 +78,50 @@ const VOCAB_MAP: Record<string, string> = {
   RxNorm: "RXNORM",
 };
 
+/* ---------------- Dictionary writer ---------------- */
+
+const DICT_CATEGORY: Record<string, string> = {
+  "SNOMED CT": "Clinical Finding",
+  "ICD-10": "Chief Complaint",
+  LOINC: "Laboratory",
+  RxNorm: "Medication",
+};
+
+const DICT_USAGE: Record<string, (display: string) => string> = {
+  "SNOMED CT": (d) => `SNOMED CT clinical concept used for structured documentation and decision support (${d}).`,
+  "ICD-10": (d) => `ICD-10-CM diagnosis code used for problem list, encounter coding, and claims (${d}).`,
+  LOINC: (d) => `LOINC observation code used by the Lab Board / lab catalog for ${d}.`,
+  RxNorm: (d) => `RxNorm clinical drug used by the Pharmacy / medication catalog for ${d}.`,
+};
+
+/**
+ * Upsert assigned codes into the medical_terminology dictionary so the
+ * Live Terminology Matrix can resolve them via exact-code match. Without
+ * this step seeds like "422504002" (SNOMED) never render even though the
+ * code is on the patient row.
+ */
+async function ensureDictEntries(
+  system: "SNOMED CT" | "ICD-10" | "LOINC" | "RxNorm",
+  entries: Array<{ code: string; display: string }>,
+) {
+  if (entries.length === 0) return;
+  const sb = admin();
+  const rows = entries
+    .filter((e) => e.code && e.display)
+    .map((e) => ({
+      code_system: system,
+      code: e.code,
+      display: e.display,
+      category: DICT_CATEGORY[system] ?? null,
+      description: (DICT_USAGE[system] ?? ((d: string) => d))(e.display),
+      status: "Active",
+    }));
+  if (rows.length === 0) return;
+  await sb
+    .from("medical_terminology")
+    .upsert(rows as never, { onConflict: "code_system,code", ignoreDuplicates: true });
+}
+
 export async function umlsCodes(term: string, vocab: keyof typeof VOCAB_MAP): Promise<string[]> {
   const sab = VOCAB_MAP[vocab];
   const sb = admin();
@@ -195,8 +239,29 @@ export async function runAutoDocPipeline(mrn: string) {
       Array.from(new Set([...tpl.meds.map((m) => m.rxnorm), ...arrs.flat()])),
     ),
   ]);
-  const snomedFinal = Array.from(new Set([tpl.snomedSeed, ...snomed]));
-  const icd10Final = Array.from(new Set([tpl.icd10Seed, ...icd10]));
+  // Guarantee at least the curated seed for SNOMED + ICD-10 even when UMLS
+  // is unreachable. LOINC/RxNorm already include curated codes from the
+  // template's lab/med definitions.
+  const snomedFinal = Array.from(new Set([tpl.snomedSeed, ...snomed].filter(Boolean)));
+  const icd10Final = Array.from(new Set([tpl.icd10Seed, ...icd10].filter(Boolean)));
+  const loincFinal = Array.from(new Set(loinc.filter(Boolean)));
+  const rxnormFinal = Array.from(new Set(rxnorm.filter(Boolean)));
+
+  // Register every assigned code in the dictionary so the Live Terminology
+  // Matrix renders them (its lookup is exact-code, not fuzzy).
+  await Promise.all([
+    ensureDictEntries("SNOMED CT", snomedFinal.map((c) => ({ code: c, display: tpl.condition }))),
+    ensureDictEntries("ICD-10", icd10Final.map((c) => ({ code: c, display: tpl.condition }))),
+    ensureDictEntries(
+      "LOINC",
+      tpl.labs.map((l) => ({ code: l.loinc, display: l.name })),
+    ),
+    ensureDictEntries(
+      "RxNorm",
+      tpl.meds.map((m) => ({ code: m.rxnorm, display: m.name })),
+    ),
+  ]);
+
   await sb
     .from("patients")
     .update({
@@ -205,17 +270,23 @@ export async function runAutoDocPipeline(mrn: string) {
       standardized_output: {
         "SNOMED CT": snomedFinal,
         "ICD-10": icd10Final,
-        LOINC: loinc,
-        RXNORM: rxnorm,
+        LOINC: loincFinal,
+        RXNORM: rxnormFinal,
       },
     } as never)
     .eq("mrn", mrn);
-  await log(mrn, "umls", "UMLS Mapping Complete", {
-    snomed: snomedFinal.length,
-    icd10: icd10Final.length,
-    loinc: loinc.length,
-    rxnorm: rxnorm.length,
-  });
+  await log(
+    mrn,
+    "umls",
+    `Deep code assignment complete — SNOMED:${snomedFinal.length} ICD-10:${icd10Final.length} LOINC:${loincFinal.length} RxNorm:${rxnormFinal.length} (condition: ${tpl.condition})`,
+    {
+      condition: tpl.condition,
+      snomed: snomedFinal,
+      icd10: icd10Final,
+      loinc: loincFinal,
+      rxnorm: rxnormFinal,
+    },
+  );
 
   // STAGE: fhir (recorded; existing FHIR sync pipeline picks up the rows)
   await setRunStage(mrn, "fhir");
