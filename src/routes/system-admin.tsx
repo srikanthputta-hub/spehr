@@ -3316,6 +3316,7 @@ function MedicalDictionary() {
           { id: "audits",  label: "NLP Audit Logs", Icon: Sparkles },
           { id: "matrix",  label: "Live Terminology Matrix", Icon: Grid3x3 },
           { id: "safety",  label: "Safety Alerts", Icon: ShieldAlert },
+          { id: "fhir",    label: "FHIR Interoperability", Icon: FileJson },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
           return (
@@ -3337,6 +3338,7 @@ function MedicalDictionary() {
       {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
+      {subtab === "fhir" && <FhirInteroperability facility={facilityFilter} />}
 
       {subtab === "catalog" && (<>
       <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={remove} />
