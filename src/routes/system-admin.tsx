@@ -1702,9 +1702,9 @@ function NlpAuditLogs({ facility }: { facility: string }) {
             {audits.length} admission{audits.length === 1 ? "" : "s"}
             {facility !== "all" ? ` at ${facility}` : " across the network"} — each
             captured as a three-stage FHIR R4 pipeline (raw entry →
-            extraction mapping → standardized output). The "Standard Report"
-            on each card compiles the final FHIR Bundle pushed to the
-            external FHIR server.
+            extraction mapping → standardized output). Approved resources
+            are then staged in the FHIR Interoperability tab for the full
+            encounter Bundle export.
           </p>
         </div>
         <Button variant="outline" onClick={onClear} title="Clear local audit log">
