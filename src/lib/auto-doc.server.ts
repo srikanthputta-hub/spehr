@@ -78,6 +78,50 @@ const VOCAB_MAP: Record<string, string> = {
   RxNorm: "RXNORM",
 };
 
+/* ---------------- Dictionary writer ---------------- */
+
+const DICT_CATEGORY: Record<string, string> = {
+  "SNOMED CT": "Clinical Finding",
+  "ICD-10": "Chief Complaint",
+  LOINC: "Laboratory",
+  RxNorm: "Medication",
+};
+
+const DICT_USAGE: Record<string, (display: string) => string> = {
+  "SNOMED CT": (d) => `SNOMED CT clinical concept used for structured documentation and decision support (${d}).`,
+  "ICD-10": (d) => `ICD-10-CM diagnosis code used for problem list, encounter coding, and claims (${d}).`,
+  LOINC: (d) => `LOINC observation code used by the Lab Board / lab catalog for ${d}.`,
+  RxNorm: (d) => `RxNorm clinical drug used by the Pharmacy / medication catalog for ${d}.`,
+};
+
+/**
+ * Upsert assigned codes into the medical_terminology dictionary so the
+ * Live Terminology Matrix can resolve them via exact-code match. Without
+ * this step seeds like "422504002" (SNOMED) never render even though the
+ * code is on the patient row.
+ */
+async function ensureDictEntries(
+  system: "SNOMED CT" | "ICD-10" | "LOINC" | "RxNorm",
+  entries: Array<{ code: string; display: string }>,
+) {
+  if (entries.length === 0) return;
+  const sb = admin();
+  const rows = entries
+    .filter((e) => e.code && e.display)
+    .map((e) => ({
+      code_system: system,
+      code: e.code,
+      display: e.display,
+      category: DICT_CATEGORY[system] ?? null,
+      description: (DICT_USAGE[system] ?? ((d: string) => d))(e.display),
+      status: "Active",
+    }));
+  if (rows.length === 0) return;
+  await sb
+    .from("medical_terminology")
+    .upsert(rows as never, { onConflict: "code_system,code", ignoreDuplicates: true });
+}
+
 export async function umlsCodes(term: string, vocab: keyof typeof VOCAB_MAP): Promise<string[]> {
   const sab = VOCAB_MAP[vocab];
   const sb = admin();
