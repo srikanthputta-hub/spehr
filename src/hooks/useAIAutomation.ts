@@ -11,6 +11,7 @@ import {
 } from "@/lib/intake-record";
 import { routeDepartment } from "@/lib/chief-complaints";
 import { templateForDepartment } from "@/lib/auto-doc-catalog";
+import { runAutoDoc } from "@/lib/auto-doc.functions";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -553,6 +554,14 @@ export async function seedAdmission(
     .from("patients")
     .update({ assigned_department: department } as any)
     .eq("mrn", mrn);
+
+  // Kick off the headless Auto Doc pipeline (notes + UMLS code mapping for
+  // SNOMED-CT / ICD-10 / LOINC / RxNorm + FHIR + discharge). Idempotent —
+  // server short-circuits if the run is already complete. Fire-and-forget
+  // so it doesn't delay the staged orders cascade below.
+  runAutoDoc({ data: { mrn } }).catch((e) =>
+    console.warn("[seedAdmission] runAutoDoc failed", e),
+  );
 
   // First 3 meds, first 2 labs — same shape as the legacy cascade.
   const finalMeds = tpl.meds.filter((m) => !existingMedNames.has(norm(m.name))).slice(0, 3);
