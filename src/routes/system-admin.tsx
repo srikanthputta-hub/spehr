@@ -2508,7 +2508,15 @@ function FhirInteroperability({ facility }: { facility: string }) {
   const [bundleLoading, setBundleLoading] = useState(false);
   const [activeRow, setActiveRow] = useState<FhirEncounterRow | null>(null);
   const [pushing, setPushing] = useState(false);
-  const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>({});
+  const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem("fhir.pushedMrns");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   // Live Streaming Mode -------------------------------------------------
   const AUTO_LOOP_STORAGE_KEY = "fhir.autoLoop.enabled";
   const [autoOn, setAutoOn] = useState<boolean>(() => {
