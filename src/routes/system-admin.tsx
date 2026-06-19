@@ -32,6 +32,16 @@ import {
   defaultUsage,
 } from "@/lib/terminology-lookup";
 import {
+  FHIR_SYSTEM_URI,
+  toCodeableConcept,
+  buildPatientBundle,
+  buildCrosswalkBundle,
+  downloadJson,
+  type CodeableConcept,
+} from "@/lib/fhir-bundle";
+import { buildTaxonomy, type TaxonomyRoot } from "@/lib/terminology-taxonomy";
+import { ChevronRight, ChevronDown, FolderTree, FileJson, Network } from "lucide-react";
+import {
   analyzeNarrative,
   loadAudits,
   clearAudits,
@@ -1237,6 +1247,7 @@ function SafetyQueue({ facility }: { facility: string }) {
                       {c.decided_at ? ` · ${new Date(c.decided_at).toLocaleString()}` : ""} — “{c.rationale}”
                     </div>
                   )}
+                  <SafetyFhirContext alert={c} />
                 </div>
                 {c.status === "Pending Review" ? (
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -1345,6 +1356,84 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: "red
     <div className={`rounded-xl border p-3 ${palette}`}>
       <div className="text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</div>
       <div className="text-2xl font-bold mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Safety alert FHIR context — shows the offending drug + allergen as */
+/*  FHIR R4 CodeableConcepts so coders can audit why the AI flagged.   */
+/* ------------------------------------------------------------------ */
+function SafetyFhirContext({ alert }: { alert: DbSafetyAlert }) {
+  const [open, setOpen] = useState(false);
+  // Allergen → SNOMED CT clinical finding · Drug → RxNorm ingredient
+  // We don't have the codes on the row, so we expose the canonical FHIR
+  // tuple shape with the human-readable values that drove the alert.
+  const drugConcept = toCodeableConcept(
+    "RxNorm",
+    `LOCAL:${(alert.drug ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    alert.drug,
+  );
+  const drugBConcept = alert.drug_b
+    ? toCodeableConcept(
+        "RxNorm",
+        `LOCAL:${alert.drug_b.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        alert.drug_b,
+      )
+    : null;
+  const allergyConcept = alert.allergy_name
+    ? toCodeableConcept(
+        "SNOMED CT",
+        `LOCAL:${alert.allergy_name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        alert.allergy_name,
+      )
+    : null;
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0c2340] hover:underline"
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        Why flagged — FHIR CodeableConcept context
+      </button>
+      {open && (
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+          <FhirConceptCard label="MedicationRequest · drug" cc={drugConcept} />
+          {drugBConcept && (
+            <FhirConceptCard label="MedicationRequest · co-prescribed" cc={drugBConcept} />
+          )}
+          {allergyConcept && (
+            <FhirConceptCard label="AllergyIntolerance · documented" cc={allergyConcept} />
+          )}
+          <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
+            <div className="font-bold uppercase tracking-wider text-[9px] mb-1">
+              Cross-reactivity family
+            </div>
+            <div className="font-mono">{alert.family || "—"}</div>
+            <div className="mt-1 text-[10px] text-amber-800">
+              Cross-referenced against the active 48 h Catalog taxonomy.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FhirConceptCard({ label, cc }: { label: string; cc: CodeableConcept }) {
+  const coding = cc.coding[0];
+  return (
+    <div className="rounded border border-slate-200 bg-white p-2 text-[11px]">
+      <div className="font-bold uppercase tracking-wider text-[9px] text-slate-500 mb-1">
+        {label}
+      </div>
+      <div className="font-mono text-slate-700 space-y-0.5">
+        <div className="truncate"><span className="text-slate-500">system:</span> {coding.system}</div>
+        <div><span className="text-slate-500">code:</span> {coding.code}</div>
+        <div><span className="text-slate-500">display:</span> {coding.display}</div>
+      </div>
     </div>
   );
 }
@@ -1599,12 +1688,22 @@ function NlpAuditLogs({ facility }: { facility: string }) {
         <div>
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-indigo-600" /> NLP Coding Audit Trail
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              </span>
+              Live · listening
+            </span>
           </h2>
           <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-            Showing the latest {audits.length} admission{audits.length === 1 ? "" : "s"}
+            Auto-pulls every new admission via realtime. Showing the latest{" "}
+            {audits.length} admission{audits.length === 1 ? "" : "s"}
             {facility !== "all" ? ` at ${facility}` : " across the network"} — each
-            captured in three stages (raw entry, extraction mapping, standardized
-            output) so coders can audit how the NLP engine interpreted the narrative.
+            captured as a three-stage FHIR R4 pipeline (raw entry →
+            extraction mapping → standardized output). The "Standard Report"
+            on each card compiles the final FHIR Bundle pushed to the
+            external FHIR server.
           </p>
         </div>
         <Button variant="outline" onClick={onClear} title="Clear local audit log">
@@ -1676,6 +1775,40 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
   const [editOpen, setEditOpen] = useState(false);
   const [dictSearch, setDictSearch] = useState("");
   const [dict, setDict] = useState<DictRow[]>([]);
+  const [reportOpen, setReportOpen] = useState(false);
+
+  // Build the FHIR R4 Bundle (type=document) for this audit — the exact
+  // payload format pumped into the external FHIR server.
+  const bundle = (() => {
+    const conditions: CodeableConcept[] = [];
+    for (const c of icd10Codes) {
+      const match = (audit.byCode["ICD-10"] ?? []).find((m) => m.code === c);
+      conditions.push(
+        toCodeableConcept("ICD-10", c, match?.display ?? `ICD-10 ${c}`),
+      );
+    }
+    for (const c of snomedCodes) {
+      const match = (audit.byCode["SNOMED CT"] ?? []).find((m) => m.code === c);
+      conditions.push(
+        toCodeableConcept("SNOMED CT", c, match?.display ?? `SNOMED ${c}`),
+      );
+    }
+    const observations = (audit.byCode["LOINC"] ?? []).map((m) =>
+      toCodeableConcept("LOINC", m.code, m.display),
+    );
+    const meds = (audit.byCode["RxNorm"] ?? []).map((m) =>
+      toCodeableConcept("RxNorm", m.code, m.display),
+    );
+    return buildPatientBundle({
+      mrn: audit.mrn ?? "UNKNOWN",
+      patientName: audit.patient_name,
+      facility: audit.facility_name ?? null,
+      conditions,
+      observations,
+      medicationRequests: meds,
+      title: `S.P.E.H.R Admission Summary — ${audit.patient_name ?? audit.mrn}`,
+    });
+  })();
 
   const persist = (d: Decision) => {
     setDecision(d);
@@ -2017,6 +2150,15 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
             >
               <X className="h-3 w-3" /> Reject
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 ml-auto border-[#0c2340] text-[#0c2340] hover:bg-slate-50"
+              onClick={() => setReportOpen(true)}
+              title="Generate the FHIR R4 Bundle pushed to the external server"
+            >
+              <FileJson className="h-3 w-3" /> Standard Report
+            </Button>
           </div>
 
           <Dialog open={editOpen} onOpenChange={setEditOpen}>
@@ -2070,6 +2212,57 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setEditOpen(false)}>Done</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileJson className="h-4 w-4 text-[#0c2340]" />
+                  Standard FHIR R4 Bundle · {audit.patient_name ?? audit.mrn}
+                </DialogTitle>
+                <DialogDescription>
+                  Fully descriptive FHIR R4 <span className="font-mono">Bundle</span>{" "}
+                  (type=<span className="font-mono">document</span>) containing the
+                  Composition + Patient + every approved Condition / Observation /
+                  MedicationRequest. This is the exact JSON payload pushed to the
+                  external FHIR server via <span className="font-mono">push_to_fhir</span>.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-md border border-slate-200 bg-slate-950 text-slate-100 max-h-96 overflow-auto p-3">
+                <pre className="text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-all">
+                  {JSON.stringify(bundle, null, 2)}
+                </pre>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                {(bundle.entry?.length ?? 0)} resources · {bundle.type} bundle ·
+                generated {new Date(bundle.timestamp ?? Date.now()).toLocaleString()}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard
+                      .writeText(JSON.stringify(bundle, null, 2))
+                      .then(() => toast.success("Bundle copied to clipboard"))
+                      .catch(() => toast.error("Copy failed"));
+                  }}
+                >
+                  Copy JSON
+                </Button>
+                <Button
+                  className="bg-[#0c2340] hover:bg-[#0c2340]/90"
+                  onClick={() =>
+                    downloadJson(
+                      `fhir-bundle-${audit.mrn ?? "unknown"}-${Date.now()}.json`,
+                      bundle,
+                    )
+                  }
+                >
+                  <Download className="h-3.5 w-3.5" /> Download .json
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -2221,12 +2414,13 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">ICD-10</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">LOINC</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">RxNorm</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">FHIR</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
                     <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
                     Loading matrix…
                   </td>
@@ -2234,7 +2428,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
                     No admissions to display.
                   </td>
                 </tr>
@@ -2249,6 +2443,17 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                   : findCodes("ICD-10", cc);
                 const loinc = findCodes("LOINC", r.labs);
                 const rxnorm = findCodes("RxNorm", r.meds);
+                const allConcepts: CodeableConcept[] = [
+                  ...snomed.map((e) => toCodeableConcept("SNOMED CT", e.code, e.display)),
+                  ...icd10.map((e) => toCodeableConcept("ICD-10", e.code, e.display)),
+                  ...loinc.map((e) => toCodeableConcept("LOINC", e.code, e.display)),
+                  ...rxnorm.map((e) => toCodeableConcept("RxNorm", e.code, e.display)),
+                ];
+                const totalSystems =
+                  (snomed.length ? 1 : 0) +
+                  (icd10.length ? 1 : 0) +
+                  (loinc.length ? 1 : 0) +
+                  (rxnorm.length ? 1 : 0);
                 return (
                   <tr key={r.mrn} className="hover:bg-slate-50/60">
                     <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{r.mrn}</td>
@@ -2260,6 +2465,35 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                     <td className="px-3 py-2.5"><PillRow entries={icd10} system="ICD-10" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={loinc} system="LOINC" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={rxnorm} system="RxNorm" /></td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                          {totalSystems}/4 · {allConcepts.length} codes
+                        </span>
+                        <button
+                          type="button"
+                          disabled={allConcepts.length === 0}
+                          onClick={() => {
+                            const bundle = buildCrosswalkBundle({
+                              mrn: r.mrn,
+                              patientName: r.name,
+                              facility: r.facility,
+                              concepts: allConcepts,
+                            });
+                            downloadJson(
+                              `crosswalk-${r.mrn}-${Date.now()}.json`,
+                              bundle,
+                            );
+                            toast.success("Patient crosswalk exported", {
+                              description: `${allConcepts.length} CodeableConcepts`,
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <FileJson className="h-3 w-3" /> Export
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -2303,6 +2537,12 @@ function PillRow({ entries, system }: { entries: DictEntry[]; system: string }) 
               {e.description && (
                 <div className="text-[11px] text-slate-600 leading-relaxed">{e.description}</div>
               )}
+              <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 font-mono text-[10px] text-slate-700 space-y-0.5">
+                <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">FHIR CodeableConcept</div>
+                <div><span className="text-slate-500">system:</span> {FHIR_SYSTEM_URI[system] ?? "—"}</div>
+                <div><span className="text-slate-500">code:</span> {e.code}</div>
+                <div className="truncate"><span className="text-slate-500">display:</span> {e.display}</div>
+              </div>
             </div>
           </PopoverContent>
         </Popover>
@@ -2597,6 +2837,185 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
   "RxNorm":     { tint: "border-emerald-200 bg-emerald-50/40", chip: "bg-emerald-100 text-emerald-800 border-emerald-200", blurb: "Medications & doses" },
   "VSAC":       { tint: "border-sky-200 bg-sky-50/40",         chip: "bg-sky-100 text-sky-800 border-sky-200",            blurb: "Aligned value sets" },
 };
+
+/* ============================================================ */
+/*  Taxonomy Tree — collapsible SNOMED-browser-style view of    */
+/*  the active terminology over the last 48 h.                  */
+/* ============================================================ */
+function TaxonomyTree({
+  rows,
+  usedCodes,
+  onDelete,
+}: {
+  rows: DictEntry[];
+  usedCodes: Record<string, Set<string>>;
+  onDelete: (id: string) => void;
+}) {
+  const [recentOnly, setRecentOnly] = useState(true);
+  const [openRoots, setOpenRoots] = useState<Record<string, boolean>>({
+    "ICD-10": true,
+    "SNOMED CT": false,
+    LOINC: false,
+    RxNorm: false,
+    VSAC: false,
+  });
+  const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
+  const [search, setSearch] = useState("");
+
+  const roots: TaxonomyRoot[] = buildTaxonomy(
+    rows as any,
+    usedCodes,
+    {},
+    CODE_SYSTEMS as unknown as string[],
+    recentOnly,
+  );
+
+  const q = search.trim().toLowerCase();
+  const matchLeaf = (l: { code: string; display: string }) =>
+    !q || l.code.toLowerCase().includes(q) || l.display.toLowerCase().includes(q);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-slate-100 bg-slate-50/60">
+        <FolderTree className="h-4 w-4 text-[#0c2340]" />
+        <div className="text-sm font-semibold text-slate-900">Taxonomy Tree</div>
+        <span className="text-[11px] text-slate-500">
+          Hierarchical view · auto-populated from codes used in the last 48 h
+        </span>
+        <div className="ml-auto flex items-center gap-3">
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700">
+            <Switch checked={recentOnly} onCheckedChange={setRecentOnly} />
+            Last 48h only
+          </label>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter codes…"
+              className="h-8 w-56 rounded-md border border-slate-300 bg-white pl-7 pr-2 text-xs outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30"
+            />
+          </div>
+        </div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {roots.map((root) => {
+          const meta = SYSTEM_META[root.system];
+          const open = openRoots[root.system];
+          return (
+            <div key={root.system}>
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenRoots((s) => ({ ...s, [root.system]: !s[root.system] }))
+                }
+                className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-slate-50/70 transition text-left"
+              >
+                {open ? (
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                )}
+                <span
+                  className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${meta.chip}`}
+                >
+                  {root.system}
+                </span>
+                <span className="text-sm font-semibold text-slate-900">
+                  {meta.blurb}
+                </span>
+                <span className="ml-auto inline-flex items-center gap-2 text-[11px]">
+                  <span className="rounded-full bg-slate-100 text-slate-700 px-2 py-0.5 font-semibold">
+                    {root.totalCodes} codes
+                  </span>
+                  {root.recentCount > 0 && (
+                    <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 font-semibold">
+                      ● {root.recentCount} live 48h
+                    </span>
+                  )}
+                </span>
+              </button>
+              {open && (
+                <div className="pb-2">
+                  {root.categories.length === 0 ? (
+                    <div className="px-12 py-3 text-[11px] italic text-slate-400">
+                      No active concepts in this code system over the last 48 h.
+                    </div>
+                  ) : (
+                    root.categories.map((cat) => {
+                      const catKey = `${root.system}::${cat.name}`;
+                      const catOpen = openCats[catKey] ?? true;
+                      const filtered = cat.leaves.filter(matchLeaf);
+                      if (q && filtered.length === 0) return null;
+                      return (
+                        <div key={catKey}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOpenCats((s) => ({ ...s, [catKey]: !catOpen }))
+                            }
+                            className="w-full flex items-center gap-2 pl-10 pr-4 py-1.5 hover:bg-slate-50/70 transition text-left"
+                          >
+                            {catOpen ? (
+                              <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
+                            ) : (
+                              <ChevronRight className="h-3 w-3 text-slate-400 shrink-0" />
+                            )}
+                            <span className="text-[12px] font-medium text-slate-700">
+                              {cat.name}
+                            </span>
+                            <span className="ml-auto text-[10px] text-slate-500">
+                              {filtered.length} / {cat.leaves.length}
+                            </span>
+                          </button>
+                          {catOpen && (
+                            <ul className="pb-1">
+                              {filtered.map((leaf) => (
+                                <li
+                                  key={leaf.id}
+                                  className="group flex items-center gap-2 pl-16 pr-4 py-1 hover:bg-slate-50/60"
+                                >
+                                  <span className="h-1.5 w-1.5 rounded-full bg-slate-300 shrink-0" />
+                                  <span className="font-mono text-[11px] font-semibold text-slate-900 shrink-0 min-w-[80px]">
+                                    {leaf.code}
+                                  </span>
+                                  <span className="text-[12px] text-slate-700 truncate">
+                                    {leaf.display}
+                                  </span>
+                                  {leaf.recentlyUsed && (
+                                    <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider">
+                                      ● live
+                                    </span>
+                                  )}
+                                  <span className="ml-auto inline-flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                                    <span className="text-[10px] text-slate-400 font-mono truncate max-w-[180px]">
+                                      {FHIR_SYSTEM_URI[root.system] ?? "—"}
+                                    </span>
+                                    <button
+                                      onClick={() => onDelete(leaf.id)}
+                                      className="text-slate-400 hover:text-rose-600"
+                                      title="Remove entry"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function MedicalDictionary() {
   const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety">("catalog");
@@ -3054,6 +3473,11 @@ function MedicalDictionary() {
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
 
       {subtab === "catalog" && (<>
+      <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={remove} />
+      <div className="flex items-center gap-2 text-[11px] text-slate-500 -mt-2">
+        <Network className="h-3 w-3" /> Legacy flat view below — preserved for
+        bulk edits and the per-system FHIR CodeSystem export.
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {CODE_SYSTEMS.map((s) => {
           const meta = SYSTEM_META[s];
