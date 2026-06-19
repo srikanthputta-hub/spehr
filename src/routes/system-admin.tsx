@@ -409,6 +409,9 @@ function SystemAdminPage() {
         <WatchdogStatusWidget />
         )}
         {isAdmin && tab === "feature_controls" && (
+        <AutoDocMonitor />
+        )}
+        {isAdmin && tab === "feature_controls" && (
         <div
           className={`mb-6 rounded-xl border shadow-sm overflow-hidden ${
             automation
