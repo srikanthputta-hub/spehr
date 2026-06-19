@@ -2061,6 +2061,15 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
             >
               <X className="h-3 w-3" /> Reject
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 ml-auto border-[#0c2340] text-[#0c2340] hover:bg-slate-50"
+              onClick={() => setReportOpen(true)}
+              title="Generate the FHIR R4 Bundle pushed to the external server"
+            >
+              <FileJson className="h-3 w-3" /> Standard Report
+            </Button>
           </div>
 
           <Dialog open={editOpen} onOpenChange={setEditOpen}>
