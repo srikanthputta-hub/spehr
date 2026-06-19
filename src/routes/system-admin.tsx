@@ -2440,6 +2440,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
   const [activeRow, setActiveRow] = useState<FhirEncounterRow | null>(null);
   const [pushing, setPushing] = useState(false);
   const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>({});
+  // Live Streaming Mode -------------------------------------------------
+  const [autoOn, setAutoOn] = useState(false);
+  const [autoStatus, setAutoStatus] = useState<
+    Record<string, "queued" | "syncing" | "ok" | "err">
+  >({});
+  const [autoTick, setAutoTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -2573,6 +2579,117 @@ function FhirInteroperability({ facility }: { facility: string }) {
     }
   };
 
+  // Build an Encounter Bundle for any row (used by both manual + auto loop).
+  const buildBundleForRow = async (r: FhirEncounterRow) => {
+    const [patientRes, labsRes, medsRes, notesRes] = await Promise.all([
+      supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
+      supabase
+        .from("lab_orders")
+        .select("id, test_type, result_value, status, collected_at, created_at")
+        .eq("patient_mrn", r.mrn)
+        .order("created_at", { ascending: false })
+        .limit(40),
+      supabase
+        .from("medication_orders")
+        .select(
+          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+        )
+        .eq("patient_mrn", r.mrn)
+        .order("created_at", { ascending: false })
+        .limit(40),
+      supabase
+        .from("clinical_notes")
+        .select("id, note_type, author, content, created_at")
+        .eq("mrn", r.mrn)
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
+    const p = (patientRes.data ?? {}) as any;
+    return buildEncounterBundle({
+      patient: {
+        mrn: r.mrn,
+        name: p.name ?? r.name,
+        first_name: p.first_name ?? null,
+        last_name: p.last_name ?? null,
+        dob: p.dob ?? null,
+        gender: p.gender ?? null,
+        biological_sex: p.biological_sex ?? null,
+        address: p.address ?? null,
+        phone: p.phone ?? null,
+        facility_name: p.facility_name ?? r.facility,
+        admission_time: p.admission_time ?? r.admission_time,
+        discharge_time: p.discharge_time ?? r.discharge_time,
+        status: p.status ?? r.status,
+        chief_complaint: p.chief_complaint ?? r.chief_complaint,
+        diagnosis: p.diagnosis ?? null,
+        discharge_summary: p.discharge_summary ?? null,
+        bp: p.bp ?? null,
+        hr: p.hr ?? null,
+        rr: p.rr ?? null,
+        spo2: p.spo2 ?? null,
+        temp: p.temp ?? null,
+        allergies: p.allergies ?? null,
+      },
+      labs: (labsRes.data ?? []) as any[],
+      meds: (medsRes.data ?? []) as any[],
+      notes: (notesRes.data ?? []) as any[],
+    });
+  };
+
+  // Auto-push a single row, updating the per-row status badge as it goes.
+  const autoPushRow = async (r: FhirEncounterRow) => {
+    setAutoStatus((s) => ({ ...s, [r.mrn]: "syncing" }));
+    try {
+      const b = await buildBundleForRow(r);
+      const { data, error } = await supabase.functions.invoke("push_to_fhir", {
+        body: { mrn: r.mrn, bundle: b },
+      });
+      if (error) throw error;
+      if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
+      setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
+      setPushedMrns((m) => ({ ...m, [r.mrn]: "ok" }));
+      toast.success(`Auto-Synced ${r.name ?? r.mrn} successfully.`);
+    } catch (e: any) {
+      const msg = typeof e?.message === "string" ? e.message : "Sync failed";
+      console.error("[FHIR auto-sync]", r.mrn, e);
+      setAutoStatus((s) => ({ ...s, [r.mrn]: "err" }));
+      setPushedMrns((m) => ({ ...m, [r.mrn]: "err" }));
+      toast.error(`Auto-Sync failed for ${r.name ?? r.mrn} · ${msg}`);
+    }
+  };
+
+  // Toggle ON: seed every un-synced row as "queued" so badges show immediately.
+  useEffect(() => {
+    if (!autoOn) return;
+    setAutoStatus((prev) => {
+      const next = { ...prev };
+      for (const r of rows) {
+        if (!next[r.mrn]) next[r.mrn] = "queued";
+      }
+      return next;
+    });
+  }, [autoOn, rows]);
+
+  // The 10-second streaming heartbeat. Cleaned up on toggle-off / unmount.
+  useEffect(() => {
+    if (!autoOn) return;
+    const id = setInterval(() => setAutoTick((t) => t + 1), 10_000);
+    return () => clearInterval(id);
+  }, [autoOn]);
+
+  // On each tick (and once immediately when toggled on), pick the next queued
+  // patient and fire their bundle. Never starts a second sync while one is
+  // already in flight.
+  useEffect(() => {
+    if (!autoOn) return;
+    const inFlight = Object.values(autoStatus).some((v) => v === "syncing");
+    if (inFlight) return;
+    const next = rows.find((r) => (autoStatus[r.mrn] ?? "queued") === "queued");
+    if (!next) return;
+    void autoPushRow(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOn, autoTick, rows]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -2590,6 +2707,31 @@ function FhirInteroperability({ facility }: { facility: string }) {
           </p>
         </div>
         <div className="text-xs text-slate-500">{rows.length} encounters</div>
+      </div>
+
+      {/* Live Streaming Mode controller */}
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className={`h-2.5 w-2.5 rounded-full ${autoOn ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
+          <div>
+            <div className="text-sm font-semibold text-slate-900">
+              Enable Live Automation Loop
+            </div>
+            <div className="text-[11px] text-slate-600">
+              When ON, every 10 seconds the next queued patient's full FHIR
+              Transaction Bundle is auto-pushed to the Medblocks production
+              endpoint. Toggle off any time to stop the loop.
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {autoOn && (
+            <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
+              Streaming · 10s
+            </span>
+          )}
+          <Switch checked={autoOn} onCheckedChange={setAutoOn} />
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -2644,6 +2786,34 @@ function FhirInteroperability({ facility }: { facility: string }) {
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${b.cls}`}>
                         {b.label}
                       </span>
+                      {(() => {
+                        const a = autoStatus[r.mrn];
+                        if (!a) return null;
+                        if (a === "queued")
+                          return (
+                            <span className="ml-1.5 inline-flex items-center rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                              In Queue
+                            </span>
+                          );
+                        if (a === "syncing")
+                          return (
+                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                              Auto-Syncing…
+                            </span>
+                          );
+                        if (a === "ok")
+                          return (
+                            <span className="ml-1.5 inline-flex items-center rounded-full border border-emerald-300 bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                              ✓ Successful
+                            </span>
+                          );
+                        return (
+                          <span className="ml-1.5 inline-flex items-center rounded-full border border-red-300 bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            ✗ Failed
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-3 py-2.5">
                       <button
