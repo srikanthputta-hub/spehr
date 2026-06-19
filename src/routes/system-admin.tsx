@@ -2448,6 +2448,12 @@ function PillRow({ entries, system }: { entries: DictEntry[]; system: string }) 
               {e.description && (
                 <div className="text-[11px] text-slate-600 leading-relaxed">{e.description}</div>
               )}
+              <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 font-mono text-[10px] text-slate-700 space-y-0.5">
+                <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">FHIR CodeableConcept</div>
+                <div><span className="text-slate-500">system:</span> {FHIR_SYSTEM_URI[system] ?? "—"}</div>
+                <div><span className="text-slate-500">code:</span> {e.code}</div>
+                <div className="truncate"><span className="text-slate-500">display:</span> {e.display}</div>
+              </div>
             </div>
           </PopoverContent>
         </Popover>
