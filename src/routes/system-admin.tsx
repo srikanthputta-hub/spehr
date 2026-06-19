@@ -1347,9 +1347,6 @@ function SlaCountdown({
 }
 
 function Stat({ label, value, tone }: { label: string; value: number; tone: "red" | "amber" | "slate" }) {
-  return _StatImpl({ label, value, tone });
-}
-function _StatImpl({ label, value, tone }: { label: string; value: number; tone: "red" | "amber" | "slate" }) {
   const palette = {
     red:   "bg-red-50 border-red-200 text-red-700",
     amber: "bg-amber-50 border-amber-200 text-amber-700",
