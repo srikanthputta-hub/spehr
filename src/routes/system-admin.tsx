@@ -2417,6 +2417,306 @@ function PillRow({ entries, system }: { entries: DictEntry[]; system: string }) 
   );
 }
 
+/* ============================================================ */
+/*  FHIR Interoperability — full encounter Bundle staging area   */
+/* ============================================================ */
+
+type FhirEncounterRow = {
+  mrn: string;
+  name: string | null;
+  facility: string | null;
+  admission_time: string | null;
+  discharge_time: string | null;
+  status: string | null;
+  chief_complaint: string | null;
+};
+
+function FhirInteroperability({ facility }: { facility: string }) {
+  const [rows, setRows] = useState<FhirEncounterRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [openMrn, setOpenMrn] = useState<string | null>(null);
+  const [bundle, setBundle] = useState<any | null>(null);
+  const [bundleLoading, setBundleLoading] = useState(false);
+  const [activeRow, setActiveRow] = useState<FhirEncounterRow | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      let q = supabase
+        .from("patients")
+        .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint")
+        .order("admission_time", { ascending: false })
+        .limit(50);
+      if (facility !== "all") q = q.eq("facility_name", facility);
+      const { data } = await q;
+      if (cancelled) return;
+      const out: FhirEncounterRow[] = ((data ?? []) as any[])
+        .filter((p) => !!p.mrn)
+        .map((p) => ({
+          mrn: String(p.mrn),
+          name: p.name ?? null,
+          facility: p.facility_name ?? null,
+          admission_time: p.admission_time ?? null,
+          discharge_time: p.discharge_time ?? null,
+          status: p.status ?? null,
+          chief_complaint: p.chief_complaint ?? null,
+        }));
+      setRows(out);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [facility]);
+
+  const statusBadge = (r: FhirEncounterRow) => {
+    const s = (r.status ?? "").toLowerCase();
+    if (s === "discharged" || r.discharge_time) {
+      return { label: "Discharged", cls: "bg-slate-100 text-slate-700 border-slate-300" };
+    }
+    if (s === "admitted" || r.admission_time) {
+      return { label: "Admitted", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+    }
+    return { label: "Pending Sync", cls: "bg-amber-50 text-amber-700 border-amber-200" };
+  };
+
+  const openBundle = async (r: FhirEncounterRow) => {
+    setActiveRow(r);
+    setOpenMrn(r.mrn);
+    setBundle(null);
+    setBundleLoading(true);
+    const [patientRes, labsRes, medsRes, notesRes] = await Promise.all([
+      supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
+      supabase
+        .from("lab_orders")
+        .select("id, test_type, result_value, status, collected_at, created_at")
+        .eq("patient_mrn", r.mrn)
+        .order("created_at", { ascending: false })
+        .limit(40),
+      supabase
+        .from("medication_orders")
+        .select(
+          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+        )
+        .eq("patient_mrn", r.mrn)
+        .order("created_at", { ascending: false })
+        .limit(40),
+      supabase
+        .from("clinical_notes")
+        .select("id, note_type, author, content, created_at")
+        .eq("mrn", r.mrn)
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
+    const p = (patientRes.data ?? {}) as any;
+    const b = buildEncounterBundle({
+      patient: {
+        mrn: r.mrn,
+        name: p.name ?? r.name,
+        first_name: p.first_name ?? null,
+        last_name: p.last_name ?? null,
+        dob: p.dob ?? null,
+        gender: p.gender ?? null,
+        biological_sex: p.biological_sex ?? null,
+        address: p.address ?? null,
+        phone: p.phone ?? null,
+        facility_name: p.facility_name ?? r.facility,
+        admission_time: p.admission_time ?? r.admission_time,
+        discharge_time: p.discharge_time ?? r.discharge_time,
+        status: p.status ?? r.status,
+        chief_complaint: p.chief_complaint ?? r.chief_complaint,
+        diagnosis: p.diagnosis ?? null,
+        discharge_summary: p.discharge_summary ?? null,
+        bp: p.bp ?? null,
+        hr: p.hr ?? null,
+        rr: p.rr ?? null,
+        spo2: p.spo2 ?? null,
+        temp: p.temp ?? null,
+        allergies: p.allergies ?? null,
+      },
+      labs: (labsRes.data ?? []) as any[],
+      meds: (medsRes.data ?? []) as any[],
+      notes: (notesRes.data ?? []) as any[],
+    });
+    setBundle(b);
+    setBundleLoading(false);
+  };
+
+  const fmt = (iso: string | null) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            <FileJson className="h-5 w-5 text-[#0c2340]" />
+            FHIR Interoperability
+          </h2>
+          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
+            Final staging area for the unified FHIR R4 encounter Bundle. Each row
+            represents one admission encounter; opening the JSON shows the full
+            longitudinal record (Patient · Encounter · Observations · Medication
+            Requests &amp; Administrations · DocumentReference · CarePlan ·
+            Appointment) ready to be pushed to the external FHIR server.
+          </p>
+        </div>
+        <div className="text-xs text-slate-500">{rows.length} encounters</div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-900 text-slate-100">
+              <tr>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Timestamp</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">MRN</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Patient</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Facility</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Status</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">FHIR</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                    <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
+                    Loading encounters…
+                  </td>
+                </tr>
+              )}
+              {!loading && rows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                    No encounters to display.
+                  </td>
+                </tr>
+              )}
+              {rows.map((r) => {
+                const b = statusBadge(r);
+                return (
+                  <tr key={r.mrn} className="hover:bg-slate-50/60">
+                    <td className="px-3 py-2.5 whitespace-nowrap text-slate-700">
+                      {fmt(r.admission_time)}
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">
+                      {r.mrn}
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
+                      <div className="font-medium">{r.name ?? "—"}</div>
+                      <div className="text-[10px] text-slate-500 truncate max-w-[220px]">
+                        {r.chief_complaint ?? "—"}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">
+                      {r.facility ?? "—"}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${b.cls}`}>
+                        {b.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <button
+                        type="button"
+                        onClick={() => openBundle(r)}
+                        className="inline-flex items-center gap-1 rounded border border-[#0c2340] bg-white px-2 py-1 text-[10px] font-semibold text-[#0c2340] hover:bg-slate-50"
+                        title="View / export the full FHIR R4 encounter Bundle"
+                      >
+                        <FileJson className="h-3 w-3" /> View / Export JSON
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <Dialog
+        open={!!openMrn}
+        onOpenChange={(o) => {
+          if (!o) {
+            setOpenMrn(null);
+            setBundle(null);
+            setActiveRow(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileJson className="h-4 w-4 text-[#0c2340]" />
+              FHIR R4 Encounter Bundle · {activeRow?.name ?? activeRow?.mrn}
+            </DialogTitle>
+            <DialogDescription>
+              Strict FHIR R4 <span className="font-mono">Bundle</span>{" "}
+              (type=<span className="font-mono">document</span>) containing the
+              Composition, Patient, Encounter, Observations (vitals + labs),
+              MedicationRequest, MedicationAdministration, DocumentReference,
+              CarePlan, and follow-up Appointment — the exact payload pumped to
+              the external FHIR server via <span className="font-mono">push_to_fhir</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-slate-200 bg-slate-950 text-slate-100 max-h-[60vh] overflow-auto p-3">
+            {bundleLoading || !bundle ? (
+              <div className="text-center text-xs text-slate-400 py-6">
+                <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
+                Compiling encounter Bundle…
+              </div>
+            ) : (
+              <pre className="text-[10px] leading-relaxed font-mono whitespace-pre">
+                {JSON.stringify(bundle, null, 2)}
+              </pre>
+            )}
+          </div>
+          {bundle && (
+            <div className="text-[11px] text-slate-500">
+              {(bundle.entry?.length ?? 0)} resources · {bundle.type} bundle ·
+              generated {new Date(bundle.timestamp ?? Date.now()).toLocaleString()}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={!bundle}
+              onClick={() => {
+                if (!bundle) return;
+                navigator.clipboard
+                  .writeText(JSON.stringify(bundle, null, 2))
+                  .then(() => toast.success("Bundle copied to clipboard"))
+                  .catch(() => toast.error("Copy failed"));
+              }}
+            >
+              Copy JSON
+            </Button>
+            <Button
+              className="bg-[#0c2340] hover:bg-[#0c2340]/90"
+              disabled={!bundle}
+              onClick={() => {
+                if (!bundle || !activeRow) return;
+                downloadJson(
+                  `fhir-encounter-${activeRow.mrn}-${Date.now()}.json`,
+                  bundle,
+                );
+              }}
+            >
+              <Download className="h-3.5 w-3.5" /> Download .json
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 type AuditCategory = "SECURITY" | "CLINICAL" | "AUTOMATION" | "SYSTEM";
 type AuditEvent = {
   key: string;
