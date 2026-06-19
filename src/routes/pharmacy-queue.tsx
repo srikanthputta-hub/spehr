@@ -2,13 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  AlertTriangle,
   CheckCircle2,
-  FlaskConical,
   Inbox,
   Loader2,
   Pill,
-  ShieldAlert,
   XCircle,
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
@@ -44,16 +41,6 @@ type Patient = {
   chief_complaint: string | null;
 };
 
-type Lab = {
-  id: string;
-  test_name: string | null;
-  panel_name: string | null;
-  result_value: number | string | null;
-  unit: string | null;
-  reference_range: string | null;
-  flag: string | null;
-  time_drawn: string | null;
-};
 
 const orderMrn = (order: Pick<Order, "mrn" | "patient_mrn"> | null | undefined) =>
   order?.patient_mrn ?? order?.mrn ?? null;
@@ -77,7 +64,7 @@ interface DispensedFeedRow {
   pharmacist: string;
 }
 
-const KEY_LABS = ["creatinine", "potassium", "k+", "k ", "bun", "egfr", "inr", "platelet", "wbc", "hgb", "hemoglobin"];
+
 
 function PharmacyQueue() {
   const { facility } = useFacility();
@@ -108,7 +95,6 @@ function PharmacyQueue() {
   const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
 
   const [patient, setPatient] = useState<Patient | null>(null);
-  const [labs, setLabs] = useState<Lab[]>([]);
   const [contextLoading, setContextLoading] = useState(false);
   const [acting, setActing] = useState(false);
 
@@ -326,43 +312,23 @@ function PharmacyQueue() {
     [visibleOrders, selectedId],
   );
 
-  // Load patient context + labs whenever selection changes
+  // Load patient context whenever selection changes
   useEffect(() => {
     const selectedMrn = orderMrn(selected);
     if (!selectedMrn) {
       setPatient(null);
-      setLabs([]);
       return;
     }
     let active = true;
     setContextLoading(true);
     (async () => {
-      const [{ data: pData }, { data: lData }] = await Promise.all([
-        supabase
-          .from("patients")
-          .select("mrn, first_name, last_name, age, gender, room, diagnosis, chief_complaint")
-          .eq("mrn", selectedMrn)
-          .maybeSingle(),
-        supabase
-          .from("lab_orders")
-          .select("id, test_type, result_value, status, resulted_at, collected_at, created_at")
-          .eq("patient_mrn", selectedMrn)
-          .in("status", ["Reported", "Resulted", "Completed"])
-          .order("resulted_at", { ascending: false, nullsFirst: false })
-          .limit(40),
-      ]);
+      const { data: pData } = await supabase
+        .from("patients")
+        .select("mrn, first_name, last_name, age, gender, room, diagnosis, chief_complaint")
+        .eq("mrn", selectedMrn)
+        .maybeSingle();
       if (!active) return;
       setPatient((pData ?? null) as Patient | null);
-      setLabs(((lData ?? []) as any[]).map((l) => ({
-        id: l.id,
-        test_name: l.test_type,
-        panel_name: "Lab Order",
-        result_value: l.result_value,
-        unit: null,
-        reference_range: null,
-        flag: /CRITICAL/i.test(l.result_value ?? "") ? "H" : null,
-        time_drawn: l.resulted_at ?? l.collected_at ?? l.created_at,
-      })) as Lab[]);
       setContextLoading(false);
     })();
     return () => {
@@ -377,15 +343,6 @@ function PharmacyQueue() {
     }
   }, [visibleOrders, selectedId]);
 
-  const keyLabs = useMemo(() => {
-    const result: Record<string, Lab> = {};
-    for (const l of labs) {
-      const key = (l.test_name ?? "").toLowerCase().trim();
-      if (!KEY_LABS.some((k) => key.includes(k))) continue;
-      if (!result[key]) result[key] = l; // already ordered newest first
-    }
-    return Object.values(result);
-  }, [labs]);
 
   const actOnOrder = async (id: string, newStatus: "DUE" | "REJECTED") => {
     const prevOrders = orders;
@@ -607,109 +564,6 @@ function PharmacyQueue() {
                 </div>
               </div>
 
-              {/* Clinical guardrails */}
-              <div className="rounded-lg border border-slate-200 bg-white">
-                <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 text-amber-600" />
-                    <h2 className="text-sm font-semibold text-slate-900">
-                      Clinical Guardrails — Latest Labs
-                    </h2>
-                  </div>
-                  <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                    Verify organ function before sign-off
-                  </span>
-                </div>
-                <div className="p-5">
-                  {contextLoading ? (
-                    <div className="text-xs text-slate-500 flex items-center gap-2">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching labs…
-                    </div>
-                  ) : keyLabs.length === 0 ? (
-                    <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      No recent renal/electrolyte labs on file for this patient. Confirm before verifying.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                      {keyLabs.map((l) => {
-                        const abn = l.flag === "H" || l.flag === "L";
-                        return (
-                          <div
-                            key={l.id}
-                            className={`rounded-md border p-3 ${
-                              abn ? "border-red-200 bg-red-50/60" : "border-slate-200 bg-slate-50/60"
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                                {l.test_name}
-                              </div>
-                              {abn && (
-                                <span className="text-[10px] font-bold text-red-700 bg-red-100 rounded px-1.5 py-0.5">
-                                  {l.flag}
-                                </span>
-                              )}
-                            </div>
-                            <div
-                              className={`mt-1 text-base font-semibold ${
-                                abn ? "text-red-700" : "text-slate-900"
-                              }`}
-                            >
-                              {l.result_value}
-                              <span className="ml-1 text-xs font-normal text-slate-500">
-                                {l.unit}
-                              </span>
-                            </div>
-                            <div className="text-[10px] text-slate-500">
-                              Ref: {l.reference_range ?? "—"}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Full lab strip */}
-                  {labs.length > 0 && (
-                    <details className="mt-4 group">
-                      <summary className="cursor-pointer text-[11px] uppercase tracking-[0.18em] text-slate-500 hover:text-slate-700 inline-flex items-center gap-1.5">
-                        <FlaskConical className="h-3 w-3" />
-                        All recent labs ({labs.length})
-                      </summary>
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500 border-b border-slate-200">
-                            <tr>
-                              <th className="text-left py-1.5 pr-3">Panel</th>
-                              <th className="text-left py-1.5 pr-3">Test</th>
-                              <th className="text-right py-1.5 pr-3">Result</th>
-                              <th className="text-left py-1.5 pr-3">Ref</th>
-                              <th className="text-left py-1.5">Flag</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {labs.map((l) => {
-                              const abn = l.flag === "H" || l.flag === "L";
-                              return (
-                                <tr key={l.id}>
-                                  <td className="py-1.5 pr-3 text-slate-500">{l.panel_name ?? "—"}</td>
-                                  <td className="py-1.5 pr-3 text-slate-700">{l.test_name ?? "—"}</td>
-                                  <td className={`py-1.5 pr-3 text-right font-mono ${abn ? "text-red-700 font-bold" : "text-slate-900"}`}>
-                                    {l.result_value ?? "—"} {l.unit ?? ""}
-                                  </td>
-                                  <td className="py-1.5 pr-3 text-slate-500">{l.reference_range ?? "—"}</td>
-                                  <td className="py-1.5 text-slate-500">{l.flag ?? "—"}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </details>
-                  )}
-                </div>
-              </div>
             </>
           )}
 
