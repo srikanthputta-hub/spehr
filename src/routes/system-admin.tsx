@@ -3243,6 +3243,11 @@ function MedicalDictionary() {
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
 
       {subtab === "catalog" && (<>
+      <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={remove} />
+      <div className="flex items-center gap-2 text-[11px] text-slate-500 -mt-2">
+        <Network className="h-3 w-3" /> Legacy flat view below — preserved for
+        bulk edits and the per-system FHIR CodeSystem export.
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {CODE_SYSTEMS.map((s) => {
           const meta = SYSTEM_META[s];
