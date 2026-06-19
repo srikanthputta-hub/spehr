@@ -477,10 +477,24 @@ function labObservation(mrn: string, l: EncounterLab) {
 
 function medRequest(mrn: string, m: EncounterMed) {
   const drug = m.drug_name ?? m.drug ?? m.medication_name ?? "medication";
+  const raw = (m.status ?? "").toLowerCase();
+  // FHIR R4 MedicationRequest.status: active|on-hold|cancelled|completed|entered-in-error|stopped|draft|unknown
+  const status =
+    raw === "administered" || raw === "completed" || raw === "given"
+      ? "completed"
+      : raw === "pending verification" || raw === "draft" || raw === "pending"
+        ? "draft"
+        : raw === "cancelled" || raw === "canceled"
+          ? "cancelled"
+          : raw === "on-hold" || raw === "held"
+            ? "on-hold"
+            : raw === "stopped" || raw === "discontinued"
+              ? "stopped"
+              : "active";
   return {
     resourceType: "MedicationRequest",
     id: `medreq-${m.id ?? drug}`.replace(/\s+/g, "-"),
-    status: m.status ?? "active",
+    status,
     intent: "order",
     medicationCodeableConcept: { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` },
     subject: { reference: `Patient/${mrn}` },
