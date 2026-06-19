@@ -467,7 +467,7 @@ export async function seedAdmission(
         .from("medication_orders")
         .select("id")
         .eq("patient_mrn", mrn)
-        .or(`medication_name.ilike.${m.name},drug_name.ilike.${m.name}`)
+        .ilike("drug_name", m.name)
         .limit(1);
       if (dupe && dupe.length > 0) return;
       const { data, error } = await supabase
