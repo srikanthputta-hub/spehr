@@ -17,17 +17,6 @@ interface LogRow {
   created_at: string;
 }
 
-const STAGE_ORDER = [
-  "analyze",
-  "order",
-  "result",
-  "document",
-  "umls",
-  "fhir",
-  "discharge",
-  "complete",
-];
-
 function stageBadge(stage: string) {
   const ok = stage === "complete";
   const err = stage === "error";
