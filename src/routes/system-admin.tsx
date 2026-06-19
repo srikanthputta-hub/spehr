@@ -2321,13 +2321,12 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">ICD-10</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">LOINC</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">RxNorm</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">FHIR</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
                     <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
                     Loading matrix…
                   </td>
@@ -2335,7 +2334,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
                     No admissions to display.
                   </td>
                 </tr>
@@ -2350,17 +2349,6 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                   : findCodes("ICD-10", cc);
                 const loinc = findCodes("LOINC", r.labs);
                 const rxnorm = findCodes("RxNorm", r.meds);
-                const allConcepts: CodeableConcept[] = [
-                  ...snomed.map((e) => toCodeableConcept("SNOMED CT", e.code, e.display)),
-                  ...icd10.map((e) => toCodeableConcept("ICD-10", e.code, e.display)),
-                  ...loinc.map((e) => toCodeableConcept("LOINC", e.code, e.display)),
-                  ...rxnorm.map((e) => toCodeableConcept("RxNorm", e.code, e.display)),
-                ];
-                const totalSystems =
-                  (snomed.length ? 1 : 0) +
-                  (icd10.length ? 1 : 0) +
-                  (loinc.length ? 1 : 0) +
-                  (rxnorm.length ? 1 : 0);
                 return (
                   <tr key={r.mrn} className="hover:bg-slate-50/60">
                     <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{r.mrn}</td>
@@ -2372,35 +2360,6 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                     <td className="px-3 py-2.5"><PillRow entries={icd10} system="ICD-10" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={loinc} system="LOINC" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={rxnorm} system="RxNorm" /></td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex flex-col items-start gap-1">
-                        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
-                          {totalSystems}/4 · {allConcepts.length} codes
-                        </span>
-                        <button
-                          type="button"
-                          disabled={allConcepts.length === 0}
-                          onClick={() => {
-                            const bundle = buildCrosswalkBundle({
-                              mrn: r.mrn,
-                              patientName: r.name,
-                              facility: r.facility,
-                              concepts: allConcepts,
-                            });
-                            downloadJson(
-                              `crosswalk-${r.mrn}-${Date.now()}.json`,
-                              bundle,
-                            );
-                            toast.success("Patient crosswalk exported", {
-                              description: `${allConcepts.length} CodeableConcepts`,
-                            });
-                          }}
-                          className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <FileJson className="h-3 w-3" /> Export
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
