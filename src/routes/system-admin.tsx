@@ -64,7 +64,7 @@ import {
 import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
-import { Wrench, ShieldCheck, Radar } from "lucide-react";
+import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -72,6 +72,7 @@ export const Route = createFileRoute("/system-admin")({
 
 function WatchdogStatusWidget() {
   const latest = useLatestWatchdogLog();
+  const [open, setOpen] = useState(false);
   const ts = latest ? new Date(latest.checker_timestamp) : null;
   const ago = ts
     ? Math.max(0, Math.round((Date.now() - ts.getTime()) / 1000))
@@ -89,6 +90,17 @@ function WatchdogStatusWidget() {
     (latest.healed_engines?.length ?? 0) > 0 &&
     ago !== null &&
     ago < 120;
+
+  const AUTOMATION_REGISTRY: { key: string; label: string; group: string }[] = [
+    { key: "Admissions", label: "Ghost Admission Randomizer", group: "Patient Flow" },
+    { key: "Pharmacy Queue", label: "Pharmacy Order Cascade", group: "Pharmacy" },
+    { key: "Lab Queue", label: "Lab Order → Result Cascade", group: "Laboratory" },
+    { key: "Vitals", label: "Vitals Simulation Loop", group: "Nursing" },
+    { key: "Discharge", label: "Auto Discharge Engine", group: "Patient Flow" },
+    { key: "FHIR Sync", label: "FHIR Interoperability Sync", group: "Interop" },
+    { key: "Watchdog", label: "Watchdog Self-Heartbeat", group: "Core" },
+  ];
+  const healedSet = new Set(latest?.healed_engines ?? []);
 
   return (
     <div className="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -108,6 +120,15 @@ function WatchdogStatusWidget() {
             <div className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
               Watchdog Active · Monitoring Loops
+              <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="ml-1 inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:bg-slate-100"
+                aria-expanded={open}
+              >
+                {open ? "Hide" : "View"} Automations
+                <ChevronDownIcon className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+              </button>
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5">
               Last Systematic Health Check: <span className="font-mono text-slate-700">{agoLabel}</span>
@@ -146,6 +167,52 @@ function WatchdogStatusWidget() {
               </span>
               . {latest!.actions_taken}
             </div>
+          </div>
+        </div>
+      )}
+      {open && (
+        <div className="border-t border-slate-200 bg-slate-50/60 px-6 py-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 mb-2">
+            Automation Registry · This Cycle
+          </div>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {AUTOMATION_REGISTRY.map((a) => {
+              const isHealed = healedSet.has(a.key);
+              const healthy = !isHealed;
+              return (
+                <li
+                  key={a.key}
+                  className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-1.5"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {healthy ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-800 truncate">
+                        {a.label}
+                      </div>
+                      <div className="text-[10px] text-slate-500 truncate">
+                        {a.group}
+                      </div>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-wider ${
+                      healthy ? "text-emerald-700" : "text-amber-700"
+                    }`}
+                  >
+                    {healthy ? "Normal" : "Auto-Healed"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="mt-2 text-[10px] text-slate-500">
+            Refreshed every Systematic Health Check cycle. Check = engine
+            operating within normal parameters this cycle.
           </div>
         </div>
       )}
