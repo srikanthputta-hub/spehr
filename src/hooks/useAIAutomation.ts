@@ -315,6 +315,8 @@ async function cascadeLab(
     unit: string;
     referenceRange: string;
     resultExample: string;
+    numericValue?: number;
+    flagCode?: "L" | "H" | "N" | "C";
   },
 ) {
   // Ordered → Processing → Reported (final).
@@ -330,11 +332,25 @@ async function cascadeLab(
     .eq("id", orderId);
   await trackedDelay(mrn, TRANSITION_GAP_MS);
   const resultedAt = new Date().toISOString();
+  // Build the elaborative narrative AT report time so timestamps in the
+  // body match the actual collected/reported events on the order.
+  let elaborate = resultSummary;
+  if (labMeta && typeof labMeta.numericValue === "number" && labMeta.flagCode) {
+    elaborate = buildLabReport(
+      labMeta.name,
+      labMeta.numericValue,
+      labMeta.unit,
+      labMeta.referenceRange,
+      labMeta.flagCode,
+      collectedAt,
+      resultedAt,
+    );
+  }
   await supabase
     .from("lab_orders")
     .update({
       status: "Reported",
-      result_value: resultSummary,
+      result_value: elaborate,
       collected_at: collectedAt,
       resulted_at: resultedAt,
     } as any)
