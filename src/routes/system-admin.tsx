@@ -2438,6 +2438,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
   const [bundle, setBundle] = useState<any | null>(null);
   const [bundleLoading, setBundleLoading] = useState(false);
   const [activeRow, setActiveRow] = useState<FhirEncounterRow | null>(null);
+  const [pushing, setPushing] = useState(false);
+  const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -2550,6 +2552,27 @@ function FhirInteroperability({ facility }: { facility: string }) {
     return d.toLocaleString();
   };
 
+  const pushBundle = async () => {
+    if (!bundle || !activeRow) return;
+    setPushing(true);
+    const tid = toast.loading(`Syncing ${activeRow.mrn} to Medblocks FHIR…`);
+    try {
+      const { data, error } = await supabase.functions.invoke("push_to_fhir", {
+        body: { mrn: activeRow.mrn, bundle },
+      });
+      if (error) throw error;
+      if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
+      toast.success(`200 OK · Sync successful for ${activeRow.mrn}`, { id: tid });
+      setPushedMrns((m) => ({ ...m, [activeRow.mrn]: "ok" }));
+    } catch (e: any) {
+      const msg = typeof e?.message === "string" ? e.message : "Sync failed";
+      toast.error(`Sync failed · ${msg}`, { id: tid });
+      setPushedMrns((m) => ({ ...m, [activeRow.mrn]: "err" }));
+    } finally {
+      setPushing(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -2658,11 +2681,13 @@ function FhirInteroperability({ facility }: { facility: string }) {
             </DialogTitle>
             <DialogDescription>
               Strict FHIR R4 <span className="font-mono">Bundle</span>{" "}
-              (type=<span className="font-mono">document</span>) containing the
+              (type=<span className="font-mono">transaction</span>) containing the
               Composition, Patient, Encounter, Observations (vitals + labs),
               MedicationRequest, MedicationAdministration, DocumentReference,
-              CarePlan, and follow-up Appointment — the exact payload pumped to
-              the external FHIR server via <span className="font-mono">push_to_fhir</span>.
+              CarePlan, and follow-up Appointment. Each entry carries a per-resource
+              <span className="font-mono"> request </span>directive (PUT upsert for
+              Patient/Encounter, POST append for everything else) — the exact
+              payload pushed live to the Medblocks FHIR server.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-md border border-slate-200 bg-slate-950 text-slate-100 max-h-[60vh] overflow-auto p-3">
@@ -2709,6 +2734,17 @@ function FhirInteroperability({ facility }: { facility: string }) {
               }}
             >
               <Download className="h-3.5 w-3.5" /> Download .json
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={!bundle || pushing}
+              onClick={pushBundle}
+            >
+              {pushing ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Syncing…</>
+              ) : (
+                <>↗ Push to FHIR Server</>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
