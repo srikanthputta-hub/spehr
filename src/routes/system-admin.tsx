@@ -2709,6 +2709,31 @@ function FhirInteroperability({ facility }: { facility: string }) {
         <div className="text-xs text-slate-500">{rows.length} encounters</div>
       </div>
 
+      {/* Live Streaming Mode controller */}
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className={`h-2.5 w-2.5 rounded-full ${autoOn ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
+          <div>
+            <div className="text-sm font-semibold text-slate-900">
+              Enable Live Automation Loop
+            </div>
+            <div className="text-[11px] text-slate-600">
+              When ON, every 10 seconds the next queued patient's full FHIR
+              Transaction Bundle is auto-pushed to the Medblocks production
+              endpoint. Toggle off any time to stop the loop.
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {autoOn && (
+            <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
+              Streaming · 10s
+            </span>
+          )}
+          <Switch checked={autoOn} onCheckedChange={setAutoOn} />
+        </div>
+      </div>
+
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -2761,6 +2786,34 @@ function FhirInteroperability({ facility }: { facility: string }) {
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${b.cls}`}>
                         {b.label}
                       </span>
+                      {(() => {
+                        const a = autoStatus[r.mrn];
+                        if (!a) return null;
+                        if (a === "queued")
+                          return (
+                            <span className="ml-1.5 inline-flex items-center rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                              In Queue
+                            </span>
+                          );
+                        if (a === "syncing")
+                          return (
+                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                              Auto-Syncing…
+                            </span>
+                          );
+                        if (a === "ok")
+                          return (
+                            <span className="ml-1.5 inline-flex items-center rounded-full border border-emerald-300 bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                              ✓ Successful
+                            </span>
+                          );
+                        return (
+                          <span className="ml-1.5 inline-flex items-center rounded-full border border-red-300 bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            ✗ Failed
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-3 py-2.5">
                       <button
