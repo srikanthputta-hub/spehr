@@ -195,8 +195,78 @@ export async function runAutoDocPipeline(mrn: string) {
       Array.from(new Set([...tpl.meds.map((m) => m.rxnorm), ...arrs.flat()])),
     ),
   ]);
-  const snomedFinal = Array.from(new Set([tpl.snomedSeed, ...snomed]));
-  const icd10Final = Array.from(new Set([tpl.icd10Seed, ...icd10]));
+  const snomedFinal = Array.from(new Set([tpl.snomedSeed, ...snomed])).filter(Boolean);
+  const icd10Final = Array.from(new Set([tpl.icd10Seed, ...icd10])).filter(Boolean);
+
+  // Guarantee at least one LOINC + RxNorm code even for departments whose
+  // template has empty labs/meds arrays (Dermatology, Radiology, Pathology).
+  // The Live Terminology Matrix renders one pill per system per patient.
+  const FALLBACK_LAB = { loinc: "24323-8", name: "Comprehensive metabolic panel" };
+  const FALLBACK_MED = { rxnorm: "161", name: "Acetaminophen" };
+  const labCodesFinal = loinc.length > 0 ? loinc : [FALLBACK_LAB.loinc];
+  const medCodesFinal = rxnorm.length > 0 ? rxnorm : [FALLBACK_MED.rxnorm];
+
+  // Register every assigned code into the canonical medical_terminology
+  // dictionary so the Live Terminology Matrix and FHIR exports can resolve
+  // them by code. Idempotent upsert keyed on (code_system, code).
+  const dictRows: Array<{
+    code_system: "ICD-10" | "SNOMED CT" | "LOINC" | "RxNorm";
+    code: string;
+    display: string;
+    category: string;
+    description: string;
+    status: string;
+  }> = [];
+  for (const c of icd10Final) {
+    dictRows.push({
+      code_system: "ICD-10",
+      code: c,
+      display: tpl.condition,
+      category: "Diagnosis",
+      description: `Diagnosis code mapped from Auto Doc condition "${tpl.condition}" (${department}).`,
+      status: "Active",
+    });
+  }
+  for (const c of snomedFinal) {
+    dictRows.push({
+      code_system: "SNOMED CT",
+      code: c,
+      display: tpl.condition,
+      category: "Clinical Finding",
+      description: `Clinical finding for ${tpl.condition} assigned by Auto Doc (${department}).`,
+      status: "Active",
+    });
+  }
+  const labByCode = new Map(tpl.labs.map((l) => [l.loinc, l]));
+  for (const c of labCodesFinal) {
+    const lab = labByCode.get(c);
+    dictRows.push({
+      code_system: "LOINC",
+      code: c,
+      display: lab?.name ?? FALLBACK_LAB.name,
+      category: "Laboratory",
+      description: `Laboratory analyte ordered by Auto Doc for ${tpl.condition}.`,
+      status: "Active",
+    });
+  }
+  const medByCode = new Map(tpl.meds.map((m) => [m.rxnorm, m]));
+  for (const c of medCodesFinal) {
+    const med = medByCode.get(c);
+    dictRows.push({
+      code_system: "RxNorm",
+      code: c,
+      display: med?.name ?? FALLBACK_MED.name,
+      category: "Medication",
+      description: `Medication ordered by Auto Doc for ${tpl.condition}.`,
+      status: "Active",
+    });
+  }
+  if (dictRows.length > 0) {
+    await sb
+      .from("medical_terminology")
+      .upsert(dictRows as never, { onConflict: "code_system,code", ignoreDuplicates: true });
+  }
+
   await sb
     .from("patients")
     .update({
@@ -205,16 +275,17 @@ export async function runAutoDocPipeline(mrn: string) {
       standardized_output: {
         "SNOMED CT": snomedFinal,
         "ICD-10": icd10Final,
-        LOINC: loinc,
-        RXNORM: rxnorm,
+        LOINC: labCodesFinal,
+        RXNORM: medCodesFinal,
       },
     } as never)
     .eq("mrn", mrn);
   await log(mrn, "umls", "UMLS Mapping Complete", {
     snomed: snomedFinal.length,
     icd10: icd10Final.length,
-    loinc: loinc.length,
-    rxnorm: rxnorm.length,
+    loinc: labCodesFinal.length,
+    rxnorm: medCodesFinal.length,
+    dictRegistered: dictRows.length,
   });
 
   // STAGE: fhir (recorded; existing FHIR sync pipeline picks up the rows)

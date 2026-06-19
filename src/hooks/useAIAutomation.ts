@@ -11,6 +11,7 @@ import {
 } from "@/lib/intake-record";
 import { routeDepartment } from "@/lib/chief-complaints";
 import { templateForDepartment } from "@/lib/auto-doc-catalog";
+import { runAutoDoc } from "@/lib/auto-doc.functions";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -554,6 +555,14 @@ export async function seedAdmission(
     .update({ assigned_department: department } as any)
     .eq("mrn", mrn);
 
+  // Kick off the headless Auto Doc pipeline (notes + UMLS code mapping for
+  // SNOMED-CT / ICD-10 / LOINC / RxNorm + FHIR + discharge). Idempotent —
+  // server short-circuits if the run is already complete. Fire-and-forget
+  // so it doesn't delay the staged orders cascade below.
+  runAutoDoc({ data: { mrn } }).catch((e) =>
+    console.warn("[seedAdmission] runAutoDoc failed", e),
+  );
+
   // First 3 meds, first 2 labs — same shape as the legacy cascade.
   const finalMeds = tpl.meds.filter((m) => !existingMedNames.has(norm(m.name))).slice(0, 3);
   const finalLabs = tpl.labs.filter((l) => !existingLabNames.has(norm(l.name))).slice(0, 2);
@@ -662,13 +671,23 @@ export function useAIAutomation() {
     const reconcileActiveAdmissions = async () => {
       const { data } = await supabase
         .from("patients")
-        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob")
+        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob, snomed_codes, icd10_codes")
         .eq("status", "Admitted")
         .not("mrn", "is", null)
         .order("admission_time", { ascending: false })
         .limit(100);
-      for (const p of ((data as NewPatient[] | null) ?? [])) {
+      for (const p of ((data as Array<NewPatient & { snomed_codes?: string[] | null; icd10_codes?: string[] | null }> | null) ?? [])) {
         if (!p.mrn) continue;
+        // Backfill Auto Doc codes for any admission missing SNOMED-CT or
+        // ICD-10 (Auto Doc is idempotent — completed runs short-circuit).
+        const needsCodes =
+          !(p.snomed_codes && p.snomed_codes.length) ||
+          !(p.icd10_codes && p.icd10_codes.length);
+        if (needsCodes) {
+          runAutoDoc({ data: { mrn: p.mrn } }).catch((e) =>
+            console.warn("[admission-reconcile] runAutoDoc failed", e),
+          );
+        }
         const [{ count: medCount }, { count: labCount }] = await Promise.all([
           supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
           supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
