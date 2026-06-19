@@ -39,6 +39,7 @@ import {
   downloadJson,
   type CodeableConcept,
 } from "@/lib/fhir-bundle";
+import { buildEncounterBundle } from "@/lib/fhir-bundle";
 import { buildTaxonomy, type TaxonomyRoot } from "@/lib/terminology-taxonomy";
 import { ChevronRight, ChevronDown, FolderTree, FileJson, Network } from "lucide-react";
 import {
