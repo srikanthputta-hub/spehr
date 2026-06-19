@@ -155,109 +155,23 @@ export async function runAutoDocPipeline(mrn: string) {
 
   const tpl: ConditionTemplate = templateForDepartment(department);
 
-  // STAGE: order — strictly idempotent. Auto Doc is the SOLE source of
-  // diagnostics and medications, so we only insert rows that are not
-  // already present for this MRN (covers rerun/replay scenarios and
-  // parallel trigger paths: DB trigger + in-app fire-and-forget).
+  // STAGES: order + result are intentionally NOT inserted here.
+  // Auto Doc orders flow through the SAME staged admission cascade as
+  // legacy ghost admissions — scheduled by the in-app client using
+  // `templateForDepartment(department)` so meds land at T+20s / T+35s /
+  // T+50s (Ordered → Pending Verification → Dispensed → Administered,
+  // 3s gaps) and labs land at T+20s / T+35s (Ordered → Processing →
+  // Reported, 3s gaps). Logging the planned orders keeps the Watch Dog
+  // pipeline view accurate without producing duplicate rows.
   await setRunStage(mrn, "order");
-  const nowIso = new Date().toISOString();
-  const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
-  const [{ data: existingMedsRaw }, { data: existingLabsRaw }] = await Promise.all([
-    sb
-      .from("medication_orders")
-      .select("medication_name, drug_name")
-      .eq("patient_mrn", mrn),
-    sb
-      .from("lab_orders")
-      .select("test_type")
-      .eq("patient_mrn", mrn),
-  ]);
-  const existingMedNames = new Set(
-    ((existingMedsRaw as Array<{ medication_name?: string | null; drug_name?: string | null }> | null) ?? [])
-      .map((m) => norm(m.medication_name ?? m.drug_name))
-      .filter(Boolean),
-  );
-  const existingLabNames = new Set(
-    ((existingLabsRaw as Array<{ test_type?: string | null }> | null) ?? [])
-      .map((l) => norm(l.test_type))
-      .filter(Boolean),
-  );
-  const medsToInsert = tpl.meds.filter((m) => !existingMedNames.has(norm(m.name)));
-  const labsToInsert = tpl.labs.filter((l) => !existingLabNames.has(norm(l.name)));
   await log(
     mrn,
     "order",
-    `Ordering ${medsToInsert.length}/${tpl.meds.length} med(s) and ${labsToInsert.length}/${tpl.labs.length} lab(s) for ${tpl.condition} (skipping duplicates already on chart)`,
+    `Planned ${tpl.meds.length} med(s) + ${tpl.labs.length} lab(s) for ${tpl.condition}; client cascade owns insertion (T+20/35/50s)`,
+    { meds: tpl.meds.map((m) => m.name), labs: tpl.labs.map((l) => l.name) },
   );
-  const medRows = medsToInsert.map((m) => ({
-    patient_mrn: mrn,
-    mrn,
-    patient_name: p.name ?? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
-    drug_name: m.name,
-    medication_name: m.name,
-    dose: m.dose,
-    route: m.route,
-    frequency: m.frequency,
-    status: "Administered",
-    ordered_by: "Auto Doc",
-    administered_at: nowIso,
-    approved_at: nowIso,
-    created_at: nowIso,
-    facility_name: p.facility_name ?? null,
-  }));
-  if (medRows.length) {
-    const { error } = await sb.from("medication_orders").insert(medRows as never);
-    if (error) await log(mrn, "order", `Med insert warning: ${error.message}`, null, "warn");
-  }
-  const labOrderRows = labsToInsert.map((l) => ({
-    patient_mrn: mrn,
-    patient_name: p.name ?? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
-    test_type: l.name,
-    clinical_condition: tpl.condition,
-    status: "Resulted",
-    ordered_by: "Auto Doc",
-    collected_at: nowIso,
-    resulted_at: nowIso,
-    facility_name: p.facility_name ?? null,
-    requested_by: "Auto Doc",
-  }));
-  if (labOrderRows.length) {
-    const { error } = await sb.from("lab_orders").insert(labOrderRows as never);
-    if (error) await log(mrn, "order", `Lab order insert warning: ${error.message}`, null, "warn");
-  }
-
-  // STAGE: result — only generate results for labs we just inserted, and
-  // only if no result row already exists for that (mrn, test_name).
   await setRunStage(mrn, "result");
-  const { data: existingResultsRaw } = await sb
-    .from("lab_results")
-    .select("test_name")
-    .eq("mrn", mrn);
-  const existingResultNames = new Set(
-    ((existingResultsRaw as Array<{ test_name?: string | null }> | null) ?? [])
-      .map((r) => norm(r.test_name))
-      .filter(Boolean),
-  );
-  const labResults = labsToInsert
-    .filter((l) => !existingResultNames.has(norm(l.name)))
-    .map((l) => {
-    const r = l.gen();
-    return {
-      mrn,
-      panel_name: tpl.condition,
-      test_name: l.name,
-      result_value: String(r.value),
-      unit: l.unit,
-      reference_range: l.ref,
-      flag: r.flag,
-      time_drawn: nowIso,
-    };
-  });
-  if (labResults.length) {
-    const { error } = await sb.from("lab_results").insert(labResults as never);
-    if (error) await log(mrn, "result", `Lab result insert warning: ${error.message}`, null, "warn");
-  }
-  await log(mrn, "result", `Released ${labResults.length} lab result(s) with reference ranges`);
+  await log(mrn, "result", "Result generation deferred to staged cascade");
 
   // STAGE: document
   await setRunStage(mrn, "document");
