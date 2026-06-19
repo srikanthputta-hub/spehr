@@ -1,12 +1,7 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  medsForComplaint,
-  labsForComplaint,
-} from "@/lib/complaint-protocols";
 import { getAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import { ensureTerminology } from "@/lib/ensure-terminology";
 import { ensureNlpRulesHydrated } from "@/lib/safety-conflicts";
 import {
   autoFillIntake,
