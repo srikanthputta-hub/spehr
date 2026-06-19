@@ -2126,6 +2126,57 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileJson className="h-4 w-4 text-[#0c2340]" />
+                  Standard FHIR R4 Bundle · {audit.patient_name ?? audit.mrn}
+                </DialogTitle>
+                <DialogDescription>
+                  Fully descriptive FHIR R4 <span className="font-mono">Bundle</span>{" "}
+                  (type=<span className="font-mono">document</span>) containing the
+                  Composition + Patient + every approved Condition / Observation /
+                  MedicationRequest. This is the exact JSON payload pushed to the
+                  external FHIR server via <span className="font-mono">push_to_fhir</span>.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-md border border-slate-200 bg-slate-950 text-slate-100 max-h-96 overflow-auto p-3">
+                <pre className="text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-all">
+                  {JSON.stringify(bundle, null, 2)}
+                </pre>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                {(bundle.entry?.length ?? 0)} resources · {bundle.type} bundle ·
+                generated {new Date(bundle.timestamp ?? Date.now()).toLocaleString()}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard
+                      .writeText(JSON.stringify(bundle, null, 2))
+                      .then(() => toast.success("Bundle copied to clipboard"))
+                      .catch(() => toast.error("Copy failed"));
+                  }}
+                >
+                  Copy JSON
+                </Button>
+                <Button
+                  className="bg-[#0c2340] hover:bg-[#0c2340]/90"
+                  onClick={() =>
+                    downloadJson(
+                      `fhir-bundle-${audit.mrn ?? "unknown"}-${Date.now()}.json`,
+                      bundle,
+                    )
+                  }
+                >
+                  <Download className="h-3.5 w-3.5" /> Download .json
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>
