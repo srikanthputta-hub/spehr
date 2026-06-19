@@ -1688,12 +1688,22 @@ function NlpAuditLogs({ facility }: { facility: string }) {
         <div>
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-indigo-600" /> NLP Coding Audit Trail
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              </span>
+              Live · listening
+            </span>
           </h2>
           <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-            Showing the latest {audits.length} admission{audits.length === 1 ? "" : "s"}
+            Auto-pulls every new admission via realtime. Showing the latest{" "}
+            {audits.length} admission{audits.length === 1 ? "" : "s"}
             {facility !== "all" ? ` at ${facility}` : " across the network"} — each
-            captured in three stages (raw entry, extraction mapping, standardized
-            output) so coders can audit how the NLP engine interpreted the narrative.
+            captured as a three-stage FHIR R4 pipeline (raw entry →
+            extraction mapping → standardized output). The "Standard Report"
+            on each card compiles the final FHIR Bundle pushed to the
+            external FHIR server.
           </p>
         </div>
         <Button variant="outline" onClick={onClear} title="Clear local audit log">
