@@ -17,6 +17,7 @@ import {
 const ROLE_LINKS: { to: string; label: string; abbrev: string }[] = [
   { to: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
   { to: "/physician-board", label: "Attending Physician", abbrev: "MD" },
+  { to: "/admissions-board", label: "Admissions / Reception", abbrev: "Reception" },
   { to: "/pharmacy-queue", label: "Clinical Pharmacist", abbrev: "PharmD" },
   { to: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
   { to: "/admin-dashboard", label: "Unit Administrator", abbrev: "Admin" },

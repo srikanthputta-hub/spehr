@@ -1,0 +1,774 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import {
+  BedDouble,
+  CalendarClock,
+  CheckCircle2,
+  ClipboardList,
+  Loader2,
+  Plus,
+  RefreshCw,
+  UserPlus,
+  Users,
+  X,
+} from "lucide-react";
+import { BoardHeader } from "@/components/BoardShell";
+import { supabase } from "@/integrations/supabase/client";
+import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import { admitPatient, type AdmitInput } from "@/lib/admit-patient";
+import { AdmitPatientModal } from "@/components/admissions/AdmitPatientModal";
+import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
+
+export const Route = createFileRoute("/admissions-board")({
+  component: AdmissionsBoard,
+});
+
+type TabKey = "admit" | "roster" | "scheduling" | "beds";
+
+function AdmissionsBoard() {
+  const { facility } = useFacility();
+  const staff = useActiveStaff("Reception");
+  const [tab, setTab] = useState<TabKey>("admit");
+  const [admitOpen, setAdmitOpen] = useState(false);
+  const [bedBoardOpen, setBedBoardOpen] = useState(false);
+  const [bedCounts, setBedCounts] = useState({ available: 0, total: 0 });
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("bed_management")
+        .select("status")
+        .eq("facility_name", facility);
+      if (cancelled || !data) return;
+      const available = data.filter(
+        (b: any) => (b.status ?? "").toLowerCase() === "available",
+      ).length;
+      setBedCounts({ available, total: data.length });
+    };
+    load();
+    const ch = supabase
+      .channel(`reception-bed-count-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [facility]);
+
+  const handleAdmit = async (input: AdmitInput): Promise<boolean> => {
+    if (bedCounts.available === 0) {
+      toast.error("No empty beds available", {
+        description: `${facility} is at full capacity (${bedCounts.total}/${bedCounts.total} occupied). Please direct the patient to the Patient Lounge until a bed is released.`,
+      });
+      return false;
+    }
+    const res = await admitPatient(facility, input);
+    if (!res.ok) {
+      toast.error("Could not admit patient", { description: res.error });
+      return false;
+    }
+    toast.success("Patient admitted", {
+      description: `${res.patient.first_name} ${res.patient.last_name} · ${res.patient.mrn}`,
+    });
+    return true;
+  };
+
+  const tabs: { key: TabKey; label: string; icon: any }[] = [
+    { key: "admit", label: "Admit Patient", icon: UserPlus },
+    { key: "roster", label: "Patient Roster", icon: Users },
+    { key: "scheduling", label: "Scheduling", icon: CalendarClock },
+    { key: "beds", label: "Bed Management", icon: BedDouble },
+  ];
+
+  return (
+    <main className="min-h-screen bg-background">
+      <BoardHeader
+        title="Admissions Desk"
+        subtitle={`${staff.name} · ${staff.facility} — ${staff.ward}`}
+        badge="Reception"
+      />
+
+      <div className="sticky top-0 z-10 border-b border-border bg-[var(--navy)] text-white">
+        <div className="max-w-[1400px] mx-auto px-5 h-12 flex items-center gap-1">
+          {tabs.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-semibold transition ${
+                  active
+                    ? "bg-[var(--teal)] text-white shadow"
+                    : "text-white/70 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" /> {t.label}
+              </button>
+            );
+          })}
+          <div className="ml-auto text-[11px] text-white/60">
+            {bedCounts.available} / {bedCounts.total} beds open
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-4">
+        {tab === "admit" && (
+          <AdmitTab
+            facility={facility}
+            bedCounts={bedCounts}
+            onOpenForm={() => setAdmitOpen(true)}
+          />
+        )}
+        {tab === "roster" && <RosterTab facility={facility} />}
+        {tab === "scheduling" && <SchedulingTab facility={facility} />}
+        {tab === "beds" && <BedTab facility={facility} onOpenBoard={() => setBedBoardOpen(true)} />}
+      </div>
+
+      {admitOpen && (
+        <AdmitPatientModal onClose={() => setAdmitOpen(false)} onSubmit={handleAdmit} />
+      )}
+      {bedBoardOpen && (
+        <BedManagementBoard facility={facility} onClose={() => setBedBoardOpen(false)} />
+      )}
+    </main>
+  );
+}
+
+function AdmitTab({
+  facility,
+  bedCounts,
+  onOpenForm,
+}: {
+  facility: string;
+  bedCounts: { available: number; total: number };
+  onOpenForm: () => void;
+}) {
+  const full = bedCounts.available === 0 && bedCounts.total > 0;
+  return (
+    <section className="rounded-xl border border-border bg-card p-8 text-center">
+      <div className="mx-auto grid place-items-center h-12 w-12 rounded-lg bg-[var(--teal-soft)] text-[var(--teal)]">
+        <UserPlus className="h-5 w-5" />
+      </div>
+      <h2 className="mt-4 text-lg font-semibold">Register a New Admission</h2>
+      <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
+        Capture demographics, chief complaint, HPI, history, allergies, and meds. The
+        admission triggers Auto-Doc, FHIR sync, and the clinical automation pipeline.
+      </p>
+      <div className="mt-4 text-xs text-muted-foreground">
+        Facility · <span className="font-semibold text-foreground">{facility}</span>
+      </div>
+      <button
+        onClick={() => {
+          if (full) {
+            toast.error("No empty beds available", {
+              description: `${facility} is at full capacity (${bedCounts.total}/${bedCounts.total} occupied).`,
+            });
+            return;
+          }
+          onOpenForm();
+        }}
+        className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-10 text-sm font-semibold shadow-sm transition disabled:opacity-50"
+        disabled={full}
+        title={full ? "No empty beds" : undefined}
+      >
+        <UserPlus className="h-4 w-4" /> Open Admission Form
+      </button>
+    </section>
+  );
+}
+
+/* ----------------------------------------------------------------- */
+/* Patient Roster — admitted (in-progress) + recently discharged      */
+/* ----------------------------------------------------------------- */
+
+interface EncounterRow {
+  mrn: string;
+  name: string;
+  chief_complaint: string | null;
+  status: "in-progress" | "finished";
+  start: string | null;
+  end: string | null;
+  room: string | null;
+}
+
+function RosterTab({ facility }: { facility: string }) {
+  const [rows, setRows] = useState<EncounterRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<"in-progress" | "finished">("in-progress");
+
+  const load = async () => {
+    setLoading(true);
+    // Source: `patients` (the local mirror of the FHIR Encounter resource).
+    // status = 'Admitted' → FHIR Encounter.status = in-progress
+    // status = 'Discharged' → FHIR Encounter.status = finished
+    const { data } = await supabase
+      .from("patients")
+      .select("mrn, first_name, last_name, chief_complaint, status, admission_time, discharge_time, room")
+      .eq("facility_name", facility)
+      .order("admission_time", { ascending: false })
+      .limit(50);
+    const mapped: EncounterRow[] = ((data ?? []) as any[]).map((p) => ({
+      mrn: p.mrn,
+      name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
+      chief_complaint: p.chief_complaint,
+      status: (p.status ?? "").toLowerCase() === "discharged" ? "finished" : "in-progress",
+      start: p.admission_time ?? null,
+      end: p.discharge_time ?? null,
+      room: p.room ?? null,
+    }));
+    setRows(mapped);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+    const ch = supabase
+      .channel(`reception-roster-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facility]);
+
+  const filtered = rows.filter((r) => r.status === view);
+
+  return (
+    <section className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between px-5 h-12 border-b border-border bg-secondary/40">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="h-4 w-4 text-[var(--teal)]" />
+          <h2 className="text-sm font-semibold">FHIR Encounter Roster — last 50 visits</h2>
+        </div>
+        <div className="flex items-center gap-1">
+          {(
+            [
+              { k: "in-progress", label: "Admitted / Current" },
+              { k: "finished", label: "Recently Discharged" },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.k}
+              onClick={() => setView(t.k)}
+              className={`h-8 px-3 rounded-md text-xs font-semibold transition ${
+                view === t.k
+                  ? "bg-[var(--teal)] text-white"
+                  : "text-slate-600 hover:bg-secondary"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+          <button
+            onClick={load}
+            className="ml-2 inline-grid place-items-center h-8 w-8 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+            title="Refresh"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-slate-600 bg-slate-100 border-b border-slate-300">
+              <th className="px-3 py-2 font-bold">MRN</th>
+              <th className="px-3 py-2 font-bold">Patient</th>
+              <th className="px-3 py-2 font-bold">Room</th>
+              <th className="px-3 py-2 font-bold">Chief Complaint</th>
+              <th className="px-3 py-2 font-bold">Start</th>
+              <th className="px-3 py-2 font-bold">End</th>
+              <th className="px-3 py-2 font-bold">FHIR Status</th>
+              <th className="px-3 py-2 font-bold text-right pr-4">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr>
+                <td colSpan={8} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
+                    Loading encounters…
+                  </span>
+                </td>
+              </tr>
+            )}
+            {!loading && filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-5 py-16 text-center text-sm text-muted-foreground">
+                  No encounters match this filter.
+                </td>
+              </tr>
+            )}
+            {!loading &&
+              filtered.map((r, i) => (
+                <tr
+                  key={r.mrn + r.status}
+                  className={`border-b border-slate-200 hover:bg-[var(--teal-soft)]/40 transition ${i % 2 === 1 ? "bg-slate-50/60" : "bg-white"}`}
+                >
+                  <td className="px-3 py-2 font-mono text-slate-700">{r.mrn}</td>
+                  <td className="px-3 py-2 font-semibold text-slate-900">{r.name || "—"}</td>
+                  <td className="px-3 py-2 font-mono text-slate-700">{r.room ?? "—"}</td>
+                  <td className="px-3 py-2 text-slate-700">{r.chief_complaint ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">
+                    {fmtTs(r.start)}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">
+                    {fmtTs(r.end)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        r.status === "in-progress"
+                          ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
+                          : "bg-slate-100 text-slate-700 ring-1 ring-slate-300"
+                      }`}
+                    >
+                      {r.status}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right pr-4">
+                    <Link
+                      to="/patient/$mrn"
+                      params={{ mrn: r.mrn }}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 h-7 text-[11px] font-semibold text-slate-700 hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
+                    >
+                      Open Chart
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function fmtTs(ts: string | null | undefined): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+/* ----------------------------------------------------------------- */
+/* Scheduling — FHIR Appointment R4 compatible                        */
+/* ----------------------------------------------------------------- */
+
+interface AppointmentRow {
+  id: string;
+  facility_name: string;
+  patient_mrn: string | null;
+  patient_name: string;
+  practitioner_name: string | null;
+  service_type: string | null;
+  description: string | null;
+  start_time: string;
+  end_time: string;
+  status: string;
+  comment: string | null;
+}
+
+const APPT_STATUSES = ["booked", "arrived", "fulfilled", "cancelled", "noshow"] as const;
+
+function SchedulingTab({ facility }: { facility: string }) {
+  const [rows, setRows] = useState<AppointmentRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await (supabase as any)
+      .from("fhir_appointments")
+      .select("*")
+      .eq("facility_name", facility)
+      .order("start_time", { ascending: true })
+      .limit(100);
+    if (error) toast.error("Could not load appointments", { description: error.message });
+    setRows((data ?? []) as AppointmentRow[]);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+    const ch = supabase
+      .channel(`reception-appts-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "fhir_appointments", filter: `facility_name=eq.${facility}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facility]);
+
+  const updateStatus = async (id: string, status: string) => {
+    const { error } = await (supabase as any)
+      .from("fhir_appointments")
+      .update({ status })
+      .eq("id", id);
+    if (error) toast.error("Update failed", { description: error.message });
+    else toast.success(`Appointment marked ${status}`);
+  };
+
+  const upcoming = useMemo(() => rows.filter((r) => !["fulfilled", "cancelled", "noshow"].includes(r.status)), [rows]);
+  const past = useMemo(() => rows.filter((r) => ["fulfilled", "cancelled", "noshow"].includes(r.status)), [rows]);
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 h-12 border-b border-border bg-secondary/40">
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-[var(--teal)]" />
+            <h2 className="text-sm font-semibold">Upcoming Appointments — FHIR Appointment R4</h2>
+          </div>
+          <button
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold"
+          >
+            <Plus className="h-3.5 w-3.5" /> Book Appointment
+          </button>
+        </div>
+        <AppointmentTable rows={upcoming} loading={loading} onUpdateStatus={updateStatus} showActions />
+      </section>
+
+      <section className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center px-5 h-12 border-b border-border bg-secondary/40">
+          <CheckCircle2 className="h-4 w-4 text-slate-500 mr-2" />
+          <h2 className="text-sm font-semibold">Completed / Cancelled</h2>
+        </div>
+        <AppointmentTable rows={past} loading={loading} onUpdateStatus={updateStatus} />
+      </section>
+
+      {open && (
+        <BookAppointmentModal
+          facility={facility}
+          onClose={() => setOpen(false)}
+          onCreated={() => {
+            setOpen(false);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AppointmentTable({
+  rows,
+  loading,
+  onUpdateStatus,
+  showActions,
+}: {
+  rows: AppointmentRow[];
+  loading: boolean;
+  onUpdateStatus: (id: string, status: string) => void;
+  showActions?: boolean;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[12.5px]">
+        <thead>
+          <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-slate-600 bg-slate-100 border-b border-slate-300">
+            <th className="px-3 py-2 font-bold">Start</th>
+            <th className="px-3 py-2 font-bold">End</th>
+            <th className="px-3 py-2 font-bold">Patient</th>
+            <th className="px-3 py-2 font-bold">Practitioner</th>
+            <th className="px-3 py-2 font-bold">Service / Reason</th>
+            <th className="px-3 py-2 font-bold">Status</th>
+            {showActions && <th className="px-3 py-2 font-bold text-right pr-4">Action</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {loading && (
+            <tr>
+              <td colSpan={showActions ? 7 : 6} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" /> Loading…
+                </span>
+              </td>
+            </tr>
+          )}
+          {!loading && rows.length === 0 && (
+            <tr>
+              <td colSpan={showActions ? 7 : 6} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                No appointments.
+              </td>
+            </tr>
+          )}
+          {!loading &&
+            rows.map((r, i) => (
+              <tr key={r.id} className={`border-b border-slate-200 ${i % 2 === 1 ? "bg-slate-50/60" : "bg-white"}`}>
+                <td className="px-3 py-2 font-mono text-[11.5px] text-slate-700 whitespace-nowrap">{fmtTs(r.start_time)}</td>
+                <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">{fmtTs(r.end_time)}</td>
+                <td className="px-3 py-2">
+                  <div className="font-semibold text-slate-900">{r.patient_name}</div>
+                  {r.patient_mrn && <div className="font-mono text-[11px] text-slate-500">{r.patient_mrn}</div>}
+                </td>
+                <td className="px-3 py-2 text-slate-700">{r.practitioner_name ?? "—"}</td>
+                <td className="px-3 py-2 text-slate-700">
+                  <div className="font-medium">{r.service_type ?? "—"}</div>
+                  {r.description && <div className="text-[11px] text-slate-500">{r.description}</div>}
+                </td>
+                <td className="px-3 py-2">
+                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 ring-1 ring-slate-300">
+                    {r.status}
+                  </span>
+                </td>
+                {showActions && (
+                  <td className="px-3 py-2 text-right pr-4">
+                    <select
+                      value={r.status}
+                      onChange={(e) => onUpdateStatus(r.id, e.target.value)}
+                      className="h-7 rounded-md border border-slate-300 bg-white text-[11px] px-2"
+                    >
+                      {APPT_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                )}
+              </tr>
+            ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function BookAppointmentModal({
+  facility,
+  onClose,
+  onCreated,
+}: {
+  facility: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const nowLocal = (() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  })();
+  const [form, setForm] = useState({
+    patient_name: "",
+    patient_mrn: "",
+    practitioner_name: "",
+    service_type: "Outpatient Visit",
+    description: "",
+    start_time: nowLocal,
+    end_time: nowLocal,
+    status: "booked",
+    comment: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.patient_name.trim()) {
+      toast.error("Patient name is required");
+      return;
+    }
+    if (!form.start_time || !form.end_time) {
+      toast.error("Start and end times are required");
+      return;
+    }
+    setSubmitting(true);
+    const { error } = await (supabase as any).from("fhir_appointments").insert({
+      facility_name: facility,
+      patient_name: form.patient_name.trim(),
+      patient_mrn: form.patient_mrn.trim() || null,
+      practitioner_name: form.practitioner_name.trim() || null,
+      service_type: form.service_type.trim() || null,
+      description: form.description.trim() || null,
+      start_time: new Date(form.start_time).toISOString(),
+      end_time: new Date(form.end_time).toISOString(),
+      status: form.status,
+      comment: form.comment.trim() || null,
+    });
+    setSubmitting(false);
+    if (error) {
+      toast.error("Could not book appointment", { description: error.message });
+      return;
+    }
+    toast.success("Appointment booked");
+    onCreated();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--navy)]/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <form
+        onSubmit={submit}
+        className="w-full max-w-xl rounded-xl bg-card border border-border shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 h-12 bg-[var(--navy)] text-white">
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-[var(--teal)]" />
+            <h2 className="text-sm font-semibold">Book Appointment · FHIR Appointment R4</h2>
+          </div>
+          <button type="button" onClick={onClose} className="grid place-items-center h-7 w-7 rounded-md hover:bg-white/10">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-5 grid grid-cols-12 gap-3 text-sm">
+          <FormField label="Patient Name *" className="col-span-7">
+            <input
+              value={form.patient_name}
+              onChange={(e) => setForm({ ...form, patient_name: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+              placeholder="John Doe"
+            />
+          </FormField>
+          <FormField label="Patient MRN" className="col-span-5">
+            <input
+              value={form.patient_mrn}
+              onChange={(e) => setForm({ ...form, patient_mrn: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+              placeholder="MRN-482910"
+            />
+          </FormField>
+          <FormField label="Practitioner / CareTeam" className="col-span-7">
+            <input
+              value={form.practitioner_name}
+              onChange={(e) => setForm({ ...form, practitioner_name: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+              placeholder="Dr. Robert Patel"
+            />
+          </FormField>
+          <FormField label="Service Type" className="col-span-5">
+            <input
+              value={form.service_type}
+              onChange={(e) => setForm({ ...form, service_type: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+              placeholder="Outpatient Visit"
+            />
+          </FormField>
+          <FormField label="Start" className="col-span-6">
+            <input
+              type="datetime-local"
+              value={form.start_time}
+              onChange={(e) => setForm({ ...form, start_time: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+            />
+          </FormField>
+          <FormField label="End" className="col-span-6">
+            <input
+              type="datetime-local"
+              value={form.end_time}
+              onChange={(e) => setForm({ ...form, end_time: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+            />
+          </FormField>
+          <FormField label="Status" className="col-span-6">
+            <select
+              value={form.status}
+              onChange={(e) => setForm({ ...form, status: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+            >
+              {APPT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="Description / Reason" className="col-span-12">
+            <input
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+              placeholder="Annual physical, follow-up, etc."
+            />
+          </FormField>
+          <FormField label="Comment" className="col-span-12">
+            <textarea
+              value={form.comment}
+              onChange={(e) => setForm({ ...form, comment: e.target.value })}
+              rows={2}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+            />
+          </FormField>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-secondary/30">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-border bg-background px-3 h-9 text-xs font-medium hover:bg-secondary"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-9 text-xs font-semibold shadow-sm disabled:opacity-60"
+          >
+            {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            Book Appointment
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function FormField({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={`flex flex-col gap-1.5 ${className ?? ""}`}>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+/* ----------------------------------------------------------------- */
+/* Bed Management — shared with the Nurse Dashboard                   */
+/* ----------------------------------------------------------------- */
+
+function BedTab({ facility, onOpenBoard }: { facility: string; onOpenBoard: () => void }) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-8 text-center">
+      <div className="mx-auto grid place-items-center h-12 w-12 rounded-lg bg-[var(--teal-soft)] text-[var(--teal)]">
+        <BedDouble className="h-5 w-5" />
+      </div>
+      <h2 className="mt-4 text-lg font-semibold">Floor Bed Allocation — {facility}</h2>
+      <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
+        Shared bed board (FHIR Location resource). Bed assignments made here are visible to
+        nurses in real time and vice versa.
+      </p>
+      <button
+        onClick={onOpenBoard}
+        className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-10 text-sm font-semibold shadow-sm"
+      >
+        <BedDouble className="h-4 w-4" /> Open Bed Board
+      </button>
+    </section>
+  );
+}

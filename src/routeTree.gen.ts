@@ -17,6 +17,7 @@ import { Route as NursingBoardRouteImport } from './routes/nursing-board'
 import { Route as LabBoardRouteImport } from './routes/lab-board'
 import { Route as FinanceBoardRouteImport } from './routes/finance-board'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as AdmissionsBoardRouteImport } from './routes/admissions-board'
 import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
@@ -64,6 +65,11 @@ const AnalyticsRoute = AnalyticsRouteImport.update({
   path: '/analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdmissionsBoardRoute = AdmissionsBoardRouteImport.update({
+  id: '/admissions-board',
+  path: '/admissions-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminDashboardRoute = AdminDashboardRouteImport.update({
   id: '/admin-dashboard',
   path: '/admin-dashboard',
@@ -98,6 +104,7 @@ const ApiPublicHooksAutoDocRoute = ApiPublicHooksAutoDocRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
+  '/admissions-board': typeof AdmissionsBoardRoute
   '/analytics': typeof AnalyticsRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
+  '/admissions-board': typeof AdmissionsBoardRoute
   '/analytics': typeof AnalyticsRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
@@ -131,6 +139,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
+  '/admissions-board': typeof AdmissionsBoardRoute
   '/analytics': typeof AnalyticsRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
@@ -149,6 +158,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin-dashboard'
+    | '/admissions-board'
     | '/analytics'
     | '/finance-board'
     | '/lab-board'
@@ -165,6 +175,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin-dashboard'
+    | '/admissions-board'
     | '/analytics'
     | '/finance-board'
     | '/lab-board'
@@ -181,6 +192,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin-dashboard'
+    | '/admissions-board'
     | '/analytics'
     | '/finance-board'
     | '/lab-board'
@@ -198,6 +210,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminDashboardRoute: typeof AdminDashboardRoute
+  AdmissionsBoardRoute: typeof AdmissionsBoardRoute
   AnalyticsRoute: typeof AnalyticsRoute
   FinanceBoardRoute: typeof FinanceBoardRoute
   LabBoardRoute: typeof LabBoardRoute
@@ -270,6 +283,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyticsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admissions-board': {
+      id: '/admissions-board'
+      path: '/admissions-board'
+      fullPath: '/admissions-board'
+      preLoaderRoute: typeof AdmissionsBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin-dashboard': {
       id: '/admin-dashboard'
       path: '/admin-dashboard'
@@ -318,6 +338,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminDashboardRoute: AdminDashboardRoute,
+  AdmissionsBoardRoute: AdmissionsBoardRoute,
   AnalyticsRoute: AnalyticsRoute,
   FinanceBoardRoute: FinanceBoardRoute,
   LabBoardRoute: LabBoardRoute,
