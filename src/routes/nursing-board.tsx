@@ -680,7 +680,6 @@ function Dashboard() {
     day: "numeric",
   });
 
-  const handleAdmit = async (input: AdmitInput) => {
   const handleDischarge = async (p: PatientRow) => {
     const prev = patients;
     setPatients((curr) => curr.filter((x) => x.mrn !== p.mrn));
