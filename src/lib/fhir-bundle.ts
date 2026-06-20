@@ -635,17 +635,9 @@ export function buildEncounterBundle(opts: {
   const requestFor = (r: any): { method: string; url: string } => {
     switch (r.resourceType) {
       case "Patient":
-        return {
-          method: "PUT",
-          url: `Patient?identifier=urn:spehr:mrn|${patient.mrn}`,
-        };
-      case "Encounter": {
-        const ident = r.identifier?.[0];
-        const value = ident?.value ?? r.id;
-        const system = ident?.system;
-        const q = system ? `${system}|${value}` : value;
-        return { method: "PUT", url: `Encounter?identifier=${q}` };
-      }
+        return { method: "PUT", url: `Patient/${r.id}` };
+      case "Encounter":
+        return { method: "PUT", url: `Encounter/${r.id}` };
       default:
         return { method: "POST", url: r.resourceType };
     }
