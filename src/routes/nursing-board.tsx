@@ -350,6 +350,27 @@ function safeDob(rawDob: string | null | undefined, age: number): string {
   const years = Number.isFinite(age) ? Math.max(0, Math.min(120, Math.floor(age))) : 0;
   const d = new Date();
   d.setFullYear(d.getFullYear() - years);
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtAdmitted(ts: string | null | undefined): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${String(d.getFullYear()).slice(-2)} - ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function Dashboard() {
+  const navigate = useNavigate();
+  const { facility } = useFacility();
+  const nurse = useActiveNurse();
+  const [email, setEmail] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [now, setNow] = useState(new Date());
+  const [query, setQuery] = useState("");
+  const [patients, setPatients] = useState<PatientRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
