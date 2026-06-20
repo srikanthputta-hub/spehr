@@ -91,7 +91,7 @@ function LoginScreen() {
       {/* top bar */}
       <header className="relative flex items-center justify-between px-6 sm:px-10 py-5 border-b border-white/5">
         <div className="flex items-center gap-3">
-          <img src={spehrLogo.url} alt="S.P.E.H.R." className="h-10 w-auto" />
+          <img src={spehrLogo.url} alt="S Group Private Network" className="h-10 w-auto" />
           <div className="leading-tight">
             <div className="text-[10px] uppercase tracking-[0.28em] text-slate-400">
               S Group
@@ -116,7 +116,7 @@ function LoginScreen() {
       {/* centered login */}
       <section className="relative px-6 sm:px-10 py-10 max-w-md mx-auto">
         <div className="flex justify-center mb-8">
-          <img src={spehrLogo.url} alt="S.P.E.H.R." className="h-40 w-auto scale-125" />
+          <img src={spehrLogo.url} alt="S Group Private Network" className="h-40 w-auto scale-125" />
         </div>
         <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-8 shadow-2xl shadow-black/40 backdrop-blur-sm">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
