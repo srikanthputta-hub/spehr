@@ -45,8 +45,8 @@ export function BoardHeader({
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
       <div className="flex items-center gap-3">
-        <Link to="/" className="grid place-items-center h-9 w-9 rounded-md bg-[#0c2340] text-white">
-          <HeartPulse className="h-4 w-4" />
+        <Link to="/" className="flex items-center">
+          <img src={spehrLogo.url} alt="S.P.E.H.R." className="h-8 w-auto" />
         </Link>
         <div className="leading-tight">
           <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">
