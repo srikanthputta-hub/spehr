@@ -319,10 +319,11 @@ function buildHpiCondition(p: AdmissionPatient, patientId: string, encounterId: 
 }
 
 function buildPmhConditions(p: AdmissionPatient, patientId: string) {
-  const items = [
-    ...splitList(p.past_medical_history).map((t) => ({ text: t, kind: "problem-list-item" as const, status: "active" as const })),
-    ...splitList(p.past_surgical_history).map((t) => ({ text: t, kind: "problem-list-item" as const, status: "resolved" as const, note: "Past surgical" })),
-    ...splitList(p.past_hospitalizations).map((t) => ({ text: t, kind: "encounter-diagnosis" as const, status: "resolved" as const, note: "Prior hospitalization" })),
+  type PmhItem = { text: string; kind: "problem-list-item" | "encounter-diagnosis"; status: "active" | "resolved"; note?: string };
+  const items: PmhItem[] = [
+    ...splitList(p.past_medical_history).map((t): PmhItem => ({ text: t, kind: "problem-list-item", status: "active" })),
+    ...splitList(p.past_surgical_history).map((t): PmhItem => ({ text: t, kind: "problem-list-item", status: "resolved", note: "Past surgical" })),
+    ...splitList(p.past_hospitalizations).map((t): PmhItem => ({ text: t, kind: "encounter-diagnosis", status: "resolved", note: "Prior hospitalization" })),
   ];
   return items.map((item) => ({
     id: uuid(),
