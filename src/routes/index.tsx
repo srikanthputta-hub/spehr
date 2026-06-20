@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FACILITIES, useFacility, STAFF_BY_FACILITY, type StaffRole } from "@/lib/facility-context";
+import spehrLogo from "@/assets/spehr-logo.png.asset.json";
 
 export const Route = createFileRoute("/")({
   head: () => ({
