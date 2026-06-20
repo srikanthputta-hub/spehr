@@ -124,6 +124,10 @@ function uuid() {
   return "uuid-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+function fhirId(prefix: string, value: string) {
+  return `${prefix}-${value}`.replace(/[^A-Za-z0-9-.]/g, "-").slice(0, 64);
+}
+
 function urn(id: string) {
   return `urn:uuid:${id}`;
 }
@@ -418,8 +422,8 @@ function entryFor(fullUrl: string, resource: AnyRecord) {
 }
 
 export function buildAdmissionTransactionBundle(p: AdmissionPatient) {
-  const patientId = uuid();
-  const encounterId = uuid();
+  const patientId = fhirId("patient", p.mrn);
+  const encounterId = fhirId("encounter", p.mrn);
 
   const patient = buildPatient(p, patientId);
   const encounter = buildEncounter(p, patientId, encounterId);
@@ -565,8 +569,8 @@ export function buildDischargeTransactionBundle(opts: {
   conditionAtDischarge?: string;
 }) {
   const { patient: p } = opts;
-  const patientId = uuid();
-  const encounterId = uuid();
+  const patientId = fhirId("patient", p.mrn);
+  const encounterId = fhirId("encounter", p.mrn);
   const compositionId = uuid();
 
   const patient = buildPatient(p, patientId);
