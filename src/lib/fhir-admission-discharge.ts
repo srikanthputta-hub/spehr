@@ -124,6 +124,10 @@ function uuid() {
   return "uuid-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+function fhirId(prefix: string, value: string) {
+  return `${prefix}-${value}`.replace(/[^A-Za-z0-9-.]/g, "-").slice(0, 64);
+}
+
 function urn(id: string) {
   return `urn:uuid:${id}`;
 }
@@ -168,6 +172,7 @@ function buildPatient(p: AdmissionPatient, id: string) {
   const name = fullName(p);
   const res: AnyRecord = {
     resourceType: "Patient",
+    id,
     identifier: [
       { use: "official", system: "urn:spehr:mrn", value: p.mrn },
     ],
@@ -272,6 +277,7 @@ function buildEncounter(p: AdmissionPatient, patientId: string, id: string) {
   const isFinished = (p.status ?? "").toLowerCase() === "discharged" || !!p.discharge_time;
   return {
     resourceType: "Encounter",
+    id,
     identifier: [{ system: "urn:spehr:encounter", value: `enc-${p.mrn}` }],
     status: isFinished ? "finished" : "in-progress",
     class: { system: HL7.V3_ACT_CODE, code: "EMER", display: "Emergency" },
@@ -408,18 +414,16 @@ function entryFor(fullUrl: string, resource: AnyRecord) {
   const rt = resource.resourceType as string;
   let request: { method: string; url: string } = { method: "POST", url: rt };
   if (rt === "Patient") {
-    const ident = (resource.identifier as Array<{ system?: string; value?: string }> | undefined)?.[0];
-    if (ident?.value) request = { method: "PUT", url: `Patient?identifier=${ident.system ?? "urn:spehr:mrn"}|${ident.value}` };
+    request = { method: "PUT", url: `Patient/${resource.id}` };
   } else if (rt === "Encounter") {
-    const ident = (resource.identifier as Array<{ system?: string; value?: string }> | undefined)?.[0];
-    if (ident?.value) request = { method: "PUT", url: `Encounter?identifier=${ident.system ?? "urn:spehr:encounter"}|${ident.value}` };
+    request = { method: "PUT", url: `Encounter/${resource.id}` };
   }
   return { fullUrl, resource, request };
 }
 
 export function buildAdmissionTransactionBundle(p: AdmissionPatient) {
-  const patientId = uuid();
-  const encounterId = uuid();
+  const patientId = fhirId("patient", p.mrn);
+  const encounterId = fhirId("encounter", p.mrn);
 
   const patient = buildPatient(p, patientId);
   const encounter = buildEncounter(p, patientId, encounterId);
@@ -565,8 +569,8 @@ export function buildDischargeTransactionBundle(opts: {
   conditionAtDischarge?: string;
 }) {
   const { patient: p } = opts;
-  const patientId = uuid();
-  const encounterId = uuid();
+  const patientId = fhirId("patient", p.mrn);
+  const encounterId = fhirId("encounter", p.mrn);
   const compositionId = uuid();
 
   const patient = buildPatient(p, patientId);
