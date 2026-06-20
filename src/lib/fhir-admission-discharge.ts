@@ -168,7 +168,6 @@ function buildPatient(p: AdmissionPatient, id: string) {
   const name = fullName(p);
   const res: AnyRecord = {
     resourceType: "Patient",
-    id,
     identifier: [
       { use: "official", system: "urn:spehr:mrn", value: p.mrn },
     ],
@@ -273,7 +272,6 @@ function buildEncounter(p: AdmissionPatient, patientId: string, id: string) {
   const isFinished = (p.status ?? "").toLowerCase() === "discharged" || !!p.discharge_time;
   return {
     resourceType: "Encounter",
-    id,
     identifier: [{ system: "urn:spehr:encounter", value: `enc-${p.mrn}` }],
     status: isFinished ? "finished" : "in-progress",
     class: { system: HL7.V3_ACT_CODE, code: "EMER", display: "Emergency" },
