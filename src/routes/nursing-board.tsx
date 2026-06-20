@@ -694,6 +694,7 @@ function Dashboard() {
             <div className="text-sm font-semibold tracking-tight">{clock}</div>
             <div className="text-[10px] uppercase tracking-wider text-white/55">{dateStr}</div>
           </div>
+        </div>
       </div>
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-6">
