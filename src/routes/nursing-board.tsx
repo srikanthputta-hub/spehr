@@ -10,33 +10,14 @@ import {
   BedDouble,
   ChevronRight,
   Activity,
-  UserPlus,
   X,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { type CodeStatus } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
-import { seedAdmission } from "@/hooks/useAIAutomation";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
-import { analyzeNarrative, loadDictionary, saveAudit, type NlpResult } from "@/lib/nlp-engine";
-import { Sparkles, Wand2, ChevronDown, Plus } from "lucide-react";
-import {
-  autoFillIntake,
-  blankIntake,
-  intakeToSoap,
-  saveIntake,
-  CHRONIC_OPTIONS,
-  CHARACTER_OPTIONS,
-  FAMILY_OPTIONS,
-  ENV_ALLERGY_OPTIONS,
-  RELATIONSHIP_OPTIONS,
-  SEX_OPTIONS,
-  GENDER_IDENTITY_OPTIONS,
-  DURATION_OPTIONS,
-  type IntakeRecord,
-} from "@/lib/intake-record";
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
