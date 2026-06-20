@@ -421,6 +421,54 @@ export type Database = {
         }
         Relationships: []
       }
+      fhir_appointments: {
+        Row: {
+          comment: string | null
+          created_at: string
+          description: string | null
+          end_time: string
+          facility_name: string
+          id: string
+          patient_mrn: string | null
+          patient_name: string
+          practitioner_name: string | null
+          service_type: string | null
+          start_time: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          description?: string | null
+          end_time: string
+          facility_name: string
+          id?: string
+          patient_mrn?: string | null
+          patient_name: string
+          practitioner_name?: string | null
+          service_type?: string | null
+          start_time: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          description?: string | null
+          end_time?: string
+          facility_name?: string
+          id?: string
+          patient_mrn?: string | null
+          patient_name?: string
+          practitioner_name?: string | null
+          service_type?: string | null
+          start_time?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       fhir_medication_requests: {
         Row: {
           author_id: string | null
