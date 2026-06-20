@@ -331,28 +331,6 @@ function toRow(p: any): PatientRow {
   };
 }
 
-function genMRN() {
-  return `MRN-${Math.floor(100000 + Math.random() * 900000)}`;
-}
-
-function normalizeFhirGender(
-  value: string | null | undefined,
-): "male" | "female" | "other" | "unknown" {
-  const raw = (value ?? "").toString().trim().toLowerCase();
-  if (raw === "m" || raw === "male" || raw === "man") return "male";
-  if (raw === "f" || raw === "female" || raw === "woman") return "female";
-  if (raw === "o" || raw === "other" || raw === "non-binary" || raw === "nonbinary") return "other";
-  return "unknown";
-}
-
-function safeDob(rawDob: string | null | undefined, age: number): string {
-  if (rawDob && /^\d{4}-\d{2}-\d{2}$/.test(rawDob)) return rawDob;
-  const years = Number.isFinite(age) ? Math.max(0, Math.min(120, Math.floor(age))) : 0;
-  const d = new Date();
-  d.setFullYear(d.getFullYear() - years);
-  return d.toISOString().slice(0, 10);
-}
-
 function fmtAdmitted(ts: string | null | undefined): string {
   if (!ts) return "—";
   const d = new Date(ts);
