@@ -30,8 +30,6 @@ function AdmissionsBoard() {
   const { facility } = useFacility();
   const staff = useActiveStaff("Reception");
   const [tab, setTab] = useState<TabKey>("admit");
-  const [admitOpen, setAdmitOpen] = useState(false);
-  const [bedBoardOpen, setBedBoardOpen] = useState(false);
   const [bedCounts, setBedCounts] = useState({ available: 0, total: 0 });
 
   useEffect(() => {
@@ -76,6 +74,7 @@ function AdmissionsBoard() {
     toast.success("Patient admitted", {
       description: `${res.patient.first_name} ${res.patient.last_name} · ${res.patient.mrn}`,
     });
+    setTab("roster");
     return true;
   };
 
@@ -121,23 +120,14 @@ function AdmissionsBoard() {
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-4">
         {tab === "admit" && (
-          <AdmitTab
-            facility={facility}
-            bedCounts={bedCounts}
-            onOpenForm={() => setAdmitOpen(true)}
-          />
+          <AdmitPatientModal onClose={() => setTab("roster")} onSubmit={handleAdmit} />
         )}
         {tab === "roster" && <RosterTab facility={facility} />}
         {tab === "scheduling" && <SchedulingTab facility={facility} />}
-        {tab === "beds" && <BedTab facility={facility} onOpenBoard={() => setBedBoardOpen(true)} />}
+        {tab === "beds" && (
+          <BedManagementBoard facility={facility} onClose={() => setTab("roster")} />
+        )}
       </div>
-
-      {admitOpen && (
-        <AdmitPatientModal onClose={() => setAdmitOpen(false)} onSubmit={handleAdmit} />
-      )}
-      {bedBoardOpen && (
-        <BedManagementBoard facility={facility} onClose={() => setBedBoardOpen(false)} />
-      )}
     </main>
   );
 }
