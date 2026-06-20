@@ -115,8 +115,8 @@ function LoginScreen() {
 
       {/* centered login */}
       <section className="relative px-6 sm:px-10 py-10 max-w-md mx-auto">
-        <div className="flex justify-center pb-8">
-          <img src={spehrLogo.url} alt="S.P.E.H.R." className="h-24 w-auto" />
+        <div className="flex justify-center mb-8">
+          <img src={spehrLogo.url} alt="S.P.E.H.R." className="h-40 w-auto scale-125" />
         </div>
         <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-8 shadow-2xl shadow-black/40 backdrop-blur-sm">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
