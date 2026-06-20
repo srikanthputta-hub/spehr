@@ -12,6 +12,8 @@ import appCss from "../styles.css?url";
 import { FacilityProvider } from "@/lib/facility-context";
 import { useAIAutomation } from "@/hooks/useAIAutomation";
 import { useAutomationWatchdog } from "@/hooks/useAutomationWatchdog";
+import { startLocalGcSweeper } from "@/lib/local-gc";
+import { useEffect } from "react";
 
 function NotFoundComponent() {
   return (
@@ -119,6 +121,7 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   useAIAutomation();
   useAutomationWatchdog();
+  useEffect(() => { startLocalGcSweeper(); }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
