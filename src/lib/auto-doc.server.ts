@@ -10,6 +10,13 @@ import {
   type ConditionTemplate,
 } from "./auto-doc-catalog";
 import { routeDepartment, type Department } from "./chief-complaints";
+import {
+  buildAdmissionTransactionBundle,
+  buildDischargeTransactionBundle,
+  type AdmissionPatient,
+  type DischargeLab,
+  type DischargeMed,
+} from "./fhir-admission-discharge";
 
 export function admin() {
   const url = process.env.SUPABASE_URL!;
@@ -290,7 +297,26 @@ export async function runAutoDocPipeline(mrn: string) {
 
   // STAGE: fhir (recorded; existing FHIR sync pipeline picks up the rows)
   await setRunStage(mrn, "fhir");
-  await log(mrn, "fhir", "FHIR R4 transaction Bundle generated (Patient, Encounter, Condition, Observation, MedicationRequest, DiagnosticReport, Composition)");
+  try {
+    const admission = buildAdmissionTransactionBundle(p as AdmissionPatient);
+    await sb.rpc("persist_fhir_resource" as never, {
+      _resource_type: "Bundle",
+      _resource_id: `admission-${mrn}`,
+      _mrn: mrn,
+      _payload: admission.bundle as never,
+      _source: "auto-doc:admission",
+      _origin: "automation",
+      _author_id: "auto-doc",
+    } as never);
+    const pushed = await pushBundle(admission.bundle, mrn);
+    await log(mrn, "fhir", "Admission transaction Bundle pushed to Medblocks", {
+      entries: admission.bundle.entry?.length ?? 0,
+      pushed: pushed.ok,
+      status: pushed.status,
+    });
+  } catch (e) {
+    await log(mrn, "fhir", `Admission Bundle build/push failed: ${(e as Error).message}`, null, "warn");
+  }
 
   // STAGE: discharge
   await setRunStage(mrn, "discharge");
@@ -304,7 +330,97 @@ export async function runAutoDocPipeline(mrn: string) {
     .eq("mrn", mrn);
   await log(mrn, "discharge", "Discharge summary authored and saved on patient chart");
 
+  try {
+    const [{ data: labRows }, { data: medRows }] = await Promise.all([
+      sb.from("lab_orders").select("id,test_type,result_value,collected_at").eq("patient_mrn", mrn).limit(50),
+      sb.from("medication_orders").select("id,drug,drug_name,medication_name,dose,route,frequency,ordering_physician,status").eq("patient_mrn", mrn).limit(50),
+    ]);
+    const labs: DischargeLab[] = (labRows ?? []).map((l: any, idx) => ({
+      id: l.id,
+      test_name: l.test_type ?? "Lab",
+      test_type: l.test_type ?? undefined,
+      result_value: l.result_value ?? undefined,
+      loinc: labCodesFinal[idx] ?? labCodesFinal[0],
+      collected_at: l.collected_at ?? undefined,
+      performing_lab: "SPEHR Central Laboratory",
+      flag: typeof l.result_value === "string" && /CRITICAL|HIGH/i.test(l.result_value) ? "HIGH" : undefined,
+    }));
+    const meds: DischargeMed[] = (medRows ?? []).map((m: any, idx) => ({
+      id: m.id,
+      drug: m.drug ?? m.drug_name ?? m.medication_name ?? "medication",
+      dose: m.dose ?? undefined,
+      route: m.route ?? "PO",
+      frequency: m.frequency ?? "Daily",
+      rxnorm: medCodesFinal[idx] ?? medCodesFinal[0],
+      status: m.status ?? "active",
+      ordering_physician: m.ordering_physician ?? "Auto Doc Attending",
+    }));
+    const discharge = buildDischargeTransactionBundle({
+      patient: { ...(p as AdmissionPatient), discharge_summary: tpl.discharge, diagnosis: tpl.condition },
+      labs,
+      dischargeMeds: meds,
+      hospitalCourse: tpl.discharge,
+      admittingDiagnosis: tpl.condition,
+      dischargeDiagnosis: tpl.condition,
+      conditionAtDischarge: "Stable, improved.",
+      diet: "Regular as tolerated",
+      activity: "Activity as tolerated",
+      followUp: p.primary_care_physician ? `Follow up with ${p.primary_care_physician} within 7 days.` : "Follow up with PCP within 7 days.",
+      returnPrecautions: "Return for worsening symptoms, chest pain, shortness of breath, fever > 101.5°F, or new neurological deficits.",
+      patientEducation: `Patient educated on ${tpl.condition} diagnosis, medication adherence and follow-up plan.`,
+      physicalExam: {
+        general: "Awake, alert, in no acute distress on admission.",
+        cardiovascular: "Regular rate and rhythm, no murmurs.",
+        pulmonary: "Clear to auscultation bilaterally.",
+        abdomen: "Soft, non-tender, non-distended.",
+        neurologic: "Alert and oriented x3, no focal deficits.",
+      },
+    });
+    await sb.rpc("persist_fhir_resource" as never, {
+      _resource_type: "Bundle",
+      _resource_id: `discharge-${mrn}`,
+      _mrn: mrn,
+      _payload: discharge.bundle as never,
+      _source: "auto-doc:discharge",
+      _origin: "automation",
+      _author_id: "auto-doc",
+    } as never);
+    const pushed = await pushBundle(discharge.bundle, mrn);
+    await log(mrn, "discharge", "Discharge Composition + transaction Bundle pushed to Medblocks", {
+      entries: discharge.bundle.entry?.length ?? 0,
+      pushed: pushed.ok,
+      status: pushed.status,
+    });
+  } catch (e) {
+    await log(mrn, "discharge", `Discharge Bundle build/push failed: ${(e as Error).message}`, null, "warn");
+  }
+
   await setRunStage(mrn, "complete");
   await log(mrn, "complete", `Auto Doc episode complete for MRN-${mrn} (${tpl.condition})`);
   return { ok: true, department, condition: tpl.condition };
+}
+
+/* ---------------- FHIR push helper ---------------- */
+
+async function pushBundle(bundle: unknown, mrn: string): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const url = process.env.FHIR_SERVER_URL;
+  const token = process.env.FHIR_BEARER_TOKEN;
+  if (!url || !token) {
+    console.warn("[auto-doc] FHIR endpoint not configured; bundle persisted locally only", { mrn });
+    return { ok: false, error: "FHIR endpoint not configured" };
+  }
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/fhir+json",
+        Accept: "application/fhir+json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(bundle),
+    });
+    return { ok: r.ok, status: r.status };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
 }
