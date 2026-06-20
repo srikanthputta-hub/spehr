@@ -3,6 +3,8 @@ import { HeartPulse, LogOut, Construction, Users, Hand, Zap } from "lucide-react
 import { supabase } from "@/integrations/supabase/client";
 import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import spehrLogo from "@/assets/spehr-logo.png.asset.json";
+
 import {
   DropdownMenu,
   DropdownMenuTrigger,
