@@ -1844,6 +1844,7 @@ export type Database = {
         }
         Returns: string
       }
+      purge_expired_local_cache: { Args: never; Returns: Json }
       text_to_bytea: { Args: { data: string }; Returns: string }
       urlencode:
         | { Args: { data: Json }; Returns: string }
