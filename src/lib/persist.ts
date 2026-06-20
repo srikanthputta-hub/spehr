@@ -118,15 +118,16 @@ export async function persistFhirResource(input: {
   origin?: ProvenanceOrigin;
   authorId?: string | null;
 }) {
-  const { data, error } = await supabase.rpc("persist_fhir_resource", {
+  const args = {
     _resource_type: input.resourceType,
-    _resource_id: input.resourceId ?? undefined,
-    _mrn: input.mrn ?? undefined,
-    _payload: input.payload as never,
+    _resource_id: input.resourceId ?? "",
+    _mrn: input.mrn ?? "",
+    _payload: input.payload,
     _source: input.source ?? "app",
     _origin: input.origin ?? "automation",
-    _author_id: input.authorId ?? undefined,
-  });
+    _author_id: input.authorId ?? "",
+  } as never;
+  const { data, error } = await supabase.rpc("persist_fhir_resource", args);
   if (error) {
     await recordOutbox("fhir_resources", "UPSERT", input, { origin: input.origin, authorId: input.authorId }, error.message);
     return { data: null, error };
