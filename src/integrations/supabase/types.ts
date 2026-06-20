@@ -16,6 +16,9 @@ export type Database = {
     Tables: {
       allergies: {
         Row: {
+          author_id: string | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           logged_at: string | null
           mrn: string | null
@@ -23,8 +26,12 @@ export type Database = {
           severity: string | null
           status: string | null
           substance: string
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           logged_at?: string | null
           mrn?: string | null
@@ -32,8 +39,12 @@ export type Database = {
           severity?: string | null
           status?: string | null
           substance: string
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           logged_at?: string | null
           mrn?: string | null
@@ -41,6 +52,7 @@ export type Database = {
           severity?: string | null
           status?: string | null
           substance?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -75,37 +87,49 @@ export type Database = {
       }
       auto_doc_logs: {
         Row: {
+          author_id: string | null
           created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           level: string
           message: string
           meta: Json | null
           mrn: string
           stage: string
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           level?: string
           message: string
           meta?: Json | null
           mrn: string
           stage: string
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           level?: string
           message?: string
           meta?: Json | null
           mrn?: string
           stage?: string
+          updated_at?: string
         }
         Relationships: []
       }
       auto_doc_runs: {
         Row: {
+          author_id: string | null
           completed_at: string | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           department: string | null
           error: string | null
           mrn: string
@@ -115,7 +139,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          author_id?: string | null
           completed_at?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           department?: string | null
           error?: string | null
           mrn: string
@@ -125,7 +152,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          author_id?: string | null
           completed_at?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           department?: string | null
           error?: string | null
           mrn?: string
@@ -168,96 +198,128 @@ export type Database = {
       }
       bed_management: {
         Row: {
+          author_id: string | null
           bed_letter: string
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           current_patient_mrn: string | null
           facility_name: string
           id: string
           room_number: string
           status: string | null
           status_updated_at: string | null
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           bed_letter: string
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           current_patient_mrn?: string | null
           facility_name: string
           id?: string
           room_number: string
           status?: string | null
           status_updated_at?: string | null
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           bed_letter?: string
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           current_patient_mrn?: string | null
           facility_name?: string
           id?: string
           room_number?: string
           status?: string | null
           status_updated_at?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
       clinical_keyword_mappings: {
         Row: {
+          author_id: string | null
           category: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           icd10_array: Json
           id: string
           is_active: boolean | null
           keyword: string
           snomed_array: Json
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           category?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           icd10_array?: Json
           id?: string
           is_active?: boolean | null
           keyword: string
           snomed_array?: Json
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           category?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           icd10_array?: Json
           id?: string
           is_active?: boolean | null
           keyword?: string
           snomed_array?: Json
+          updated_at?: string
         }
         Relationships: []
       }
       clinical_notes: {
         Row: {
           author: string | null
+          author_id: string | null
           content: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           mrn: string | null
           note_type: string | null
+          updated_at: string
         }
         Insert: {
           author?: string | null
+          author_id?: string | null
           content?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           mrn?: string | null
           note_type?: string | null
+          updated_at?: string
         }
         Update: {
           author?: string | null
+          author_id?: string | null
           content?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           mrn?: string | null
           note_type?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
       clinical_safety_alerts: {
         Row: {
           allergy_name: string | null
+          author_id: string | null
           auto_resolve_at: string | null
           created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           decided_at: string | null
           decided_by: string | null
           drug: string
@@ -273,11 +335,14 @@ export type Database = {
           resolved_by: string | null
           severity: string | null
           status: string
+          updated_at: string
         }
         Insert: {
           allergy_name?: string | null
+          author_id?: string | null
           auto_resolve_at?: string | null
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           decided_at?: string | null
           decided_by?: string | null
           drug: string
@@ -293,11 +358,14 @@ export type Database = {
           resolved_by?: string | null
           severity?: string | null
           status?: string
+          updated_at?: string
         }
         Update: {
           allergy_name?: string | null
+          author_id?: string | null
           auto_resolve_at?: string | null
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           decided_at?: string | null
           decided_by?: string | null
           drug?: string
@@ -313,30 +381,76 @@ export type Database = {
           resolved_by?: string | null
           severity?: string | null
           status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      data_provenance: {
+        Row: {
+          author_id: string | null
+          author_label: string | null
+          created_at: string
+          id: number
+          operation: string
+          origin: Database["public"]["Enums"]["provenance_origin"]
+          payload: Json | null
+          row_id: string | null
+          table_name: string
+        }
+        Insert: {
+          author_id?: string | null
+          author_label?: string | null
+          created_at?: string
+          id?: number
+          operation: string
+          origin?: Database["public"]["Enums"]["provenance_origin"]
+          payload?: Json | null
+          row_id?: string | null
+          table_name: string
+        }
+        Update: {
+          author_id?: string | null
+          author_label?: string | null
+          created_at?: string
+          id?: number
+          operation?: string
+          origin?: Database["public"]["Enums"]["provenance_origin"]
+          payload?: Json | null
+          row_id?: string | null
+          table_name?: string
         }
         Relationships: []
       }
       fhir_medication_requests: {
         Row: {
+          author_id: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           patient_mrn: string
           resource: Json
           status: string
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           patient_mrn: string
           resource: Json
           status: string
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           patient_mrn?: string
           resource?: Json
           status?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -350,28 +464,37 @@ export type Database = {
       }
       fhir_observations: {
         Row: {
+          author_id: string | null
           code: string
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           patient_mrn: string
           resource: Json
           status: string
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           code: string
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           patient_mrn: string
           resource: Json
           status: string
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           code?: string
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           patient_mrn?: string
           resource?: Json
           status?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -385,21 +508,27 @@ export type Database = {
       }
       fhir_patients: {
         Row: {
+          author_id: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           mrn: string
           resource: Json
           updated_at: string | null
         }
         Insert: {
+          author_id?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           mrn: string
           resource: Json
           updated_at?: string | null
         }
         Update: {
+          author_id?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           mrn?: string
           resource?: Json
@@ -407,11 +536,52 @@ export type Database = {
         }
         Relationships: []
       }
+      fhir_resources: {
+        Row: {
+          author_id: string | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
+          id: string
+          mrn: string | null
+          payload: Json
+          resource_id: string | null
+          resource_type: string
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          id?: string
+          mrn?: string | null
+          payload: Json
+          resource_id?: string | null
+          resource_type: string
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          id?: string
+          mrn?: string | null
+          payload?: Json
+          resource_id?: string | null
+          resource_type?: string
+          source?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hospital_staff: {
         Row: {
           assigned_patients: number | null
+          author_id: string | null
           avatar_url: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           facility_name: string | null
           hourly_rate: number | null
           id: string
@@ -420,11 +590,14 @@ export type Database = {
           role: string
           signature_pin: string | null
           status: string | null
+          updated_at: string
         }
         Insert: {
           assigned_patients?: number | null
+          author_id?: string | null
           avatar_url?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           facility_name?: string | null
           hourly_rate?: number | null
           id?: string
@@ -433,11 +606,14 @@ export type Database = {
           role: string
           signature_pin?: string | null
           status?: string | null
+          updated_at?: string
         }
         Update: {
           assigned_patients?: number | null
+          author_id?: string | null
           avatar_url?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           facility_name?: string | null
           hourly_rate?: number | null
           id?: string
@@ -446,14 +622,17 @@ export type Database = {
           role?: string
           signature_pin?: string | null
           status?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
       lab_orders: {
         Row: {
+          author_id: string | null
           clinical_condition: string | null
           collected_at: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           facility_name: string
           id: string
           ordered_by: string | null
@@ -465,11 +644,14 @@ export type Database = {
           results_data: Json | null
           status: string | null
           test_type: string
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           clinical_condition?: string | null
           collected_at?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           facility_name: string
           id?: string
           ordered_by?: string | null
@@ -481,11 +663,14 @@ export type Database = {
           results_data?: Json | null
           status?: string | null
           test_type: string
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           clinical_condition?: string | null
           collected_at?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           facility_name?: string
           id?: string
           ordered_by?: string | null
@@ -497,11 +682,15 @@ export type Database = {
           results_data?: Json | null
           status?: string | null
           test_type?: string
+          updated_at?: string
         }
         Relationships: []
       }
       lab_results: {
         Row: {
+          author_id: string | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           flag: string | null
           id: string
           mrn: string | null
@@ -511,8 +700,12 @@ export type Database = {
           test_name: string | null
           time_drawn: string | null
           unit: string | null
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           flag?: string | null
           id?: string
           mrn?: string | null
@@ -522,8 +715,12 @@ export type Database = {
           test_name?: string | null
           time_drawn?: string | null
           unit?: string | null
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           flag?: string | null
           id?: string
           mrn?: string | null
@@ -533,6 +730,7 @@ export type Database = {
           test_name?: string | null
           time_drawn?: string | null
           unit?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -540,41 +738,55 @@ export type Database = {
         Row: {
           administered_at: string | null
           administered_by: string | null
+          author_id: string | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           given_at: string | null
           given_by: string | null
           id: string
           medication_name: string | null
           mrn: string | null
           patient_mrn: string | null
+          updated_at: string
         }
         Insert: {
           administered_at?: string | null
           administered_by?: string | null
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           given_at?: string | null
           given_by?: string | null
           id?: string
           medication_name?: string | null
           mrn?: string | null
           patient_mrn?: string | null
+          updated_at?: string
         }
         Update: {
           administered_at?: string | null
           administered_by?: string | null
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           given_at?: string | null
           given_by?: string | null
           id?: string
           medication_name?: string | null
           mrn?: string | null
           patient_mrn?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
       medical_terminology: {
         Row: {
+          author_id: string | null
           category: string | null
           code: string
           code_system: string
           created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           description: string | null
           display: string
           id: string
@@ -582,10 +794,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          author_id?: string | null
           category?: string | null
           code: string
           code_system: string
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           description?: string | null
           display: string
           id?: string
@@ -593,10 +807,12 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          author_id?: string | null
           category?: string | null
           code?: string
           code_system?: string
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           description?: string | null
           display?: string
           id?: string
@@ -609,7 +825,9 @@ export type Database = {
         Row: {
           administered_at: string | null
           approved_at: string | null
+          author_id: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           dispensed_at: string | null
           dose: string | null
           drug: string | null
@@ -628,11 +846,14 @@ export type Database = {
           patient_name: string | null
           route: string | null
           status: string | null
+          updated_at: string
         }
         Insert: {
           administered_at?: string | null
           approved_at?: string | null
+          author_id?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           dispensed_at?: string | null
           dose?: string | null
           drug?: string | null
@@ -651,11 +872,14 @@ export type Database = {
           patient_name?: string | null
           route?: string | null
           status?: string | null
+          updated_at?: string
         }
         Update: {
           administered_at?: string | null
           approved_at?: string | null
+          author_id?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           dispensed_at?: string | null
           dose?: string | null
           drug?: string | null
@@ -674,14 +898,17 @@ export type Database = {
           patient_name?: string | null
           route?: string | null
           status?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
       nlp_audit_logs: {
         Row: {
+          author_id: string | null
           auto_resolve_at: string | null
           confidence_score: number | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           extraction_mapping: string
           id: string
           patient_mrn: string
@@ -689,11 +916,14 @@ export type Database = {
           resolution_method: string | null
           standardized_output: Json
           status: string | null
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           auto_resolve_at?: string | null
           confidence_score?: number | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           extraction_mapping: string
           id?: string
           patient_mrn: string
@@ -701,11 +931,14 @@ export type Database = {
           resolution_method?: string | null
           standardized_output: Json
           status?: string | null
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           auto_resolve_at?: string | null
           confidence_score?: number | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           extraction_mapping?: string
           id?: string
           patient_mrn?: string
@@ -713,63 +946,87 @@ export type Database = {
           resolution_method?: string | null
           standardized_output?: Json
           status?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
       nlp_custom_rules: {
         Row: {
+          author_id: string | null
           canonical_mapping: string | null
           created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           preferred_form: string | null
           raw_term: string
           type: string
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           canonical_mapping?: string | null
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           preferred_form?: string | null
           raw_term: string
           type: string
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           canonical_mapping?: string | null
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           preferred_form?: string | null
           raw_term?: string
           type?: string
+          updated_at?: string
         }
         Relationships: []
       }
       nurse_assignments: {
         Row: {
           assigned_at: string | null
+          author_id: string | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           nurse_name: string | null
           room_cluster: string | null
+          updated_at: string
         }
         Insert: {
           assigned_at?: string | null
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           nurse_name?: string | null
           room_cluster?: string | null
+          updated_at?: string
         }
         Update: {
           assigned_at?: string | null
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           nurse_name?: string | null
           room_cluster?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
       patient_notes: {
         Row: {
           assessment: string | null
+          author_id: string | null
           author_name: string
           background: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           esigned_at: string | null
           facility_name: string
           id: string
@@ -778,13 +1035,16 @@ export type Database = {
           recommendation: string | null
           situation: string | null
           status: string | null
+          updated_at: string
           verification_pin_hash: string | null
         }
         Insert: {
           assessment?: string | null
+          author_id?: string | null
           author_name: string
           background?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           esigned_at?: string | null
           facility_name: string
           id?: string
@@ -793,13 +1053,16 @@ export type Database = {
           recommendation?: string | null
           situation?: string | null
           status?: string | null
+          updated_at?: string
           verification_pin_hash?: string | null
         }
         Update: {
           assessment?: string | null
+          author_id?: string | null
           author_name?: string
           background?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           esigned_at?: string | null
           facility_name?: string
           id?: string
@@ -808,13 +1071,16 @@ export type Database = {
           recommendation?: string | null
           situation?: string | null
           status?: string | null
+          updated_at?: string
           verification_pin_hash?: string | null
         }
         Relationships: []
       }
       patient_transfers: {
         Row: {
+          author_id: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           destination_facility: string
           id: string
           patient_mrn: string
@@ -823,9 +1089,12 @@ export type Database = {
           requesting_physician: string
           source_facility: string
           status: string | null
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           destination_facility: string
           id?: string
           patient_mrn: string
@@ -834,9 +1103,12 @@ export type Database = {
           requesting_physician: string
           source_facility: string
           status?: string | null
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           destination_facility?: string
           id?: string
           patient_mrn?: string
@@ -845,6 +1117,7 @@ export type Database = {
           requesting_physician?: string
           source_facility?: string
           status?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -855,12 +1128,15 @@ export type Database = {
           age: number | null
           allergies: string | null
           assigned_department: string | null
+          author_id: string | null
           biological_sex: string
           bp: string | null
           bp_diastolic: number | null
           bp_systolic: number | null
           chief_complaint: string | null
           code_status: string | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           current_medications: string | null
           diagnosis: string | null
           discharge_summary: string | null
@@ -907,6 +1183,7 @@ export type Database = {
           status: string
           temp: number | null
           unread_labs_alert: boolean | null
+          updated_at: string
         }
         Insert: {
           address?: string | null
@@ -914,12 +1191,15 @@ export type Database = {
           age?: number | null
           allergies?: string | null
           assigned_department?: string | null
+          author_id?: string | null
           biological_sex?: string
           bp?: string | null
           bp_diastolic?: number | null
           bp_systolic?: number | null
           chief_complaint?: string | null
           code_status?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           current_medications?: string | null
           diagnosis?: string | null
           discharge_summary?: string | null
@@ -966,6 +1246,7 @@ export type Database = {
           status?: string
           temp?: number | null
           unread_labs_alert?: boolean | null
+          updated_at?: string
         }
         Update: {
           address?: string | null
@@ -973,12 +1254,15 @@ export type Database = {
           age?: number | null
           allergies?: string | null
           assigned_department?: string | null
+          author_id?: string | null
           biological_sex?: string
           bp?: string | null
           bp_diastolic?: number | null
           bp_systolic?: number | null
           chief_complaint?: string | null
           code_status?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           current_medications?: string | null
           diagnosis?: string | null
           discharge_summary?: string | null
@@ -1025,27 +1309,76 @@ export type Database = {
           status?: string
           temp?: number | null
           unread_labs_alert?: boolean | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      pending_writes: {
+        Row: {
+          attempts: number
+          author_id: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          operation: string
+          origin: Database["public"]["Enums"]["provenance_origin"]
+          payload: Json
+          status: string
+          table_name: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          author_id?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          operation: string
+          origin?: Database["public"]["Enums"]["provenance_origin"]
+          payload: Json
+          status?: string
+          table_name: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          author_id?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          operation?: string
+          origin?: Database["public"]["Enums"]["provenance_origin"]
+          payload?: Json
+          status?: string
+          table_name?: string
+          updated_at?: string
         }
         Relationships: []
       }
       profiles: {
         Row: {
+          author_id: string | null
           branch: Database["public"]["Enums"]["branch"]
           created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           email: string
           id: string
           updated_at: string
         }
         Insert: {
+          author_id?: string | null
           branch: Database["public"]["Enums"]["branch"]
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           email: string
           id: string
           updated_at?: string
         }
         Update: {
+          author_id?: string | null
           branch?: Database["public"]["Enums"]["branch"]
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           email?: string
           id?: string
           updated_at?: string
@@ -1054,36 +1387,51 @@ export type Database = {
       }
       provider_notes: {
         Row: {
+          author_id: string | null
           author_name: string | null
           author_role: string | null
           content: string
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           note_type: string
           patient_mrn: string
           signed_at: string | null
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           author_name?: string | null
           author_role?: string | null
           content: string
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           note_type: string
           patient_mrn: string
           signed_at?: string | null
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           author_name?: string | null
           author_role?: string | null
           content?: string
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           note_type?: string
           patient_mrn?: string
           signed_at?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
       role_permissions: {
         Row: {
+          author_id: string | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           facility_name: string
           feature_key: string
           feature_name: string
@@ -1093,6 +1441,9 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           facility_name: string
           feature_key: string
           feature_name: string
@@ -1102,6 +1453,9 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          author_id?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           facility_name?: string
           feature_key?: string
           feature_name?: string
@@ -1114,8 +1468,10 @@ export type Database = {
       }
       shift_notes: {
         Row: {
+          author_id: string | null
           author_nurse: string | null
           created_at: string | null
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           esigned_at: string | null
           id: string
           note_text: string
@@ -1125,10 +1481,13 @@ export type Database = {
           sbar_recommendation: string | null
           sbar_situation: string | null
           status: string
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           author_nurse?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           esigned_at?: string | null
           id?: string
           note_text: string
@@ -1138,10 +1497,13 @@ export type Database = {
           sbar_recommendation?: string | null
           sbar_situation?: string | null
           status?: string
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           author_nurse?: string | null
           created_at?: string | null
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           esigned_at?: string | null
           id?: string
           note_text?: string
@@ -1151,6 +1513,7 @@ export type Database = {
           sbar_recommendation?: string | null
           sbar_situation?: string | null
           status?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -1174,57 +1537,90 @@ export type Database = {
       }
       system_settings: {
         Row: {
+          author_id: string | null
           automation_enabled: boolean | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: number
+          updated_at: string
         }
         Insert: {
+          author_id?: string | null
           automation_enabled?: boolean | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id: number
+          updated_at?: string
         }
         Update: {
+          author_id?: string | null
           automation_enabled?: boolean | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: number
+          updated_at?: string
         }
         Relationships: []
       }
       umls_term_cache: {
         Row: {
+          author_id: string | null
           codes: Json
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           fetched_at: string
           term: string
+          updated_at: string
           vocabulary: string
         }
         Insert: {
+          author_id?: string | null
           codes: Json
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           fetched_at?: string
           term: string
+          updated_at?: string
           vocabulary: string
         }
         Update: {
+          author_id?: string | null
           codes?: Json
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           fetched_at?: string
           term?: string
+          updated_at?: string
           vocabulary?: string
         }
         Relationships: []
       }
       user_roles: {
         Row: {
+          author_id: string | null
           created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           role: Database["public"]["Enums"]["app_role"]
+          updated_at: string
           user_id: string
         }
         Insert: {
+          author_id?: string | null
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           role: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
           user_id: string
         }
         Update: {
+          author_id?: string | null
           created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -1436,6 +1832,18 @@ export type Database = {
         Returns: boolean
       }
       is_facility_full: { Args: { target_facility: string }; Returns: boolean }
+      persist_fhir_resource: {
+        Args: {
+          _author_id?: string
+          _mrn: string
+          _origin?: Database["public"]["Enums"]["provenance_origin"]
+          _payload: Json
+          _resource_id: string
+          _resource_type: string
+          _source?: string
+        }
+        Returns: string
+      }
       text_to_bytea: { Args: { data: string }; Returns: string }
       urlencode:
         | { Args: { data: Json }; Returns: string }
@@ -1460,6 +1868,7 @@ export type Database = {
         | "women_children"
         | "regional_clinic"
         | "rehab"
+      provenance_origin: "human" | "automation" | "system" | "unknown"
     }
     CompositeTypes: {
       http_header: {
@@ -1611,6 +2020,7 @@ export const Constants = {
         "regional_clinic",
         "rehab",
       ],
+      provenance_origin: ["human", "automation", "system", "unknown"],
     },
   },
 } as const
