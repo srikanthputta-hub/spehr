@@ -373,7 +373,6 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
-  const [admitOpen, setAdmitOpen] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
   const [showOnlyMedsDue, setShowOnlyMedsDue] = useState(false);
   const [bedBoardOpen, setBedBoardOpen] = useState(false);
