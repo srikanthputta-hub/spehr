@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { HeartPulse, LogOut, Construction, Users, Hand, Zap } from "lucide-react";
+import { LogOut, Construction, Users, Hand, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
