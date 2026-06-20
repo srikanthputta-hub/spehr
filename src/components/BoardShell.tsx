@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { HeartPulse, LogOut, Construction, Users, Hand, Zap } from "lucide-react";
+import { LogOut, Construction, Users, Hand, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import spehrLogo from "@/assets/spehr-logo.png.asset.json";
 import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import {
@@ -43,8 +44,16 @@ export function BoardHeader({
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
       <div className="flex items-center gap-3">
-        <Link to="/" className="grid place-items-center h-9 w-9 rounded-md bg-[#0c2340] text-white">
-          <HeartPulse className="h-4 w-4" />
+        <Link
+          to="/"
+          className="grid place-items-center h-10 w-10 rounded-xl bg-[#0c2340] ring-1 ring-border overflow-hidden"
+          aria-label="S.P.E.H.R. home"
+        >
+          <img
+            src={spehrLogo.url}
+            alt="S.P.E.H.R."
+            className="h-full w-full object-contain"
+          />
         </Link>
         <div className="leading-tight">
           <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">

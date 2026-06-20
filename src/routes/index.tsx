@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FACILITIES, useFacility, STAFF_BY_FACILITY, type StaffRole } from "@/lib/facility-context";
+import spehrLogo from "@/assets/spehr-logo.png.asset.json";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -91,8 +92,8 @@ function LoginScreen() {
       {/* top bar */}
       <header className="relative flex items-center justify-between px-6 sm:px-10 py-5 border-b border-white/5">
         <div className="flex items-center gap-3">
-          <div className="grid place-items-center h-10 w-10 rounded-lg bg-[#2d8a9e] shadow-lg shadow-black/40">
-            <HeartPulse className="h-5 w-5" strokeWidth={2.4} />
+          <div className="grid place-items-center h-10 w-10 rounded-xl bg-[#0c2340] ring-1 ring-white/15 shadow-lg shadow-black/40 overflow-hidden">
+            <img src={spehrLogo.url} alt="S.P.E.H.R." className="h-full w-full object-contain" />
           </div>
           <div className="leading-tight">
             <div className="text-[10px] uppercase tracking-[0.28em] text-slate-400">
@@ -118,7 +119,16 @@ function LoginScreen() {
       {/* centered login */}
       <section className="relative px-6 sm:px-10 py-16 max-w-md mx-auto">
         <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-8 shadow-2xl shadow-black/40 backdrop-blur-sm">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+          <div className="flex justify-center">
+            <div className="grid place-items-center w-28 h-28 rounded-3xl bg-[#0c2340] ring-1 ring-white/10 shadow-2xl shadow-black/60 overflow-hidden">
+              <img
+                src={spehrLogo.url}
+                alt="S.P.E.H.R."
+                className="h-full w-full object-contain"
+              />
+            </div>
+          </div>
+          <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
             <Activity className="h-3 w-3 text-[#5cbdb9]" />
             Role Gateway
           </div>
