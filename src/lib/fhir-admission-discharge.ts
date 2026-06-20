@@ -168,6 +168,7 @@ function buildPatient(p: AdmissionPatient, id: string) {
   const name = fullName(p);
   const res: AnyRecord = {
     resourceType: "Patient",
+    id,
     identifier: [
       { use: "official", system: "urn:spehr:mrn", value: p.mrn },
     ],
@@ -272,6 +273,7 @@ function buildEncounter(p: AdmissionPatient, patientId: string, id: string) {
   const isFinished = (p.status ?? "").toLowerCase() === "discharged" || !!p.discharge_time;
   return {
     resourceType: "Encounter",
+    id,
     identifier: [{ system: "urn:spehr:encounter", value: `enc-${p.mrn}` }],
     status: isFinished ? "finished" : "in-progress",
     class: { system: HL7.V3_ACT_CODE, code: "EMER", display: "Emergency" },
@@ -408,11 +410,9 @@ function entryFor(fullUrl: string, resource: AnyRecord) {
   const rt = resource.resourceType as string;
   let request: { method: string; url: string } = { method: "POST", url: rt };
   if (rt === "Patient") {
-    const ident = (resource.identifier as Array<{ system?: string; value?: string }> | undefined)?.[0];
-    if (ident?.value) request = { method: "PUT", url: `Patient?identifier=${ident.system ?? "urn:spehr:mrn"}|${ident.value}` };
+    request = { method: "PUT", url: `Patient/${resource.id}` };
   } else if (rt === "Encounter") {
-    const ident = (resource.identifier as Array<{ system?: string; value?: string }> | undefined)?.[0];
-    if (ident?.value) request = { method: "PUT", url: `Encounter?identifier=${ident.system ?? "urn:spehr:encounter"}|${ident.value}` };
+    request = { method: "PUT", url: `Encounter/${resource.id}` };
   }
   return { fullUrl, resource, request };
 }
