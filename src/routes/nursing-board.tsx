@@ -734,7 +734,7 @@ function Dashboard() {
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-[var(--teal)]" />
               <h2 className="text-sm font-semibold tracking-tight">
-                Floor Overview — {nurse.ward}
+                Floor Overview -&nbsp;{nurse.ward.split(" - ").pop()}
               </h2>
               <span className="text-xs text-muted-foreground">
                 · {rows.length} of {facilityPatients.length} patients
