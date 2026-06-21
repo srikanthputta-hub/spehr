@@ -373,12 +373,62 @@ function SchedulingTab({ facility }: { facility: string }) {
   }, [facility]);
 
   const updateStatus = async (id: string, status: string) => {
+    const row = rows.find((r) => r.id === id);
     const { error } = await (supabase as any)
       .from("fhir_appointments")
       .update({ status })
       .eq("id", id);
     if (error) toast.error("Update failed", { description: error.message });
     else toast.success(`Appointment marked ${status}`);
+    // Push status change to external FHIR server (PUT)
+    if (!error && row) {
+      try {
+        const appt = {
+          resourceType: "Appointment",
+          id: row.id,
+          status,
+          description: row.description ?? undefined,
+          start: row.start_time,
+          end: row.end_time,
+          comment: row.comment ?? undefined,
+          participant: [
+            {
+              actor: {
+                reference: row.patient_mrn ? `Patient/${row.patient_mrn}` : undefined,
+                display: row.patient_name,
+              },
+              required: "required",
+              status: "accepted",
+            },
+          ],
+        };
+        await supabase.functions.invoke("push_to_fhir", {
+          body: {
+            bundle: {
+              resourceType: "Bundle",
+              type: "transaction",
+              entry: [{ resource: appt, request: { method: "PUT", url: `Appointment/${row.id}` } }],
+            },
+          },
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
+  };
+
+  const reschedule = async (id: string, start: string, end: string) => {
+    const startIso = new Date(start).toISOString();
+    const endIso = new Date(end).toISOString();
+    const { error } = await (supabase as any)
+      .from("fhir_appointments")
+      .update({ start_time: startIso, end_time: endIso, status: "booked" })
+      .eq("id", id);
+    if (error) {
+      toast.error("Reschedule failed", { description: error.message });
+      return;
+    }
+    toast.success("Appointment rescheduled");
   };
 
   const upcoming = useMemo(() => rows.filter((r) => !["fulfilled", "cancelled", "noshow"].includes(r.status)), [rows]);
