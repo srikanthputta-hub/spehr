@@ -433,3 +433,295 @@ async function pushBundle(bundle: unknown, mrn: string): Promise<{ ok: boolean; 
     return { ok: false, error: (e as Error).message };
   }
 }
+
+/* ---------------- Billing / FHIR Invoice generation ---------------- */
+
+function safeFullName(p: any): string {
+  return (
+    p?.name ||
+    [p?.first_name, p?.last_name].filter(Boolean).join(" ") ||
+    p?.mrn ||
+    "Unknown"
+  );
+}
+
+export async function generateInvoiceForPatient(mrn: string): Promise<{
+  ok: boolean;
+  invoiceId?: string;
+  invoiceNo?: string;
+  total?: number;
+  error?: string;
+  skipped?: boolean;
+}> {
+  const sb = admin();
+
+  const { data: patient, error: pErr } = await sb
+    .from("patients")
+    .select(
+      "id,mrn,name,first_name,last_name,room,facility_name,status,admission_time,discharge_time",
+    )
+    .eq("mrn", mrn)
+    .maybeSingle();
+  if (pErr || !patient) return { ok: false, error: "patient not found" };
+  const p = patient as any;
+
+  // Pull clinical course
+  const [{ data: medRows }, { data: labRows }] = await Promise.all([
+    sb
+      .from("medication_orders")
+      .select("medication_name,drug_name,drug,rxnorm,status,administered_at")
+      .eq("patient_mrn", mrn),
+    sb
+      .from("lab_orders")
+      .select("test_type,loinc,status,collected_at")
+      .eq("patient_mrn", mrn),
+  ]);
+
+  const meds = (medRows ?? [])
+    .filter((m: any) => String(m.status ?? "").toLowerCase() === "administered")
+    .map((m: any) => ({
+      rxnorm: m.rxnorm ?? null,
+      name: m.medication_name || m.drug_name || m.drug || "Medication",
+      administered_at: m.administered_at ?? null,
+    }));
+  const labs = (labRows ?? [])
+    .filter((l: any) => /resulted|reported|final/i.test(String(l.status ?? "")))
+    .map((l: any) => ({
+      loinc: l.loinc ?? null,
+      name: l.test_type ?? "Lab",
+      collected_at: l.collected_at ?? null,
+    }));
+
+  const input: BuildChargesInput = {
+    admissionTime: p.admission_time,
+    dischargeTime: p.discharge_time,
+    room: p.room,
+    meds,
+    labs,
+  };
+  const charges = composeCharges(input);
+  const { subtotal, tax, total } = summarizeCharges(charges);
+  const invoiceNo = makeInvoiceNo(mrn, p.discharge_time);
+
+  // Idempotency: replace previous invoice for this discharge if it exists
+  const { data: existing } = await sb
+    .from("fhir_invoices")
+    .select("id,invoice_no,status")
+    .eq("mrn", mrn)
+    .order("issued_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Don't overwrite a balanced invoice
+  if (existing && (existing as any).status === "balanced") {
+    return { ok: true, invoiceId: (existing as any).id, invoiceNo: (existing as any).invoice_no, skipped: true };
+  }
+
+  let invoiceId: string;
+  if (existing) {
+    invoiceId = (existing as any).id;
+    await sb
+      .from("fhir_invoices")
+      .update({
+        invoice_no: invoiceNo,
+        patient_name: safeFullName(p),
+        facility_name: p.facility_name,
+        encounter_id: `enc-${mrn}`,
+        status: "issued",
+        subtotal,
+        tax,
+        total,
+        currency: "USD",
+        issued_at: new Date().toISOString(),
+        paid_at: null,
+        payload: {} as any,
+      } as never)
+      .eq("id", invoiceId);
+    await sb.from("fhir_charge_items").delete().eq("invoice_id", invoiceId);
+  } else {
+    const { data: ins, error: insErr } = await sb
+      .from("fhir_invoices")
+      .insert({
+        invoice_no: invoiceNo,
+        mrn,
+        patient_name: safeFullName(p),
+        encounter_id: `enc-${mrn}`,
+        facility_name: p.facility_name,
+        status: "issued",
+        subtotal,
+        tax,
+        total,
+        currency: "USD",
+        payload: {} as any,
+      } as never)
+      .select("id")
+      .single();
+    if (insErr || !ins) return { ok: false, error: insErr?.message ?? "insert failed" };
+    invoiceId = (ins as any).id;
+  }
+
+  // Insert ChargeItems
+  const chargeRows = charges.map((c, idx) => {
+    const ciId = `${invoiceId.slice(0, 8)}-${idx + 1}`;
+    return {
+      id: ciId,
+      payload: buildChargeItemResource({ id: ciId, mrn, encounterId: `enc-${mrn}`, c }),
+      row: {
+        invoice_id: invoiceId,
+        mrn,
+        encounter_id: `enc-${mrn}`,
+        charge_code: c.code,
+        code_system: c.codeSystem,
+        description: c.description,
+        category: c.category,
+        quantity: c.quantity,
+        unit_price: c.unitPrice,
+        amount: c.amount,
+        currency: "USD",
+        service_date: c.serviceDate ?? null,
+        payload: buildChargeItemResource({ id: ciId, mrn, encounterId: `enc-${mrn}`, c }) as never,
+      },
+    };
+  });
+  if (chargeRows.length > 0) {
+    await sb.from("fhir_charge_items").insert(chargeRows.map((r) => r.row) as never);
+  }
+
+  // Build + persist the master Invoice resource
+  const invoiceResource = buildInvoiceResource({
+    id: invoiceId,
+    invoiceNo,
+    mrn,
+    encounterId: `enc-${mrn}`,
+    patientName: safeFullName(p),
+    chargeItems: chargeRows.map((r) => ({ id: r.id, c: charges[chargeRows.indexOf(r)] })),
+    subtotal,
+    tax,
+    total,
+    status: "issued",
+  });
+  await sb
+    .from("fhir_invoices")
+    .update({ payload: invoiceResource as never } as never)
+    .eq("id", invoiceId);
+
+  // Mirror into the canonical local FHIR resource cache (best-effort)
+  try {
+    await sb.rpc("persist_fhir_resource" as never, {
+      _resource_type: "Invoice",
+      _resource_id: invoiceId,
+      _mrn: mrn,
+      _payload: invoiceResource as never,
+      _source: "auto-doc:billing",
+      _origin: "automation",
+      _author_id: "auto-doc",
+    } as never);
+  } catch (e) {
+    console.warn("[billing] persist_fhir_resource (Invoice) failed", (e as Error).message);
+  }
+
+  await log(mrn, "complete", `Auto Doc billing: Invoice ${invoiceNo} issued`, {
+    lineItems: chargeRows.length,
+    subtotal,
+    tax,
+    total,
+  });
+
+  return { ok: true, invoiceId, invoiceNo, total };
+}
+
+export async function backfillMissingInvoices(): Promise<{ ok: true; generated: number; skipped: number }> {
+  const sb = admin();
+  const { data: discharged } = await sb
+    .from("patients")
+    .select("mrn,status")
+    .ilike("status", "discharged")
+    .limit(500);
+  const list = (discharged ?? []) as Array<{ mrn: string | null }>;
+  let generated = 0;
+  let skipped = 0;
+  for (const row of list) {
+    if (!row.mrn) {
+      skipped++;
+      continue;
+    }
+    const { data: existing } = await sb
+      .from("fhir_invoices")
+      .select("id")
+      .eq("mrn", row.mrn)
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      skipped++;
+      continue;
+    }
+    const res = await generateInvoiceForPatient(row.mrn);
+    if (res.ok) generated++;
+  }
+  return { ok: true, generated, skipped };
+}
+
+export async function payInvoiceById(
+  invoiceId: string,
+  method?: string,
+): Promise<{ ok: boolean; error?: string; paymentNoticeId?: string }> {
+  const sb = admin();
+  const { data: inv, error } = await sb
+    .from("fhir_invoices")
+    .select("id,invoice_no,mrn,total,status")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  if (error || !inv) return { ok: false, error: "invoice not found" };
+  const i = inv as any;
+  if (i.status === "balanced") return { ok: true };
+
+  const { data: noticeRow, error: nErr } = await sb
+    .from("fhir_payment_notices")
+    .insert({
+      invoice_id: i.id,
+      mrn: i.mrn,
+      amount: i.total,
+      currency: "USD",
+      status: "active",
+      payment_method: method ?? "Card · Patient Portal",
+      payload: {} as any,
+    } as never)
+    .select("id")
+    .single();
+  if (nErr || !noticeRow) return { ok: false, error: nErr?.message ?? "payment notice failed" };
+  const noticeId = (noticeRow as any).id as string;
+
+  const notice = buildPaymentNoticeResource({
+    id: noticeId,
+    invoiceId: i.id,
+    invoiceNo: i.invoice_no,
+    mrn: i.mrn,
+    amount: Number(i.total),
+    method,
+  });
+  await sb
+    .from("fhir_payment_notices")
+    .update({ payload: notice as never } as never)
+    .eq("id", noticeId);
+
+  await sb
+    .from("fhir_invoices")
+    .update({ status: "balanced", paid_at: new Date().toISOString() } as never)
+    .eq("id", i.id);
+
+  try {
+    await sb.rpc("persist_fhir_resource" as never, {
+      _resource_type: "PaymentNotice",
+      _resource_id: noticeId,
+      _mrn: i.mrn,
+      _payload: notice as never,
+      _source: "patient-portal:payment",
+      _origin: "patient",
+      _author_id: "patient-portal",
+    } as never);
+  } catch (e) {
+    console.warn("[billing] persist_fhir_resource (PaymentNotice) failed", (e as Error).message);
+  }
+
+  return { ok: true, paymentNoticeId: noticeId };
+}
