@@ -14,6 +14,7 @@ import { Route as SystemAdminRouteImport } from './routes/system-admin'
 import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
+import { Route as MySpehrRouteImport } from './routes/my-spehr'
 import { Route as LabBoardRouteImport } from './routes/lab-board'
 import { Route as FinanceBoardRouteImport } from './routes/finance-board'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
@@ -48,6 +49,11 @@ const PharmacyQueueRoute = PharmacyQueueRouteImport.update({
 const NursingBoardRoute = NursingBoardRouteImport.update({
   id: '/nursing-board',
   path: '/nursing-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MySpehrRoute = MySpehrRouteImport.update({
+  id: '/my-spehr',
+  path: '/my-spehr',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LabBoardRoute = LabBoardRouteImport.update({
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/analytics': typeof AnalyticsRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
+  '/my-spehr': typeof MySpehrRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/analytics': typeof AnalyticsRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
+  '/my-spehr': typeof MySpehrRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/analytics': typeof AnalyticsRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
+  '/my-spehr': typeof MySpehrRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
@@ -162,6 +171,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/finance-board'
     | '/lab-board'
+    | '/my-spehr'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/finance-board'
     | '/lab-board'
+    | '/my-spehr'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/finance-board'
     | '/lab-board'
+    | '/my-spehr'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
@@ -214,6 +226,7 @@ export interface RootRouteChildren {
   AnalyticsRoute: typeof AnalyticsRoute
   FinanceBoardRoute: typeof FinanceBoardRoute
   LabBoardRoute: typeof LabBoardRoute
+  MySpehrRoute: typeof MySpehrRoute
   NursingBoardRoute: typeof NursingBoardRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
   PhysicianBoardRoute: typeof PhysicianBoardRoute
@@ -260,6 +273,13 @@ declare module '@tanstack/react-router' {
       path: '/nursing-board'
       fullPath: '/nursing-board'
       preLoaderRoute: typeof NursingBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/my-spehr': {
+      id: '/my-spehr'
+      path: '/my-spehr'
+      fullPath: '/my-spehr'
+      preLoaderRoute: typeof MySpehrRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lab-board': {
@@ -342,6 +362,7 @@ const rootRouteChildren: RootRouteChildren = {
   AnalyticsRoute: AnalyticsRoute,
   FinanceBoardRoute: FinanceBoardRoute,
   LabBoardRoute: LabBoardRoute,
+  MySpehrRoute: MySpehrRoute,
   NursingBoardRoute: NursingBoardRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
   PhysicianBoardRoute: PhysicianBoardRoute,
