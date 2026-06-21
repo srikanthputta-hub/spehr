@@ -469,25 +469,25 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   const [{ data: medRows }, { data: labRows }] = await Promise.all([
     sb
       .from("medication_orders")
-      .select("medication_name,drug_name,drug,rxnorm,status,administered_at")
+      .select("medication_name,drug_name,drug,status,administered_at")
       .eq("patient_mrn", mrn),
     sb
       .from("lab_orders")
-      .select("test_type,loinc,status,collected_at")
+      .select("test_type,status,collected_at")
       .eq("patient_mrn", mrn),
   ]);
 
   const meds = (medRows ?? [])
     .filter((m: any) => String(m.status ?? "").toLowerCase() === "administered")
     .map((m: any) => ({
-      rxnorm: m.rxnorm ?? null,
+      rxnorm: null,
       name: m.medication_name || m.drug_name || m.drug || "Medication",
       administered_at: m.administered_at ?? null,
     }));
   const labs = (labRows ?? [])
     .filter((l: any) => /resulted|reported|final/i.test(String(l.status ?? "")))
     .map((l: any) => ({
-      loinc: l.loinc ?? null,
+      loinc: null,
       name: l.test_type ?? "Lab",
       collected_at: l.collected_at ?? null,
     }));
