@@ -138,49 +138,6 @@ function AdmissionsBoard() {
   );
 }
 
-function AdmitTab({
-  facility,
-  bedCounts,
-  onOpenForm,
-}: {
-  facility: string;
-  bedCounts: { available: number; total: number };
-  onOpenForm: () => void;
-}) {
-  const full = bedCounts.available === 0 && bedCounts.total > 0;
-  return (
-    <section className="rounded-xl border border-border bg-card p-8 text-center">
-      <div className="mx-auto grid place-items-center h-12 w-12 rounded-lg bg-[var(--teal-soft)] text-[var(--teal)]">
-        <UserPlus className="h-5 w-5" />
-      </div>
-      <h2 className="mt-4 text-lg font-semibold">Register a New Admission</h2>
-      <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
-        Capture demographics, chief complaint, HPI, history, allergies, and meds. The
-        admission triggers Auto-Doc, FHIR sync, and the clinical automation pipeline.
-      </p>
-      <div className="mt-4 text-xs text-muted-foreground">
-        Facility · <span className="font-semibold text-foreground">{facility}</span>
-      </div>
-      <button
-        onClick={() => {
-          if (full) {
-            toast.error("No empty beds available", {
-              description: `${facility} is at full capacity (${bedCounts.total}/${bedCounts.total} occupied).`,
-            });
-            return;
-          }
-          onOpenForm();
-        }}
-        className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-10 text-sm font-semibold shadow-sm transition disabled:opacity-50"
-        disabled={full}
-        title={full ? "No empty beds" : undefined}
-      >
-        <UserPlus className="h-4 w-4" /> Open Admission Form
-      </button>
-    </section>
-  );
-}
-
 /* ----------------------------------------------------------------- */
 /* Patient Roster — admitted (in-progress) + recently discharged      */
 /* ----------------------------------------------------------------- */
