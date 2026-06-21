@@ -406,6 +406,29 @@ export async function runAutoDocPipeline(mrn: string) {
 
   await setRunStage(mrn, "complete");
   await log(mrn, "complete", `Auto Doc episode complete for MRN-${mrn} (${tpl.condition})`);
+
+  // Billing: if the patient is already discharged at completion time, issue the
+  // FHIR Invoice immediately. Otherwise it will be issued by the periodic
+  // Finance backfill (or the dashboard's auto-backfill on mount) once the
+  // discharge transition lands.
+  try {
+    const { data: latest } = await sb
+      .from("patients")
+      .select("status")
+      .eq("mrn", mrn)
+      .maybeSingle();
+    if (latest && String((latest as any).status ?? "").toLowerCase() === "discharged") {
+      const inv = await generateInvoiceForPatient(mrn);
+      if (inv.ok && !inv.skipped) {
+        await log(mrn, "complete", `Auto Doc billing issued Invoice ${inv.invoiceNo}`, {
+          total: inv.total,
+        });
+      }
+    }
+  } catch (e) {
+    await log(mrn, "complete", `Auto Doc billing issue failed: ${(e as Error).message}`, null, "warn");
+  }
+
   return { ok: true, department, condition: tpl.condition };
 }
 
