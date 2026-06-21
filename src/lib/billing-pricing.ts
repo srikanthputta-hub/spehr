@@ -67,6 +67,32 @@ const MED_PRICE_BY_RXNORM: Record<string, number> = {
 };
 const MED_DEFAULT = 38;
 
+/** Name-based fallback when RxNorm code is missing on the row. */
+const MED_PRICE_BY_NAME: Array<[RegExp, number]> = [
+  [/morphine/i, 62],
+  [/fentanyl/i, 72],
+  [/hydromorphone|dilaudid/i, 68],
+  [/vancomycin/i, 110],
+  [/ceftriaxone/i, 88],
+  [/piperacillin|zosyn/i, 96],
+  [/heparin|enoxaparin|lovenox/i, 86],
+  [/apixaban|eliquis|rivaroxaban|xarelto/i, 58],
+  [/insulin/i, 44],
+  [/nitroglycerin|nitro/i, 36],
+  [/aspirin/i, 14],
+  [/acetaminophen|tylenol|paracetamol/i, 18],
+  [/ibuprofen|advil/i, 22],
+  [/atorvastatin|lipitor|simvastatin|rosuvastatin/i, 28],
+  [/metoprolol|carvedilol|propranolol/i, 24],
+  [/metformin/i, 26],
+  [/lisinopril|losartan|enalapril/i, 32],
+  [/omeprazole|pantoprazole|esomeprazole/i, 18],
+  [/albuterol/i, 22],
+  [/ondansetron|zofran/i, 12],
+  [/furosemide|lasix/i, 26],
+  [/levothyroxine/i, 34],
+];
+
 /**
  * LOINC → unit price (USD per result). Falls back to LAB_DEFAULT.
  */
@@ -95,14 +121,57 @@ const LAB_PRICE_BY_LOINC: Record<string, number> = {
 };
 const LAB_DEFAULT = 95;
 
+/** Name-based fallback when LOINC code is missing on the row. */
+const LAB_PRICE_BY_NAME: Array<[RegExp, number]> = [
+  [/troponin/i, 145],
+  [/bnp|natriuretic/i, 110],
+  [/d[- ]?dimer/i, 95],
+  [/lactate|lactic/i, 78],
+  [/cmp|comprehensive metabolic/i, 95],
+  [/bmp|basic metabolic/i, 60],
+  [/cbc|complete blood count/i, 75],
+  [/hemoglobin|hgb/i, 38],
+  [/platelet/i, 42],
+  [/wbc|white blood/i, 48],
+  [/glucose/i, 28],
+  [/creatinine/i, 32],
+  [/sodium/i, 26],
+  [/potassium/i, 26],
+  [/bilirubin/i, 82],
+  [/alt|ast|liver/i, 64],
+  [/cholesterol|lipid/i, 58],
+  [/triglyceride/i, 52],
+  [/bun|urea/i, 38],
+  [/urinalysis/i, 45],
+  [/blood culture/i, 130],
+  [/covid|sars/i, 120],
+  [/chest x[- ]?ray|cxr/i, 220],
+  [/ct |ct scan/i, 480],
+  [/mri/i, 720],
+  [/ekg|ecg/i, 95],
+  [/echo/i, 380],
+];
+
 export function priceForMed(rxnorm?: string | null): number {
   if (!rxnorm) return MED_DEFAULT;
   return MED_PRICE_BY_RXNORM[String(rxnorm).trim()] ?? MED_DEFAULT;
 }
 
+export function priceForMedByName(name?: string | null): number {
+  if (!name) return MED_DEFAULT;
+  for (const [re, price] of MED_PRICE_BY_NAME) if (re.test(name)) return price;
+  return MED_DEFAULT;
+}
+
 export function priceForLab(loinc?: string | null): number {
   if (!loinc) return LAB_DEFAULT;
   return LAB_PRICE_BY_LOINC[String(loinc).trim()] ?? LAB_DEFAULT;
+}
+
+export function priceForLabByName(name?: string | null): number {
+  if (!name) return LAB_DEFAULT;
+  for (const [re, price] of LAB_PRICE_BY_NAME) if (re.test(name)) return price;
+  return LAB_DEFAULT;
 }
 
 export function lengthOfStayDays(admit?: string | null, discharge?: string | null): number {
@@ -308,7 +377,8 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
 
   // Medications — one ChargeItem per MedicationAdministration
   for (const m of input.meds) {
-    const unit = priceForMed(m.rxnorm);
+    const codedUnit = m.rxnorm ? MED_PRICE_BY_RXNORM[String(m.rxnorm).trim()] : undefined;
+    const unit = codedUnit ?? priceForMedByName(m.name);
     out.push({
       code: String(m.rxnorm ?? "RX-000"),
       codeSystem: "RxNorm",
@@ -323,7 +393,8 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
 
   // Labs — one ChargeItem per Observation
   for (const l of input.labs) {
-    const unit = priceForLab(l.loinc);
+    const codedUnit = l.loinc ? LAB_PRICE_BY_LOINC[String(l.loinc).trim()] : undefined;
+    const unit = codedUnit ?? priceForLabByName(l.name);
     out.push({
       code: String(l.loinc ?? "LAB-000"),
       codeSystem: "LOINC",
