@@ -9,6 +9,8 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  Search,
+  Wand2,
   UserPlus,
   Users,
   X,
@@ -156,7 +158,8 @@ function AdmissionsBoard() {
 interface EncounterRow {
   mrn: string;
   name: string;
-  chief_complaint: string | null;
+  dob: string | null;
+  address: string | null;
   status: "in-progress" | "finished";
   start: string | null;
   end: string | null;
@@ -166,6 +169,7 @@ interface EncounterRow {
 function RosterTab({ facility }: { facility: string }) {
   const [rows, setRows] = useState<EncounterRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -174,14 +178,15 @@ function RosterTab({ facility }: { facility: string }) {
     // status = 'Discharged' → FHIR Encounter.status = finished
     const { data } = await supabase
       .from("patients")
-      .select("mrn, first_name, last_name, chief_complaint, status, admission_time, discharge_time, room")
+      .select("mrn, first_name, last_name, dob, address, status, admission_time, discharge_time, room")
       .eq("facility_name", facility)
       .order("admission_time", { ascending: false })
       .limit(50);
     const mapped: EncounterRow[] = ((data ?? []) as any[]).map((p) => ({
       mrn: p.mrn,
       name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
-      chief_complaint: p.chief_complaint,
+      dob: p.dob ?? null,
+      address: p.address ?? null,
       status: (p.status ?? "").toLowerCase() === "discharged" ? "finished" : "in-progress",
       start: p.admission_time ?? null,
       end: p.discharge_time ?? null,
@@ -207,6 +212,19 @@ function RosterTab({ facility }: { facility: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facility]);
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (r) =>
+        r.mrn.toLowerCase().includes(q) ||
+        r.name.toLowerCase().includes(q) ||
+        (r.room ?? "").toLowerCase().includes(q) ||
+        (r.address ?? "").toLowerCase().includes(q) ||
+        (r.dob ?? "").toLowerCase().includes(q),
+    );
+  }, [rows, query]);
+
   return (
     <section className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between px-5 h-12 border-b border-border bg-secondary/40">
@@ -214,7 +232,16 @@ function RosterTab({ facility }: { facility: string }) {
           <ClipboardList className="h-4 w-4 text-[var(--teal)]" />
           <h2 className="text-sm font-semibold">Patient Census</h2>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search MRN, name, room, address…"
+              className="h-8 w-72 rounded-md border border-slate-200 bg-white pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+            />
+          </div>
           <button
             onClick={load}
             className="ml-2 inline-grid place-items-center h-8 w-8 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
@@ -231,7 +258,8 @@ function RosterTab({ facility }: { facility: string }) {
               <th className="px-3 py-2 font-bold">MRN</th>
               <th className="px-3 py-2 font-bold">Patient</th>
               <th className="px-3 py-2 font-bold">Room</th>
-              <th className="px-3 py-2 font-bold">Chief Complaint</th>
+              <th className="px-3 py-2 font-bold">Date of Birth</th>
+              <th className="px-3 py-2 font-bold">Address</th>
               <th className="px-3 py-2 font-bold">Admitted</th>
               <th className="px-3 py-2 font-bold">Discharged</th>
             </tr>
@@ -239,7 +267,7 @@ function RosterTab({ facility }: { facility: string }) {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
                   <span className="inline-flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
                     Loading encounters…
@@ -247,15 +275,15 @@ function RosterTab({ facility }: { facility: string }) {
                 </td>
               </tr>
             )}
-            {!loading && rows.length === 0 && (
+            {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-16 text-center text-sm text-muted-foreground">
-                  No patients on the census.
+                <td colSpan={7} className="px-5 py-16 text-center text-sm text-muted-foreground">
+                  {rows.length === 0 ? "No patients on the census." : "No matches for that search."}
                 </td>
               </tr>
             )}
             {!loading &&
-              rows.map((r, i) => (
+              filtered.map((r, i) => (
                 <tr
                   key={r.mrn + r.status}
                   className={`border-b border-slate-200 hover:bg-[var(--teal-soft)]/40 transition ${i % 2 === 1 ? "bg-slate-50/60" : "bg-white"}`}
@@ -263,7 +291,8 @@ function RosterTab({ facility }: { facility: string }) {
                   <td className="px-3 py-2 font-mono text-slate-700">{r.mrn}</td>
                   <td className="px-3 py-2 font-semibold text-slate-900">{r.name || "—"}</td>
                   <td className="px-3 py-2 font-mono text-slate-700">{r.room ?? "—"}</td>
-                  <td className="px-3 py-2 text-slate-700">{r.chief_complaint ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono text-[11.5px] text-slate-700 whitespace-nowrap">{r.dob ?? "—"}</td>
+                  <td className="px-3 py-2 text-slate-700">{r.address ?? "—"}</td>
                   <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">
                     {fmtTs(r.start)}
                   </td>
@@ -493,6 +522,7 @@ function BookAppointmentModal({
   const [form, setForm] = useState({
     patient_name: "",
     patient_mrn: "",
+    patient_dob: "",
     practitioner_name: "",
     service_type: "Outpatient Visit",
     description: "",
@@ -502,6 +532,38 @@ function BookAppointmentModal({
     comment: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [looking, setLooking] = useState(false);
+
+  const lookupByMrn = async (mrnRaw?: string): Promise<boolean> => {
+    const mrn = (mrnRaw ?? form.patient_mrn).trim();
+    if (!mrn) {
+      toast.error("Enter an MRN to auto-fill");
+      return false;
+    }
+    setLooking(true);
+    const { data, error } = await supabase
+      .from("patients")
+      .select("first_name, last_name, dob")
+      .eq("mrn", mrn)
+      .maybeSingle();
+    setLooking(false);
+    if (error) {
+      toast.error("Lookup failed", { description: error.message });
+      return false;
+    }
+    if (!data) {
+      toast.error(`No patient found for ${mrn}`);
+      return false;
+    }
+    setForm((f) => ({
+      ...f,
+      patient_mrn: mrn,
+      patient_name: `${data.first_name ?? ""} ${data.last_name ?? ""}`.trim(),
+      patient_dob: (data.dob as string) ?? "",
+    }));
+    toast.success("Patient details filled");
+    return true;
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -514,7 +576,7 @@ function BookAppointmentModal({
       return;
     }
     setSubmitting(true);
-    const { error } = await (supabase as any).from("fhir_appointments").insert({
+    const { data: inserted, error } = await (supabase as any).from("fhir_appointments").insert({
       facility_name: facility,
       patient_name: form.patient_name.trim(),
       patient_mrn: form.patient_mrn.trim() || null,
@@ -525,12 +587,63 @@ function BookAppointmentModal({
       end_time: new Date(form.end_time).toISOString(),
       status: form.status,
       comment: form.comment.trim() || null,
-    });
-    setSubmitting(false);
+    }).select().maybeSingle();
     if (error) {
+      setSubmitting(false);
       toast.error("Could not book appointment", { description: error.message });
       return;
     }
+
+    // Push to external FHIR server as Appointment resource (best-effort)
+    try {
+      const appt = {
+        resourceType: "Appointment",
+        status: form.status,
+        serviceType: form.service_type
+          ? [{ text: form.service_type.trim() }]
+          : undefined,
+        description: form.description.trim() || undefined,
+        start: new Date(form.start_time).toISOString(),
+        end: new Date(form.end_time).toISOString(),
+        comment: form.comment.trim() || undefined,
+        participant: [
+          {
+            actor: {
+              reference: form.patient_mrn.trim()
+                ? `Patient?identifier=http://spehr.local/mrn|${form.patient_mrn.trim()}`
+                : undefined,
+              display: form.patient_name.trim(),
+            },
+            status: "accepted",
+          },
+          ...(form.practitioner_name.trim()
+            ? [{ actor: { display: form.practitioner_name.trim() }, status: "accepted" }]
+            : []),
+        ],
+      };
+      const bundle = {
+        resourceType: "Bundle",
+        type: "transaction",
+        entry: [
+          {
+            resource: appt,
+            request: { method: "POST", url: "Appointment" },
+          },
+        ],
+      };
+      const { error: fnError } = await supabase.functions.invoke("push_to_fhir", {
+        body: { bundle },
+      });
+      if (fnError) {
+        toast.warning("Saved locally, FHIR sync deferred", { description: fnError.message });
+      }
+    } catch (err) {
+      toast.warning("Saved locally, FHIR sync deferred", {
+        description: (err as Error).message,
+      });
+    }
+
+    setSubmitting(false);
     toast.success("Appointment booked");
     onCreated();
   };
@@ -564,8 +677,21 @@ function BookAppointmentModal({
             <input
               value={form.patient_mrn}
               onChange={(e) => setForm({ ...form, patient_mrn: e.target.value })}
+              onBlur={(e) => {
+                if (e.target.value.trim() && !form.patient_name.trim()) {
+                  void lookupByMrn(e.target.value);
+                }
+              }}
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
               placeholder="MRN-482910"
+            />
+          </FormField>
+          <FormField label="Date of Birth" className="col-span-5">
+            <input
+              type="date"
+              value={form.patient_dob}
+              onChange={(e) => setForm({ ...form, patient_dob: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
             />
           </FormField>
           <FormField label="Practitioner / CareTeam" className="col-span-7">
@@ -637,6 +763,16 @@ function BookAppointmentModal({
             className="rounded-md border border-border bg-background px-3 h-9 text-xs font-medium hover:bg-secondary"
           >
             Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void lookupByMrn()}
+            disabled={looking}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--teal)]/40 bg-[var(--teal-soft)] text-[var(--teal)] hover:bg-[var(--teal)]/10 px-3 h-9 text-xs font-semibold disabled:opacity-60"
+            title="Look up patient by MRN and fill name & DOB"
+          >
+            {looking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+            Auto-fill
           </button>
           <button
             type="submit"
