@@ -13,6 +13,15 @@ import {
   FileText,
   Lock,
   Wallet,
+  Calendar,
+  MessageSquare,
+  Activity,
+  Plus,
+  Send,
+  Thermometer,
+  Clock,
+  Heart,
+  Droplet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
