@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, ChevronDown } from "lucide-react";
 
 /**
- * Auto Doc Pipeline Monitor — admin-only Watch Dog panel that streams the
- * headless clinical reasoning agent's stage logs. Purely observational; the
- * Auto Doc agent has no chat surface, no avatar, no clinical-side UI.
+ * Automation Pipeline Monitor — admin-only Watch Dog panel that streams
+ * background-agent activity. Logs are sourced from `auto_doc_logs` and
+ * classified into the three parent agents (Auto Doc / Auto Admin / Auto IT)
+ * by their `stage` tag. Caps each agent's in-memory buffer at 50 entries to
+ * keep the DOM lightweight.
  */
 
 interface LogRow {
@@ -15,6 +17,33 @@ interface LogRow {
   level: string;
   message: string;
   created_at: string;
+}
+
+type AgentId = "auto-doc" | "auto-admin" | "auto-it";
+
+const MAX_PER_AGENT = 50;
+
+const AGENT_TABS: { id: AgentId; label: string; stages: string[] }[] = [
+  {
+    id: "auto-doc",
+    label: "Auto Doc Logs",
+    stages: ["analyze", "order", "result", "document", "complete", "error"],
+  },
+  {
+    id: "auto-admin",
+    label: "Auto Admin Logs",
+    stages: ["discharge"],
+  },
+  {
+    id: "auto-it",
+    label: "Auto IT Logs",
+    stages: ["umls", "fhir"],
+  },
+];
+
+function classifyAgent(stage: string): AgentId {
+  const tab = AGENT_TABS.find((t) => t.stages.includes(stage));
+  return tab?.id ?? "auto-doc";
 }
 
 function stageBadge(stage: string) {
@@ -35,6 +64,7 @@ function stageBadge(stage: string) {
 export function AutoDocMonitor() {
   const [open, setOpen] = useState(true);
   const [logs, setLogs] = useState<LogRow[]>([]);
+  const [activeAgent, setActiveAgent] = useState<AgentId>("auto-doc");
 
   useEffect(() => {
     let cancelled = false;
@@ -43,9 +73,9 @@ export function AutoDocMonitor() {
         .from("auto_doc_logs")
         .select("id, mrn, stage, level, message, created_at")
         .order("created_at", { ascending: false })
-        .limit(50);
+        .limit(MAX_PER_AGENT * AGENT_TABS.length);
       if (cancelled) return;
-      if (l) setLogs(l as any);
+      if (l) setLogs(l as LogRow[]);
     };
     load();
     const ch = supabase
@@ -54,7 +84,9 @@ export function AutoDocMonitor() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "auto_doc_logs" },
         (payload) =>
-          setLogs((prev) => [payload.new as any, ...prev].slice(0, 50)),
+          setLogs((prev) =>
+            [payload.new as LogRow, ...prev].slice(0, MAX_PER_AGENT * AGENT_TABS.length),
+          ),
       )
       .subscribe();
     const poll = setInterval(load, 15_000);
@@ -65,6 +97,21 @@ export function AutoDocMonitor() {
     };
   }, []);
 
+  // Bucket logs by agent and cap each bucket at MAX_PER_AGENT (newest first).
+  const buckets = useMemo(() => {
+    const out: Record<AgentId, LogRow[]> = {
+      "auto-doc": [],
+      "auto-admin": [],
+      "auto-it": [],
+    };
+    for (const row of logs) {
+      const aid = classifyAgent(row.stage);
+      if (out[aid].length < MAX_PER_AGENT) out[aid].push(row);
+    }
+    return out;
+  }, [logs]);
+
+  const visible = buckets[activeAgent];
   const latest = logs[0];
   const statusText = latest
     ? `Latest: ${latest.stage} · MRN-${latest.mrn}`
@@ -86,10 +133,10 @@ export function AutoDocMonitor() {
               Systematic Health Check Cycle
             </div>
             <div className="text-sm font-semibold text-slate-900">
-              Auto Doc Pipeline Monitor
+              Automation Pipeline Monitor
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5">
-              Headless clinical reasoning agent · {statusText}
+              Multi-agent backbone (Auto Doc · Auto Admin · Auto IT) · {statusText}
             </div>
           </div>
         </div>
@@ -97,17 +144,52 @@ export function AutoDocMonitor() {
       </button>
       {open && (
         <div className="border-t border-slate-200">
+          <div className="flex items-center gap-1 border-b border-slate-200 bg-slate-50/60 px-3 pt-2">
+            {AGENT_TABS.map((t) => {
+              const isActive = activeAgent === t.id;
+              const count = buckets[t.id].length;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setActiveAgent(t.id)}
+                  className={`relative px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition ${
+                    isActive
+                      ? "text-indigo-700"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {t.label}
+                  <span
+                    className={`ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold ${
+                      isActive
+                        ? "bg-indigo-100 text-indigo-700"
+                        : "bg-slate-200 text-slate-600"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                  {isActive && (
+                    <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-indigo-600 rounded-full" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
           <div className="px-6 py-3 max-h-72 overflow-y-auto">
             <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 mb-2">
-              Live Pipeline Log
+              Live Pipeline Log · {AGENT_TABS.find((t) => t.id === activeAgent)?.label}
+              <span className="ml-2 text-slate-400 normal-case tracking-normal">
+                (capped at {MAX_PER_AGENT} most recent)
+              </span>
             </div>
-            {logs.length === 0 && (
+            {visible.length === 0 && (
               <div className="text-[11px] text-slate-500 italic">
-                Waiting for Auto Doc activity…
+                Waiting for activity from this agent…
               </div>
             )}
             <ul className="space-y-1 font-mono text-[11px]">
-              {logs.map((l) => (
+              {visible.map((l) => (
                 <li key={l.id} className="flex items-start gap-2">
                   <span className="text-slate-400 shrink-0">
                     {new Date(l.created_at).toLocaleTimeString()}
