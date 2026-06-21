@@ -171,25 +171,47 @@ function MySpehrApp() {
 }
 
 function PortalHome({ mrn }: { mrn: string }) {
-  const [tab, setTab] = useState<"home" | "billing">("home");
+  const [tab, setTab] = useState<"home" | "billing" | "appointments" | "messages" | "health">("home");
   return (
     <div className="flex-1 flex flex-col">
-      <div className="flex-1 overflow-y-auto pb-20">
-        {tab === "home" ? <HomeTab mrn={mrn} onOpenBilling={() => setTab("billing")} /> : <BillingTab mrn={mrn} />}
+      <div className="flex-1 overflow-y-auto pb-24">
+        {tab === "home" && <HomeTab mrn={mrn} onOpenBilling={() => setTab("billing")} />}
+        {tab === "billing" && <BillingTab mrn={mrn} />}
+        {tab === "appointments" && <AppointmentsTab mrn={mrn} />}
+        {tab === "messages" && <MessagesTab mrn={mrn} />}
+        {tab === "health" && <HealthLogsTab mrn={mrn} />}
       </div>
 
       {/* Bottom nav */}
-      <nav className="sticky bottom-0 grid grid-cols-2 border-t border-slate-200 bg-white">
+      <nav className="sticky bottom-0 grid grid-cols-5 border-t border-slate-200 bg-white pb-safe">
         <NavTab
           active={tab === "home"}
           icon={<ShieldCheck className="h-5 w-5" />}
-          label="Overview"
+          label="Home"
           onClick={() => setTab("home")}
+        />
+        <NavTab
+          active={tab === "appointments"}
+          icon={<Calendar className="h-5 w-5" />}
+          label="Appts"
+          onClick={() => setTab("appointments")}
+        />
+        <NavTab
+          active={tab === "messages"}
+          icon={<MessageSquare className="h-5 w-5" />}
+          label="Chat"
+          onClick={() => setTab("messages")}
+        />
+        <NavTab
+          active={tab === "health"}
+          icon={<Activity className="h-5 w-5" />}
+          label="Health"
+          onClick={() => setTab("health")}
         />
         <NavTab
           active={tab === "billing"}
           icon={<Wallet className="h-5 w-5" />}
-          label="Billing & Payments"
+          label="Bills"
           onClick={() => setTab("billing")}
         />
       </nav>
