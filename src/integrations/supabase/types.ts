@@ -469,6 +469,125 @@ export type Database = {
         }
         Relationships: []
       }
+      fhir_charge_items: {
+        Row: {
+          amount: number
+          category: string
+          charge_code: string
+          code_system: string
+          created_at: string
+          currency: string
+          description: string
+          encounter_id: string | null
+          id: string
+          invoice_id: string
+          mrn: string
+          payload: Json
+          quantity: number
+          service_date: string | null
+          unit_price: number
+        }
+        Insert: {
+          amount?: number
+          category: string
+          charge_code: string
+          code_system?: string
+          created_at?: string
+          currency?: string
+          description: string
+          encounter_id?: string | null
+          id?: string
+          invoice_id: string
+          mrn: string
+          payload?: Json
+          quantity?: number
+          service_date?: string | null
+          unit_price?: number
+        }
+        Update: {
+          amount?: number
+          category?: string
+          charge_code?: string
+          code_system?: string
+          created_at?: string
+          currency?: string
+          description?: string
+          encounter_id?: string | null
+          id?: string
+          invoice_id?: string
+          mrn?: string
+          payload?: Json
+          quantity?: number
+          service_date?: string | null
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fhir_charge_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "fhir_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fhir_invoices: {
+        Row: {
+          created_at: string
+          currency: string
+          encounter_id: string | null
+          facility_name: string | null
+          id: string
+          invoice_no: string
+          issued_at: string
+          mrn: string
+          paid_at: string | null
+          patient_name: string | null
+          payload: Json
+          status: string
+          subtotal: number
+          tax: number
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          encounter_id?: string | null
+          facility_name?: string | null
+          id?: string
+          invoice_no: string
+          issued_at?: string
+          mrn: string
+          paid_at?: string | null
+          patient_name?: string | null
+          payload?: Json
+          status?: string
+          subtotal?: number
+          tax?: number
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          encounter_id?: string | null
+          facility_name?: string | null
+          id?: string
+          invoice_no?: string
+          issued_at?: string
+          mrn?: string
+          paid_at?: string | null
+          patient_name?: string | null
+          payload?: Json
+          status?: string
+          subtotal?: number
+          tax?: number
+          total?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       fhir_medication_requests: {
         Row: {
           author_id: string | null
@@ -583,6 +702,53 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      fhir_payment_notices: {
+        Row: {
+          amount: number
+          created_at: string
+          currency: string
+          id: string
+          invoice_id: string
+          mrn: string
+          payload: Json
+          payment_date: string
+          payment_method: string | null
+          status: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          currency?: string
+          id?: string
+          invoice_id: string
+          mrn: string
+          payload?: Json
+          payment_date?: string
+          payment_method?: string | null
+          status?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          currency?: string
+          id?: string
+          invoice_id?: string
+          mrn?: string
+          payload?: Json
+          payment_date?: string
+          payment_method?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fhir_payment_notices_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "fhir_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       fhir_resources: {
         Row: {
