@@ -119,15 +119,21 @@ function AdmissionsBoard() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-4">
-        {tab === "admit" && (
-          <AdmitPatientModal onClose={() => setTab("roster")} onSubmit={handleAdmit} />
-        )}
         {tab === "roster" && <RosterTab facility={facility} />}
         {tab === "scheduling" && <SchedulingTab facility={facility} />}
-        {tab === "beds" && (
-          <BedManagementBoard facility={facility} onClose={() => setTab("roster")} />
+        {(tab === "admit" || tab === "beds") && (
+          <div className="rounded-xl border border-dashed border-border bg-card/40 p-10 text-center text-sm text-muted-foreground">
+            Opening {tab === "admit" ? "admission form" : "bed board"}…
+          </div>
         )}
       </div>
+
+      {tab === "admit" && (
+        <AdmitPatientModal onClose={() => setTab("roster")} onSubmit={handleAdmit} />
+      )}
+      {tab === "beds" && (
+        <BedManagementBoard facility={facility} onClose={() => setTab("roster")} />
+      )}
     </main>
   );
 }
