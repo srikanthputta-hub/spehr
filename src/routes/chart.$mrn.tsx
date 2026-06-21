@@ -22,6 +22,8 @@ import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react
 import { FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
+import { PatientReportedVitals } from "@/components/PatientReportedVitals";
+import { PatientCommsInbox } from "@/components/PatientCommsInbox";
 import {
   getPatient,
   hrOutOfRange,
