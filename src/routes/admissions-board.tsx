@@ -124,12 +124,15 @@ function AdmissionsBoard() {
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-4">
         {tab === "home" && (
-          <div className="min-h-[60vh] flex flex-col items-center justify-center gap-6 py-12">
-            <img
-              src={spehrLogo.url}
-              alt="S Group Private Network"
-              className="h-80 w-auto md:h-96 opacity-95 drop-shadow-lg"
-            />
+          <div className="min-h-[60vh] flex flex-col items-center justify-center gap-8 py-12">
+            <div className="relative flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(20,80,80,0.15)_0%,transparent_70%)] blur-2xl scale-150" />
+              <img
+                src={spehrLogo.url}
+                alt="S Group Private Network"
+                className="relative h-96 w-auto md:h-[28rem] drop-shadow-2xl"
+              />
+            </div>
           </div>
         )}
         {tab === "roster" && <RosterTab facility={facility} />}
