@@ -9,6 +9,8 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  Search,
+  Wand2,
   UserPlus,
   Users,
   X,
