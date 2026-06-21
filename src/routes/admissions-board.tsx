@@ -537,6 +537,72 @@ function BookAppointmentModal({
   const [submitting, setSubmitting] = useState(false);
   const [looking, setLooking] = useState(false);
 
+  const PRACTITIONERS = [
+    "Dr. Robert Patel, MD",
+    "Dr. Priya Shah, DO",
+    "Dr. Alan Reyes, MD",
+    "Dr. Marcus Lee, MD",
+    "Dr. Elena Park, MD",
+  ];
+  const SERVICE_TYPES = [
+    "Outpatient Visit",
+    "Follow-up Consultation",
+    "Annual Physical",
+    "Specialist Consultation",
+    "Lab Review",
+    "Imaging Review",
+  ];
+  const REASONS = [
+    "Routine follow-up after recent admission",
+    "Medication reconciliation and review",
+    "Post-discharge wellness check",
+    "Chronic condition management",
+    "Lab results review",
+  ];
+
+  const autoFillFromExistingPatient = async () => {
+    setLooking(true);
+    const { data, error } = await supabase
+      .from("patients")
+      .select("mrn, first_name, last_name, dob")
+      .eq("facility_name", facility)
+      .not("mrn", "is", null)
+      .order("admission_time", { ascending: false, nullsFirst: false })
+      .limit(50);
+    setLooking(false);
+    if (error) {
+      toast.error("Auto-fill failed", { description: error.message });
+      return;
+    }
+    const candidates = (data ?? []).filter((p: any) => p.mrn);
+    if (candidates.length === 0) {
+      toast.error(`No existing patients found at ${facility}`);
+      return;
+    }
+    const p: any = candidates[Math.floor(Math.random() * candidates.length)];
+    const start = new Date(Date.now() + (1 + Math.floor(Math.random() * 14)) * 24 * 60 * 60 * 1000);
+    start.setHours(9 + Math.floor(Math.random() * 8), [0, 15, 30, 45][Math.floor(Math.random() * 4)], 0, 0);
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const toLocal = (d: Date) => {
+      const x = new Date(d);
+      x.setMinutes(x.getMinutes() - x.getTimezoneOffset());
+      return x.toISOString().slice(0, 16);
+    };
+    setForm({
+      patient_name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
+      patient_mrn: p.mrn,
+      patient_dob: (p.dob as string) ?? "",
+      practitioner_name: PRACTITIONERS[Math.floor(Math.random() * PRACTITIONERS.length)],
+      service_type: SERVICE_TYPES[Math.floor(Math.random() * SERVICE_TYPES.length)],
+      description: REASONS[Math.floor(Math.random() * REASONS.length)],
+      start_time: toLocal(start),
+      end_time: toLocal(end),
+      status: "booked",
+      comment: "",
+    });
+    toast.success(`Auto-filled with ${p.first_name ?? ""} ${p.last_name ?? ""} (${p.mrn})`);
+  };
+
   const lookupByMrn = async (mrnRaw?: string): Promise<boolean> => {
     const mrn = (mrnRaw ?? form.patient_mrn).trim();
     if (!mrn) {
@@ -579,6 +645,8 @@ function BookAppointmentModal({
       return;
     }
     setSubmitting(true);
+    const startIso = new Date(form.start_time).toISOString();
+    const endIso = new Date(form.end_time).toISOString();
     const { data: inserted, error } = await (supabase as any).from("fhir_appointments").insert({
       facility_name: facility,
       patient_name: form.patient_name.trim(),
@@ -586,8 +654,8 @@ function BookAppointmentModal({
       practitioner_name: form.practitioner_name.trim() || null,
       service_type: form.service_type.trim() || null,
       description: form.description.trim() || null,
-      start_time: new Date(form.start_time).toISOString(),
-      end_time: new Date(form.end_time).toISOString(),
+      start_time: startIso,
+      end_time: endIso,
       status: form.status,
       comment: form.comment.trim() || null,
     }).select().maybeSingle();
@@ -597,40 +665,51 @@ function BookAppointmentModal({
       return;
     }
 
-    // Push to external FHIR server as Appointment resource (best-effort)
-    try {
-      const appt = {
-        resourceType: "Appointment",
-        status: form.status,
-        serviceType: form.service_type
-          ? [{ text: form.service_type.trim() }]
-          : undefined,
-        description: form.description.trim() || undefined,
-        start: new Date(form.start_time).toISOString(),
-        end: new Date(form.end_time).toISOString(),
-        comment: form.comment.trim() || undefined,
-        participant: [
-          {
-            actor: {
-              reference: form.patient_mrn.trim()
-                ? `Patient?identifier=http://spehr.local/mrn|${form.patient_mrn.trim()}`
-                : undefined,
-              display: form.patient_name.trim(),
-            },
-            status: "accepted",
+    // Build strict FHIR R4 Appointment and push to external FHIR server + local mirror
+    const apptId = (inserted as any)?.id ?? crypto.randomUUID();
+    const mrnTrim = form.patient_mrn.trim();
+    const appt: any = {
+      resourceType: "Appointment",
+      id: apptId,
+      status: form.status,
+      serviceType: form.service_type.trim()
+        ? [{ text: form.service_type.trim() }]
+        : undefined,
+      description: form.description.trim() || undefined,
+      start: startIso,
+      end: endIso,
+      comment: form.comment.trim() || undefined,
+      participant: [
+        {
+          actor: {
+            reference: mrnTrim ? `Patient/${mrnTrim}` : undefined,
+            identifier: mrnTrim
+              ? { system: "http://spehr.local/mrn", value: mrnTrim }
+              : undefined,
+            display: form.patient_name.trim(),
           },
-          ...(form.practitioner_name.trim()
-            ? [{ actor: { display: form.practitioner_name.trim() }, status: "accepted" }]
-            : []),
-        ],
-      };
+          required: "required",
+          status: "accepted",
+        },
+        ...(form.practitioner_name.trim()
+          ? [
+              {
+                actor: { display: form.practitioner_name.trim() },
+                required: "required",
+                status: "accepted",
+              },
+            ]
+          : []),
+      ],
+    };
+    try {
       const bundle = {
         resourceType: "Bundle",
         type: "transaction",
         entry: [
           {
             resource: appt,
-            request: { method: "POST", url: "Appointment" },
+            request: { method: "PUT", url: `Appointment/${apptId}` },
           },
         ],
       };
@@ -646,8 +725,23 @@ function BookAppointmentModal({
       });
     }
 
+    // Persist a local FHIR resource mirror so the patient portal can query
+    // Appointment?actor=Patient/[MRN] without round-tripping to the external server.
+    try {
+      await (supabase as any).rpc("persist_fhir_resource", {
+        _resource_type: "Appointment",
+        _resource_id: apptId,
+        _mrn: mrnTrim || null,
+        _payload: appt,
+        _source: "reception-booking",
+        _origin: "human",
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     setSubmitting(false);
-    toast.success("Appointment booked");
+    toast.success(`Appointment booked for ${form.patient_name.trim()}`);
     onCreated();
   };
 
@@ -769,10 +863,10 @@ function BookAppointmentModal({
           </button>
           <button
             type="button"
-            onClick={() => void lookupByMrn()}
+            onClick={() => void autoFillFromExistingPatient()}
             disabled={looking}
             className="inline-flex items-center gap-1.5 rounded-md border border-[var(--teal)]/40 bg-[var(--teal-soft)] text-[var(--teal)] hover:bg-[var(--teal)]/10 px-3 h-9 text-xs font-semibold disabled:opacity-60"
-            title="Look up patient by MRN and fill name & DOB"
+            title="Pick a random existing patient at this facility and fill realistic details"
           >
             {looking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
             Auto-fill
