@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
 import {
   Loader2,
   Search,
@@ -18,6 +19,7 @@ import { type CodeStatus } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
+
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
