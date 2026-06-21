@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -166,7 +166,6 @@ interface EncounterRow {
 function RosterTab({ facility }: { facility: string }) {
   const [rows, setRows] = useState<EncounterRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"in-progress" | "finished">("in-progress");
 
   const load = async () => {
     setLoading(true);
@@ -208,34 +207,14 @@ function RosterTab({ facility }: { facility: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facility]);
 
-  const filtered = rows.filter((r) => r.status === view);
-
   return (
     <section className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between px-5 h-12 border-b border-border bg-secondary/40">
         <div className="flex items-center gap-2">
           <ClipboardList className="h-4 w-4 text-[var(--teal)]" />
-          <h2 className="text-sm font-semibold">FHIR Encounter Roster — last 50 visits</h2>
+          <h2 className="text-sm font-semibold">Patient Census</h2>
         </div>
         <div className="flex items-center gap-1">
-          {(
-            [
-              { k: "in-progress", label: "Admitted / Current" },
-              { k: "finished", label: "Recently Discharged" },
-            ] as const
-          ).map((t) => (
-            <button
-              key={t.k}
-              onClick={() => setView(t.k)}
-              className={`h-8 px-3 rounded-md text-xs font-semibold transition ${
-                view === t.k
-                  ? "bg-[var(--teal)] text-white"
-                  : "text-slate-600 hover:bg-secondary"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
           <button
             onClick={load}
             className="ml-2 inline-grid place-items-center h-8 w-8 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
@@ -253,16 +232,14 @@ function RosterTab({ facility }: { facility: string }) {
               <th className="px-3 py-2 font-bold">Patient</th>
               <th className="px-3 py-2 font-bold">Room</th>
               <th className="px-3 py-2 font-bold">Chief Complaint</th>
-              <th className="px-3 py-2 font-bold">Start</th>
-              <th className="px-3 py-2 font-bold">End</th>
-              <th className="px-3 py-2 font-bold">FHIR Status</th>
-              <th className="px-3 py-2 font-bold text-right pr-4">Action</th>
+              <th className="px-3 py-2 font-bold">Admitted</th>
+              <th className="px-3 py-2 font-bold">Discharged</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                <td colSpan={6} className="px-5 py-10 text-center text-sm text-muted-foreground">
                   <span className="inline-flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
                     Loading encounters…
@@ -270,15 +247,15 @@ function RosterTab({ facility }: { facility: string }) {
                 </td>
               </tr>
             )}
-            {!loading && filtered.length === 0 && (
+            {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-5 py-16 text-center text-sm text-muted-foreground">
-                  No encounters match this filter.
+                <td colSpan={6} className="px-5 py-16 text-center text-sm text-muted-foreground">
+                  No patients on the census.
                 </td>
               </tr>
             )}
             {!loading &&
-              filtered.map((r, i) => (
+              rows.map((r, i) => (
                 <tr
                   key={r.mrn + r.status}
                   className={`border-b border-slate-200 hover:bg-[var(--teal-soft)]/40 transition ${i % 2 === 1 ? "bg-slate-50/60" : "bg-white"}`}
@@ -292,26 +269,6 @@ function RosterTab({ facility }: { facility: string }) {
                   </td>
                   <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">
                     {fmtTs(r.end)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                        r.status === "in-progress"
-                          ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
-                          : "bg-slate-100 text-slate-700 ring-1 ring-slate-300"
-                      }`}
-                    >
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right pr-4">
-                    <Link
-                      to="/patient/$mrn"
-                      params={{ mrn: r.mrn }}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 h-7 text-[11px] font-semibold text-slate-700 hover:bg-[var(--navy)] hover:text-white hover:border-[var(--navy)] transition"
-                    >
-                      Open Chart
-                    </Link>
                   </td>
                 </tr>
               ))}
@@ -401,7 +358,7 @@ function SchedulingTab({ facility }: { facility: string }) {
         <div className="flex items-center justify-between px-5 h-12 border-b border-border bg-secondary/40">
           <div className="flex items-center gap-2">
             <CalendarClock className="h-4 w-4 text-[var(--teal)]" />
-            <h2 className="text-sm font-semibold">Upcoming Appointments — FHIR Appointment R4</h2>
+            <h2 className="text-sm font-semibold">Upcoming Appointments</h2>
           </div>
           <button
             onClick={() => setOpen(true)}
@@ -588,7 +545,7 @@ function BookAppointmentModal({
         <div className="flex items-center justify-between px-5 h-12 bg-[var(--navy)] text-white">
           <div className="flex items-center gap-2">
             <CalendarClock className="h-4 w-4 text-[var(--teal)]" />
-            <h2 className="text-sm font-semibold">Book Appointment · FHIR Appointment R4</h2>
+            <h2 className="text-sm font-semibold">Book Appointment</h2>
           </div>
           <button type="button" onClick={onClose} className="grid place-items-center h-7 w-7 rounded-md hover:bg-white/10">
             <X className="h-4 w-4" />
