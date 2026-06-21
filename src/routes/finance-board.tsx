@@ -154,16 +154,18 @@ function FinanceBoard() {
     [facilityInvoices],
   );
 
+  const [tab, setTab] = useState<"active" | "settled">("active");
   const filtered = useMemo(() => {
+    const base = tab === "settled" ? balanced : facilityInvoices.filter((i) => i.status !== "balanced");
     const q = search.trim().toLowerCase();
-    if (!q) return facilityInvoices;
-    return facilityInvoices.filter(
+    if (!q) return base;
+    return base.filter(
       (i) =>
         i.mrn.toLowerCase().includes(q) ||
         (i.patient_name ?? "").toLowerCase().includes(q) ||
         i.invoice_no.toLowerCase().includes(q),
     );
-  }, [facilityInvoices, search]);
+  }, [facilityInvoices, balanced, search, tab]);
 
   const totalRevenue = useMemo(
     () => facilityInvoices.reduce((s, i) => s + Number(i.total ?? 0), 0),
