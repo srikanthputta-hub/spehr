@@ -534,9 +534,8 @@ function AppointmentTable({
           )}
           {!loading &&
             rows.map((r, i) => (
-              <>
+              <Fragment key={r.id}>
               <tr
-                key={r.id}
                 className={`border-b border-slate-200 ${
                   r.status === "proposed"
                     ? "bg-amber-50/70 ring-1 ring-amber-200"
@@ -620,7 +619,7 @@ function AppointmentTable({
                 )}
               </tr>
               {editing === r.id && (
-                <tr key={r.id + "-edit"} className="bg-slate-50 border-b border-slate-200">
+                <tr className="bg-slate-50 border-b border-slate-200">
                   <td colSpan={showActions ? 7 : 6} className="px-4 py-3">
                     <div className="flex flex-wrap items-end gap-3">
                       <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-600 font-semibold">
@@ -661,7 +660,7 @@ function AppointmentTable({
                   </td>
                 </tr>
               )}
-              </>
+              </Fragment>
             ))}
         </tbody>
       </table>
