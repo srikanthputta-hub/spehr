@@ -19,17 +19,18 @@ import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { admitPatient, type AdmitInput } from "@/lib/admit-patient";
 import { AdmitPatientModal } from "@/components/admissions/AdmitPatientModal";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
+import spehrLogo from "@/assets/spehr-logo.png.asset.json";
 
 export const Route = createFileRoute("/admissions-board")({
   component: AdmissionsBoard,
 });
 
-type TabKey = "admit" | "roster" | "scheduling" | "beds";
+type TabKey = "home" | "admit" | "roster" | "scheduling" | "beds";
 
 function AdmissionsBoard() {
   const { facility } = useFacility();
   const staff = useActiveStaff("Reception");
-  const [tab, setTab] = useState<TabKey>("admit");
+  const [tab, setTab] = useState<TabKey>("home");
   const [bedCounts, setBedCounts] = useState({ available: 0, total: 0 });
 
   useEffect(() => {
@@ -79,8 +80,9 @@ function AdmissionsBoard() {
   };
 
   const tabs: { key: TabKey; label: string; icon: any }[] = [
+    { key: "home", label: "Home", icon: ClipboardList },
     { key: "admit", label: "Admit Patient", icon: UserPlus },
-    { key: "roster", label: "Patient Roster", icon: Users },
+    { key: "roster", label: "Patient Census", icon: Users },
     { key: "scheduling", label: "Scheduling", icon: CalendarClock },
     { key: "beds", label: "Bed Management", icon: BedDouble },
   ];
@@ -119,6 +121,15 @@ function AdmissionsBoard() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-4">
+        {tab === "home" && (
+          <div className="min-h-[60vh] grid place-items-center">
+            <img
+              src={spehrLogo.url}
+              alt="S Group Private Network"
+              className="h-64 w-auto opacity-95"
+            />
+          </div>
+        )}
         {tab === "roster" && <RosterTab facility={facility} />}
         {tab === "scheduling" && <SchedulingTab facility={facility} />}
         {(tab === "admit" || tab === "beds") && (
