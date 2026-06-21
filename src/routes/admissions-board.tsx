@@ -158,7 +158,8 @@ function AdmissionsBoard() {
 interface EncounterRow {
   mrn: string;
   name: string;
-  chief_complaint: string | null;
+  dob: string | null;
+  address: string | null;
   status: "in-progress" | "finished";
   start: string | null;
   end: string | null;
@@ -168,6 +169,7 @@ interface EncounterRow {
 function RosterTab({ facility }: { facility: string }) {
   const [rows, setRows] = useState<EncounterRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -176,14 +178,15 @@ function RosterTab({ facility }: { facility: string }) {
     // status = 'Discharged' → FHIR Encounter.status = finished
     const { data } = await supabase
       .from("patients")
-      .select("mrn, first_name, last_name, chief_complaint, status, admission_time, discharge_time, room")
+      .select("mrn, first_name, last_name, dob, address, status, admission_time, discharge_time, room")
       .eq("facility_name", facility)
       .order("admission_time", { ascending: false })
       .limit(50);
     const mapped: EncounterRow[] = ((data ?? []) as any[]).map((p) => ({
       mrn: p.mrn,
       name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
-      chief_complaint: p.chief_complaint,
+      dob: p.dob ?? null,
+      address: p.address ?? null,
       status: (p.status ?? "").toLowerCase() === "discharged" ? "finished" : "in-progress",
       start: p.admission_time ?? null,
       end: p.discharge_time ?? null,
@@ -209,6 +212,19 @@ function RosterTab({ facility }: { facility: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facility]);
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (r) =>
+        r.mrn.toLowerCase().includes(q) ||
+        r.name.toLowerCase().includes(q) ||
+        (r.room ?? "").toLowerCase().includes(q) ||
+        (r.address ?? "").toLowerCase().includes(q) ||
+        (r.dob ?? "").toLowerCase().includes(q),
+    );
+  }, [rows, query]);
+
   return (
     <section className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between px-5 h-12 border-b border-border bg-secondary/40">
@@ -216,7 +232,16 @@ function RosterTab({ facility }: { facility: string }) {
           <ClipboardList className="h-4 w-4 text-[var(--teal)]" />
           <h2 className="text-sm font-semibold">Patient Census</h2>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search MRN, name, room, address…"
+              className="h-8 w-72 rounded-md border border-slate-200 bg-white pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
+            />
+          </div>
           <button
             onClick={load}
             className="ml-2 inline-grid place-items-center h-8 w-8 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
@@ -233,7 +258,8 @@ function RosterTab({ facility }: { facility: string }) {
               <th className="px-3 py-2 font-bold">MRN</th>
               <th className="px-3 py-2 font-bold">Patient</th>
               <th className="px-3 py-2 font-bold">Room</th>
-              <th className="px-3 py-2 font-bold">Chief Complaint</th>
+              <th className="px-3 py-2 font-bold">Date of Birth</th>
+              <th className="px-3 py-2 font-bold">Address</th>
               <th className="px-3 py-2 font-bold">Admitted</th>
               <th className="px-3 py-2 font-bold">Discharged</th>
             </tr>
@@ -241,7 +267,7 @@ function RosterTab({ facility }: { facility: string }) {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
                   <span className="inline-flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
                     Loading encounters…
@@ -249,15 +275,15 @@ function RosterTab({ facility }: { facility: string }) {
                 </td>
               </tr>
             )}
-            {!loading && rows.length === 0 && (
+            {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-16 text-center text-sm text-muted-foreground">
-                  No patients on the census.
+                <td colSpan={7} className="px-5 py-16 text-center text-sm text-muted-foreground">
+                  {rows.length === 0 ? "No patients on the census." : "No matches for that search."}
                 </td>
               </tr>
             )}
             {!loading &&
-              rows.map((r, i) => (
+              filtered.map((r, i) => (
                 <tr
                   key={r.mrn + r.status}
                   className={`border-b border-slate-200 hover:bg-[var(--teal-soft)]/40 transition ${i % 2 === 1 ? "bg-slate-50/60" : "bg-white"}`}
@@ -265,7 +291,8 @@ function RosterTab({ facility }: { facility: string }) {
                   <td className="px-3 py-2 font-mono text-slate-700">{r.mrn}</td>
                   <td className="px-3 py-2 font-semibold text-slate-900">{r.name || "—"}</td>
                   <td className="px-3 py-2 font-mono text-slate-700">{r.room ?? "—"}</td>
-                  <td className="px-3 py-2 text-slate-700">{r.chief_complaint ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono text-[11.5px] text-slate-700 whitespace-nowrap">{r.dob ?? "—"}</td>
+                  <td className="px-3 py-2 text-slate-700">{r.address ?? "—"}</td>
                   <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">
                     {fmtTs(r.start)}
                   </td>
