@@ -92,17 +92,75 @@ function WatchdogStatusWidget() {
     ago !== null &&
     ago < 120;
 
-  const AUTOMATION_REGISTRY: { key: string; label: string; group: string }[] = [
-    { key: "Admissions", label: "Ghost Admission Randomizer", group: "Patient Flow" },
-    { key: "Pharmacy Queue", label: "Pharmacy Order Cascade", group: "Pharmacy" },
-    { key: "Lab Queue", label: "Lab Order → Result Cascade", group: "Laboratory" },
-    { key: "Vitals", label: "Vitals Simulation Loop", group: "Nursing" },
-    { key: "Discharge", label: "Auto Discharge Engine", group: "Patient Flow" },
-    { key: "FHIR Sync", label: "FHIR Interoperability Sync", group: "Interop" },
-    { key: "Auto Doc", label: "Auto Doc Clinical Reasoning Engine", group: "Backbone" },
-    { key: "Watchdog", label: "Watchdog Self-Heartbeat", group: "Core" },
+  // Multi-agent microservice architecture: every background loop is tagged
+  // under one of three parent agents. The underlying setInterval/cron loops
+  // are unchanged — this is purely a registry/UI grouping so the watchdog
+  // can render them as a nested accordion.
+  const AGENT_REGISTRY: {
+    id: "auto-doc" | "auto-admin" | "auto-it";
+    name: string;
+    tagline: string;
+    accent: string;
+    children: { key: string; label: string; group: string }[];
+  }[] = [
+    {
+      id: "auto-doc",
+      name: "Auto Doc",
+      tagline: "Clinical Engine · patient care & medical reasoning",
+      accent: "indigo",
+      children: [
+        { key: "Vitals", label: "Vitals Simulation Loop", group: "Telemetry" },
+        { key: "Pharmacy Queue", label: "Pharmacy Order Cascade & Interaction Checks", group: "Pharmacy" },
+        { key: "Lab Queue", label: "Lab Order → Result Cascade", group: "Laboratory" },
+        { key: "Clinical Alerts", label: "Clinical Alerts (Vitals Drop Warnings)", group: "Safety" },
+        { key: "Auto Doc", label: "Automated Discharge Summary Writer", group: "Composition" },
+        { key: "CDS", label: "Clinical Decision Support Monitoring", group: "Reasoning" },
+      ],
+    },
+    {
+      id: "auto-admin",
+      name: "Auto Admin",
+      tagline: "Operational Engine · flow, beds & revenue cycle",
+      accent: "emerald",
+      children: [
+        { key: "Admissions", label: "Ghost Admission Randomizer", group: "Patient Flow" },
+        { key: "Discharge", label: "Auto Discharge Engine", group: "Patient Flow" },
+        { key: "Beds", label: "Bed Management System", group: "Capacity" },
+        { key: "Revenue", label: "Automated Revenue Cycle (ChargeItems → Invoices)", group: "Finance" },
+        { key: "Staffing", label: "Automated Staff Assignment", group: "Care Teams" },
+      ],
+    },
+    {
+      id: "auto-it",
+      name: "Auto IT",
+      tagline: "Infrastructure Engine · interop, validation & health",
+      accent: "sky",
+      children: [
+        { key: "FHIR Sync", label: "FHIR Interoperability Sync (Medblocks)", group: "Interop" },
+        { key: "UMLS", label: "UMLS Terminology Validation", group: "Standards" },
+        { key: "FHIR R4", label: "FHIR R4 Compliance Checker", group: "Validation" },
+        { key: "GC", label: "48-Hour TTL / Garbage Collection Sweep", group: "Maintenance" },
+        { key: "Health Ping", label: "Latency & API Health Ping", group: "Uptime" },
+        { key: "Watchdog", label: "Watchdog Self-Heartbeat", group: "Core" },
+      ],
+    },
   ];
   const healedSet = new Set(latest?.healed_engines ?? []);
+  const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({
+    "auto-doc": true,
+    "auto-admin": false,
+    "auto-it": false,
+  });
+  const accentClass = (a: string) => {
+    switch (a) {
+      case "indigo":
+        return { bg: "bg-indigo-50", text: "text-indigo-600", chip: "bg-indigo-100 text-indigo-700 border-indigo-200" };
+      case "emerald":
+        return { bg: "bg-emerald-50", text: "text-emerald-600", chip: "bg-emerald-100 text-emerald-700 border-emerald-200" };
+      default:
+        return { bg: "bg-sky-50", text: "text-sky-600", chip: "bg-sky-100 text-sky-700 border-sky-200" };
+    }
+  };
 
   return (
     <div className="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -177,37 +235,87 @@ function WatchdogStatusWidget() {
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 mb-2">
             Automation Registry · This Cycle
           </div>
-          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            {AUTOMATION_REGISTRY.map((a) => {
-              const isHealed = healedSet.has(a.key);
-              const healthy = !isHealed;
+          <ul className="space-y-2">
+            {AGENT_REGISTRY.map((agent) => {
+              const accent = accentClass(agent.accent);
+              const expanded = expandedAgents[agent.id];
+              const agentHealed = agent.children.some((c) => healedSet.has(c.key));
               return (
                 <li
-                  key={a.key}
-                  className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-1.5"
+                  key={agent.id}
+                  className="rounded-lg border border-slate-200 bg-white overflow-hidden"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {healthy ? (
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                    ) : (
-                      <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                    )}
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-slate-800 truncate">
-                        {a.label}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedAgents((p) => ({ ...p, [agent.id]: !p[agent.id] }))
+                    }
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-slate-50"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`grid place-items-center h-8 w-8 rounded-md ${accent.bg} ${accent.text}`}>
+                        <Sparkles className="h-4 w-4" />
                       </div>
-                      <div className="text-[10px] text-slate-500 truncate">
-                        {a.group}
+                      <div className="min-w-0 text-left">
+                        <div className="text-xs font-bold text-slate-900 truncate">
+                          {agent.name}
+                          <span className={`ml-2 align-middle inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${accent.chip}`}>
+                            {agent.children.length} loops
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 truncate">
+                          {agent.tagline}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-wider ${
-                      healthy ? "text-emerald-700" : "text-amber-700"
-                    }`}
-                  >
-                    {healthy ? "Normal" : "Auto-Healed"}
-                  </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wider ${
+                          agentHealed ? "text-amber-700" : "text-emerald-700"
+                        }`}
+                      >
+                        {agentHealed ? "Auto-Healed" : "Normal"}
+                      </span>
+                      <ChevronDownIcon className={`h-3.5 w-3.5 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                    </div>
+                  </button>
+                  {expanded && (
+                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 border-t border-slate-200 bg-slate-50/60 px-3 py-2">
+                      {agent.children.map((a) => {
+                        const isHealed = healedSet.has(a.key);
+                        const healthy = !isHealed;
+                        return (
+                          <li
+                            key={a.key}
+                            className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-1.5"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              {healthy ? (
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                              ) : (
+                                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                              )}
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-slate-800 truncate">
+                                  {a.label}
+                                </div>
+                                <div className="text-[10px] text-slate-500 truncate">
+                                  {a.group}
+                                </div>
+                              </div>
+                            </div>
+                            <span
+                              className={`text-[10px] font-bold uppercase tracking-wider ${
+                                healthy ? "text-emerald-700" : "text-amber-700"
+                              }`}
+                            >
+                              {healthy ? "Normal" : "Auto-Healed"}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </li>
               );
             })}
