@@ -911,7 +911,14 @@ function ChartPage() {
 
         {/* RIGHT — MAR */}
         <div className="lg:col-span-2">
-          <section className="rounded-xl border border-border bg-card overflow-hidden sticky top-[88px]">
+          <div className="space-y-4 sticky top-[88px]">
+          <PatientReportedVitals mrn={patient.mrn} />
+          <PatientCommsInbox
+            mrn={patient.mrn}
+            facility={facility}
+            providerLabel={activeNurse?.name ?? "Care Team"}
+          />
+          <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader
               icon={Pill}
               title="MAR — Due Now"
@@ -935,6 +942,7 @@ function ChartPage() {
               ))}
             </ul>
           </section>
+          </div>
         </div>
       </div>
     </main>
