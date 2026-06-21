@@ -916,7 +916,7 @@ function ChartPage() {
           <PatientCommsInbox
             mrn={patient.mrn}
             facility={facility}
-            providerLabel={activeNurse?.name ?? "Care Team"}
+            providerLabel={nurse?.name ?? "Care Team"}
           />
           <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader
