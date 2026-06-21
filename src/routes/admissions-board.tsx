@@ -130,9 +130,6 @@ function AdmissionsBoard() {
               alt="S Group Private Network"
               className="h-80 w-auto md:h-96 opacity-95 drop-shadow-lg"
             />
-            <p className="text-2xl md:text-3xl font-semibold italic tracking-wide text-foreground/90">
-              Empowering your health
-            </p>
           </div>
         )}
         {tab === "roster" && <RosterTab facility={facility} />}
