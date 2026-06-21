@@ -30,8 +30,6 @@ function AdmissionsBoard() {
   const { facility } = useFacility();
   const staff = useActiveStaff("Reception");
   const [tab, setTab] = useState<TabKey>("admit");
-  const [admitOpen, setAdmitOpen] = useState(false);
-  const [bedBoardOpen, setBedBoardOpen] = useState(false);
   const [bedCounts, setBedCounts] = useState({ available: 0, total: 0 });
 
   useEffect(() => {
@@ -76,6 +74,7 @@ function AdmissionsBoard() {
     toast.success("Patient admitted", {
       description: `${res.patient.first_name} ${res.patient.last_name} · ${res.patient.mrn}`,
     });
+    setTab("roster");
     return true;
   };
 
@@ -120,68 +119,22 @@ function AdmissionsBoard() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-4">
-        {tab === "admit" && (
-          <AdmitTab
-            facility={facility}
-            bedCounts={bedCounts}
-            onOpenForm={() => setAdmitOpen(true)}
-          />
-        )}
         {tab === "roster" && <RosterTab facility={facility} />}
         {tab === "scheduling" && <SchedulingTab facility={facility} />}
-        {tab === "beds" && <BedTab facility={facility} onOpenBoard={() => setBedBoardOpen(true)} />}
+        {(tab === "admit" || tab === "beds") && (
+          <div className="rounded-xl border border-dashed border-border bg-card/40 p-10 text-center text-sm text-muted-foreground">
+            Opening {tab === "admit" ? "admission form" : "bed board"}…
+          </div>
+        )}
       </div>
 
-      {admitOpen && (
-        <AdmitPatientModal onClose={() => setAdmitOpen(false)} onSubmit={handleAdmit} />
+      {tab === "admit" && (
+        <AdmitPatientModal onClose={() => setTab("roster")} onSubmit={handleAdmit} />
       )}
-      {bedBoardOpen && (
-        <BedManagementBoard facility={facility} onClose={() => setBedBoardOpen(false)} />
+      {tab === "beds" && (
+        <BedManagementBoard facility={facility} onClose={() => setTab("roster")} />
       )}
     </main>
-  );
-}
-
-function AdmitTab({
-  facility,
-  bedCounts,
-  onOpenForm,
-}: {
-  facility: string;
-  bedCounts: { available: number; total: number };
-  onOpenForm: () => void;
-}) {
-  const full = bedCounts.available === 0 && bedCounts.total > 0;
-  return (
-    <section className="rounded-xl border border-border bg-card p-8 text-center">
-      <div className="mx-auto grid place-items-center h-12 w-12 rounded-lg bg-[var(--teal-soft)] text-[var(--teal)]">
-        <UserPlus className="h-5 w-5" />
-      </div>
-      <h2 className="mt-4 text-lg font-semibold">Register a New Admission</h2>
-      <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
-        Capture demographics, chief complaint, HPI, history, allergies, and meds. The
-        admission triggers Auto-Doc, FHIR sync, and the clinical automation pipeline.
-      </p>
-      <div className="mt-4 text-xs text-muted-foreground">
-        Facility · <span className="font-semibold text-foreground">{facility}</span>
-      </div>
-      <button
-        onClick={() => {
-          if (full) {
-            toast.error("No empty beds available", {
-              description: `${facility} is at full capacity (${bedCounts.total}/${bedCounts.total} occupied).`,
-            });
-            return;
-          }
-          onOpenForm();
-        }}
-        className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-10 text-sm font-semibold shadow-sm transition disabled:opacity-50"
-        disabled={full}
-        title={full ? "No empty beds" : undefined}
-      >
-        <UserPlus className="h-4 w-4" /> Open Admission Form
-      </button>
-    </section>
   );
 }
 
@@ -752,23 +705,3 @@ function FormField({
 /* Bed Management — shared with the Nurse Dashboard                   */
 /* ----------------------------------------------------------------- */
 
-function BedTab({ facility, onOpenBoard }: { facility: string; onOpenBoard: () => void }) {
-  return (
-    <section className="rounded-xl border border-border bg-card p-8 text-center">
-      <div className="mx-auto grid place-items-center h-12 w-12 rounded-lg bg-[var(--teal-soft)] text-[var(--teal)]">
-        <BedDouble className="h-5 w-5" />
-      </div>
-      <h2 className="mt-4 text-lg font-semibold">Floor Bed Allocation — {facility}</h2>
-      <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
-        Shared bed board (FHIR Location resource). Bed assignments made here are visible to
-        nurses in real time and vice versa.
-      </p>
-      <button
-        onClick={onOpenBoard}
-        className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-10 text-sm font-semibold shadow-sm"
-      >
-        <BedDouble className="h-4 w-4" /> Open Bed Board
-      </button>
-    </section>
-  );
-}
