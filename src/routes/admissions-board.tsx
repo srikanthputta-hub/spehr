@@ -336,7 +336,7 @@ interface AppointmentRow {
   comment: string | null;
 }
 
-const APPT_STATUSES = ["booked", "arrived", "fulfilled", "cancelled", "noshow"] as const;
+const APPT_STATUSES = ["proposed", "pending", "booked", "arrived", "fulfilled", "cancelled", "noshow"] as const;
 
 function SchedulingTab({ facility }: { facility: string }) {
   const [rows, setRows] = useState<AppointmentRow[]>([]);
