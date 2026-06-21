@@ -243,7 +243,7 @@ const ROLE_LABELS: Record<string, string> = {
   MD: "Attending Physician (MD)",
   PharmD: "Clinical Pharmacist (PharmD)",
   Finance: "Corporate Finance & Accounts",
-  Admin: "Unit Administrator",
+  Admin: "Clinical Site Manager",
   Lab: "Laboratory Technician (CLT)",
 };
 
