@@ -19,68 +19,56 @@ import {
   TrendingUp,
   DollarSign,
   CheckCircle2,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
+import { useServerFn } from "@tanstack/react-start";
+import { backfillInvoices, generateInvoiceForMrn } from "@/lib/auto-doc.functions";
 
 export const Route = createFileRoute("/finance-board")({
   component: FinanceBoard,
 });
 
-interface PatientRow {
+interface InvoiceRow {
   id: string;
-  mrn: string | null;
+  invoice_no: string;
+  mrn: string;
+  patient_name: string | null;
+  encounter_id: string | null;
+  facility_name: string | null;
+  status: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  currency: string;
+  issued_at: string;
+  paid_at: string | null;
+}
+
+interface ChargeItemRow {
+  id: string;
+  invoice_id: string;
+  charge_code: string;
+  code_system: string;
+  description: string;
+  category: string;
+  quantity: number;
+  unit_price: number;
+  amount: number;
+  service_date: string | null;
+}
+
+interface PatientLite {
+  mrn: string;
   name: string | null;
-  first_name: string | null;
-  last_name: string | null;
   age: number | null;
   gender: string | null;
   room: string | null;
   chief_complaint: string | null;
   diagnosis: string | null;
-  facility_name: string | null;
-  status: string | null;
   admission_time: string | null;
   discharge_time: string | null;
-}
-
-interface MedRow {
-  medication_name: string | null;
-  drug_name: string | null;
-  dose: string | null;
-  route: string | null;
-  status: string | null;
-  administered_at: string | null;
-}
-
-interface LabRow {
-  test_type: string | null;
-  status: string | null;
-  result_value: string | null;
-  collected_at: string | null;
-}
-
-// Standard private-hospital tariff (USD). Tweak freely — single source of truth.
-const TARIFF = {
-  bed_per_day: 850, // general ward
-  icu_per_day: 2400,
-  consultant_per_day: 350,
-  nursing_per_day: 220,
-  lab_per_test: 95,
-  med_per_dose: 38,
-  admin_fee: 150,
-  pharmacy_handling: 75,
-  biomedical_waste: 45,
-  tax_rate: 0.05, // 5%
-};
-
-function fullName(p: PatientRow) {
-  return (
-    p.name ||
-    [p.first_name, p.last_name].filter(Boolean).join(" ") ||
-    p.mrn ||
-    "Unknown"
-  );
 }
 
 function fmtTs(ts: string | null) {
@@ -105,31 +93,43 @@ function money(n: number) {
 function FinanceBoard() {
   const { facility } = useFacility();
   const officer = useActiveStaff("Finance");
-  const [patients, setPatients] = useState<PatientRow[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<PatientRow | null>(null);
+  const [selected, setSelected] = useState<InvoiceRow | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const backfill = useServerFn(backfillInvoices);
+  const regenerate = useServerFn(generateInvoiceForMrn);
 
   const refresh = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("patients")
+    const { data, error } = await (supabase as any)
+      .from("fhir_invoices")
       .select(
-        "id,mrn,name,first_name,last_name,age,gender,room,chief_complaint,diagnosis,facility_name,status,admission_time,discharge_time",
+        "id,invoice_no,mrn,patient_name,encounter_id,facility_name,status,subtotal,tax,total,currency,issued_at,paid_at",
       )
-      .order("discharge_time", { ascending: false, nullsFirst: false });
-    if (error) toast.error(`Unable to load patients: ${error.message}`);
-    else setPatients((data ?? []) as PatientRow[]);
+      .order("issued_at", { ascending: false });
+    if (error) toast.error(`Unable to load invoices: ${error.message}`);
+    else setInvoices((data ?? []) as InvoiceRow[]);
     setLoading(false);
   };
 
   useEffect(() => {
     refresh();
+    // Auto-backfill any missing invoices on first mount.
+    backfill({} as any).then((res: any) => {
+      if (res?.generated > 0) refresh();
+    }).catch(() => {});
     const channel = supabase
-      .channel("finance-patients")
+      .channel("finance-invoices")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "patients" },
+        { event: "*", schema: "public", table: "fhir_invoices" },
+        () => refresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "fhir_payment_notices" },
         () => refresh(),
       )
       .subscribe();
@@ -139,78 +139,96 @@ function FinanceBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const facilityPatients = useMemo(
-    () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
-    [patients, facility],
-  );
-
-  const discharged = useMemo(
+  const facilityInvoices = useMemo(
     () =>
-      facilityPatients.filter(
-        (p) => (p.status ?? "").toLowerCase() === "discharged",
-      ),
-    [facilityPatients],
+      invoices.filter((i) => (i.facility_name ?? "Memorial Hospital") === facility),
+    [invoices, facility],
   );
 
-  const admitted = useMemo(
-    () =>
-      facilityPatients.filter((p) => {
-        const s = (p.status ?? "Admitted").toLowerCase();
-        return s === "admitted" || s === "active";
-      }),
-    [facilityPatients],
+  const issued = useMemo(
+    () => facilityInvoices.filter((i) => i.status === "issued"),
+    [facilityInvoices],
+  );
+  const balanced = useMemo(
+    () => facilityInvoices.filter((i) => i.status === "balanced"),
+    [facilityInvoices],
   );
 
-  const filteredDischarged = useMemo(() => {
+  const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return discharged;
-    return discharged.filter(
-      (p) =>
-        (p.mrn ?? "").toLowerCase().includes(q) ||
-        fullName(p).toLowerCase().includes(q),
+    if (!q) return facilityInvoices;
+    return facilityInvoices.filter(
+      (i) =>
+        i.mrn.toLowerCase().includes(q) ||
+        (i.patient_name ?? "").toLowerCase().includes(q) ||
+        i.invoice_no.toLowerCase().includes(q),
     );
-  }, [discharged, search]);
+  }, [facilityInvoices, search]);
 
-  // Quick revenue summary across discharged patients in this facility (estimate)
-  const revenueEstimate = useMemo(() => {
-    return discharged.reduce((sum, p) => {
-      const los = lengthOfStayDays(p.admission_time, p.discharge_time);
-      return sum + los * (TARIFF.bed_per_day + TARIFF.consultant_per_day + TARIFF.nursing_per_day);
-    }, 0);
-  }, [discharged]);
+  const totalRevenue = useMemo(
+    () => facilityInvoices.reduce((s, i) => s + Number(i.total ?? 0), 0),
+    [facilityInvoices],
+  );
+  const collected = useMemo(
+    () => balanced.reduce((s, i) => s + Number(i.total ?? 0), 0),
+    [balanced],
+  );
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const res: any = await backfill({} as any);
+      toast.success(`Sync complete · ${res?.generated ?? 0} invoice(s) generated`);
+      await refresh();
+    } catch (e) {
+      toast.error(`Sync failed: ${(e as Error).message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleRegen = async (mrn: string) => {
+    try {
+      await regenerate({ data: { mrn } } as any);
+      toast.success("Invoice regenerated from latest clinical course");
+      await refresh();
+    } catch (e) {
+      toast.error(`Regenerate failed: ${(e as Error).message}`);
+    }
+  };
 
   return (
     <main className="min-h-screen bg-slate-50">
       <BoardHeader
         title={`Finance & Accounts: ${officer.name} | ${officer.facility}`}
         badge="Finance · Revenue Cycle"
-        subtitle={`${officer.ward} · Patient billing, charge capture & A/R`}
+        subtitle={`${officer.ward} · FHIR R4 Invoice & ChargeItem · Auto Doc pricing engine`}
       />
 
       {/* KPI strip — rounded widgets */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-4 p-6 pb-2">
         <KpiCard
           icon={<Wallet className="h-4 w-4" />}
-          label="Discharged · Ready to Bill"
-          value={String(discharged.length)}
+          label="Issued Invoices · Awaiting Payment"
+          value={String(issued.length)}
           tone="emerald"
         />
         <KpiCard
           icon={<Receipt className="h-4 w-4" />}
-          label="Active Admissions (Accruing)"
-          value={String(admitted.length)}
+          label="Balanced (Paid) Invoices"
+          value={String(balanced.length)}
           tone="sky"
         />
         <KpiCard
           icon={<TrendingUp className="h-4 w-4" />}
-          label="Est. Revenue (Discharged)"
-          value={money(revenueEstimate)}
+          label="Total Billed Revenue"
+          value={money(totalRevenue)}
           tone="violet"
         />
         <KpiCard
           icon={<DollarSign className="h-4 w-4" />}
-          label="Avg Bill / Encounter"
-          value={money(discharged.length ? revenueEstimate / discharged.length : 0)}
+          label="Collected (Paid)"
+          value={money(collected)}
           tone="amber"
         />
       </section>
@@ -224,19 +242,32 @@ function FinanceBoard() {
                 Discharged Patients · Bill Generation Queue
               </h2>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Each discharged encounter auto-aggregates labs, meds, bed days,
-                and consultant charges by MRN. Click <strong>Generate Bill</strong>{" "}
-                to render a hospital invoice.
+                Invoices are issued automatically by Auto Doc on discharge using
+                FHIR <code className="text-emerald-700">Invoice</code> and{" "}
+                <code className="text-emerald-700">ChargeItem</code> resources —
+                each line item is priced from the patient's actual clinical course.
               </p>
             </div>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-              <Input
-                placeholder="Search by MRN or patient name…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 w-72"
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                <Input
+                  placeholder="Search MRN / name / invoice #…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8 w-72"
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSync}
+                disabled={syncing}
+                className="gap-1.5"
+              >
+                {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Sync from Auto Doc
+              </Button>
             </div>
           </div>
 
@@ -244,45 +275,66 @@ function FinanceBoard() {
             <div className="grid place-items-center h-48 text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-          ) : filteredDischarged.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="px-5 py-12 text-center text-sm text-slate-500">
-              No discharged patients in this facility yet. Bills appear here
-              automatically once a patient is discharged from the ward.
+              No invoices in this facility yet. They appear automatically once
+              Auto Doc generates a FHIR Invoice for a discharged encounter.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                   <tr>
+                    <th className="text-left px-4 py-2.5">Invoice #</th>
                     <th className="text-left px-4 py-2.5">MRN</th>
                     <th className="text-left px-4 py-2.5">Patient</th>
-                    <th className="text-left px-4 py-2.5">Chief Complaint</th>
-                    <th className="text-left px-4 py-2.5">Admitted</th>
-                    <th className="text-left px-4 py-2.5">Discharged</th>
-                    <th className="text-right px-4 py-2.5">LOS</th>
+                    <th className="text-left px-4 py-2.5">Issued</th>
+                    <th className="text-left px-4 py-2.5">Status</th>
+                    <th className="text-right px-4 py-2.5">Total</th>
                     <th className="text-right px-4 py-2.5">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredDischarged.map((p) => (
-                    <tr key={p.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{p.mrn ?? "—"}</td>
-                      <td className="px-4 py-3 font-medium text-slate-900">{fullName(p)}</td>
-                      <td className="px-4 py-3 text-slate-600">{p.chief_complaint ?? "—"}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-slate-600">{fmtTs(p.admission_time)}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-slate-600">{fmtTs(p.discharge_time)}</td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {lengthOfStayDays(p.admission_time, p.discharge_time)} day(s)
+                  {filtered.map((i) => (
+                    <tr key={i.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{i.invoice_no}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{i.mrn}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">{i.patient_name ?? "—"}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-slate-600">{fmtTs(i.issued_at)}</td>
+                      <td className="px-4 py-3">
+                        {i.status === "balanced" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
+                            <CheckCircle2 className="h-3 w-3" /> Paid
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-amber-300">
+                            Issued
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono font-semibold text-slate-900">
+                        {money(Number(i.total))}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <Button
-                          size="sm"
-                          onClick={() => setSelected(p)}
-                          className="bg-emerald-700 hover:bg-emerald-800 gap-1.5"
-                        >
-                          <Receipt className="h-3.5 w-3.5" />
-                          Generate Bill
-                        </Button>
+                        <div className="inline-flex gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRegen(i.mrn)}
+                            className="gap-1"
+                            title="Re-run Auto Doc pricing for this encounter"
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => setSelected(i)}
+                            className="bg-emerald-700 hover:bg-emerald-800 gap-1.5"
+                          >
+                            <Receipt className="h-3.5 w-3.5" />
+                            View Invoice
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -295,10 +347,11 @@ function FinanceBoard() {
 
       {selected && (
         <BillModal
-          patient={selected}
+          invoice={selected}
           facility={facility}
           officer={officer.name}
           onClose={() => setSelected(null)}
+          onPaid={refresh}
         />
       )}
     </main>
@@ -336,168 +389,71 @@ function KpiCard({
 }
 
 function BillModal({
-  patient,
+  invoice,
   facility,
   officer,
   onClose,
+  onPaid,
 }: {
-  patient: PatientRow;
+  invoice: InvoiceRow;
   facility: string;
   officer: string;
   onClose: () => void;
+  onPaid?: () => void;
 }) {
-  const [meds, setMeds] = useState<MedRow[]>([]);
-  const [labs, setLabs] = useState<LabRow[]>([]);
+  const [items, setItems] = useState<ChargeItemRow[]>([]);
+  const [patient, setPatient] = useState<PatientLite | null>(null);
   const [loading, setLoading] = useState(true);
-  const [paid, setPaid] = useState(false);
+  const paid = invoice.status === "balanced";
 
   useEffect(() => {
-    if (!patient.mrn) {
-      setLoading(false);
-      return;
-    }
     let cancelled = false;
-    const mrn = patient.mrn;
     (async () => {
-      const [medsRes, labsRes] = await Promise.all([
+      const [ciRes, pRes] = await Promise.all([
+        (supabase as any)
+          .from("fhir_charge_items")
+          .select("id,invoice_id,charge_code,code_system,description,category,quantity,unit_price,amount,service_date")
+          .eq("invoice_id", invoice.id)
+          .order("created_at", { ascending: true }),
         supabase
-          .from("medication_orders")
-          .select("medication_name,drug_name,dose,route,status,administered_at")
-          .eq("patient_mrn", mrn),
-        supabase
-          .from("lab_orders")
-          .select("test_type,status,result_value,collected_at")
-          .eq("patient_mrn", mrn),
+          .from("patients")
+          .select("mrn,name,age,gender,room,chief_complaint,diagnosis,admission_time,discharge_time")
+          .eq("mrn", invoice.mrn)
+          .maybeSingle(),
       ]);
       if (cancelled) return;
-      setMeds((medsRes.data ?? []) as MedRow[]);
-      setLabs((labsRes.data ?? []) as LabRow[]);
+      setItems((ciRes.data ?? []) as ChargeItemRow[]);
+      setPatient((pRes.data ?? null) as PatientLite | null);
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [patient.mrn]);
+  }, [invoice.id, invoice.mrn]);
 
-  const administered = useMemo(
-    () => meds.filter((m) => (m.status ?? "").toLowerCase() === "administered"),
-    [meds],
-  );
-  const resulted = useMemo(
-    () => labs.filter((l) => (l.status ?? "").toLowerCase() === "resulted"),
-    [labs],
-  );
-
-  const los = lengthOfStayDays(patient.admission_time, patient.discharge_time);
-
-  const lineItems = useMemo(() => {
-    const items: { code: string; description: string; qty: number; rate: number; amount: number }[] = [];
-
-    // Bed / Room charges
-    items.push({
-      code: "RB-101",
-      description: `Inpatient Room & Board · General Ward (Room ${patient.room ?? "—"})`,
-      qty: los,
-      rate: TARIFF.bed_per_day,
-      amount: los * TARIFF.bed_per_day,
-    });
-
-    // Nursing care
-    items.push({
-      code: "NC-220",
-      description: "Nursing Care · 24-hour bedside coverage",
-      qty: los,
-      rate: TARIFF.nursing_per_day,
-      amount: los * TARIFF.nursing_per_day,
-    });
-
-    // Consultant
-    items.push({
-      code: "MD-350",
-      description: "Attending Consultant · Daily Rounds & Charting",
-      qty: los,
-      rate: TARIFF.consultant_per_day,
-      amount: los * TARIFF.consultant_per_day,
-    });
-
-    // Lab tests
-    if (resulted.length > 0) {
-      items.push({
-        code: "LAB-500",
-        description: `Laboratory Diagnostics (${resulted.length} test${resulted.length === 1 ? "" : "s"})`,
-        qty: resulted.length,
-        rate: TARIFF.lab_per_test,
-        amount: resulted.length * TARIFF.lab_per_test,
-      });
-    }
-
-    // Medications
-    if (administered.length > 0) {
-      items.push({
-        code: "RX-600",
-        description: `Medication Administration (${administered.length} dose${administered.length === 1 ? "" : "s"})`,
-        qty: administered.length,
-        rate: TARIFF.med_per_dose,
-        amount: administered.length * TARIFF.med_per_dose,
-      });
-      items.push({
-        code: "RX-601",
-        description: "Pharmacy Dispensing & Handling Fee",
-        qty: 1,
-        rate: TARIFF.pharmacy_handling,
-        amount: TARIFF.pharmacy_handling,
-      });
-    }
-
-    // Hospital admin + biomed
-    items.push({
-      code: "HSP-001",
-      description: "Hospital Administration & Records Fee",
-      qty: 1,
-      rate: TARIFF.admin_fee,
-      amount: TARIFF.admin_fee,
-    });
-    items.push({
-      code: "HSP-010",
-      description: "Biomedical Waste & Sterilization",
-      qty: 1,
-      rate: TARIFF.biomedical_waste,
-      amount: TARIFF.biomedical_waste,
-    });
-
-    return items;
-  }, [los, patient.room, resulted.length, administered.length]);
-
-  const subtotal = lineItems.reduce((s, i) => s + i.amount, 0);
-  const tax = subtotal * TARIFF.tax_rate;
-  const total = subtotal + tax;
-
-  const invoiceNo = `INV-${(patient.mrn ?? "0000").replace(/\D/g, "").slice(-6) || "000000"}-${new Date(patient.discharge_time ?? Date.now()).getTime().toString().slice(-5)}`;
+  const subtotal = Number(invoice.subtotal);
+  const tax = Number(invoice.tax);
+  const total = Number(invoice.total);
+  const invoiceNo = invoice.invoice_no;
+  const los = patient ? lengthOfStayDays(patient.admission_time, patient.discharge_time) : 1;
 
   const handlePrint = () => window.print();
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-0 print:max-w-full print:max-h-none print:shadow-none">
-        <DialogTitle className="sr-only">Hospital Invoice for {fullName(patient)}</DialogTitle>
+        <DialogTitle className="sr-only">Hospital Invoice {invoiceNo}</DialogTitle>
 
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur px-6 py-3 print:hidden">
           <span className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
-            Invoice ID · {invoiceNo}
+            FHIR Invoice · {invoiceNo}
           </span>
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant={paid ? "outline" : "default"}
-              onClick={() => {
-                setPaid(true);
-                toast.success(`Invoice ${invoiceNo} marked as paid`);
-              }}
-              className={paid ? "" : "bg-emerald-700 hover:bg-emerald-800 gap-1.5"}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {paid ? "Paid" : "Mark as Paid"}
-            </Button>
+            {paid && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
+                <CheckCircle2 className="h-3 w-3" /> Paid in Full
+              </span>
+            )}
             <Button size="sm" variant="outline" onClick={handlePrint} className="gap-1.5">
               <Printer className="h-3.5 w-3.5" /> Print Invoice
             </Button>
@@ -522,7 +478,7 @@ function BillModal({
               <div className="font-bold text-slate-900">Invoice #</div>
               <div className="font-mono">{invoiceNo}</div>
               <div className="mt-2 font-bold text-slate-900">Issued</div>
-              <div className="font-mono">{fmtTs(new Date().toISOString())}</div>
+              <div className="font-mono">{fmtTs(invoice.issued_at)}</div>
               {paid && (
                 <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
                   <CheckCircle2 className="h-3 w-3" /> Paid in Full
@@ -537,16 +493,16 @@ function BillModal({
               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">
                 Bill To · Patient
               </div>
-              <div className="font-semibold text-slate-900">{fullName(patient)}</div>
+              <div className="font-semibold text-slate-900">{invoice.patient_name ?? "—"}</div>
               <div className="text-xs text-slate-600 mt-1">
-                MRN: <span className="font-mono">{patient.mrn ?? "—"}</span>
+                MRN: <span className="font-mono">{invoice.mrn}</span>
               </div>
               <div className="text-xs text-slate-600">
-                {patient.age ? `${patient.age} yrs · ` : ""}
-                {patient.gender ?? ""}
+                {patient?.age ? `${patient.age} yrs · ` : ""}
+                {patient?.gender ?? ""}
               </div>
               <div className="text-xs text-slate-600 mt-1">
-                Room: {patient.room ?? "—"}
+                Room: {patient?.room ?? "—"}
               </div>
             </div>
             <div className="rounded-md border border-slate-200 bg-slate-50/60 p-4 text-sm">
@@ -555,17 +511,17 @@ function BillModal({
               </div>
               <div className="text-xs">
                 <span className="text-slate-500">Chief Complaint: </span>
-                <span className="text-slate-900 font-medium">{patient.chief_complaint ?? "—"}</span>
+                <span className="text-slate-900 font-medium">{patient?.chief_complaint ?? "—"}</span>
               </div>
               <div className="text-xs mt-1">
-                <span className="text-slate-500">Chief Complaint: </span>
-                <span className="text-slate-900">{patient.diagnosis ?? "—"}</span>
+                <span className="text-slate-500">Diagnosis: </span>
+                <span className="text-slate-900">{patient?.diagnosis ?? "—"}</span>
               </div>
               <div className="text-xs mt-1 font-mono">
-                <span className="text-slate-500">Admitted: </span>{fmtTs(patient.admission_time)}
+                <span className="text-slate-500">Admitted: </span>{fmtTs(patient?.admission_time ?? null)}
               </div>
               <div className="text-xs font-mono">
-                <span className="text-slate-500">Discharged: </span>{fmtTs(patient.discharge_time)}
+                <span className="text-slate-500">Discharged: </span>{fmtTs(patient?.discharge_time ?? null)}
               </div>
               <div className="text-xs mt-1">
                 <span className="text-slate-500">Length of Stay: </span>
@@ -583,12 +539,12 @@ function BillModal({
               {/* Line items */}
               <section className="mb-6">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
-                  <FileText className="h-3 w-3" /> Itemized Charges
+                  <FileText className="h-3 w-3" /> Itemized Charges · FHIR ChargeItems ({items.length})
                 </div>
                 <table className="w-full text-sm border border-slate-200 rounded-md overflow-hidden">
                   <thead className="bg-slate-100 text-[10px] uppercase tracking-widest text-slate-600">
                     <tr>
-                      <th className="text-left px-3 py-2 w-20">Code</th>
+                      <th className="text-left px-3 py-2 w-28">Code</th>
                       <th className="text-left px-3 py-2">Description</th>
                       <th className="text-right px-3 py-2 w-16">Qty</th>
                       <th className="text-right px-3 py-2 w-24">Rate</th>
@@ -596,51 +552,21 @@ function BillModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {lineItems.map((it) => (
-                      <tr key={it.code}>
-                        <td className="px-3 py-2 font-mono text-xs text-slate-500">{it.code}</td>
+                    {items.map((it) => (
+                      <tr key={it.id}>
+                        <td className="px-3 py-2 font-mono text-xs text-slate-500">
+                          {it.code_system !== "internal" ? `${it.code_system}:` : ""}
+                          {it.charge_code}
+                        </td>
                         <td className="px-3 py-2">{it.description}</td>
-                        <td className="px-3 py-2 text-right font-mono">{it.qty}</td>
-                        <td className="px-3 py-2 text-right font-mono">{money(it.rate)}</td>
-                        <td className="px-3 py-2 text-right font-mono font-semibold">{money(it.amount)}</td>
+                        <td className="px-3 py-2 text-right font-mono">{it.quantity}</td>
+                        <td className="px-3 py-2 text-right font-mono">{money(Number(it.unit_price))}</td>
+                        <td className="px-3 py-2 text-right font-mono font-semibold">{money(Number(it.amount))}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </section>
-
-              {/* Clinical detail appendix */}
-              {(resulted.length > 0 || administered.length > 0) && (
-                <section className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {resulted.length > 0 && (
-                    <div className="rounded-md border border-slate-200 p-3">
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
-                        Lab Tests Performed
-                      </div>
-                      <ul className="text-xs text-slate-700 list-disc pl-4 space-y-0.5">
-                        {resulted.slice(0, 12).map((l, i) => (
-                          <li key={i}>{l.test_type}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {administered.length > 0 && (
-                    <div className="rounded-md border border-slate-200 p-3">
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">
-                        Medications Administered
-                      </div>
-                      <ul className="text-xs text-slate-700 list-disc pl-4 space-y-0.5">
-                        {administered.slice(0, 12).map((m, i) => (
-                          <li key={i}>
-                            {m.medication_name || m.drug_name} {m.dose ? `· ${m.dose}` : ""}{" "}
-                            {m.route ? `(${m.route})` : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </section>
-              )}
 
               {/* Totals */}
               <section className="flex justify-end">
@@ -650,13 +576,14 @@ function BillModal({
                     <span className="font-mono">{money(subtotal)}</span>
                   </div>
                   <div className="flex justify-between py-1.5 border-b border-slate-200">
-                    <span className="text-slate-600">Tax / GST ({(TARIFF.tax_rate * 100).toFixed(0)}%)</span>
+                    <span className="text-slate-600">Tax / GST</span>
                     <span className="font-mono">{money(tax)}</span>
                   </div>
                   <div className="flex justify-between py-2 mt-1 bg-slate-900 text-white px-3 rounded-md">
                     <span className="font-bold">TOTAL DUE</span>
                     <span className="font-mono font-bold">{money(total)}</span>
                   </div>
+                  {onPaid && void 0}
                 </div>
               </section>
 
@@ -664,9 +591,9 @@ function BillModal({
               <section className="mt-8 pt-4 border-t border-slate-200 text-[11px] text-slate-500 leading-relaxed">
                 <p>
                   This invoice is auto-generated by the {facility} Corporate Finance & Accounts
-                  department upon patient discharge. Charges are computed from the verified clinical
-                  record (lab orders, medication administration, bed days, and consultant rounds)
-                  attached to MRN {patient.mrn ?? "—"}. All amounts are in USD.
+                  department upon patient discharge by the Auto Doc pricing engine. Each line item
+                  is stored as a FHIR <code>ChargeItem</code> resource linked to this FHIR{" "}
+                  <code>Invoice</code> ({invoiceNo}) for MRN {invoice.mrn}. All amounts in USD.
                 </p>
                 <p className="mt-3">
                   Processed by: <strong className="text-slate-700">{officer}</strong> · Corporate
