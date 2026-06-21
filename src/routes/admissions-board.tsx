@@ -705,23 +705,3 @@ function FormField({
 /* Bed Management — shared with the Nurse Dashboard                   */
 /* ----------------------------------------------------------------- */
 
-function BedTab({ facility, onOpenBoard }: { facility: string; onOpenBoard: () => void }) {
-  return (
-    <section className="rounded-xl border border-border bg-card p-8 text-center">
-      <div className="mx-auto grid place-items-center h-12 w-12 rounded-lg bg-[var(--teal-soft)] text-[var(--teal)]">
-        <BedDouble className="h-5 w-5" />
-      </div>
-      <h2 className="mt-4 text-lg font-semibold">Floor Bed Allocation — {facility}</h2>
-      <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
-        Shared bed board (FHIR Location resource). Bed assignments made here are visible to
-        nurses in real time and vice versa.
-      </p>
-      <button
-        onClick={onOpenBoard}
-        className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-10 text-sm font-semibold shadow-sm"
-      >
-        <BedDouble className="h-4 w-4" /> Open Bed Board
-      </button>
-    </section>
-  );
-}
