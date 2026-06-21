@@ -522,6 +522,7 @@ function BookAppointmentModal({
   const [form, setForm] = useState({
     patient_name: "",
     patient_mrn: "",
+    patient_dob: "",
     practitioner_name: "",
     service_type: "Outpatient Visit",
     description: "",
@@ -531,6 +532,38 @@ function BookAppointmentModal({
     comment: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [looking, setLooking] = useState(false);
+
+  const lookupByMrn = async (mrnRaw?: string): Promise<boolean> => {
+    const mrn = (mrnRaw ?? form.patient_mrn).trim();
+    if (!mrn) {
+      toast.error("Enter an MRN to auto-fill");
+      return false;
+    }
+    setLooking(true);
+    const { data, error } = await supabase
+      .from("patients")
+      .select("first_name, last_name, dob")
+      .eq("mrn", mrn)
+      .maybeSingle();
+    setLooking(false);
+    if (error) {
+      toast.error("Lookup failed", { description: error.message });
+      return false;
+    }
+    if (!data) {
+      toast.error(`No patient found for ${mrn}`);
+      return false;
+    }
+    setForm((f) => ({
+      ...f,
+      patient_mrn: mrn,
+      patient_name: `${data.first_name ?? ""} ${data.last_name ?? ""}`.trim(),
+      patient_dob: (data.dob as string) ?? "",
+    }));
+    toast.success("Patient details filled");
+    return true;
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -543,7 +576,7 @@ function BookAppointmentModal({
       return;
     }
     setSubmitting(true);
-    const { error } = await (supabase as any).from("fhir_appointments").insert({
+    const { data: inserted, error } = await (supabase as any).from("fhir_appointments").insert({
       facility_name: facility,
       patient_name: form.patient_name.trim(),
       patient_mrn: form.patient_mrn.trim() || null,
@@ -554,12 +587,63 @@ function BookAppointmentModal({
       end_time: new Date(form.end_time).toISOString(),
       status: form.status,
       comment: form.comment.trim() || null,
-    });
-    setSubmitting(false);
+    }).select().maybeSingle();
     if (error) {
+      setSubmitting(false);
       toast.error("Could not book appointment", { description: error.message });
       return;
     }
+
+    // Push to external FHIR server as Appointment resource (best-effort)
+    try {
+      const appt = {
+        resourceType: "Appointment",
+        status: form.status,
+        serviceType: form.service_type
+          ? [{ text: form.service_type.trim() }]
+          : undefined,
+        description: form.description.trim() || undefined,
+        start: new Date(form.start_time).toISOString(),
+        end: new Date(form.end_time).toISOString(),
+        comment: form.comment.trim() || undefined,
+        participant: [
+          {
+            actor: {
+              reference: form.patient_mrn.trim()
+                ? `Patient?identifier=http://spehr.local/mrn|${form.patient_mrn.trim()}`
+                : undefined,
+              display: form.patient_name.trim(),
+            },
+            status: "accepted",
+          },
+          ...(form.practitioner_name.trim()
+            ? [{ actor: { display: form.practitioner_name.trim() }, status: "accepted" }]
+            : []),
+        ],
+      };
+      const bundle = {
+        resourceType: "Bundle",
+        type: "transaction",
+        entry: [
+          {
+            resource: appt,
+            request: { method: "POST", url: "Appointment" },
+          },
+        ],
+      };
+      const { error: fnError } = await supabase.functions.invoke("push_to_fhir", {
+        body: { bundle },
+      });
+      if (fnError) {
+        toast.warning("Saved locally, FHIR sync deferred", { description: fnError.message });
+      }
+    } catch (err) {
+      toast.warning("Saved locally, FHIR sync deferred", {
+        description: (err as Error).message,
+      });
+    }
+
+    setSubmitting(false);
     toast.success("Appointment booked");
     onCreated();
   };
@@ -593,8 +677,21 @@ function BookAppointmentModal({
             <input
               value={form.patient_mrn}
               onChange={(e) => setForm({ ...form, patient_mrn: e.target.value })}
+              onBlur={(e) => {
+                if (e.target.value.trim() && !form.patient_name.trim()) {
+                  void lookupByMrn(e.target.value);
+                }
+              }}
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
               placeholder="MRN-482910"
+            />
+          </FormField>
+          <FormField label="Date of Birth" className="col-span-5">
+            <input
+              type="date"
+              value={form.patient_dob}
+              onChange={(e) => setForm({ ...form, patient_dob: e.target.value })}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
             />
           </FormField>
           <FormField label="Practitioner / CareTeam" className="col-span-7">
@@ -666,6 +763,16 @@ function BookAppointmentModal({
             className="rounded-md border border-border bg-background px-3 h-9 text-xs font-medium hover:bg-secondary"
           >
             Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void lookupByMrn()}
+            disabled={looking}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--teal)]/40 bg-[var(--teal-soft)] text-[var(--teal)] hover:bg-[var(--teal)]/10 px-3 h-9 text-xs font-semibold disabled:opacity-60"
+            title="Look up patient by MRN and fill name & DOB"
+          >
+            {looking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+            Auto-fill
           </button>
           <button
             type="submit"
