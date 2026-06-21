@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   BedDouble,
@@ -336,7 +336,7 @@ interface AppointmentRow {
   comment: string | null;
 }
 
-const APPT_STATUSES = ["booked", "arrived", "fulfilled", "cancelled", "noshow"] as const;
+const APPT_STATUSES = ["proposed", "pending", "booked", "arrived", "fulfilled", "cancelled", "noshow"] as const;
 
 function SchedulingTab({ facility }: { facility: string }) {
   const [rows, setRows] = useState<AppointmentRow[]>([]);
@@ -373,12 +373,62 @@ function SchedulingTab({ facility }: { facility: string }) {
   }, [facility]);
 
   const updateStatus = async (id: string, status: string) => {
+    const row = rows.find((r) => r.id === id);
     const { error } = await (supabase as any)
       .from("fhir_appointments")
       .update({ status })
       .eq("id", id);
     if (error) toast.error("Update failed", { description: error.message });
     else toast.success(`Appointment marked ${status}`);
+    // Push status change to external FHIR server (PUT)
+    if (!error && row) {
+      try {
+        const appt = {
+          resourceType: "Appointment",
+          id: row.id,
+          status,
+          description: row.description ?? undefined,
+          start: row.start_time,
+          end: row.end_time,
+          comment: row.comment ?? undefined,
+          participant: [
+            {
+              actor: {
+                reference: row.patient_mrn ? `Patient/${row.patient_mrn}` : undefined,
+                display: row.patient_name,
+              },
+              required: "required",
+              status: "accepted",
+            },
+          ],
+        };
+        await supabase.functions.invoke("push_to_fhir", {
+          body: {
+            bundle: {
+              resourceType: "Bundle",
+              type: "transaction",
+              entry: [{ resource: appt, request: { method: "PUT", url: `Appointment/${row.id}` } }],
+            },
+          },
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
+  };
+
+  const reschedule = async (id: string, start: string, end: string) => {
+    const startIso = new Date(start).toISOString();
+    const endIso = new Date(end).toISOString();
+    const { error } = await (supabase as any)
+      .from("fhir_appointments")
+      .update({ start_time: startIso, end_time: endIso, status: "booked" })
+      .eq("id", id);
+    if (error) {
+      toast.error("Reschedule failed", { description: error.message });
+      return;
+    }
+    toast.success("Appointment rescheduled");
   };
 
   const upcoming = useMemo(() => rows.filter((r) => !["fulfilled", "cancelled", "noshow"].includes(r.status)), [rows]);
@@ -399,7 +449,13 @@ function SchedulingTab({ facility }: { facility: string }) {
             <Plus className="h-3.5 w-3.5" /> Book Appointment
           </button>
         </div>
-        <AppointmentTable rows={upcoming} loading={loading} onUpdateStatus={updateStatus} showActions />
+        <AppointmentTable
+          rows={upcoming}
+          loading={loading}
+          onUpdateStatus={updateStatus}
+          onReschedule={reschedule}
+          showActions
+        />
       </section>
 
       <section className="rounded-xl border border-border bg-card overflow-hidden">
@@ -407,7 +463,7 @@ function SchedulingTab({ facility }: { facility: string }) {
           <CheckCircle2 className="h-4 w-4 text-slate-500 mr-2" />
           <h2 className="text-sm font-semibold">Completed / Cancelled</h2>
         </div>
-        <AppointmentTable rows={past} loading={loading} onUpdateStatus={updateStatus} />
+        <AppointmentTable rows={past} loading={loading} onUpdateStatus={updateStatus} onReschedule={reschedule} />
       </section>
 
       {open && (
@@ -428,13 +484,23 @@ function AppointmentTable({
   rows,
   loading,
   onUpdateStatus,
+  onReschedule,
   showActions,
 }: {
   rows: AppointmentRow[];
   loading: boolean;
   onUpdateStatus: (id: string, status: string) => void;
+  onReschedule: (id: string, start: string, end: string) => void | Promise<void>;
   showActions?: boolean;
 }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
+  const toLocal = (iso: string) => {
+    const d = new Date(iso);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  };
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[12.5px]">
@@ -468,7 +534,16 @@ function AppointmentTable({
           )}
           {!loading &&
             rows.map((r, i) => (
-              <tr key={r.id} className={`border-b border-slate-200 ${i % 2 === 1 ? "bg-slate-50/60" : "bg-white"}`}>
+              <Fragment key={r.id}>
+              <tr
+                className={`border-b border-slate-200 ${
+                  r.status === "proposed"
+                    ? "bg-amber-50/70 ring-1 ring-amber-200"
+                    : i % 2 === 1
+                    ? "bg-slate-50/60"
+                    : "bg-white"
+                }`}
+              >
                 <td className="px-3 py-2 font-mono text-[11.5px] text-slate-700 whitespace-nowrap">{fmtTs(r.start_time)}</td>
                 <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">{fmtTs(r.end_time)}</td>
                 <td className="px-3 py-2">
@@ -481,26 +556,111 @@ function AppointmentTable({
                   {r.description && <div className="text-[11px] text-slate-500">{r.description}</div>}
                 </td>
                 <td className="px-3 py-2">
-                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 ring-1 ring-slate-300">
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ${
+                      r.status === "proposed"
+                        ? "bg-amber-100 text-amber-800 ring-amber-300"
+                        : r.status === "booked"
+                        ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
+                        : r.status === "cancelled" || r.status === "noshow"
+                        ? "bg-rose-100 text-rose-700 ring-rose-300"
+                        : "bg-slate-100 text-slate-700 ring-slate-300"
+                    }`}
+                  >
+                    {r.status === "proposed" && (
+                      <span className="mr-1 h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    )}
                     {r.status}
                   </span>
                 </td>
                 {showActions && (
                   <td className="px-3 py-2 text-right pr-4">
-                    <select
-                      value={r.status}
-                      onChange={(e) => onUpdateStatus(r.id, e.target.value)}
-                      className="h-7 rounded-md border border-slate-300 bg-white text-[11px] px-2"
-                    >
-                      {APPT_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="inline-flex items-center gap-1.5">
+                      {r.status === "proposed" && (
+                        <>
+                          <button
+                            onClick={() => onUpdateStatus(r.id, "booked")}
+                            className="rounded-md bg-emerald-600 hover:bg-emerald-700 text-white px-2 h-7 text-[11px] font-semibold"
+                            title="Confirm patient-requested appointment"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => onUpdateStatus(r.id, "cancelled")}
+                            className="rounded-md border border-rose-300 text-rose-700 bg-white hover:bg-rose-50 px-2 h-7 text-[11px] font-semibold"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() => {
+                          setEditing(editing === r.id ? null : r.id);
+                          setEditStart(toLocal(r.start_time));
+                          setEditEnd(toLocal(r.end_time));
+                        }}
+                        className="rounded-md border border-slate-300 bg-white hover:bg-slate-50 px-2 h-7 text-[11px] font-semibold text-slate-700"
+                      >
+                        Reschedule
+                      </button>
+                      <select
+                        value={r.status}
+                        onChange={(e) => onUpdateStatus(r.id, e.target.value)}
+                        className="h-7 rounded-md border border-slate-300 bg-white text-[11px] px-2"
+                      >
+                        {APPT_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </td>
                 )}
               </tr>
+              {editing === r.id && (
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <td colSpan={showActions ? 7 : 6} className="px-4 py-3">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-600 font-semibold">
+                        New start
+                        <input
+                          type="datetime-local"
+                          value={editStart}
+                          onChange={(e) => setEditStart(e.target.value)}
+                          className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-600 font-semibold">
+                        New end
+                        <input
+                          type="datetime-local"
+                          value={editEnd}
+                          onChange={(e) => setEditEnd(e.target.value)}
+                          className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs"
+                        />
+                      </label>
+                      <button
+                        onClick={async () => {
+                          if (!editStart || !editEnd) return;
+                          await onReschedule(r.id, editStart, editEnd);
+                          setEditing(null);
+                        }}
+                        className="rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold"
+                      >
+                        Save & Confirm
+                      </button>
+                      <button
+                        onClick={() => setEditing(null)}
+                        className="rounded-md border border-slate-300 bg-white hover:bg-slate-50 px-3 h-8 text-xs font-semibold text-slate-700"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
         </tbody>
       </table>

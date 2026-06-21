@@ -531,6 +531,62 @@ export type Database = {
           },
         ]
       }
+      fhir_communications: {
+        Row: {
+          created_at: string
+          facility_name: string | null
+          id: string
+          message: string
+          mrn: string
+          parent_id: string | null
+          recipient: string
+          resource: Json | null
+          sender: string
+          sender_label: string | null
+          status: string
+          subject: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          message: string
+          mrn: string
+          parent_id?: string | null
+          recipient: string
+          resource?: Json | null
+          sender: string
+          sender_label?: string | null
+          status?: string
+          subject?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          message?: string
+          mrn?: string
+          parent_id?: string | null
+          recipient?: string
+          resource?: Json | null
+          sender?: string
+          sender_label?: string | null
+          status?: string
+          subject?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fhir_communications_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "fhir_communications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fhir_invoices: {
         Row: {
           created_at: string

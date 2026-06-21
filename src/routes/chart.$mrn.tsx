@@ -22,6 +22,8 @@ import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react
 import { FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
+import { PatientReportedVitals } from "@/components/PatientReportedVitals";
+import { PatientCommsInbox } from "@/components/PatientCommsInbox";
 import {
   getPatient,
   hrOutOfRange,
@@ -909,7 +911,14 @@ function ChartPage() {
 
         {/* RIGHT — MAR */}
         <div className="lg:col-span-2">
-          <section className="rounded-xl border border-border bg-card overflow-hidden sticky top-[88px]">
+          <div className="space-y-4 sticky top-[88px]">
+          <PatientReportedVitals mrn={patient.mrn} />
+          <PatientCommsInbox
+            mrn={patient.mrn}
+            facility={facility}
+            providerLabel={nurse?.name ?? "Care Team"}
+          />
+          <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader
               icon={Pill}
               title="MAR — Due Now"
@@ -933,6 +942,7 @@ function ChartPage() {
               ))}
             </ul>
           </section>
+          </div>
         </div>
       </div>
     </main>

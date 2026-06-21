@@ -154,16 +154,18 @@ function FinanceBoard() {
     [facilityInvoices],
   );
 
+  const [tab, setTab] = useState<"active" | "settled">("active");
   const filtered = useMemo(() => {
+    const base = tab === "settled" ? balanced : facilityInvoices.filter((i) => i.status !== "balanced");
     const q = search.trim().toLowerCase();
-    if (!q) return facilityInvoices;
-    return facilityInvoices.filter(
+    if (!q) return base;
+    return base.filter(
       (i) =>
         i.mrn.toLowerCase().includes(q) ||
         (i.patient_name ?? "").toLowerCase().includes(q) ||
         i.invoice_no.toLowerCase().includes(q),
     );
-  }, [facilityInvoices, search]);
+  }, [facilityInvoices, balanced, search, tab]);
 
   const totalRevenue = useMemo(
     () => facilityInvoices.reduce((s, i) => s + Number(i.total ?? 0), 0),
@@ -239,16 +241,31 @@ function FinanceBoard() {
             <div>
               <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                 <Receipt className="h-4 w-4 text-emerald-700" />
-                Discharged Patients · Bill Generation Queue
+                {tab === "settled" ? "Settled · Paid Ledger" : "Active · Bill Generation Queue"}
               </h2>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Invoices are issued automatically by Auto Doc on discharge using
-                FHIR <code className="text-emerald-700">Invoice</code> and{" "}
-                <code className="text-emerald-700">ChargeItem</code> resources —
-                each line item is priced from the patient's actual clinical course.
+                {tab === "settled"
+                  ? "Historical ledger of fully balanced invoices — populated in real time by patient payments from MySPEHR (FHIR PaymentNotice)."
+                  : "Invoices issued by Auto Doc on discharge using FHIR Invoice + ChargeItem resources. Moves to Settled automatically when the patient pays."}
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <div className="inline-flex rounded-md border border-slate-200 overflow-hidden text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setTab("active")}
+                  className={`px-3 h-8 ${tab === "active" ? "bg-emerald-700 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}
+                >
+                  Active · {issued.length}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("settled")}
+                  className={`px-3 h-8 border-l border-slate-200 ${tab === "settled" ? "bg-emerald-700 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}
+                >
+                  Settled · {balanced.length}
+                </button>
+              </div>
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                 <Input
