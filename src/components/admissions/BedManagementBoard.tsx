@@ -14,6 +14,8 @@ interface BedRow {
   status_updated_at: string | null;
 }
 
+type PatientNameMap = Record<string, string>;
+
 const CLEAN_PHASE_MS = 60_000;
 
 function bedTone(status: string): { wrap: string; label: string; dot: string } {
@@ -57,6 +59,7 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
 
 export function BedManagementBoard({ facility, onClose }: { facility: string; onClose: () => void }) {
   const [beds, setBeds] = useState<BedRow[]>([]);
+  const [names, setNames] = useState<PatientNameMap>({});
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -74,6 +77,23 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
       if (cancelled) return;
       setBeds((data ?? []) as BedRow[]);
       setLoading(false);
+      const mrns = (data ?? [])
+        .map((b) => b.current_patient_mrn)
+        .filter((m): m is string => !!m);
+      if (mrns.length) {
+        const { data: pts } = await supabase
+          .from("patients")
+          .select("mrn, first_name, last_name")
+          .in("mrn", mrns);
+        if (cancelled) return;
+        const map: PatientNameMap = {};
+        for (const p of pts ?? []) {
+          map[p.mrn as string] = `${(p as any).first_name ?? ""} ${(p as any).last_name ?? ""}`.trim();
+        }
+        setNames(map);
+      } else {
+        setNames({});
+      }
     };
     load();
     const ch = supabase
@@ -144,7 +164,14 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
                   </div>
                   <div className={`mt-1 text-[11px] font-semibold uppercase tracking-wider ${tone.label}`}>{b.status}</div>
                   <div className="mt-2 text-xs text-slate-700 min-h-[18px] font-mono">
-                    {b.current_patient_mrn ? <span className="underline decoration-dotted">{b.current_patient_mrn}</span> : "—"}
+                    {b.current_patient_mrn ? (
+                      <span className="flex items-center gap-1.5 flex-wrap">
+                        <span className="underline decoration-dotted">{b.current_patient_mrn}</span>
+                        {names[b.current_patient_mrn] && (
+                          <span className="font-sans font-medium text-slate-900">· {names[b.current_patient_mrn]}</span>
+                        )}
+                      </span>
+                    ) : "—"}
                   </div>
                   <CleaningMeter status={b.status} updatedAt={b.status_updated_at} />
                 </div>
