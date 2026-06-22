@@ -2911,6 +2911,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
         // Skip patients already successfully pushed — never re-queue them
         // to avoid duplicate transactions on the FHIR server.
         if (pushedMrns[r.mrn] === "ok" || next[r.mrn] === "ok") continue;
+        // Only successfully discharged encounters are eligible for the
+        // external FHIR push. Active / admitted patients are still mid-care
+        // and their bundle is not yet a legal record of completed encounter.
+        const isDischarged =
+          (r.status ?? "").toLowerCase() === "discharged" || !!r.discharge_time;
+        if (!isDischarged) continue;
         if (!next[r.mrn]) next[r.mrn] = "queued";
       }
       return next;
@@ -2935,7 +2941,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
       (r) =>
         autoStatus[r.mrn] === "queued" &&
         autoStatus[r.mrn] !== "ok" &&
-        pushedMrns[r.mrn] !== "ok",
+        pushedMrns[r.mrn] !== "ok" &&
+        ((r.status ?? "").toLowerCase() === "discharged" || !!r.discharge_time),
     );
     if (!next) return;
     void autoPushRow(next);
