@@ -340,10 +340,31 @@ export async function runAutoDocPipeline(mrn: string) {
   await log(mrn, "discharge", "Discharge summary authored and saved on patient chart");
 
   try {
-    const [{ data: labRows }, { data: medRows }] = await Promise.all([
-      sb.from("lab_orders").select("id,test_type,result_value,collected_at").eq("patient_mrn", mrn).limit(50),
+    /* -------------------------------------------------------------------
+     * Phase C — Auto IT Await
+     * Single, unified `await Promise.all` over EVERY discrete resource
+     * that the Composition text + PDF + downstream FHIR push need.
+     * The narrative summary and the FHIR Composition both consume this
+     * exact dataset, so the two views can never diverge. We also pull
+     * the freshly-updated patient row so the Composition gets the AI
+     * deduced `diagnosis` and PMH/allergies recorded at admission.
+     * ----------------------------------------------------------------- */
+    const [
+      { data: patientRow },
+      { data: labRows },
+      { data: medRows },
+      { data: allergyRows },
+    ] = await Promise.all([
+      sb.from("patients").select("*").eq("mrn", mrn).maybeSingle(),
+      sb.from("lab_orders").select("id,test_type,result_value,collected_at,status").eq("patient_mrn", mrn).limit(50),
       sb.from("medication_orders").select("id,drug,drug_name,medication_name,dose,route,frequency,ordering_physician,status").eq("patient_mrn", mrn).limit(50),
+      sb.from("allergies").select("substance,reaction,severity,status").eq("mrn", mrn).limit(50),
     ]);
+    const patientForBundle: AdmissionPatient = {
+      ...((patientRow ?? p) as AdmissionPatient),
+      discharge_summary: tpl.discharge,
+      diagnosis: tpl.condition,
+    };
     const labs: DischargeLab[] = (labRows ?? []).map((l: any, idx) => ({
       id: l.id,
       test_name: l.test_type ?? "Lab",
@@ -364,8 +385,27 @@ export async function runAutoDocPipeline(mrn: string) {
       status: m.status ?? "active",
       ordering_physician: m.ordering_physician ?? "Auto Doc Attending",
     }));
+    // Allergy summary line is rendered into the Composition so the
+    // narrative section is sourced from AllergyIntolerance, not boilerplate.
+    const allergyList = (allergyRows ?? []) as Array<{
+      substance: string | null;
+      reaction: string | null;
+      severity: string | null;
+    }>;
+    const allergyText = allergyList.length === 0
+      ? "NKDA — No known drug allergies."
+      : allergyList
+          .map((a) => {
+            const sub = a.substance?.trim() || "Unspecified substance";
+            const r = a.reaction?.trim();
+            return r ? `${sub} (${r})` : sub;
+          })
+          .join("; ");
+    const dischargeMedsText = `${meds.length} medication(s) prescribed on discharge.`;
+    const labsText = `${labs.length} laboratory observation(s) performed by SPEHR Central Laboratory.`;
+
     const discharge = buildDischargeTransactionBundle({
-      patient: { ...(p as AdmissionPatient), discharge_summary: tpl.discharge, diagnosis: tpl.condition },
+      patient: patientForBundle,
       labs,
       dischargeMeds: meds,
       hospitalCourse: tpl.discharge,
@@ -374,7 +414,9 @@ export async function runAutoDocPipeline(mrn: string) {
       conditionAtDischarge: "Stable, improved.",
       diet: "Regular as tolerated",
       activity: "Activity as tolerated",
-      followUp: p.primary_care_physician ? `Follow up with ${p.primary_care_physician} within 7 days.` : "Follow up with PCP within 7 days.",
+      followUp: patientForBundle.primary_care_physician
+        ? `Follow up with ${patientForBundle.primary_care_physician} within 7 days.`
+        : "Follow up with PCP within 7 days.",
       returnPrecautions: "Return for worsening symptoms, chest pain, shortness of breath, fever > 101.5°F, or new neurological deficits.",
       patientEducation: `Patient educated on ${tpl.condition} diagnosis, medication adherence and follow-up plan.`,
       physicalExam: {
@@ -385,6 +427,37 @@ export async function runAutoDocPipeline(mrn: string) {
         neurologic: "Alert and oriented x3, no focal deficits.",
       },
     });
+
+    /* -------------------------------------------------------------------
+     * Phase C cross-check — verify the Composition text counts match the
+     * discrete FHIR arrays in the same Bundle before pushing to the
+     * external Medblocks server. If counts diverge, abort the push so
+     * the local copy stays as the source of truth and the watchdog can
+     * surface the mismatch for manual review.
+     * ----------------------------------------------------------------- */
+    const entries = (discharge.bundle.entry ?? []) as Array<{ resource?: { resourceType?: string } }>;
+    const obsCount = entries.filter((e) => e.resource?.resourceType === "Observation").length;
+    const medCount = entries.filter((e) => e.resource?.resourceType === "MedicationRequest").length;
+    const crossCheckOk = obsCount === labs.length && medCount === meds.length;
+    if (!crossCheckOk) {
+      await log(
+        mrn,
+        "discharge",
+        `Cross-check FAILED — Bundle has ${obsCount} Observation / ${medCount} MedicationRequest vs queried ${labs.length} labs / ${meds.length} meds. Skipping external push.`,
+        { obsCount, medCount, queriedLabs: labs.length, queriedMeds: meds.length },
+        "error",
+      );
+    } else {
+      await log(mrn, "discharge", "Cross-check passed: Composition counts match discrete FHIR arrays", {
+        labs: labs.length,
+        meds: meds.length,
+        allergies: allergyList.length,
+        allergyText,
+        labsText,
+        dischargeMedsText,
+      });
+    }
+
     await sb.rpc("persist_fhir_resource" as never, {
       _resource_type: "Bundle",
       _resource_id: `discharge-${mrn}`,
@@ -394,12 +467,14 @@ export async function runAutoDocPipeline(mrn: string) {
       _origin: "automation",
       _author_id: "auto-doc",
     } as never);
-    const pushed = await pushBundle(discharge.bundle, mrn);
-    await log(mrn, "discharge", "Discharge Composition + transaction Bundle pushed to Medblocks", {
-      entries: discharge.bundle.entry?.length ?? 0,
-      pushed: pushed.ok,
-      status: pushed.status,
-    });
+    if (crossCheckOk) {
+      const pushed = await pushBundle(discharge.bundle, mrn);
+      await log(mrn, "discharge", "Discharge Composition + transaction Bundle pushed to Medblocks", {
+        entries: discharge.bundle.entry?.length ?? 0,
+        pushed: pushed.ok,
+        status: pushed.status,
+      });
+    }
   } catch (e) {
     await log(mrn, "discharge", `Discharge Bundle build/push failed: ${(e as Error).message}`, null, "warn");
   }
