@@ -402,7 +402,7 @@ function SchedulingTab({ facility }: { facility: string }) {
             },
           ],
         };
-        await supabase.functions.invoke("push_to_fhir", {
+        await supabase.functions.invoke("fhir-proxy", {
           body: {
             bundle: {
               resourceType: "Bundle",
@@ -873,7 +873,7 @@ function BookAppointmentModal({
           },
         ],
       };
-      const { error: fnError } = await supabase.functions.invoke("push_to_fhir", {
+      const { error: fnError } = await supabase.functions.invoke("fhir-proxy", {
         body: { bundle },
       });
       if (fnError) {

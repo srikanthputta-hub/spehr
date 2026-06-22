@@ -2807,7 +2807,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setPushing(true);
     const tid = toast.loading(`Syncing ${activeRow.mrn} to Medblocks FHIR…`);
     try {
-      const { data, error } = await supabase.functions.invoke("push_to_fhir", {
+      const { data, error } = await supabase.functions.invoke("fhir-proxy", {
         body: { mrn: activeRow.mrn, bundle },
       });
       if (error) throw error;
@@ -2885,7 +2885,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setAutoStatus((s) => ({ ...s, [r.mrn]: "syncing" }));
     try {
       const b = await buildBundleForRow(r);
-      const { data, error } = await supabase.functions.invoke("push_to_fhir", {
+      const { data, error } = await supabase.functions.invoke("fhir-proxy", {
         body: { mrn: r.mrn, bundle: b },
       });
       if (error) throw error;
