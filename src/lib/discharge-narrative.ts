@@ -23,6 +23,11 @@ export interface NarrativeMed {
   status?: string | null;
   ordered_by?: string | null;
   administered_at?: string | null;
+  /** RxNorm code from the structured `medication_requests` table. */
+  rxnorm_code?: string | null;
+  /** Display name from the structured `medication_requests` table. */
+  display_name?: string | null;
+  frequency?: string | null;
 }
 
 export interface NarrativeLab {
@@ -30,6 +35,14 @@ export interface NarrativeLab {
   status?: string | null;
   result_value?: string | null;
   collected_at?: string | null;
+  /** LOINC code from the structured `observations` table. */
+  loinc_code?: string | null;
+  /** Display name from the structured `observations` table. */
+  display_name?: string | null;
+  /** Numeric value (when parseable) from `observations.value_numeric`. */
+  value_numeric?: number | null;
+  unit?: string | null;
+  abnormal_flag?: string | null;
 }
 
 export interface NarrativePatient {
