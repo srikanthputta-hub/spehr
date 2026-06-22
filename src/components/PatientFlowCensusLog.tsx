@@ -48,6 +48,9 @@ interface MedAdminRow {
   ordered_by: string | null;
   administered_at: string | null;
   created_at?: string | null;
+  rxnorm_code?: string | null;
+  display_name?: string | null;
+  frequency?: string | null;
 }
 
 interface LabResultRow {
@@ -58,6 +61,11 @@ interface LabResultRow {
   ordered_by: string | null;
   collected_at: string | null;
   created_at: string | null;
+  loinc_code?: string | null;
+  display_name?: string | null;
+  value_numeric?: number | null;
+  unit?: string | null;
+  abnormal_flag?: string | null;
 }
 
 interface AllergyRow {
@@ -65,6 +73,7 @@ interface AllergyRow {
   reaction: string | null;
   severity: string | null;
   status: string | null;
+  category?: string | null;
 }
 
 function fmtTs(ts: string | null): string {
@@ -143,11 +152,21 @@ function DischargeSummaryModal({
     setChartLoading(true);
     const mrn = patient.mrn;
     (async () => {
-      // Phase C: unified single-source-of-truth query. We MUST await all
-      // discrete chart reads (meds, labs, allergies) in parallel before
-      // handing the dataset to the narrative builder — same dataset the
-      // FHIR Composition uses, so PDF and Bundle never diverge.
-      const [medsRes, labsRes, allergiesRes] = await Promise.all([
+      // Read the structured FHIR-aligned tables FIRST (the canonical source
+      // of truth post-refactor). Fall back to the legacy `lab_orders` /
+      // `medication_orders` rows only when no structured rows exist (older
+      // encounters that ran before the relational refactor).
+      const [obsRes, medReqRes, legacyMedsRes, legacyLabsRes, allergiesRes] = await Promise.all([
+        supabase
+          .from("observations")
+          .select("loinc_code, display_name, value, value_numeric, unit, abnormal_flag, status, recorded_at")
+          .eq("patient_mrn", mrn)
+          .order("recorded_at", { ascending: true }),
+        supabase
+          .from("medication_requests")
+          .select("rxnorm_code, display_name, dosage, route, frequency, status, intent, ordered_at, requester")
+          .eq("patient_mrn", mrn)
+          .order("ordered_at", { ascending: true }),
         supabase
           .from("medication_orders")
           .select("medication_name, drug_name, dose, route, status, ordered_by, administered_at, created_at")
@@ -160,12 +179,66 @@ function DischargeSummaryModal({
           .order("collected_at", { ascending: true }),
         supabase
           .from("allergies")
-          .select("substance, reaction, severity, status")
+          .select("substance, reaction, severity, status, category")
           .eq("mrn", mrn),
       ]);
       if (cancelled) return;
-      setMeds((medsRes.data ?? []) as MedAdminRow[]);
-      setLabs((labsRes.data ?? []) as LabResultRow[]);
+
+      const obsRows = (obsRes.data ?? []) as Array<{
+        loinc_code: string | null;
+        display_name: string | null;
+        value: string | null;
+        value_numeric: number | null;
+        unit: string | null;
+        abnormal_flag: string | null;
+        status: string | null;
+        recorded_at: string | null;
+      }>;
+      const mappedLabs: LabResultRow[] = obsRows.length > 0
+        ? obsRows.map((o) => ({
+            test_type: o.display_name,
+            status: o.status === "final" ? "Resulted" : o.status,
+            result_value: o.value ?? (o.value_numeric != null ? String(o.value_numeric) : null),
+            requested_by: null,
+            ordered_by: "Auto Doc",
+            collected_at: o.recorded_at,
+            created_at: o.recorded_at,
+            loinc_code: o.loinc_code,
+            display_name: o.display_name,
+            value_numeric: o.value_numeric,
+            unit: o.unit,
+            abnormal_flag: o.abnormal_flag,
+          }))
+        : ((legacyLabsRes.data ?? []) as LabResultRow[]);
+
+      const mrRows = (medReqRes.data ?? []) as Array<{
+        rxnorm_code: string | null;
+        display_name: string | null;
+        dosage: string | null;
+        route: string | null;
+        frequency: string | null;
+        status: string | null;
+        ordered_at: string | null;
+        requester: string | null;
+      }>;
+      const mappedMeds: MedAdminRow[] = mrRows.length > 0
+        ? mrRows.map((m) => ({
+            medication_name: m.display_name,
+            drug_name: m.display_name,
+            dose: m.dosage,
+            route: m.route,
+            status: (m.status ?? "").toLowerCase() === "completed" ? "Administered" : (m.status ?? "active"),
+            ordered_by: m.requester ?? "Auto Doc",
+            administered_at: m.ordered_at,
+            created_at: m.ordered_at,
+            rxnorm_code: m.rxnorm_code,
+            display_name: m.display_name,
+            frequency: m.frequency,
+          }))
+        : ((legacyMedsRes.data ?? []) as MedAdminRow[]);
+
+      setMeds(mappedMeds);
+      setLabs(mappedLabs);
       setAllergies((allergiesRes.data ?? []) as AllergyRow[]);
       setChartLoading(false);
     })();
