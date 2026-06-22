@@ -64,7 +64,7 @@ interface AllergyRow {
   substance: string | null;
   reaction: string | null;
   severity: string | null;
-  category: string | null;
+  status: string | null;
 }
 
 function fmtTs(ts: string | null): string {
@@ -160,7 +160,7 @@ function DischargeSummaryModal({
           .order("collected_at", { ascending: true }),
         supabase
           .from("allergies")
-          .select("substance, reaction, severity, category")
+          .select("substance, reaction, severity, status")
           .eq("mrn", mrn),
       ]);
       if (cancelled) return;
@@ -427,7 +427,17 @@ function ClinicalNarrative({
     const s = (l.status ?? "").toLowerCase();
     return s === "resulted" || s === "reported";
   });
-  const md = buildDischargeMarkdown(patient, administered, resulted, allergies);
+  const md = buildDischargeMarkdown(
+    patient,
+    administered,
+    resulted,
+    allergies.map((a) => ({
+      substance: a.substance,
+      reaction: a.reaction,
+      severity: a.severity,
+      category: null,
+    })),
+  );
   return (
     <div
       className="rounded-sm border border-slate-300 bg-white px-10 py-8"
