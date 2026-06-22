@@ -128,6 +128,22 @@ function fhirId(prefix: string, value: string) {
   return `${prefix}-${value}`.replace(/[^A-Za-z0-9-.]/g, "-").slice(0, 64);
 }
 
+/**
+ * Deterministic resource ID derived from a stable input string.
+ * Used so repeated pipeline runs produce the SAME FHIR resource IDs
+ * and PUT requests upsert instead of duplicating on the FHIR server.
+ */
+function stableId(prefix: string, ...parts: Array<string | null | undefined>) {
+  const joined = parts
+    .filter((p): p is string => !!p && typeof p === "string")
+    .join("|")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50) || "x";
+  return `${prefix}-${joined}`.slice(0, 64);
+}
+
 function urn(id: string) {
   return `urn:uuid:${id}`;
 }
@@ -329,11 +345,13 @@ function buildPmhConditions(p: AdmissionPatient, patientId: string) {
     ...splitList(p.past_surgical_history).map((t): PmhItem => ({ text: t, kind: "problem-list-item", status: "resolved", note: "Past surgical" })),
     ...splitList(p.past_hospitalizations).map((t): PmhItem => ({ text: t, kind: "encounter-diagnosis", status: "resolved", note: "Prior hospitalization" })),
   ];
-  return items.map((item) => ({
-    id: uuid(),
+  return items.map((item) => {
+    const cid = stableId("cond", p.mrn, item.kind, item.text);
+    return ({
+    id: cid,
     resource: {
       resourceType: "Condition",
-      id: uuid(),
+      id: cid,
       clinicalStatus: { coding: [{ system: HL7.CONDITION_CLINICAL, code: item.status }] },
       verificationStatus: { coding: [{ system: HL7.CONDITION_VERIFICATION, code: "confirmed" }] },
       category: [{ coding: [{ system: HL7.CONDITION_CATEGORY, code: item.kind }] }],
@@ -341,17 +359,20 @@ function buildPmhConditions(p: AdmissionPatient, patientId: string) {
       subject: { reference: urn(patientId) },
       note: item.note ? [{ text: item.note }] : undefined,
     } as AnyRecord,
-  }));
+  });
+  });
 }
 
 function buildAllergies(p: AdmissionPatient, patientId: string) {
   const drug = splitList(p.allergies).filter((s) => s.toUpperCase() !== "NKDA");
   const env = splitList(p.environmental_allergies);
-  const make = (text: string, category: "medication" | "environment") => ({
-    id: uuid(),
+  const make = (text: string, category: "medication" | "environment") => {
+    const aid = stableId("allergy", p.mrn, category, text);
+    return ({
+    id: aid,
     resource: {
       resourceType: "AllergyIntolerance",
-      id: uuid(),
+      id: aid,
       clinicalStatus: { coding: [{ system: HL7.ALLERGY_CLINICAL, code: "active" }] },
       type: "allergy",
       category: [category],
@@ -363,33 +384,38 @@ function buildAllergies(p: AdmissionPatient, patientId: string) {
         : undefined,
     } as AnyRecord,
   });
+  };
   return [...drug.map((d) => make(d, "medication")), ...env.map((e) => make(e, "environment"))];
 }
 
 function buildMedicationStatements(p: AdmissionPatient, patientId: string) {
-  return splitList(p.current_medications).map((med) => ({
-    id: uuid(),
+  return splitList(p.current_medications).map((med) => {
+    const mid = stableId("medstmt", p.mrn, med);
+    return ({
+    id: mid,
     resource: {
       resourceType: "MedicationStatement",
-      id: uuid(),
+      id: mid,
       status: "active",
       medicationCodeableConcept: { text: med },
       subject: { reference: urn(patientId) },
       effectiveDateTime: p.admission_time ?? undefined,
       dosage: [{ text: med }],
     } as AnyRecord,
-  }));
+  });
+  });
 }
 
 function buildFamilyHistory(p: AdmissionPatient, patientId: string) {
   const items = splitList(p.family_history);
   if (items.length === 0) return [];
+  const fid = stableId("famhx", p.mrn);
   return [
     {
-      id: uuid(),
+      id: fid,
       resource: {
         resourceType: "FamilyMemberHistory",
-        id: uuid(),
+        id: fid,
         status: "completed",
         patient: { reference: urn(patientId) },
         relationship: { text: "Family (unspecified blood relative)" },
@@ -412,25 +438,26 @@ function wrapTransaction(entries: AnyRecord[]) {
 
 function entryFor(fullUrl: string, resource: AnyRecord) {
   const rt = resource.resourceType as string;
-  let request: { method: string; url: string } = { method: "POST", url: rt };
-  if (rt === "Patient") {
-    request = { method: "PUT", url: `Patient/${resource.id}` };
-  } else if (rt === "Encounter") {
-    request = { method: "PUT", url: `Encounter/${resource.id}` };
-  }
+  // Every resource carries a stable, deterministic id so PUT-by-id makes the
+  // transaction idempotent — reruns update the same resource instead of
+  // creating duplicates on the FHIR server.
+  const request = { method: "PUT", url: `${rt}/${resource.id}` };
   return { fullUrl, resource, request };
 }
 
 export function buildAdmissionTransactionBundle(p: AdmissionPatient) {
-  const patientId = fhirId("patient", p.mrn);
-  const encounterId = fhirId("encounter", p.mrn);
+  // Unified ID convention: Patient = the MRN itself (already begins with
+  // "MRN-"); Encounter = "enc-<mrn>". Matches enc-${mrn} used by billing
+  // and the legacy `Patient/<mrn>` references in DB SQL helpers.
+  const patientId = fhirId("", p.mrn).replace(/^-/, "");
+  const encounterId = `enc-${patientId}`;
 
   const patient = buildPatient(p, patientId);
   const encounter = buildEncounter(p, patientId, encounterId);
-  const relatedPerson = buildRelatedPersonEmergencyContact(p, patientId, uuid());
-  const coverage = buildCoverage(p, patientId, uuid());
-  const consent = buildCodeStatusConsent(p, patientId, uuid());
-  const hpi = buildHpiCondition(p, patientId, encounterId, uuid());
+  const relatedPerson = buildRelatedPersonEmergencyContact(p, patientId, stableId("relp", patientId, "econ"));
+  const coverage = buildCoverage(p, patientId, stableId("coverage", patientId));
+  const consent = buildCodeStatusConsent(p, patientId, stableId("consent", patientId, "codestatus"));
+  const hpi = buildHpiCondition(p, patientId, encounterId, stableId("cond", patientId, "hpi"));
   const pmh = buildPmhConditions(p, patientId);
   const allergies = buildAllergies(p, patientId);
   const meds = buildMedicationStatements(p, patientId);
@@ -455,7 +482,7 @@ export function buildAdmissionTransactionBundle(p: AdmissionPatient) {
 /* ----------------------------- Discharge ----------------------------- */
 
 function buildLabObservation(p: AdmissionPatient, patientId: string, encounterId: string, l: DischargeLab) {
-  const id = uuid();
+  const id = stableId("obs", p.mrn, l.loinc, l.test_name ?? l.test_type);
   const numeric = l.result_value ? Number((l.result_value.match(/-?\d+(\.\d+)?/) ?? [])[0]) : NaN;
   const interpretation = l.flag
     ? [
@@ -499,8 +526,9 @@ function buildLabObservation(p: AdmissionPatient, patientId: string, encounterId
 }
 
 function buildDischargeMedRequest(patientId: string, encounterId: string, m: DischargeMed) {
-  const id = uuid();
   const name = m.drug ?? m.drug_name ?? m.medication_name ?? "medication";
+  // patientId is already the bare MRN under the unified convention.
+  const id = stableId("medreq", patientId, m.rxnorm, name);
   return {
     id,
     resource: {
@@ -569,9 +597,9 @@ export function buildDischargeTransactionBundle(opts: {
   conditionAtDischarge?: string;
 }) {
   const { patient: p } = opts;
-  const patientId = fhirId("patient", p.mrn);
-  const encounterId = fhirId("encounter", p.mrn);
-  const compositionId = uuid();
+  const patientId = fhirId("", p.mrn).replace(/^-/, "");
+  const encounterId = `enc-${patientId}`;
+  const compositionId = stableId("composition", patientId, "discharge");
 
   const patient = buildPatient(p, patientId);
   const encounter = buildEncounter(p, patientId, encounterId);

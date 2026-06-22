@@ -196,7 +196,12 @@ export async function runAutoDocPipeline(mrn: string) {
     { mrn, note_type: "Assessment", author: "Auto Doc", content: tpl.assessment },
     { mrn, note_type: "Plan", author: "Auto Doc", content: tpl.plan },
   ];
-  await sb.from("clinical_notes").insert(notes as never);
+  // Idempotent: re-running Auto Doc updates the same HPI/Assessment/Plan
+  // notes instead of stacking duplicates. Backed by the partial unique
+  // index uq_clinical_notes_mrn_type_auto_author.
+  await sb
+    .from("clinical_notes")
+    .upsert(notes as never, { onConflict: "mrn,note_type,author" });
   await log(mrn, "document", "Authored HPI, Assessment and Plan notes");
 
   // STAGE: umls (multi-code expansion)
@@ -391,7 +396,11 @@ export async function runAutoDocPipeline(mrn: string) {
         };
       });
       if (obsRows.length > 0) {
-        const { error: obsErr } = await sb.from("observations").insert(obsRows as never);
+        // Idempotent: same LOINC for the same patient + source overwrites
+        // the previous row instead of inserting a duplicate.
+        const { error: obsErr } = await sb
+          .from("observations")
+          .upsert(obsRows as never, { onConflict: "patient_id,loinc_code,source" });
         if (obsErr) await log(mrn, "fhir", `observations insert failed: ${obsErr.message}`, null, "warn");
       }
 
@@ -410,7 +419,11 @@ export async function runAutoDocPipeline(mrn: string) {
         source: "auto-doc",
       }));
       if (medReqRows.length > 0) {
-        const { error: mrErr } = await sb.from("medication_requests").insert(medReqRows as never);
+        // Idempotent: same RxNorm for the same patient + source overwrites
+        // the previous row instead of inserting a duplicate.
+        const { error: mrErr } = await sb
+          .from("medication_requests")
+          .upsert(medReqRows as never, { onConflict: "patient_id,rxnorm_code,source" });
         if (mrErr) await log(mrn, "fhir", `medication_requests insert failed: ${mrErr.message}`, null, "warn");
       }
 
