@@ -44,6 +44,26 @@ export interface NarrativePatient {
   discharge_time?: string | null;
   icd10_codes?: string[] | null;
   snomed_codes?: string[] | null;
+  /** Final clinical diagnosis as deduced by Auto Doc (NOT the chief complaint). */
+  diagnosis?: string | null;
+  /** Free-text past medical history captured at admission. */
+  past_medical_history?: string | null;
+  /** Free-text past surgical history captured at admission. */
+  past_surgical_history?: string | null;
+  /** Primary care follow-up clinician, if any. */
+  primary_care_physician?: string | null;
+}
+
+/**
+ * Structured allergy row, mapped 1:1 to a FHIR AllergyIntolerance resource
+ * (or the local `allergies` table). The narrative builder will NEVER print
+ * "No known drug allergies" unless this array is explicitly empty.
+ */
+export interface NarrativeAllergy {
+  substance?: string | null;
+  reaction?: string | null;
+  severity?: string | null;
+  category?: string | null; // medication | environment | food
 }
 
 /* ------------------------------------------------------------------ */
@@ -230,9 +250,16 @@ export function buildDischargeMarkdown(
   patient: NarrativePatient,
   meds: NarrativeMed[],
   labs: NarrativeLab[],
+  allergies: NarrativeAllergy[] = [],
 ): string {
   const intro = clinicalIntro(patient.age, patient.gender, patient.chief_complaint);
-  const dx = complaintToDiagnosis(patient.chief_complaint);
+  // Final diagnosis comes from Auto Doc's clinical deduction. Fall back to
+  // the chief complaint ONLY when no deduced diagnosis exists.
+  const finalDx = (patient.diagnosis ?? "").trim();
+  const dx = finalDx.length > 0
+    ? finalDx.charAt(0).toUpperCase() + finalDx.slice(1)
+    : complaintToDiagnosis(patient.chief_complaint);
+  const admittingDx = complaintToDiagnosis(patient.chief_complaint);
   const administered = meds.filter(
     (m) => (m.status ?? "").toLowerCase() === "administered",
   );
@@ -245,7 +272,7 @@ export function buildDischargeMarkdown(
   const lines: string[] = [];
 
   lines.push("**Admitting & Discharge Diagnoses**");
-  lines.push(`- **Admitting Diagnosis:** ${dx}`);
+  lines.push(`- **Admitting Diagnosis:** ${admittingDx}`);
   lines.push(`- **Discharge Diagnosis:** ${dx}, clinically stable`);
   lines.push(`- **Condition at Discharge:** Stable, hemodynamically appropriate, tolerating oral intake, ambulating without assistance.`);
   lines.push("");
@@ -261,11 +288,41 @@ export function buildDischargeMarkdown(
   lines.push("");
 
   lines.push("**Past Medical History**");
-  lines.push("- Reviewed with patient and verified against prior chart records. No new chronic conditions were identified during this admission.");
+  {
+    const pmh = (patient.past_medical_history ?? "").trim();
+    const psh = (patient.past_surgical_history ?? "").trim();
+    if (!pmh && !psh) {
+      lines.push("- No significant past medical or surgical history reported by patient or documented in chart.");
+    } else {
+      if (pmh) {
+        for (const item of pmh.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)) {
+          lines.push(`- ${item}`);
+        }
+      }
+      if (psh) {
+        for (const item of psh.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)) {
+          lines.push(`- **PSH:** ${item}`);
+        }
+      }
+    }
+  }
   lines.push("");
 
   lines.push("**Allergies**");
-  lines.push("- No known drug allergies reported by patient or documented in chart.");
+  if (allergies.length === 0) {
+    lines.push("- NKDA — No known drug allergies.");
+  } else {
+    for (const a of allergies) {
+      const sub = (a.substance ?? "").trim() || "Unspecified substance";
+      const reaction = (a.reaction ?? "").trim();
+      const severity = (a.severity ?? "").trim();
+      const cat = (a.category ?? "").trim();
+      const tail = [reaction && `reaction: ${reaction}`, severity && `severity: ${severity}`, cat && `category: ${cat}`]
+        .filter(Boolean)
+        .join("; ");
+      lines.push(`- **${sub}**${tail ? ` — ${tail}` : ""}`);
+    }
+  }
   lines.push("");
 
   lines.push("**Physical Examination on Admission**");
@@ -334,7 +391,14 @@ export function buildDischargeMarkdown(
   lines.push("");
 
   lines.push("**Follow-Up Care**");
-  lines.push("- Schedule follow-up with **Primary Care Provider within 7 days** of discharge.");
+  {
+    const pcp = (patient.primary_care_physician ?? "").trim();
+    lines.push(
+      pcp
+        ? `- Schedule follow-up with **${pcp}** within 7 days of discharge.`
+        : "- Schedule follow-up with **Primary Care Provider within 7 days** of discharge.",
+    );
+  }
   lines.push("- Specialty follow-up as clinically indicated; appointments to be confirmed by the patient.");
   lines.push("- Bring this discharge summary and an updated medication list to each appointment.");
   lines.push("");
