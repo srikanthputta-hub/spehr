@@ -668,12 +668,33 @@ export function buildDischargeTransactionBundle(opts: {
       narrativeSection("Procedures Performed", (opts.procedures ?? []).join("; ")),
       narrativeSection(
         "Pertinent Laboratory Findings",
-        `${labEntries.length} laboratory observations performed by SPEHR Central Laboratory.`,
+        labEntries.length === 0
+          ? "No laboratory observations recorded for this encounter."
+          : `${labEntries.length} laboratory observation(s) performed by SPEHR Central Laboratory:\n` +
+            (opts.labs ?? [])
+              .map((l) => {
+                const name = l.test_name ?? l.test_type ?? "Observation";
+                const code = l.loinc ? ` [LOINC ${l.loinc}]` : "";
+                const val = l.result_value ?? "Pending";
+                const flag = l.flag ? ` (${l.flag})` : "";
+                return `• ${name}${code}: ${val}${flag}`;
+              })
+              .join("\n"),
         labEntries.map((l) => ({ reference: urn(l.id) })),
       ),
       narrativeSection(
         "Discharge Medications",
-        `${medEntries.length} medications prescribed on discharge.`,
+        medEntries.length === 0
+          ? "No discharge medications prescribed for this encounter."
+          : `${medEntries.length} medication(s) prescribed on discharge:\n` +
+            (opts.dischargeMeds ?? [])
+              .map((m) => {
+                const name = m.drug ?? "Medication";
+                const code = m.rxnorm ? ` [RxNorm ${m.rxnorm}]` : "";
+                const detail = [m.dose, m.route, m.frequency].filter(Boolean).join(" ");
+                return `• ${name}${code}${detail ? ` — ${detail}` : ""}`;
+              })
+              .join("\n"),
         medEntries.map((m) => ({ reference: urn(m.id) })),
       ),
       narrativeSection("Diet & Activity", [opts.diet && `Diet: ${opts.diet}`, opts.activity && `Activity: ${opts.activity}`].filter(Boolean).join(" ")),
