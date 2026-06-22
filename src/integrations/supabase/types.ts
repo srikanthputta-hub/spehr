@@ -1172,6 +1172,82 @@ export type Database = {
         }
         Relationships: []
       }
+      medication_requests: {
+        Row: {
+          created_at: string
+          display_name: string
+          dosage: string | null
+          frequency: string | null
+          id: string
+          intent: string
+          ordered_at: string
+          patient_id: string
+          patient_mrn: string | null
+          requester: string | null
+          route: string | null
+          rxnorm_code: string | null
+          source: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          dosage?: string | null
+          frequency?: string | null
+          id?: string
+          intent?: string
+          ordered_at?: string
+          patient_id: string
+          patient_mrn?: string | null
+          requester?: string | null
+          route?: string | null
+          rxnorm_code?: string | null
+          source?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          dosage?: string | null
+          frequency?: string | null
+          id?: string
+          intent?: string
+          ordered_at?: string
+          patient_id?: string
+          patient_mrn?: string | null
+          requester?: string | null
+          route?: string | null
+          rxnorm_code?: string | null
+          source?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "medication_requests_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "fhir_lab_view"
+            referencedColumns: ["patient_uuid"]
+          },
+          {
+            foreignKeyName: "medication_requests_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "fhir_patient_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "medication_requests_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "patients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       nlp_audit_logs: {
         Row: {
           author_id: string | null
@@ -1288,6 +1364,82 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      observations: {
+        Row: {
+          abnormal_flag: string | null
+          created_at: string
+          display_name: string
+          id: string
+          loinc_code: string | null
+          patient_id: string
+          patient_mrn: string | null
+          recorded_at: string
+          reference_range: string | null
+          source: string | null
+          status: string
+          unit: string | null
+          updated_at: string
+          value: string | null
+          value_numeric: number | null
+        }
+        Insert: {
+          abnormal_flag?: string | null
+          created_at?: string
+          display_name: string
+          id?: string
+          loinc_code?: string | null
+          patient_id: string
+          patient_mrn?: string | null
+          recorded_at?: string
+          reference_range?: string | null
+          source?: string | null
+          status?: string
+          unit?: string | null
+          updated_at?: string
+          value?: string | null
+          value_numeric?: number | null
+        }
+        Update: {
+          abnormal_flag?: string | null
+          created_at?: string
+          display_name?: string
+          id?: string
+          loinc_code?: string | null
+          patient_id?: string
+          patient_mrn?: string | null
+          recorded_at?: string
+          reference_range?: string | null
+          source?: string | null
+          status?: string
+          unit?: string | null
+          updated_at?: string
+          value?: string | null
+          value_numeric?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "observations_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "fhir_lab_view"
+            referencedColumns: ["patient_uuid"]
+          },
+          {
+            foreignKeyName: "observations_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "fhir_patient_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "observations_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "patients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       patient_notes: {
         Row: {

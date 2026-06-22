@@ -23,6 +23,11 @@ export interface NarrativeMed {
   status?: string | null;
   ordered_by?: string | null;
   administered_at?: string | null;
+  /** RxNorm code from the structured `medication_requests` table. */
+  rxnorm_code?: string | null;
+  /** Display name from the structured `medication_requests` table. */
+  display_name?: string | null;
+  frequency?: string | null;
 }
 
 export interface NarrativeLab {
@@ -30,6 +35,14 @@ export interface NarrativeLab {
   status?: string | null;
   result_value?: string | null;
   collected_at?: string | null;
+  /** LOINC code from the structured `observations` table. */
+  loinc_code?: string | null;
+  /** Display name from the structured `observations` table. */
+  display_name?: string | null;
+  /** Numeric value (when parseable) from `observations.value_numeric`. */
+  value_numeric?: number | null;
+  unit?: string | null;
+  abnormal_flag?: string | null;
 }
 
 export interface NarrativePatient {
@@ -218,7 +231,11 @@ export function indicationFor(medName: string): string {
 const ABNORMAL_RE = /\b(high|low|critical|abnormal|positive|elevated|reactive)\b|↑|↓|\[\s*(h|l)\s*\]/i;
 
 export function pickAbnormalLabs(labs: NarrativeLab[]): NarrativeLab[] {
-  const abnormal = labs.filter((l) => ABNORMAL_RE.test(l.result_value ?? ""));
+  const abnormal = labs.filter(
+    (l) =>
+      (l.abnormal_flag && l.abnormal_flag.trim() !== "" && l.abnormal_flag !== "N") ||
+      ABNORMAL_RE.test(l.result_value ?? ""),
+  );
   if (abnormal.length > 0) return abnormal;
   // If nothing is flagged abnormal, surface the most recent few so the
   // section isn't empty for a real clinical record.
@@ -368,7 +385,10 @@ export function buildDischargeMarkdown(
     lines.push("- All diagnostic studies within reference ranges; no critical results.");
   } else {
     for (const l of abnormalLabs) {
-      lines.push(`- **${l.test_type}:** ${l.result_value ?? "Pending"}`);
+      const name = l.display_name ?? l.test_type ?? "Observation";
+      const loinc = l.loinc_code ? ` _(LOINC ${l.loinc_code})_` : "";
+      const flag = l.abnormal_flag && l.abnormal_flag !== "N" ? ` [${l.abnormal_flag}]` : "";
+      lines.push(`- **${name}**${loinc}: ${l.result_value ?? "Pending"}${flag}`);
     }
   }
   lines.push("");
@@ -378,9 +398,10 @@ export function buildDischargeMarkdown(
     lines.push("- Continue home medication regimen as previously prescribed.");
   } else {
     for (const m of administered) {
-      const name = m.medication_name ?? m.drug_name ?? "Medication";
-      const dose = [m.dose, m.route].filter(Boolean).join(" ");
-      lines.push(`- **${name}**${dose ? ` — ${dose}` : ""} — ${indicationFor(name)}.`);
+      const name = m.display_name ?? m.medication_name ?? m.drug_name ?? "Medication";
+      const dose = [m.dose, m.route, m.frequency].filter(Boolean).join(" ");
+      const rx = m.rxnorm_code ? ` _(RxNorm ${m.rxnorm_code})_` : "";
+      lines.push(`- **${name}**${rx}${dose ? ` — ${dose}` : ""} — ${indicationFor(name)}.`);
     }
   }
   lines.push("");
