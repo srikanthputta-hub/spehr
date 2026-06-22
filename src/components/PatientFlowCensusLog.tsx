@@ -26,6 +26,10 @@ interface PatientRow {
   gender: string | null;
   icd10_codes: string[] | null;
   snomed_codes: string[] | null;
+  diagnosis: string | null;
+  past_medical_history: string | null;
+  past_surgical_history: string | null;
+  primary_care_physician: string | null;
 }
 
 interface DischargeNote {
@@ -54,6 +58,13 @@ interface LabResultRow {
   ordered_by: string | null;
   collected_at: string | null;
   created_at: string | null;
+}
+
+interface AllergyRow {
+  substance: string | null;
+  reaction: string | null;
+  severity: string | null;
+  category: string | null;
 }
 
 function fmtTs(ts: string | null): string {
@@ -95,6 +106,7 @@ function DischargeSummaryModal({
   const [loading, setLoading] = useState(!patient.discharge_summary);
   const [meds, setMeds] = useState<MedAdminRow[]>([]);
   const [labs, setLabs] = useState<LabResultRow[]>([]);
+  const [allergies, setAllergies] = useState<AllergyRow[]>([]);
   const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
@@ -131,7 +143,11 @@ function DischargeSummaryModal({
     setChartLoading(true);
     const mrn = patient.mrn;
     (async () => {
-      const [medsRes, labsRes] = await Promise.all([
+      // Phase C: unified single-source-of-truth query. We MUST await all
+      // discrete chart reads (meds, labs, allergies) in parallel before
+      // handing the dataset to the narrative builder — same dataset the
+      // FHIR Composition uses, so PDF and Bundle never diverge.
+      const [medsRes, labsRes, allergiesRes] = await Promise.all([
         supabase
           .from("medication_orders")
           .select("medication_name, drug_name, dose, route, status, ordered_by, administered_at, created_at")
@@ -142,10 +158,15 @@ function DischargeSummaryModal({
           .select("test_type, status, result_value, requested_by, ordered_by, collected_at, created_at")
           .eq("patient_mrn", mrn)
           .order("collected_at", { ascending: true }),
+        supabase
+          .from("allergies")
+          .select("substance, reaction, severity, category")
+          .eq("mrn", mrn),
       ]);
       if (cancelled) return;
       setMeds((medsRes.data ?? []) as MedAdminRow[]);
       setLabs((labsRes.data ?? []) as LabResultRow[]);
+      setAllergies((allergiesRes.data ?? []) as AllergyRow[]);
       setChartLoading(false);
     })();
     return () => {
@@ -246,6 +267,7 @@ function DischargeSummaryModal({
                 patient={patient}
                 meds={meds}
                 labs={labs}
+                allergies={allergies}
                 isDischarged={isDischarged}
                 los={los}
               />
@@ -389,12 +411,14 @@ function ClinicalNarrative({
   patient,
   meds,
   labs,
+  allergies,
   isDischarged,
   los,
 }: {
   patient: PatientRow;
   meds: MedAdminRow[];
   labs: LabResultRow[];
+  allergies: AllergyRow[];
   isDischarged: boolean;
   los: string;
 }) {
@@ -403,7 +427,7 @@ function ClinicalNarrative({
     const s = (l.status ?? "").toLowerCase();
     return s === "resulted" || s === "reported";
   });
-  const md = buildDischargeMarkdown(patient, administered, resulted);
+  const md = buildDischargeMarkdown(patient, administered, resulted, allergies);
   return (
     <div
       className="rounded-sm border border-slate-300 bg-white px-10 py-8"
@@ -446,7 +470,7 @@ export function PatientFlowCensusLog() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "id, mrn, first_name, last_name, name, chief_complaint, status, admission_time, discharge_time, discharge_summary, age, gender, icd10_codes, snomed_codes",
+          "id, mrn, first_name, last_name, name, chief_complaint, status, admission_time, discharge_time, discharge_summary, age, gender, icd10_codes, snomed_codes, diagnosis, past_medical_history, past_surgical_history, primary_care_physician",
         )
         .eq("facility_name", facility)
         .order("admission_time", { ascending: false })
