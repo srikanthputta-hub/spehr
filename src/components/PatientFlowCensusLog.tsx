@@ -179,7 +179,7 @@ function DischargeSummaryModal({
           .order("collected_at", { ascending: true }),
         supabase
           .from("allergies")
-          .select("substance, reaction, severity, status, category")
+          .select("substance, reaction, severity, status")
           .eq("mrn", mrn),
       ]);
       if (cancelled) return;
