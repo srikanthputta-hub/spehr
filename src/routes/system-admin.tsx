@@ -2977,9 +2977,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
               Enable Live Automation Loop
             </div>
             <div className="text-[11px] text-slate-600">
-              When ON, every 10 seconds the next queued patient's full FHIR
-              Transaction Bundle is auto-pushed to the Medblocks production
-              endpoint. Toggle off any time to stop the loop.
+              When ON, every 10 seconds the next <span className="font-semibold">successfully discharged</span>
+              {" "}patient's full FHIR Transaction Bundle is auto-pushed to the Medblocks
+              production endpoint. Active / admitted encounters are skipped until
+              discharge is finalised. Toggle off any time to stop the loop.
             </div>
           </div>
         </div>
