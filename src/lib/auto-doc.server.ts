@@ -288,12 +288,9 @@ export async function runAutoDocPipeline(mrn: string) {
     .update({
       snomed_codes: snomedFinal,
       icd10_codes: icd10Final,
-      standardized_output: {
-        "SNOMED CT": snomedFinal,
-        "ICD-10": icd10Final,
-        LOINC: labCodesFinal,
-        RXNORM: medCodesFinal,
-      },
+      // NOTE: `standardized_output` is DEPRECATED. We no longer write the
+      // flattened blob from Auto Doc — discrete relational rows are now
+      // persisted to public.observations / public.medication_requests below.
     } as never)
     .eq("mrn", mrn);
   await log(mrn, "umls", "UMLS Mapping Complete", {
@@ -365,7 +362,86 @@ export async function runAutoDocPipeline(mrn: string) {
       discharge_summary: tpl.discharge,
       diagnosis: tpl.condition,
     };
-    const labs: DischargeLab[] = (labRows ?? []).map((l: any, idx) => ({
+    const patientUuid = (patientRow ?? p)?.id as string | undefined;
+
+    /* -----------------------------------------------------------------
+     * STRUCTURED INSERT — write discrete rows into the new relational
+     * tables (`observations`, `medication_requests`). These are the
+     * canonical source of truth for downstream FHIR export and the
+     * Discharge Summary PDF (no more flattened JSON blobs).
+     * --------------------------------------------------------------- */
+    if (patientUuid) {
+      const obsRows = (labRows ?? []).map((l: any, idx: number) => {
+        const valStr = typeof l.result_value === "string" ? l.result_value : null;
+        const numMatch = valStr ? valStr.match(/-?\d+(\.\d+)?/) : null;
+        const numeric = numMatch ? Number(numMatch[0]) : null;
+        const abnormal = valStr && /CRITICAL|HIGH|LOW|ABNORMAL/i.test(valStr) ? "H" : null;
+        return {
+          patient_id: patientUuid,
+          patient_mrn: mrn,
+          loinc_code: labCodesFinal[idx] ?? labCodesFinal[0] ?? null,
+          display_name: l.test_type ?? "Lab observation",
+          value: valStr,
+          value_numeric: Number.isFinite(numeric as number) ? numeric : null,
+          unit: null,
+          abnormal_flag: abnormal,
+          status: /resulted|reported|final/i.test(String(l.status ?? "")) ? "final" : "registered",
+          recorded_at: l.collected_at ?? new Date().toISOString(),
+          source: "auto-doc",
+        };
+      });
+      if (obsRows.length > 0) {
+        const { error: obsErr } = await sb.from("observations").insert(obsRows as never);
+        if (obsErr) await log(mrn, "fhir", `observations insert failed: ${obsErr.message}`, null, "warn");
+      }
+
+      const medReqRows = (medRows ?? []).map((m: any, idx: number) => ({
+        patient_id: patientUuid,
+        patient_mrn: mrn,
+        rxnorm_code: medCodesFinal[idx] ?? medCodesFinal[0] ?? null,
+        display_name: m.drug ?? m.drug_name ?? m.medication_name ?? "Medication",
+        dosage: m.dose ?? null,
+        route: m.route ?? "PO",
+        frequency: m.frequency ?? null,
+        status: String(m.status ?? "active").toLowerCase().includes("administ") ? "completed" : "active",
+        intent: "order",
+        ordered_at: new Date().toISOString(),
+        requester: m.ordering_physician ?? "Auto Doc Attending",
+        source: "auto-doc",
+      }));
+      if (medReqRows.length > 0) {
+        const { error: mrErr } = await sb.from("medication_requests").insert(medReqRows as never);
+        if (mrErr) await log(mrn, "fhir", `medication_requests insert failed: ${mrErr.message}`, null, "warn");
+      }
+
+      await log(mrn, "fhir", "Structured FHIR rows persisted", {
+        observations: obsRows.length,
+        medication_requests: medReqRows.length,
+      });
+    }
+
+    /* -----------------------------------------------------------------
+     * Re-query the structured tables. The FHIR Bundle and discharge PDF
+     * are now derived from these relational rows — never from the
+     * legacy flattened `standardized_output` blob.
+     * --------------------------------------------------------------- */
+    const [{ data: structuredObs }, { data: structuredMedReqs }] = await Promise.all([
+      sb.from("observations").select("*").eq("patient_mrn", mrn).order("recorded_at", { ascending: true }),
+      sb.from("medication_requests").select("*").eq("patient_mrn", mrn).order("ordered_at", { ascending: true }),
+    ]);
+
+    const labs: DischargeLab[] = ((structuredObs ?? []).length > 0
+      ? (structuredObs ?? []).map((o: any) => ({
+          id: o.id,
+          test_name: o.display_name ?? "Lab",
+          test_type: o.display_name ?? undefined,
+          result_value: o.value ?? (o.value_numeric != null ? String(o.value_numeric) : undefined),
+          loinc: o.loinc_code ?? undefined,
+          collected_at: o.recorded_at ?? undefined,
+          performing_lab: "SPEHR Central Laboratory",
+          flag: o.abnormal_flag === "H" ? "HIGH" : undefined,
+        }))
+      : (labRows ?? []).map((l: any, idx: number) => ({
       id: l.id,
       test_name: l.test_type ?? "Lab",
       test_type: l.test_type ?? undefined,
@@ -374,8 +450,19 @@ export async function runAutoDocPipeline(mrn: string) {
       collected_at: l.collected_at ?? undefined,
       performing_lab: "SPEHR Central Laboratory",
       flag: typeof l.result_value === "string" && /CRITICAL|HIGH/i.test(l.result_value) ? "HIGH" : undefined,
-    }));
-    const meds: DischargeMed[] = (medRows ?? []).map((m: any, idx) => ({
+    })));
+    const meds: DischargeMed[] = ((structuredMedReqs ?? []).length > 0
+      ? (structuredMedReqs ?? []).map((m: any) => ({
+          id: m.id,
+          drug: m.display_name ?? "medication",
+          dose: m.dosage ?? undefined,
+          route: m.route ?? "PO",
+          frequency: m.frequency ?? "Daily",
+          rxnorm: m.rxnorm_code ?? undefined,
+          status: m.status ?? "active",
+          ordering_physician: m.requester ?? "Auto Doc Attending",
+        }))
+      : (medRows ?? []).map((m: any, idx: number) => ({
       id: m.id,
       drug: m.drug ?? m.drug_name ?? m.medication_name ?? "medication",
       dose: m.dose ?? undefined,
@@ -384,7 +471,7 @@ export async function runAutoDocPipeline(mrn: string) {
       rxnorm: medCodesFinal[idx] ?? medCodesFinal[0],
       status: m.status ?? "active",
       ordering_physician: m.ordering_physician ?? "Auto Doc Attending",
-    }));
+    })));
     // Allergy summary line is rendered into the Composition so the
     // narrative section is sourced from AllergyIntolerance, not boilerplate.
     const allergyList = (allergyRows ?? []) as Array<{
