@@ -3099,12 +3099,18 @@ function FhirInteroperability({ facility }: { facility: string }) {
                               Auto-Syncing…
                             </span>
                           );
-                        if (a === "ok")
+                        if (a === "ok") {
+                          const ts = lastSyncAt[r.mrn];
+                          const timeStr = ts
+                            ? new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                            : "—";
                           return (
-                            <span className="ml-1.5 inline-flex items-center rounded-full border border-emerald-300 bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                              ✓ Successful
+                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                              <Clock className="h-2.5 w-2.5" />
+                              Synced {timeStr}
                             </span>
                           );
+                        }
                         return (
                           <span className="ml-1.5 inline-flex items-center rounded-full border border-red-300 bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
                             ✗ Failed
