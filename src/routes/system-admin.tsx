@@ -3077,12 +3077,6 @@ function FhirInteroperability({ facility }: { facility: string }) {
                       {(() => {
                         const a = autoStatus[r.mrn];
                         if (!a) return null;
-                        if (a === "queued")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              In Queue
-                            </span>
-                          );
                         if (a === "syncing")
                           return (
                             <span className="ml-1.5 inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
