@@ -2688,7 +2688,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
       /* ignore quota / private-mode errors */
     }
   }, [pushedMrns]);
-  const [autoTick, setAutoTick] = useState(0);
+  // autoTick removed — the live push is event-driven (discharge realtime +
+  // 30s watchdog rescan), not on a high-frequency polling tick.
 
   useEffect(() => {
     let cancelled = false;
@@ -3015,7 +3016,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
         <div className="flex items-center gap-3">
           {autoOn && (
             <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
-              Streaming · 400ms · Realtime
+              On-Discharge · Realtime
             </span>
           )}
           <Switch checked={autoOn} onCheckedChange={setAutoOn} />
