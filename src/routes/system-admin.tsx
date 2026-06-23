@@ -2611,6 +2611,7 @@ type FhirEncounterRow = {
   discharge_time: string | null;
   status: string | null;
   chief_complaint: string | null;
+  last_fhir_sync: string | null;
 };
 
 function FhirInteroperability({ facility }: { facility: string }) {
@@ -2630,55 +2631,6 @@ function FhirInteroperability({ facility }: { facility: string }) {
       return {};
     }
   });
-  // Live Streaming Mode -------------------------------------------------
-  const AUTO_LOOP_STORAGE_KEY = "fhir.autoLoop.enabled";
-  const [autoOn, setAutoOn] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      const stored = window.localStorage.getItem(AUTO_LOOP_STORAGE_KEY);
-      // Default ON unless user explicitly turned it off (stored as "0")
-      return stored === "0" ? false : true;
-    } catch {
-      return true;
-    }
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(AUTO_LOOP_STORAGE_KEY, autoOn ? "1" : "0");
-    } catch {
-      /* ignore quota / private-mode errors */
-    }
-  }, [autoOn]);
-  const [autoStatus, setAutoStatus] = useState<
-    Record<string, "queued" | "syncing" | "ok" | "err">
-  >(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = window.localStorage.getItem("fhir.autoStatus");
-      const parsed = raw ? JSON.parse(raw) : {};
-      const out: Record<string, "ok" | "err"> = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        if (v === "ok" || v === "err") out[k] = v as any;
-      }
-      return out;
-    } catch {
-      return {};
-    }
-  });
-  // Persist terminal auto-statuses so successful patients never revert to In Queue
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const toPersist: Record<string, "ok" | "err"> = {};
-      for (const [k, v] of Object.entries(autoStatus)) {
-        if (v === "ok" || v === "err") toPersist[k] = v;
-      }
-      window.localStorage.setItem("fhir.autoStatus", JSON.stringify(toPersist));
-    } catch {
-      /* ignore quota / private-mode errors */
-    }
-  }, [autoStatus]);
   // Persist pushed MRN outcomes so they survive refreshes across the system
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2688,7 +2640,6 @@ function FhirInteroperability({ facility }: { facility: string }) {
       /* ignore quota / private-mode errors */
     }
   }, [pushedMrns]);
-  const [autoTick, setAutoTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -2696,7 +2647,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
       setLoading(true);
       let q = supabase
         .from("patients")
-        .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint")
+        .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint, last_fhir_sync")
         .order("admission_time", { ascending: false })
         .limit(50);
       if (facility !== "all") q = q.eq("facility_name", facility);
@@ -2712,6 +2663,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
           discharge_time: p.discharge_time ?? null,
           status: p.status ?? null,
           chief_complaint: p.chief_complaint ?? null,
+          last_fhir_sync: p.last_fhir_sync ?? null,
         }))
         .slice(0, 50);
       setRows(out);
@@ -2721,6 +2673,38 @@ function FhirInteroperability({ facility }: { facility: string }) {
       cancelled = true;
     };
   }, [facility]);
+
+  // Live realtime subscription: when Auto IT writes back `last_fhir_sync` (or
+  // any patient field changes) Postgres emits an UPDATE — patch the row in
+  // place so the "Last Sync" timestamp ticks without a refresh.
+  useEffect(() => {
+    const channel = supabase
+      .channel("fhir-last-sync")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "patients" },
+        (p: any) => {
+          const next = p?.new;
+          if (!next?.mrn) return;
+          setRows((rs) =>
+            rs.map((r) =>
+              r.mrn === String(next.mrn)
+                ? {
+                    ...r,
+                    status: next.status ?? r.status,
+                    discharge_time: next.discharge_time ?? r.discharge_time,
+                    last_fhir_sync: next.last_fhir_sync ?? r.last_fhir_sync,
+                  }
+                : r,
+            ),
+          );
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
 
   const statusBadge = (r: FhirEncounterRow) => {
     const s = (r.status ?? "").toLowerCase();
@@ -2885,93 +2869,6 @@ function FhirInteroperability({ facility }: { facility: string }) {
       notes: (notesRes.data ?? []) as any[],
     });
   };
-
-  // Auto-push a single row, updating the per-row status badge as it goes.
-  const autoPushRow = async (r: FhirEncounterRow) => {
-    setAutoStatus((s) => ({ ...s, [r.mrn]: "syncing" }));
-    try {
-      const b = await buildBundleForRow(r);
-      const { data, error } = await supabase.functions.invoke("fhir-proxy", {
-        body: { mrn: r.mrn, bundle: b },
-      });
-      if (error) throw error;
-      if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
-      setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
-      setPushedMrns((m) => ({ ...m, [r.mrn]: "ok" }));
-      // Silent on success — live mode fires constantly; only surface failures.
-    } catch (e: any) {
-      const msg = typeof e?.message === "string" ? e.message : "Sync failed";
-      console.error("[FHIR auto-sync]", r.mrn, e);
-      setAutoStatus((s) => ({ ...s, [r.mrn]: "err" }));
-      setPushedMrns((m) => ({ ...m, [r.mrn]: "err" }));
-      toast.error(`Auto-Sync failed for ${r.name ?? r.mrn} · ${msg}`);
-    }
-  };
-
-  // Toggle ON: seed every un-synced row as "queued" so badges show immediately.
-  useEffect(() => {
-    if (!autoOn) return;
-    setAutoStatus((prev) => {
-      const next = { ...prev };
-      for (const r of rows) {
-        // Discharged-only sync: skip patients who are still admitted.
-        if (!isDischarged(r)) continue;
-        // Live-sync mode: every encounter is pushed at least once.
-        // Re-pushing is safe because the bundle uses PUT with stable
-        // resource IDs (idempotent UPSERT on the FHIR server), so it
-        // never creates duplicates even if fired repeatedly.
-        if (next[r.mrn] === "syncing") continue;
-        if (!next[r.mrn]) next[r.mrn] = "queued";
-      }
-      return next;
-    });
-  }, [autoOn, rows, pushedMrns]);
-
-  // 400ms live streaming heartbeat. Cleaned up on toggle-off / unmount.
-  useEffect(() => {
-    if (!autoOn) return;
-    const id = setInterval(() => setAutoTick((t) => t + 1), 400);
-    return () => clearInterval(id);
-  }, [autoOn]);
-
-  // Realtime: when any clinical row changes for a known MRN, re-queue it
-  // for an immediate idempotent FHIR push. Idempotency is guaranteed by
-  // the PUT-with-stable-id bundle, so re-firing never duplicates resources.
-  useEffect(() => {
-    if (!autoOn || rows.length === 0) return;
-    const dischargedMrns = new Set(rows.filter(isDischarged).map((r) => r.mrn));
-    const requeue = (mrn: string | null | undefined) => {
-      if (!mrn || !dischargedMrns.has(mrn)) return;
-      setAutoStatus((s) => (s[mrn] === "syncing" ? s : { ...s, [mrn]: "queued" }));
-    };
-    const channel = supabase
-      .channel("fhir-live-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "patients" },
-        (p: any) => requeue(p?.new?.mrn ?? p?.old?.mrn))
-      .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders" },
-        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn))
-      .on("postgres_changes", { event: "*", schema: "public", table: "medication_orders" },
-        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn))
-      .on("postgres_changes", { event: "*", schema: "public", table: "clinical_notes" },
-        (p: any) => requeue(p?.new?.mrn ?? p?.old?.mrn))
-      .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [autoOn, rows]);
-
-  // On each tick (and once immediately when toggled on), pick the next queued
-  // patient and fire their bundle. Never starts a second sync while one is
-  // already in flight.
-  useEffect(() => {
-    if (!autoOn) return;
-    const inFlight = Object.values(autoStatus).some((v) => v === "syncing");
-    if (inFlight) return;
-    const next = rows.find((r) => isDischarged(r) && autoStatus[r.mrn] === "queued");
-    if (!next) return;
-    void autoPushRow(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoOn, autoTick, rows]);
 
   return (
     <div className="space-y-4">
