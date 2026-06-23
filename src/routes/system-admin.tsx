@@ -3001,11 +3001,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
               Enable Live Automation Loop
             </div>
             <div className="text-[11px] text-slate-600">
-              Live mode. The loop ticks every <span className="font-semibold">400&nbsp;ms</span>
-              {" "}and also subscribes to realtime database changes — any new or updated patient,
-              lab, medication, or note is re-pushed to the Medblocks endpoint immediately.
-              Bundles use PUT with stable resource IDs, so re-syncs UPSERT on the FHIR server
-              and never create duplicates. Toggle off any time to stop the loop.
+              Discharged-only live mode. The loop ticks every <span className="font-semibold">400&nbsp;ms</span>
+              {" "}and subscribes to realtime database changes — only patients whose encounters
+              have been <span className="font-semibold">discharged</span> are pushed to the
+              Medblocks endpoint; admitted patients are skipped until discharge. Bundles use PUT
+              with stable resource IDs, so re-syncs UPSERT on the FHIR server and never create
+              duplicates. Toggle off any time to stop the loop.
             </div>
           </div>
         </div>
