@@ -2908,6 +2908,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setAutoStatus((prev) => {
       const next = { ...prev };
       for (const r of rows) {
+        // Discharged-only sync: skip patients who are still admitted.
+        if (!isDischarged(r)) continue;
         // Live-sync mode: every encounter is pushed at least once.
         // Re-pushing is safe because the bundle uses PUT with stable
         // resource IDs (idempotent UPSERT on the FHIR server), so it
@@ -2931,9 +2933,9 @@ function FhirInteroperability({ facility }: { facility: string }) {
   // the PUT-with-stable-id bundle, so re-firing never duplicates resources.
   useEffect(() => {
     if (!autoOn || rows.length === 0) return;
-    const mrns = new Set(rows.map((r) => r.mrn));
+    const dischargedMrns = new Set(rows.filter(isDischarged).map((r) => r.mrn));
     const requeue = (mrn: string | null | undefined) => {
-      if (!mrn || !mrns.has(mrn)) return;
+      if (!mrn || !dischargedMrns.has(mrn)) return;
       setAutoStatus((s) => (s[mrn] === "syncing" ? s : { ...s, [mrn]: "queued" }));
     };
     const channel = supabase
@@ -2959,7 +2961,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
     if (!autoOn) return;
     const inFlight = Object.values(autoStatus).some((v) => v === "syncing");
     if (inFlight) return;
-    const next = rows.find((r) => autoStatus[r.mrn] === "queued");
+    const next = rows.find((r) => isDischarged(r) && autoStatus[r.mrn] === "queued");
     if (!next) return;
     void autoPushRow(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
