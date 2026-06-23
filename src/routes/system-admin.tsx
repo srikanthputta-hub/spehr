@@ -2733,6 +2733,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
     return { label: "Pending Sync", cls: "bg-amber-50 text-amber-700 border-amber-200" };
   };
 
+  // Only discharged encounters are eligible for FHIR live sync.
+  const isDischarged = (r: FhirEncounterRow) => {
+    const s = (r.status ?? "").toLowerCase();
+    return s === "discharged" || !!r.discharge_time;
+  };
+
   const openBundle = async (r: FhirEncounterRow) => {
     setActiveRow(r);
     setOpenMrn(r.mrn);
@@ -2908,6 +2914,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setAutoStatus((prev) => {
       const next = { ...prev };
       for (const r of rows) {
+        // Discharged-only sync: skip patients who are still admitted.
+        if (!isDischarged(r)) continue;
         // Live-sync mode: every encounter is pushed at least once.
         // Re-pushing is safe because the bundle uses PUT with stable
         // resource IDs (idempotent UPSERT on the FHIR server), so it
@@ -2931,9 +2939,9 @@ function FhirInteroperability({ facility }: { facility: string }) {
   // the PUT-with-stable-id bundle, so re-firing never duplicates resources.
   useEffect(() => {
     if (!autoOn || rows.length === 0) return;
-    const mrns = new Set(rows.map((r) => r.mrn));
+    const dischargedMrns = new Set(rows.filter(isDischarged).map((r) => r.mrn));
     const requeue = (mrn: string | null | undefined) => {
-      if (!mrn || !mrns.has(mrn)) return;
+      if (!mrn || !dischargedMrns.has(mrn)) return;
       setAutoStatus((s) => (s[mrn] === "syncing" ? s : { ...s, [mrn]: "queued" }));
     };
     const channel = supabase
@@ -2959,7 +2967,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
     if (!autoOn) return;
     const inFlight = Object.values(autoStatus).some((v) => v === "syncing");
     if (inFlight) return;
-    const next = rows.find((r) => autoStatus[r.mrn] === "queued");
+    const next = rows.find((r) => isDischarged(r) && autoStatus[r.mrn] === "queued");
     if (!next) return;
     void autoPushRow(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2993,11 +3001,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
               Enable Live Automation Loop
             </div>
             <div className="text-[11px] text-slate-600">
-              Live mode. The loop ticks every <span className="font-semibold">400&nbsp;ms</span>
-              {" "}and also subscribes to realtime database changes — any new or updated patient,
-              lab, medication, or note is re-pushed to the Medblocks endpoint immediately.
-              Bundles use PUT with stable resource IDs, so re-syncs UPSERT on the FHIR server
-              and never create duplicates. Toggle off any time to stop the loop.
+              Discharged-only live mode. The loop ticks every <span className="font-semibold">400&nbsp;ms</span>
+              {" "}and subscribes to realtime database changes — only patients whose encounters
+              have been <span className="font-semibold">discharged</span> are pushed to the
+              Medblocks endpoint; admitted patients are skipped until discharge. Bundles use PUT
+              with stable resource IDs, so re-syncs UPSERT on the FHIR server and never create
+              duplicates. Toggle off any time to stop the loop.
             </div>
           </div>
         </div>
