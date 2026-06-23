@@ -2651,7 +2651,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
     }
   }, [autoOn]);
   const [autoStatus, setAutoStatus] = useState<
-    Record<string, "queued" | "syncing" | "ok" | "err">
+    Record<string, "syncing" | "ok" | "err">
   >(() => {
     if (typeof window === "undefined") return {};
     try {
@@ -2688,7 +2688,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
       /* ignore quota / private-mode errors */
     }
   }, [pushedMrns]);
-  const [autoTick, setAutoTick] = useState(0);
+  // autoTick removed — the live push is event-driven (discharge realtime +
+  // 30s watchdog rescan), not on a high-frequency polling tick.
 
   useEffect(() => {
     let cancelled = false;
@@ -2908,70 +2909,72 @@ function FhirInteroperability({ facility }: { facility: string }) {
     }
   };
 
-  // Toggle ON: seed every un-synced row as "queued" so badges show immediately.
-  useEffect(() => {
-    if (!autoOn) return;
-    setAutoStatus((prev) => {
-      const next = { ...prev };
-      for (const r of rows) {
-        // Discharged-only sync: skip patients who are still admitted.
-        if (!isDischarged(r)) continue;
-        // Live-sync mode: every encounter is pushed at least once.
-        // Re-pushing is safe because the bundle uses PUT with stable
-        // resource IDs (idempotent UPSERT on the FHIR server), so it
-        // never creates duplicates even if fired repeatedly.
-        if (next[r.mrn] === "syncing") continue;
-        if (!next[r.mrn]) next[r.mrn] = "queued";
-      }
-      return next;
-    });
-  }, [autoOn, rows, pushedMrns]);
-
-  // 400ms live streaming heartbeat. Cleaned up on toggle-off / unmount.
-  useEffect(() => {
-    if (!autoOn) return;
-    const id = setInterval(() => setAutoTick((t) => t + 1), 400);
-    return () => clearInterval(id);
-  }, [autoOn]);
-
-  // Realtime: when any clinical row changes for a known MRN, re-queue it
-  // for an immediate idempotent FHIR push. Idempotency is guaranteed by
-  // the PUT-with-stable-id bundle, so re-firing never duplicates resources.
+  // Discharge-triggered sync. A patient is pushed to the FHIR server the
+  // moment they become discharged — no polling, no queue. The Auto IT
+  // watchdog below re-scans every 30s to catch anything that was missed
+  // (network blip, race, page reload while a discharge fired) and re-fires
+  // it. The PUT-with-stable-id bundle is idempotent, so re-firing never
+  // creates duplicates on the FHIR server.
   useEffect(() => {
     if (!autoOn || rows.length === 0) return;
-    const dischargedMrns = new Set(rows.filter(isDischarged).map((r) => r.mrn));
-    const requeue = (mrn: string | null | undefined) => {
-      if (!mrn || !dischargedMrns.has(mrn)) return;
-      setAutoStatus((s) => (s[mrn] === "syncing" ? s : { ...s, [mrn]: "queued" }));
+    const rowByMrn = new Map(rows.map((r) => [r.mrn, r] as const));
+    const maybePush = (mrn: string | null | undefined) => {
+      if (!mrn) return;
+      const r = rowByMrn.get(mrn);
+      if (!r || !isDischarged(r)) return;
+      setAutoStatus((s) => {
+        if (s[mrn] === "syncing" || s[mrn] === "ok") return s;
+        void autoPushRow(r);
+        return { ...s, [mrn]: "syncing" };
+      });
     };
+
+    // 1. Initial sweep: any discharged row that has never succeeded gets
+    //    pushed once, immediately.
+    for (const r of rows) {
+      if (!isDischarged(r)) continue;
+      const st = autoStatus[r.mrn];
+      if (st === "ok" || st === "syncing") continue;
+      maybePush(r.mrn);
+    }
+
+    // 2. Realtime: react the instant a patient row flips to discharged.
     const channel = supabase
-      .channel("fhir-live-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "patients" },
-        (p: any) => requeue(p?.new?.mrn ?? p?.old?.mrn))
-      .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders" },
-        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn))
-      .on("postgres_changes", { event: "*", schema: "public", table: "medication_orders" },
-        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn))
-      .on("postgres_changes", { event: "*", schema: "public", table: "clinical_notes" },
-        (p: any) => requeue(p?.new?.mrn ?? p?.old?.mrn))
+      .channel("fhir-discharge-sync")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "patients" },
+        (p: any) => {
+          const next = p?.new ?? {};
+          const wasDischarged =
+            (p?.old?.status ?? "").toLowerCase() === "discharged" ||
+            !!p?.old?.discharge_time;
+          const nowDischarged =
+            (next.status ?? "").toLowerCase() === "discharged" ||
+            !!next.discharge_time;
+          if (nowDischarged && !wasDischarged) maybePush(next.mrn);
+        },
+      )
       .subscribe();
+
+    // 3. Auto IT watchdog: every 30s, rescan discharged rows and re-fire
+    //    anything that isn't "ok". Catches missed realtime events, network
+    //    failures, and rows that arrived before the subscription attached.
+    const watchdog = setInterval(() => {
+      for (const r of rows) {
+        if (!isDischarged(r)) continue;
+        const st = autoStatus[r.mrn];
+        if (st === "ok" || st === "syncing") continue;
+        maybePush(r.mrn);
+      }
+    }, 30_000);
+
     return () => {
+      clearInterval(watchdog);
       void supabase.removeChannel(channel);
     };
-  }, [autoOn, rows]);
-
-  // On each tick (and once immediately when toggled on), pick the next queued
-  // patient and fire their bundle. Never starts a second sync while one is
-  // already in flight.
-  useEffect(() => {
-    if (!autoOn) return;
-    const inFlight = Object.values(autoStatus).some((v) => v === "syncing");
-    if (inFlight) return;
-    const next = rows.find((r) => isDischarged(r) && autoStatus[r.mrn] === "queued");
-    if (!next) return;
-    void autoPushRow(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoOn, autoTick, rows]);
+  }, [autoOn, rows]);
 
   return (
     <div className="space-y-4">
@@ -3013,7 +3016,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
         <div className="flex items-center gap-3">
           {autoOn && (
             <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
-              Streaming · 400ms · Realtime
+              On-Discharge · Realtime
             </span>
           )}
           <Switch checked={autoOn} onCheckedChange={setAutoOn} />
@@ -3075,12 +3078,6 @@ function FhirInteroperability({ facility }: { facility: string }) {
                       {(() => {
                         const a = autoStatus[r.mrn];
                         if (!a) return null;
-                        if (a === "queued")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              In Queue
-                            </span>
-                          );
                         if (a === "syncing")
                           return (
                             <span className="ml-1.5 inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
