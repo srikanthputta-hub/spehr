@@ -2733,6 +2733,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
     return { label: "Pending Sync", cls: "bg-amber-50 text-amber-700 border-amber-200" };
   };
 
+  // Only discharged encounters are eligible for FHIR live sync.
+  const isDischarged = (r: FhirEncounterRow) => {
+    const s = (r.status ?? "").toLowerCase();
+    return s === "discharged" || !!r.discharge_time;
+  };
+
   const openBundle = async (r: FhirEncounterRow) => {
     setActiveRow(r);
     setOpenMrn(r.mrn);
