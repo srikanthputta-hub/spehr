@@ -2892,28 +2892,25 @@ function FhirInteroperability({ facility }: { facility: string }) {
       {/* Live Streaming Mode controller */}
       <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className={`h-2.5 w-2.5 rounded-full ${autoOn ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
+          <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
           <div>
             <div className="text-sm font-semibold text-slate-900">
-              Enable Live Automation Loop
+              Auto IT · Background Event-Driven Sync
             </div>
             <div className="text-[11px] text-slate-600">
-              Discharged-only live mode. The loop ticks every <span className="font-semibold">400&nbsp;ms</span>
-              {" "}and subscribes to realtime database changes — only patients whose encounters
-              have been <span className="font-semibold">discharged</span> are pushed to the
-              Medblocks endpoint; admitted patients are skipped until discharge. Bundles use PUT
-              with stable resource IDs, so re-syncs UPSERT on the FHIR server and never create
-              duplicates. Toggle off any time to stop the loop.
+              Fully autonomous. Postgres triggers on patients, lab_orders,
+              medication_orders, and clinical_notes fire a background hook on
+              every INSERT, UPDATE, or DELETE — Auto IT rebuilds the latest
+              FHIR bundle and pushes it through the secure proxy using
+              idempotent PUT (and DELETE) directives, so no duplicates are
+              ever written upstream. Runs independently of this dashboard.
             </div>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {autoOn && (
-            <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
-              Streaming · 400ms · Realtime
-            </span>
-          )}
-          <Switch checked={autoOn} onCheckedChange={setAutoOn} />
+          <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
+            Background · Always On
+          </span>
         </div>
       </div>
 
@@ -2927,13 +2924,14 @@ function FhirInteroperability({ facility }: { facility: string }) {
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Patient</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Facility</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Status</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Last Sync</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">FHIR</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
                     <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
                     Loading encounters…
                   </td>
@@ -2941,13 +2939,21 @@ function FhirInteroperability({ facility }: { facility: string }) {
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
                     No encounters to display.
                   </td>
                 </tr>
               )}
               {rows.map((r) => {
                 const b = statusBadge(r);
+                const lastSync = r.last_fhir_sync
+                  ? (() => {
+                      const d = new Date(r.last_fhir_sync as string);
+                      if (Number.isNaN(d.getTime())) return null;
+                      const pad = (n: number) => String(n).padStart(2, "0");
+                      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+                    })()
+                  : null;
                 return (
                   <tr key={r.mrn} className="hover:bg-slate-50/60">
                     <td className="px-3 py-2.5 whitespace-nowrap text-slate-700">
@@ -2969,34 +2975,16 @@ function FhirInteroperability({ facility }: { facility: string }) {
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${b.cls}`}>
                         {b.label}
                       </span>
-                      {(() => {
-                        const a = autoStatus[r.mrn];
-                        if (!a) return null;
-                        if (a === "queued")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              In Queue
-                            </span>
-                          );
-                        if (a === "syncing")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                              Auto-Syncing…
-                            </span>
-                          );
-                        if (a === "ok")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center rounded-full border border-emerald-300 bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                              ✓ Successful
-                            </span>
-                          );
-                        return (
-                          <span className="ml-1.5 inline-flex items-center rounded-full border border-red-300 bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                            ✗ Failed
-                          </span>
-                        );
-                      })()}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap font-mono text-[11px]">
+                      {lastSync ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-700">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          Last Sync: {lastSync}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">Never</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5">
                       <button
