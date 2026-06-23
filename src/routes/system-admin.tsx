@@ -2651,7 +2651,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
     }
   }, [autoOn]);
   const [autoStatus, setAutoStatus] = useState<
-    Record<string, "queued" | "syncing" | "ok" | "err">
+    Record<string, "syncing" | "ok" | "err">
   >(() => {
     if (typeof window === "undefined") return {};
     try {
