@@ -2892,7 +2892,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
       if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
       setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
       setPushedMrns((m) => ({ ...m, [r.mrn]: "ok" }));
-      toast.success(`Auto-Synced ${r.name ?? r.mrn} successfully.`);
+      // Silent on success — live mode fires constantly; only surface failures.
     } catch (e: any) {
       const msg = typeof e?.message === "string" ? e.message : "Sync failed";
       console.error("[FHIR auto-sync]", r.mrn, e);
