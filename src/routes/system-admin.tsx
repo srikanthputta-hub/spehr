@@ -2908,27 +2908,49 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setAutoStatus((prev) => {
       const next = { ...prev };
       for (const r of rows) {
-        // Skip patients already successfully pushed — never re-queue them
-        // to avoid duplicate transactions on the FHIR server.
-        if (pushedMrns[r.mrn] === "ok" || next[r.mrn] === "ok") continue;
-        // Only successfully discharged encounters are eligible for the
-        // external FHIR push. Active / admitted patients are still mid-care
-        // and their bundle is not yet a legal record of completed encounter.
-        const isDischarged =
-          (r.status ?? "").toLowerCase() === "discharged" || !!r.discharge_time;
-        if (!isDischarged) continue;
+        // Live-sync mode: every encounter is pushed at least once.
+        // Re-pushing is safe because the bundle uses PUT with stable
+        // resource IDs (idempotent UPSERT on the FHIR server), so it
+        // never creates duplicates even if fired repeatedly.
+        if (next[r.mrn] === "syncing") continue;
         if (!next[r.mrn]) next[r.mrn] = "queued";
       }
       return next;
     });
   }, [autoOn, rows, pushedMrns]);
 
-  // The 10-second streaming heartbeat. Cleaned up on toggle-off / unmount.
+  // 400ms live streaming heartbeat. Cleaned up on toggle-off / unmount.
   useEffect(() => {
     if (!autoOn) return;
-    const id = setInterval(() => setAutoTick((t) => t + 1), 10_000);
+    const id = setInterval(() => setAutoTick((t) => t + 1), 400);
     return () => clearInterval(id);
   }, [autoOn]);
+
+  // Realtime: when any clinical row changes for a known MRN, re-queue it
+  // for an immediate idempotent FHIR push. Idempotency is guaranteed by
+  // the PUT-with-stable-id bundle, so re-firing never duplicates resources.
+  useEffect(() => {
+    if (!autoOn || rows.length === 0) return;
+    const mrns = new Set(rows.map((r) => r.mrn));
+    const requeue = (mrn: string | null | undefined) => {
+      if (!mrn || !mrns.has(mrn)) return;
+      setAutoStatus((s) => (s[mrn] === "syncing" ? s : { ...s, [mrn]: "queued" }));
+    };
+    const channel = supabase
+      .channel("fhir-live-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients" },
+        (p: any) => requeue(p?.new?.mrn ?? p?.old?.mrn))
+      .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders" },
+        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn))
+      .on("postgres_changes", { event: "*", schema: "public", table: "medication_orders" },
+        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn))
+      .on("postgres_changes", { event: "*", schema: "public", table: "clinical_notes" },
+        (p: any) => requeue(p?.new?.mrn ?? p?.old?.mrn))
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [autoOn, rows]);
 
   // On each tick (and once immediately when toggled on), pick the next queued
   // patient and fire their bundle. Never starts a second sync while one is
@@ -2937,13 +2959,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
     if (!autoOn) return;
     const inFlight = Object.values(autoStatus).some((v) => v === "syncing");
     if (inFlight) return;
-    const next = rows.find(
-      (r) =>
-        autoStatus[r.mrn] === "queued" &&
-        autoStatus[r.mrn] !== "ok" &&
-        pushedMrns[r.mrn] !== "ok" &&
-        ((r.status ?? "").toLowerCase() === "discharged" || !!r.discharge_time),
-    );
+    const next = rows.find((r) => autoStatus[r.mrn] === "queued");
     if (!next) return;
     void autoPushRow(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
