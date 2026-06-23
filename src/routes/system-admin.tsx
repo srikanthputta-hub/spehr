@@ -2922,18 +2922,18 @@ function FhirInteroperability({ facility }: { facility: string }) {
     }
   };
 
-  // Toggle ON: seed every un-synced row as "queued" so badges show immediately.
+  // Toggle ON: re-queue every row so live sync can continuously update them.
   useEffect(() => {
     if (!autoOn) return;
     setAutoStatus((prev) => {
       const next = { ...prev };
       for (const r of rows) {
-        // Live-sync mode: every encounter is pushed at least once.
+        // Live-sync mode: every encounter is re-pushed continuously.
         // Re-pushing is safe because the bundle uses PUT with stable
         // resource IDs (idempotent UPSERT on the FHIR server), so it
         // never creates duplicates even if fired repeatedly.
         if (next[r.mrn] === "syncing") continue;
-        if (!next[r.mrn]) next[r.mrn] = "queued";
+        next[r.mrn] = "queued";
       }
       return next;
     });
