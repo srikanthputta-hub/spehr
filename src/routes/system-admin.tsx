@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash, ShieldAlert, AlertTriangle, Check, X, FileCheck2, ListChecks, Clock } from "lucide-react";
+import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash, ShieldAlert, AlertTriangle, Check, X, FileCheck2, ListChecks } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -2688,24 +2688,6 @@ function FhirInteroperability({ facility }: { facility: string }) {
       /* ignore quota / private-mode errors */
     }
   }, [pushedMrns]);
-  // Track the last successful FHIR sync timestamp per MRN
-  const [lastSyncAt, setLastSyncAt] = useState<Record<string, string>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = window.localStorage.getItem("fhir.lastSyncAt");
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("fhir.lastSyncAt", JSON.stringify(lastSyncAt));
-    } catch {
-      /* ignore quota / private-mode errors */
-    }
-  }, [lastSyncAt]);
   const [autoTick, setAutoTick] = useState(0);
 
   useEffect(() => {
@@ -2908,10 +2890,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
       });
       if (error) throw error;
       if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
-      const nowIso = new Date().toISOString();
       setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
       setPushedMrns((m) => ({ ...m, [r.mrn]: "ok" }));
-      setLastSyncAt((s) => ({ ...s, [r.mrn]: nowIso }));
       // Silent on success — live mode fires constantly; only surface failures.
     } catch (e: any) {
       const msg = typeof e?.message === "string" ? e.message : "Sync failed";
@@ -2922,18 +2902,18 @@ function FhirInteroperability({ facility }: { facility: string }) {
     }
   };
 
-  // Toggle ON: re-queue every row so live sync can continuously update them.
+  // Toggle ON: seed every un-synced row as "queued" so badges show immediately.
   useEffect(() => {
     if (!autoOn) return;
     setAutoStatus((prev) => {
       const next = { ...prev };
       for (const r of rows) {
-        // Live-sync mode: every encounter is re-pushed continuously.
+        // Live-sync mode: every encounter is pushed at least once.
         // Re-pushing is safe because the bundle uses PUT with stable
         // resource IDs (idempotent UPSERT on the FHIR server), so it
         // never creates duplicates even if fired repeatedly.
         if (next[r.mrn] === "syncing") continue;
-        next[r.mrn] = "queued";
+        if (!next[r.mrn]) next[r.mrn] = "queued";
       }
       return next;
     });
@@ -3099,18 +3079,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
                               Auto-Syncing…
                             </span>
                           );
-                        if (a === "ok") {
-                          const ts = lastSyncAt[r.mrn];
-                          const timeStr = ts
-                            ? new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-                            : "—";
+                        if (a === "ok")
                           return (
-                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              <Clock className="h-2.5 w-2.5" />
-                              Synced {timeStr}
+                            <span className="ml-1.5 inline-flex items-center rounded-full border border-emerald-300 bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                              ✓ Successful
                             </span>
                           );
-                        }
                         return (
                           <span className="ml-1.5 inline-flex items-center rounded-full border border-red-300 bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
                             ✗ Failed
