@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash, ShieldAlert, AlertTriangle, Check, X, FileCheck2, ListChecks } from "lucide-react";
+import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash, ShieldAlert, AlertTriangle, Check, X, FileCheck2, ListChecks, Clock } from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -2688,6 +2688,24 @@ function FhirInteroperability({ facility }: { facility: string }) {
       /* ignore quota / private-mode errors */
     }
   }, [pushedMrns]);
+  // Track the last successful FHIR sync timestamp per MRN
+  const [lastSyncAt, setLastSyncAt] = useState<Record<string, string>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem("fhir.lastSyncAt");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("fhir.lastSyncAt", JSON.stringify(lastSyncAt));
+    } catch {
+      /* ignore quota / private-mode errors */
+    }
+  }, [lastSyncAt]);
   const [autoTick, setAutoTick] = useState(0);
 
   useEffect(() => {
@@ -2890,8 +2908,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
       });
       if (error) throw error;
       if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
+      const nowIso = new Date().toISOString();
       setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
       setPushedMrns((m) => ({ ...m, [r.mrn]: "ok" }));
+      setLastSyncAt((s) => ({ ...s, [r.mrn]: nowIso }));
       // Silent on success — live mode fires constantly; only surface failures.
     } catch (e: any) {
       const msg = typeof e?.message === "string" ? e.message : "Sync failed";
