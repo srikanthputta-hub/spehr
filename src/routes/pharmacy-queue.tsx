@@ -13,6 +13,7 @@ import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalSh
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
+import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 type Order = {
   id: string;
