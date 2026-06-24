@@ -1586,7 +1586,6 @@ export type Database = {
           id: string
           insurance_policy_number: string | null
           insurance_provider: string | null
-          last_fhir_sync: string | null
           last_name: string | null
           meds_due_count: number | null
           mrn: string | null
@@ -1650,7 +1649,6 @@ export type Database = {
           id?: string
           insurance_policy_number?: string | null
           insurance_provider?: string | null
-          last_fhir_sync?: string | null
           last_name?: string | null
           meds_due_count?: number | null
           mrn?: string | null
@@ -1714,7 +1712,6 @@ export type Database = {
           id?: string
           insurance_policy_number?: string | null
           insurance_provider?: string | null
-          last_fhir_sync?: string | null
           last_name?: string | null
           meds_due_count?: number | null
           mrn?: string | null

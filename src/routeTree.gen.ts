@@ -24,7 +24,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
 import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
-import { Route as ApiPublicHooksFhirAutoSyncRouteImport } from './routes/api/public/hooks/fhir-auto-sync'
 import { Route as ApiPublicHooksAutoDocRouteImport } from './routes/api/public/hooks/auto-doc'
 
 const TasksRoute = TasksRouteImport.update({
@@ -102,12 +101,6 @@ const ApiPublicUmlsSearchRoute = ApiPublicUmlsSearchRouteImport.update({
   path: '/api/public/umls-search',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicHooksFhirAutoSyncRoute =
-  ApiPublicHooksFhirAutoSyncRouteImport.update({
-    id: '/api/public/hooks/fhir-auto-sync',
-    path: '/api/public/hooks/fhir-auto-sync',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiPublicHooksAutoDocRoute = ApiPublicHooksAutoDocRouteImport.update({
   id: '/api/public/hooks/auto-doc',
   path: '/api/public/hooks/auto-doc',
@@ -131,7 +124,6 @@ export interface FileRoutesByFullPath {
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
-  '/api/public/hooks/fhir-auto-sync': typeof ApiPublicHooksFhirAutoSyncRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -150,7 +142,6 @@ export interface FileRoutesByTo {
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
-  '/api/public/hooks/fhir-auto-sync': typeof ApiPublicHooksFhirAutoSyncRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -170,7 +161,6 @@ export interface FileRoutesById {
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
-  '/api/public/hooks/fhir-auto-sync': typeof ApiPublicHooksFhirAutoSyncRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -191,7 +181,6 @@ export interface FileRouteTypes {
     | '/patient/$mrn'
     | '/api/public/umls-search'
     | '/api/public/hooks/auto-doc'
-    | '/api/public/hooks/fhir-auto-sync'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -210,7 +199,6 @@ export interface FileRouteTypes {
     | '/patient/$mrn'
     | '/api/public/umls-search'
     | '/api/public/hooks/auto-doc'
-    | '/api/public/hooks/fhir-auto-sync'
   id:
     | '__root__'
     | '/'
@@ -229,7 +217,6 @@ export interface FileRouteTypes {
     | '/patient/$mrn'
     | '/api/public/umls-search'
     | '/api/public/hooks/auto-doc'
-    | '/api/public/hooks/fhir-auto-sync'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -249,7 +236,6 @@ export interface RootRouteChildren {
   PatientMrnRoute: typeof PatientMrnRoute
   ApiPublicUmlsSearchRoute: typeof ApiPublicUmlsSearchRoute
   ApiPublicHooksAutoDocRoute: typeof ApiPublicHooksAutoDocRoute
-  ApiPublicHooksFhirAutoSyncRoute: typeof ApiPublicHooksFhirAutoSyncRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -359,13 +345,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicUmlsSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/hooks/fhir-auto-sync': {
-      id: '/api/public/hooks/fhir-auto-sync'
-      path: '/api/public/hooks/fhir-auto-sync'
-      fullPath: '/api/public/hooks/fhir-auto-sync'
-      preLoaderRoute: typeof ApiPublicHooksFhirAutoSyncRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/public/hooks/auto-doc': {
       id: '/api/public/hooks/auto-doc'
       path: '/api/public/hooks/auto-doc'
@@ -393,7 +372,6 @@ const rootRouteChildren: RootRouteChildren = {
   PatientMrnRoute: PatientMrnRoute,
   ApiPublicUmlsSearchRoute: ApiPublicUmlsSearchRoute,
   ApiPublicHooksAutoDocRoute: ApiPublicHooksAutoDocRoute,
-  ApiPublicHooksFhirAutoSyncRoute: ApiPublicHooksFhirAutoSyncRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
