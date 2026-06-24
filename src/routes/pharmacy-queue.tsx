@@ -71,6 +71,7 @@ function PharmacyQueue() {
   const { facility } = useFacility();
   const pharm = useActiveStaff("PharmD");
   const { can } = useRolePermissions("PharmD" as any);
+  const automationEnabled = useAutomationEnabled();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
