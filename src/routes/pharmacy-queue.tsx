@@ -386,9 +386,15 @@ function PharmacyQueue() {
           { label: "Pending", value: visibleOrders.length, tone: visibleOrders.length > 0 ? "warn" : "good" },
           { label: "Dispensed", value: recentDispensed.length, tone: "good" },
           { label: "Pharmacist", value: pharm.name },
-          { label: "Mode", value: "Verification" },
+          { label: "Mode", value: automationEnabled ? "Verification" : "Manual Approval" },
         ]}
       />
+      {!automationEnabled && (
+        <div className="mx-4 mt-3 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          <span className="font-bold uppercase tracking-wider">Manual Approval Mode</span>
+          {" "}— AI engines are OFF. Medication orders will NOT auto-verify. Every order must be reviewed and approved here before it reaches the MAR.
+        </div>
+      )}
       <div className="grid grid-cols-12 gap-4 p-4">
         {/* Inbox */}
         <aside className="col-span-12 lg:col-span-4 xl:col-span-3">
