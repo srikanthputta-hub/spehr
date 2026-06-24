@@ -62,7 +62,7 @@ function stageBadge(stage: string) {
 }
 
 export function AutoDocMonitor() {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [activeAgent, setActiveAgent] = useState<AgentId>("auto-doc");
 
