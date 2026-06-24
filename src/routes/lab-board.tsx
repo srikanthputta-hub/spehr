@@ -7,6 +7,7 @@ import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalSh
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
+import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 export const Route = createFileRoute("/lab-board")({
   component: LabBoard,
@@ -129,6 +130,7 @@ function LabBoard() {
   const tech = useActiveStaff("Lab");
   // DB target_role for laboratory tech is "CLT"
   const { can, gate } = useRolePermissions("CLT" as any);
+  const automationEnabled = useAutomationEnabled();
   const [orders, setOrders] = useState<LabOrderRow[]>([]);
   const [completedOrders, setCompletedOrders] = useState<LabOrderRow[]>([]);
   const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
@@ -351,9 +353,15 @@ function LabBoard() {
           { label: "Pending", value: pending.length, tone: pending.length > 0 ? "warn" : "good" },
           { label: "Resulted", value: completed.length, tone: "good" },
           { label: "Tech", value: tech.name },
-          { label: "Shift", value: "Today" },
+          { label: "Mode", value: automationEnabled ? "Auto-Result" : "Manual Approval" },
         ]}
       />
+      {!automationEnabled && (
+        <div className="mx-6 mt-3 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          <span className="font-bold uppercase tracking-wider">Manual Approval Mode</span>
+          {" "}— AI engines are OFF. Lab specimens will NOT auto-process. A tech must manually collect, run, and result every order below.
+        </div>
+      )}
       <section className="max-w-[1400px] mx-auto px-6 py-8 space-y-8">
         <div>
           <div className="rounded-sm border border-slate-300 bg-white overflow-hidden shadow-sm">
