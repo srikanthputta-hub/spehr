@@ -2541,6 +2541,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         icd10: { code: string; display?: string | null }[];
         loinc: { code: string; display?: string | null }[];
         rxnorm: { code: string; display?: string | null }[];
+        cpt: { code: string; display?: string | null }[];
       }
     >
   >({});
@@ -2588,6 +2589,11 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
           .in("patient_mrn", mrns)
           .not("rxnorm_code", "is", null),
       ]);
+      const procsRes = await supabase
+        .from("procedures")
+        .select("mrn, cpt_code, cpt_display, display_text")
+        .in("mrn", mrns)
+        .not("cpt_code", "is", null);
       const labMap = new Map<string, Set<string>>();
       for (const r of (labsRes.data ?? []) as any[]) {
         if (!r.patient_mrn || !r.test_type) continue;
@@ -2602,7 +2608,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       // Build coded index from conditions/labs/meds
       const codedIdx: Record<string, any> = {};
       const bucket = (mrn: string) =>
-        (codedIdx[mrn] ||= { snomed: [], icd10: [], loinc: [], rxnorm: [] });
+        (codedIdx[mrn] ||= { snomed: [], icd10: [], loinc: [], rxnorm: [], cpt: [] });
       const seen = new Map<string, Set<string>>();
       const pushUnique = (mrn: string, sys: string, code: string, display?: string | null) => {
         const key = `${mrn}|${sys}|${code}`;
@@ -2620,6 +2626,9 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       }
       for (const r of (medsCoded.data ?? []) as any[]) {
         if (r.rxnorm_code) pushUnique(r.patient_mrn, "rxnorm", r.rxnorm_code, r.rxnorm_display);
+      }
+      for (const r of (procsRes.data ?? []) as any[]) {
+        if (r.cpt_code && r.mrn) pushUnique(r.mrn, "cpt", r.cpt_code, r.cpt_display ?? r.display_text);
       }
       const cells: MatrixCell[] = (patients ?? []).map((p: any) => ({
         mrn: p.mrn,
