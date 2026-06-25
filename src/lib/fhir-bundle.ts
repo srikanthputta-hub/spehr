@@ -209,8 +209,6 @@ function safeMap<T>(
 }
 
 export const stableIds = {
-  // (declared above this block)
-};
   patient: (mrn: string) => mrn,
   encounter: (mrn: string) => `enc-${mrn}`,
   relatedPerson: (mrn: string) => `relp-${mrn}-econ`,
