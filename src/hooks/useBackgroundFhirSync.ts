@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { buildEncounterBundle } from "@/lib/fhir-bundle";
+import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
 
 /**
  * Background FHIR live-sync. Runs at the app root so discharged-patient
@@ -113,9 +114,12 @@ async function buildBundleForMrn(r: Row) {
 }
 
 export function useBackgroundFhirSync() {
+  const autoApiEnabled = useAutoApiEnabled();
   const rowsRef = useRef<Map<string, Row>>(new Map());
   const statusRef = useRef<Map<string, Status>>(new Map());
   const inFlightRef = useRef(false);
+  const enabledRef = useRef(autoApiEnabled);
+  enabledRef.current = autoApiEnabled;
 
   useEffect(() => {
     let cancelled = false;
@@ -159,6 +163,7 @@ export function useBackgroundFhirSync() {
     const pushNext = async () => {
       if (cancelled || inFlightRef.current) return;
       if (!readEnabled()) return;
+      if (!enabledRef.current) return;
       let target: Row | null = null;
       for (const [mrn, st] of statusRef.current) {
         if (st !== "queued") continue;

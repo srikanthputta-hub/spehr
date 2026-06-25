@@ -82,3 +82,68 @@ export async function getAutomationEnabled(): Promise<boolean> {
   cached = v;
   return v;
 }
+
+/* ----------------------------------------------------------------
+ * Per-engine AUTO API toggle (system_settings.auto_api_enabled).
+ * When OFF: Medical Dictionary shows Manual Mode, CPOE Semantic
+ * Autocomplete disables, MySpehr CHV sub-lines hide, and the 400 ms
+ * FHIR live sync pauses.
+ * ---------------------------------------------------------------- */
+let cachedApi: boolean | null = null;
+const apiListeners = new Set<(v: boolean) => void>();
+let apiChannelStarted = false;
+
+async function fetchApiFlag(): Promise<boolean> {
+  const { data } = await supabase
+    .from("system_settings")
+    .select("auto_api_enabled")
+    .eq("id", 1)
+    .maybeSingle();
+  // Default true if the column is missing (older deployments).
+  const v = (data as any)?.auto_api_enabled;
+  return v === false ? false : true;
+}
+
+function ensureApiChannel() {
+  if (apiChannelStarted) return;
+  apiChannelStarted = true;
+  supabase
+    .channel("system-settings-auto-api")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "system_settings" },
+      (payload) => {
+        const v = (payload.new as any)?.auto_api_enabled;
+        const next = v === false ? false : true;
+        cachedApi = next;
+        apiListeners.forEach((cb) => cb(next));
+      },
+    )
+    .subscribe();
+}
+
+export function useAutoApiEnabled(): boolean {
+  const [enabled, setEnabled] = useState<boolean>(cachedApi ?? true);
+  useEffect(() => {
+    let mounted = true;
+    ensureApiChannel();
+    if (cachedApi === null) {
+      fetchApiFlag()
+        .then((v) => {
+          if (!mounted) return;
+          cachedApi = v;
+          apiListeners.forEach((cb) => cb(v));
+        })
+        .catch(() => {});
+    }
+    const cb = (v: boolean) => {
+      if (mounted) setEnabled(v);
+    };
+    apiListeners.add(cb);
+    return () => {
+      mounted = false;
+      apiListeners.delete(cb);
+    };
+  }, []);
+  return enabled;
+}
