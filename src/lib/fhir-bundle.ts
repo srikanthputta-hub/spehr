@@ -182,6 +182,32 @@ export function slugify(input: string): string {
     .slice(0, 60) || "unknown";
 }
 
+/**
+ * Defensive per-entry builder. If a single resource throws (malformed
+ * manual order, missing required field, etc.) it is logged and skipped
+ * so the rest of the bundle still ships. Bug-4 safety net.
+ */
+function safeMap<T>(
+  items: T[],
+  build: (item: T) => any,
+  kind: string,
+  mrn: string,
+): any[] {
+  const out: any[] = [];
+  for (const item of items) {
+    try {
+      out.push(build(item));
+    } catch (e) {
+      console.warn(
+        `[fhir-bundle] skipping malformed ${kind} for ${mrn}:`,
+        item,
+        e,
+      );
+    }
+  }
+  return out;
+}
+
 export const stableIds = {
   patient: (mrn: string) => mrn,
   encounter: (mrn: string) => `enc-${mrn}`,
