@@ -162,6 +162,40 @@ export function PopulationHealth() {
                 ))}
               </div>
             </div>
+            {(result.top_loinc?.length > 0 || result.top_snomed?.length > 0) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {result.top_loinc?.length > 0 && (
+                  <div className="rounded-md border border-slate-200 bg-slate-50/60 p-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                      Top LOINC matches
+                    </div>
+                    <ul className="text-[11px] space-y-0.5">
+                      {result.top_loinc.map((x: any) => (
+                        <li key={x.label} className="flex justify-between gap-2">
+                          <span className="truncate">{x.label}</span>
+                          <span className="font-mono text-slate-500">{x.count}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {result.top_snomed?.length > 0 && (
+                  <div className="rounded-md border border-slate-200 bg-slate-50/60 p-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                      Top SNOMED / ICD-10 matches
+                    </div>
+                    <ul className="text-[11px] space-y-0.5">
+                      {result.top_snomed.map((x: any) => (
+                        <li key={x.label} className="flex justify-between gap-2">
+                          <span className="truncate">{x.label}</span>
+                          <span className="font-mono text-slate-500">{x.count}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="max-h-96 overflow-auto border border-slate-200 rounded">
               <table className="w-full text-[11px]">
                 <thead className="bg-slate-50 sticky top-0">
