@@ -619,6 +619,73 @@ function followUpAppointment(p: EncounterPatient) {
   };
 }
 
+/**
+ * Build the encounter-level Condition resources. The admitting working
+ * diagnosis (chief complaint at intake) is recorded as `provisional`. On
+ * discharge the final working diagnosis is recorded as a separate
+ * `confirmed` Condition so the discharge diagnosis is preserved alongside
+ * — not in place of — the admitting provisional diagnosis.
+ */
+function encounterConditions(p: EncounterPatient): any[] {
+  const out: any[] = [];
+  const subject = { reference: `Patient/${p.mrn}` };
+  const encounter = { reference: `Encounter/enc-${p.mrn}` };
+  const category = [
+    {
+      coding: [
+        {
+          system: "http://terminology.hl7.org/CodeSystem/condition-category",
+          code: "encounter-diagnosis",
+          display: "Encounter Diagnosis",
+        },
+      ],
+    },
+  ];
+  const clinicalActive = {
+    coding: [
+      {
+        system: "http://terminology.hl7.org/CodeSystem/condition-clinical",
+        code: "active",
+      },
+    ],
+  };
+  const verif = (code: "provisional" | "confirmed") => ({
+    coding: [
+      {
+        system: "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+        code,
+      },
+    ],
+  });
+  if (p.chief_complaint) {
+    out.push({
+      resourceType: "Condition",
+      id: stableIds.condition(`provisional-${slugify(p.chief_complaint)}`, p.mrn),
+      clinicalStatus: clinicalActive,
+      verificationStatus: verif("provisional"),
+      category,
+      code: { text: p.chief_complaint },
+      subject,
+      encounter,
+      recordedDate: p.admission_time ?? undefined,
+    });
+  }
+  if (p.discharge_time && p.diagnosis) {
+    out.push({
+      resourceType: "Condition",
+      id: stableIds.condition(`final-${slugify(p.diagnosis)}`, p.mrn),
+      clinicalStatus: clinicalActive,
+      verificationStatus: verif("confirmed"),
+      category,
+      code: { text: p.diagnosis },
+      subject,
+      encounter,
+      recordedDate: p.discharge_time ?? undefined,
+    });
+  }
+  return out;
+}
+
 export function buildEncounterBundle(opts: {
   patient: EncounterPatient;
   labs?: EncounterLab[];
@@ -629,6 +696,7 @@ export function buildEncounterBundle(opts: {
   const patientRes = fullPatient(patient);
   const encounterRes = buildEncounterResource(patient);
   const vitals = vitalsObservations(patient);
+  const conditions = encounterConditions(patient);
   // Lab collapse: keep the latest event per test slug. This prevents
   // HAPI-0534 "Transaction bundle contains multiple resources with ID"
   // when a patient has both an ordered (registered) and resulted (final)
@@ -692,6 +760,7 @@ export function buildEncounterBundle(opts: {
     title: `Encounter summary — ${patient.name ?? patient.mrn}`,
     section: [
       { title: "Encounter", entry: [{ reference: `Encounter/enc-${patient.mrn}` }] },
+      { title: "Diagnoses", entry: conditions.map((c: any) => ({ reference: `Condition/${c.id}` })) },
       { title: "Vital Signs", entry: vitals.map((o) => ({ reference: `Observation/${o.id}` })) },
       { title: "Laboratory", entry: labs.map((o) => ({ reference: `Observation/${o.id}` })) },
       { title: "Medication Orders", entry: medReqs.map((m) => ({ reference: `MedicationRequest/${m.id}` })) },
@@ -714,6 +783,7 @@ export function buildEncounterBundle(opts: {
     composition,
     patientRes,
     encounterRes,
+    ...conditions,
     ...vitals,
     ...labs,
     ...medReqs,
@@ -783,4 +853,36 @@ export function downloadJson(filename: string, payload: unknown) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Split an encounter bundle into a primary bundle (everything except the
+ * Composition) and a composition-only bundle. On discharge the sync engine
+ * pushes the primary bundle first, then re-PUTs the Composition so its
+ * section references point at resources that have already been persisted
+ * on the FHIR server (no dangling references on a partial transaction).
+ */
+export function splitEncounterBundle(bundle: any): {
+  primary: any;
+  composition: any | null;
+} {
+  const entries: any[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
+  const compEntry = entries.find(
+    (e) => e?.resource?.resourceType === "Composition",
+  );
+  const rest = entries.filter(
+    (e) => e?.resource?.resourceType !== "Composition",
+  );
+  return {
+    primary: { ...bundle, entry: rest },
+    composition: compEntry
+      ? {
+          resourceType: "Bundle",
+          id: `composition-${bundle?.id ?? Date.now()}`,
+          type: "transaction",
+          timestamp: new Date().toISOString(),
+          entry: [compEntry],
+        }
+      : null,
+  };
 }

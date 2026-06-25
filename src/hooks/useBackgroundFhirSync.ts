@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { buildEncounterBundle } from "@/lib/fhir-bundle";
+import { buildEncounterBundle, splitEncounterBundle } from "@/lib/fhir-bundle";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
 
 /**
@@ -73,7 +73,7 @@ async function buildBundleForMrn(r: Row) {
       )
       .eq("patient_mrn", r.mrn)
       .order("created_at", { ascending: false })
-      .limit(40),
+      .limit(200),
     supabase
       .from("clinical_notes")
       .select("id, note_type, author, content, created_at")
@@ -172,11 +172,38 @@ export function useBackgroundFhirSync() {
       statusRef.current.set(target.mrn, "syncing");
       try {
         const bundle = await buildBundleForMrn(target);
-        const { data, error } = await supabase.functions.invoke("fhir-proxy", {
-          body: { mrn: target.mrn, bundle },
-        });
-        if (error) throw error;
-        if (data?.success === false) throw new Error(data?.error ?? "Sync failed");
+        const isDischarged =
+          (target.status ?? "").toLowerCase() === "discharged" ||
+          !!target.discharge_time;
+        if (isDischarged) {
+          // Two-phase discharge push: persist Encounter (status=finished +
+          // period.end), confirmed discharge Condition, all MedicationRequests
+          // / MedicationAdministrations, labs and notes FIRST. Then re-PUT
+          // the Composition so its lab / medication sections reference
+          // resources that are already live on the FHIR server.
+          const { primary, composition } = splitEncounterBundle(bundle);
+          const first = await supabase.functions.invoke("fhir-proxy", {
+            body: { mrn: target.mrn, bundle: primary },
+          });
+          if (first.error) throw first.error;
+          if (first.data?.success === false)
+            throw new Error(first.data?.error ?? "Sync failed");
+          if (composition) {
+            const second = await supabase.functions.invoke("fhir-proxy", {
+              body: { mrn: target.mrn, bundle: composition },
+            });
+            if (second.error) throw second.error;
+            if (second.data?.success === false)
+              throw new Error(second.data?.error ?? "Composition sync failed");
+          }
+        } else {
+          const { data, error } = await supabase.functions.invoke("fhir-proxy", {
+            body: { mrn: target.mrn, bundle },
+          });
+          if (error) throw error;
+          if (data?.success === false)
+            throw new Error(data?.error ?? "Sync failed");
+        }
         statusRef.current.set(target.mrn, "ok");
         persistPushed(target.mrn, "ok");
       } catch (e) {
