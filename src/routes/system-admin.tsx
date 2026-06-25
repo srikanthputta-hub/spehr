@@ -3029,17 +3029,17 @@ function FhirInteroperability({ facility }: { facility: string }) {
         const ok = Object.values(autoStatus).filter((v) => v === "ok").length;
         const tone =
           !autoOn
-            ? { bg: "bg-rose-50", border: "border-rose-200", text: "text-rose-700", dot: "bg-rose-500", icon: "✗", label: "FHIR Sync Paused" }
+            ? { bg: "bg-rose-50", border: "border-rose-200", text: "text-rose-700", dot: "bg-rose-500", icon: "✗", label: "FHIR Sync Error" }
             : errors > 0
               ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800", dot: "bg-amber-500", icon: "⚠", label: "FHIR Sync Degraded" }
-              : { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-800", dot: "bg-emerald-500", icon: "✓", label: "FHIR Sync Healthy" };
+              : { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-800", dot: "bg-emerald-500", icon: "✓", label: "FHIR Sync Active" };
         return (
           <div className={`rounded-xl border ${tone.border} ${tone.bg} px-4 py-2.5 flex items-center justify-between gap-3`}>
             <div className="flex items-center gap-2">
               <span className={`h-2 w-2 rounded-full ${tone.dot} ${autoOn ? "animate-pulse" : ""}`} />
               <span className={`text-sm font-semibold ${tone.text}`}>{tone.icon} {tone.label}</span>
               <span className={`text-[11px] ${tone.text} opacity-80`}>
-                {autoOn ? "400 ms live loop active" : "loop paused — toggle on above"} ·
+                {autoOn ? "Live sync active" : "loop paused — toggle on above"} ·
                 {" "}{ok} synced · {syncing} in flight · {pending} queued · {errors} errors
               </span>
             </div>
