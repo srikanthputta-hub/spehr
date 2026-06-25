@@ -854,3 +854,35 @@ export function downloadJson(filename: string, payload: unknown) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Split an encounter bundle into a primary bundle (everything except the
+ * Composition) and a composition-only bundle. On discharge the sync engine
+ * pushes the primary bundle first, then re-PUTs the Composition so its
+ * section references point at resources that have already been persisted
+ * on the FHIR server (no dangling references on a partial transaction).
+ */
+export function splitEncounterBundle(bundle: any): {
+  primary: any;
+  composition: any | null;
+} {
+  const entries: any[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
+  const compEntry = entries.find(
+    (e) => e?.resource?.resourceType === "Composition",
+  );
+  const rest = entries.filter(
+    (e) => e?.resource?.resourceType !== "Composition",
+  );
+  return {
+    primary: { ...bundle, entry: rest },
+    composition: compEntry
+      ? {
+          resourceType: "Bundle",
+          id: `composition-${bundle?.id ?? Date.now()}`,
+          type: "transaction",
+          timestamp: new Date().toISOString(),
+          entry: [compEntry],
+        }
+      : null,
+  };
+}
