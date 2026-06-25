@@ -213,7 +213,23 @@ export const stableIds = {
   encounter: (mrn: string) => `enc-${mrn}`,
   relatedPerson: (mrn: string) => `relp-${mrn}-econ`,
   vital: (loinc: string, mrn: string) => `vital-${loinc}-${mrn}`,
-  lab: (testName: string, mrn: string) => `lab-${slugify(testName)}-${mrn}`,
+  // FHIR R4 IDs must match [A-Za-z0-9\-\.]{1,64}. Prefer a LOINC code when
+  // available (always short, always safe); otherwise fall back to a hard-
+  // capped slug of the test name. Never let free-text LOINC display names
+  // produce IDs > 64 chars — HAPI rejects them with HAPI-0521.
+  lab: (testName: string, mrn: string, loincCode?: string | null) => {
+    if (loincCode) {
+      const code = String(loincCode).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 40);
+      if (code) return `lab-${code}-${mrn}`;
+    }
+    const slug = (testName ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .substring(0, 40) || "unknown";
+    return `lab-${slug}-${mrn}`;
+  },
   medRequest: (drug: string, mrn: string) => `medreq-${slugify(drug)}-${mrn}`,
   medAdmin: (drug: string, mrn: string) => `medadmin-${slugify(drug)}-${mrn}`,
   allergy: (allergen: string, mrn: string) => `allergy-${slugify(allergen)}-${mrn}`,
