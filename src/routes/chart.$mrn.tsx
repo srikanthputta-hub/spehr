@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
 import { PatientReportedVitals } from "@/components/PatientReportedVitals";
 import { PatientCommsInbox } from "@/components/PatientCommsInbox";
+import { autoCodeLab } from "@/lib/auto-code";
 import {
   getPatient,
   hrOutOfRange,
