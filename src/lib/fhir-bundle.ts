@@ -191,7 +191,20 @@ export const stableIds = {
   medRequest: (drug: string, mrn: string) => `medreq-${slugify(drug)}-${mrn}`,
   medAdmin: (drug: string, mrn: string) => `medadmin-${slugify(drug)}-${mrn}`,
   allergy: (allergen: string, mrn: string) => `allergy-${slugify(allergen)}-${mrn}`,
-  condition: (icd10: string, mrn: string) => `cond-${slugify(icd10)}-${mrn}`,
+  // FHIR R4 IDs must match [A-Za-z0-9\-\.]{1,64}. The semantic token is
+  // hard-capped at 30 chars so `cond-{token}-{mrn}` is always ≤ 64.
+  // Never pass free-text complaints here — use fixed tokens like "hpi",
+  // "discharge", "pmh-gerd", "pmh-htn", "pmh-1", "phx-1". Free text
+  // belongs in Condition.code.text / Condition.note[].text.
+  condition: (type: string, mrn: string) => {
+    const safe = (type ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .substring(0, 30) || "unknown";
+    return `cond-${safe}-${mrn}`;
+  },
   carePlan: (mrn: string) => `careplan-${mrn}`,
   composition: (mrn: string) => `summary-${mrn}`,
   appointment: (mrn: string) => `appt-followup-${mrn}`,
@@ -660,7 +673,7 @@ function encounterConditions(p: EncounterPatient): any[] {
   if (p.chief_complaint) {
     out.push({
       resourceType: "Condition",
-      id: stableIds.condition(`provisional-${slugify(p.chief_complaint)}`, p.mrn),
+      id: stableIds.condition("hpi", p.mrn),
       clinicalStatus: clinicalActive,
       verificationStatus: verif("provisional"),
       category,
@@ -673,7 +686,7 @@ function encounterConditions(p: EncounterPatient): any[] {
   if (p.discharge_time && p.diagnosis) {
     out.push({
       resourceType: "Condition",
-      id: stableIds.condition(`final-${slugify(p.diagnosis)}`, p.mrn),
+      id: stableIds.condition("discharge", p.mrn),
       clinicalStatus: clinicalActive,
       verificationStatus: verif("confirmed"),
       category,
