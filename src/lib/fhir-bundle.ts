@@ -730,7 +730,12 @@ export function buildEncounterBundle(opts: {
     else if (curHasResult === prevHasResult && labTime(l) > labTime(prev))
       labsByTest.set(slug, l);
   }
-  const labs = Array.from(labsByTest.values()).map((l) => labObservation(patient.mrn, l));
+  const labs = safeMap(
+    Array.from(labsByTest.values()),
+    (l) => labObservation(patient.mrn, l),
+    "lab",
+    patient.mrn,
+  );
 
   // Meds collapse: keep latest per stable id for both requests and admins.
   const medTime = (m: EncounterMed) =>
@@ -742,7 +747,12 @@ export function buildEncounterBundle(opts: {
     const prev = reqByKey.get(key);
     if (!prev || medTime(m) > medTime(prev)) reqByKey.set(key, m);
   }
-  const medReqs = Array.from(reqByKey.values()).map((m) => medRequest(patient.mrn, m));
+  const medReqs = safeMap(
+    Array.from(reqByKey.values()),
+    (m) => medRequest(patient.mrn, m),
+    "medication request",
+    patient.mrn,
+  );
   const admByKey = new Map<string, EncounterMed>();
   for (const m of opts.meds ?? []) {
     if (!m.administered_at) continue;
@@ -751,8 +761,18 @@ export function buildEncounterBundle(opts: {
     const prev = admByKey.get(key);
     if (!prev || medTime(m) > medTime(prev)) admByKey.set(key, m);
   }
-  const medAdms = Array.from(admByKey.values()).map((m) => medAdministration(patient.mrn, m));
-  const docs = (opts.notes ?? []).map((n) => docReference(patient.mrn, n));
+  const medAdms = safeMap(
+    Array.from(admByKey.values()),
+    (m) => medAdministration(patient.mrn, m),
+    "medication administration",
+    patient.mrn,
+  );
+  const docs = safeMap(
+    opts.notes ?? [],
+    (n) => docReference(patient.mrn, n),
+    "clinical note",
+    patient.mrn,
+  );
   const carePlan = carePlanFromDischarge(patient);
   const appt = followUpAppointment(patient);
 
