@@ -1749,7 +1749,7 @@ function OrdersDialog({
     setSubmitting(true);
     try {
       if (kind === "lab") {
-        const { error } = await supabase.from("lab_orders").insert({
+        const { data: inserted, error } = await supabase.from("lab_orders").insert({
           patient_mrn: patient.mrn,
           patient_name: patientName,
           facility_name: patient.facility_name ?? "Memorial Hospital",
@@ -1758,12 +1758,15 @@ function OrdersDialog({
           clinical_condition: patient.chief_complaint ?? null,
           status: "Ordered",
           ordered_by: "Human",
-        } as any);
+        } as any).select("id").single();
         if (error) throw error;
+        if (inserted?.id) {
+          autoCodeLab(testType, { resourceId: inserted.id, mrn: patient.mrn, resolver: "patient-orders" });
+        }
         toast.success(`Lab ordered: ${testType} (sent to live lab queue)`);
       } else {
         const [name, ...rest] = drug.split(" ");
-        const { error } = await supabase.from("medication_orders").insert({
+        const { data: inserted, error } = await supabase.from("medication_orders").insert({
           patient_id: patient.id,
           patient_mrn: patient.mrn,
           mrn: patient.mrn,
@@ -1780,8 +1783,11 @@ function OrdersDialog({
           ordered_by: "Human",
           facility_name: patient.facility_name ?? "Memorial Hospital",
           ordering_physician: "Provider",
-        } as any);
+        } as any).select("id").single();
         if (error) throw error;
+        if (inserted?.id) {
+          autoCodeMedication(drug, { resourceId: inserted.id, mrn: patient.mrn, resolver: "patient-orders" });
+        }
         toast.success(`Medication ordered: ${drug} (sent to live pharmacy queue)`);
       }
       onClose();
