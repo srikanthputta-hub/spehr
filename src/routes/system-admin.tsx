@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -376,6 +376,121 @@ const ROLE_LABELS: Record<string, string> = {
   Lab: "Laboratory Technician (CLT)",
 };
 
+const DEFAULT_ROLE_FEATURES: Record<string, Array<{ key: string; name: string }>> = {
+  Admissions: [
+    { key: "patient_registration", name: "Patient registration" },
+    { key: "admission_intake", name: "Admission intake form" },
+    { key: "bed_assignment", name: "Bed assignment" },
+  ],
+  RN: [
+    { key: "vitals_entry", name: "Vitals entry" },
+    { key: "medication_admin_confirm", name: "Medication administration confirmation" },
+    { key: "lab_result_view", name: "Lab result viewing" },
+  ],
+  MD: [
+    { key: "cpoe_ordering", name: "CPOE ordering" },
+    { key: "cds_hooks", name: "CDS Hooks alerts" },
+    { key: "semantic_autocomplete", name: "Semantic autocomplete" },
+  ],
+  PharmD: [
+    { key: "med_order_approval", name: "Medication order approval" },
+    { key: "drug_safety_override", name: "Drug safety override" },
+  ],
+  Lab: [
+    { key: "lab_result_entry", name: "Lab result entry" },
+    { key: "specimen_collection", name: "Specimen collection check-in" },
+  ],
+  Finance: [
+    { key: "billing_view", name: "Billing & charges view" },
+    { key: "invoice_export", name: "Invoice export" },
+  ],
+  Admin: [
+    { key: "bed_management", name: "Bed management board" },
+    { key: "discharge_authorization", name: "Discharge authorization" },
+  ],
+};
+
+const ROLE_LABELS_FULL: Record<string, string> = {
+  Admissions: "Admissions",
+  RN: "Nursing (RN)",
+  MD: "Physician / CPOE (MD)",
+  PharmD: "Pharmacy (PharmD)",
+  Lab: "Laboratory (CLT)",
+  Finance: "Finance",
+  Admin: "EHR Site Admin",
+};
+
+function RoleDefaultsSections({
+  facility,
+  grouped,
+}: {
+  facility: string;
+  grouped: Record<string, Perm[]>;
+}) {
+  const [toggles, setToggles] = useState<Record<string, boolean>>({});
+  const tk = (role: string, key: string) => `${facility}::${role}::${key}`;
+  const isOn = (role: string, key: string) => toggles[tk(role, key)] ?? true;
+  const set = (role: string, key: string, v: boolean) =>
+    setToggles((s) => ({ ...s, [tk(role, key)]: v }));
+
+  return (
+    <>
+      {Object.entries(DEFAULT_ROLE_FEATURES)
+        .filter(([role]) => !grouped[role] || grouped[role].length === 0)
+        .map(([role, feats]) => (
+          <div
+            key={`default-${role}`}
+            className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+          >
+            <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Role Scope · {facility}
+                </div>
+                <div className="text-sm font-semibold text-slate-900">
+                  {ROLE_LABELS_FULL[role] ?? role}
+                </div>
+              </div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Defaults
+              </span>
+            </div>
+            <ul className="divide-y divide-slate-100">
+              {feats.map((f) => {
+                const on = isOn(role, f.key);
+                return (
+                  <li
+                    key={f.key}
+                    className="flex items-center justify-between gap-4 px-5 py-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900 truncate">
+                        {f.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        {f.key}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wider ${
+                          on ? "text-emerald-600" : "text-slate-400"
+                        }`}
+                      >
+                        {on ? "Enabled" : "Disabled"}
+                      </span>
+                      <Switch checked={on} onCheckedChange={(v) => set(role, f.key, v)} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+    </>
+  );
+}
+
 function SystemAdminPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("feature_controls");
   const [perms, setPerms] = useState<Perm[]>([]);
@@ -627,8 +742,6 @@ function SystemAdminPage() {
               </p>
             </div>
 
-            <AutoApiCard />
-
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-5 py-4">
               <label className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 mb-1.5">
                 🏥 Select Network Facility to Configure
@@ -702,6 +815,7 @@ function SystemAdminPage() {
                     </ul>
                   </div>
                 ))}
+                <RoleDefaultsSections facility={selectedFacility} grouped={grouped} />
               </div>
             )}
           </div>
@@ -2644,6 +2758,73 @@ type FhirEncounterRow = {
   chief_complaint: string | null;
 };
 
+const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
+  row,
+  badge,
+  autoStatus,
+  lastSyncAt,
+  onOpen,
+}: {
+  row: FhirEncounterRow;
+  badge: { label: string; cls: string };
+  autoStatus: "queued" | "syncing" | "ok" | "err" | undefined;
+  lastSyncAt: number | undefined;
+  onOpen: (r: FhirEncounterRow) => void;
+}) {
+  const ts = lastSyncAt
+    ? new Date(lastSyncAt).toLocaleTimeString("en-GB", { hour12: false })
+    : null;
+  const failed = autoStatus === "err";
+  return (
+    <tr className="hover:bg-slate-50/60">
+      <td className="px-3 py-2.5 whitespace-nowrap text-slate-700">
+        {row.admission_time
+          ? new Date(row.admission_time).toLocaleString("en-GB", { hour12: false })
+          : "—"}
+      </td>
+      <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">
+        {row.mrn}
+      </td>
+      <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
+        <div className="font-medium">{row.name ?? "—"}</div>
+        <div className="text-[10px] text-slate-500 truncate max-w-[220px]">
+          {row.chief_complaint ?? "—"}
+        </div>
+      </td>
+      <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">
+        {row.facility ?? "—"}
+      </td>
+      <td className="px-3 py-2.5 whitespace-nowrap">
+        <span
+          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badge.cls}`}
+        >
+          {badge.label}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 whitespace-nowrap">
+        {ts ? (
+          <span
+            className="text-[13px]"
+            style={{ color: failed ? "var(--color-text-danger, #b91c1c)" : "var(--color-text-secondary, #64748b)" }}
+          >
+            {failed ? "Failed" : "Synced"} {ts}
+          </span>
+        ) : (
+          <span className="text-[13px] text-slate-400">—</span>
+        )}
+        <button
+          type="button"
+          onClick={() => onOpen(row)}
+          className="ml-3 inline-flex items-center gap-1 rounded border border-[#0c2340] bg-white px-2 py-1 text-[10px] font-semibold text-[#0c2340] hover:bg-slate-50"
+          title="View / export the full FHIR R4 encounter Bundle"
+        >
+          <FileJson className="h-3 w-3" /> View / Export JSON
+        </button>
+      </td>
+    </tr>
+  );
+});
+
 function FhirInteroperability({ facility }: { facility: string }) {
   const [rows, setRows] = useState<FhirEncounterRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2722,6 +2903,26 @@ function FhirInteroperability({ facility }: { facility: string }) {
     }
   }, [pushedMrns]);
   const [autoTick, setAutoTick] = useState(0);
+  const [lastSyncAt, setLastSyncAt] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem("fhir.lastSyncAt");
+      return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const stampSync = (mrn: string) => {
+    setLastSyncAt((prev) => {
+      const next = { ...prev, [mrn]: Date.now() };
+      try {
+        window.localStorage.setItem("fhir.lastSyncAt", JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -2929,12 +3130,14 @@ function FhirInteroperability({ facility }: { facility: string }) {
       if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
       setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
       setPushedMrns((m) => ({ ...m, [r.mrn]: "ok" }));
+      stampSync(r.mrn);
       // Silent on success — live mode fires constantly; only surface failures.
     } catch (e: any) {
       const msg = typeof e?.message === "string" ? e.message : "Sync failed";
       console.error("[FHIR auto-sync]", r.mrn, e);
       setAutoStatus((s) => ({ ...s, [r.mrn]: "err" }));
       setPushedMrns((m) => ({ ...m, [r.mrn]: "err" }));
+      stampSync(r.mrn);
       toast.error(`Auto-Sync failed for ${r.name ?? r.mrn} · ${msg}`);
     }
   };
@@ -3108,71 +3311,16 @@ function FhirInteroperability({ facility }: { facility: string }) {
                   </td>
                 </tr>
               )}
-              {rows.map((r) => {
-                const b = statusBadge(r);
-                return (
-                  <tr key={r.mrn} className="hover:bg-slate-50/60">
-                    <td className="px-3 py-2.5 whitespace-nowrap text-slate-700">
-                      {fmt(r.admission_time)}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">
-                      {r.mrn}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
-                      <div className="font-medium">{r.name ?? "—"}</div>
-                      <div className="text-[10px] text-slate-500 truncate max-w-[220px]">
-                        {r.chief_complaint ?? "—"}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">
-                      {r.facility ?? "—"}
-                    </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${b.cls}`}>
-                        {b.label}
-                      </span>
-                      {(() => {
-                        const a = autoStatus[r.mrn];
-                        if (!a) return null;
-                        if (a === "queued")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              In Queue
-                            </span>
-                          );
-                        if (a === "syncing")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                              Auto-Syncing…
-                            </span>
-                          );
-                        if (a === "ok")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center rounded-full border border-emerald-300 bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                              ✓ Successful
-                            </span>
-                          );
-                        return (
-                          <span className="ml-1.5 inline-flex items-center rounded-full border border-red-300 bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                            ✗ Failed
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <button
-                        type="button"
-                        onClick={() => openBundle(r)}
-                        className="inline-flex items-center gap-1 rounded border border-[#0c2340] bg-white px-2 py-1 text-[10px] font-semibold text-[#0c2340] hover:bg-slate-50"
-                        title="View / export the full FHIR R4 encounter Bundle"
-                      >
-                        <FileJson className="h-3 w-3" /> View / Export JSON
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {rows.map((r) => (
+                <FhirEncounterTableRow
+                  key={r.mrn}
+                  row={r}
+                  badge={statusBadge(r)}
+                  autoStatus={autoStatus[r.mrn]}
+                  lastSyncAt={lastSyncAt[r.mrn]}
+                  onOpen={openBundle}
+                />
+              ))}
             </tbody>
           </table>
         </div>
@@ -3834,7 +3982,7 @@ function TaxonomyTree({
 }
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety" | "fhir">("catalog");
+  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety" | "auto_api" | "fhir">("catalog");
   const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4267,6 +4415,7 @@ function MedicalDictionary() {
           { id: "audits",  label: "NLP Audit Logs", Icon: Sparkles },
           { id: "matrix",  label: "Live Terminology Matrix", Icon: Grid3x3 },
           { id: "safety",  label: "Safety Alerts", Icon: ShieldAlert },
+          { id: "auto_api", label: "AUTO API", Icon: Activity },
           { id: "fhir",    label: "FHIR Interoperability", Icon: FileJson },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
@@ -4290,6 +4439,7 @@ function MedicalDictionary() {
       {subtab === "audits" && <QaGovernanceQueue />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
+      {subtab === "auto_api" && <AutoApiCard />}
       {subtab === "fhir" && <FhirInteroperability facility={facilityFilter} />}
 
       {subtab === "catalog" && <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={remove} />}
