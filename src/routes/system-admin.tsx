@@ -376,6 +376,121 @@ const ROLE_LABELS: Record<string, string> = {
   Lab: "Laboratory Technician (CLT)",
 };
 
+const DEFAULT_ROLE_FEATURES: Record<string, Array<{ key: string; name: string }>> = {
+  Admissions: [
+    { key: "patient_registration", name: "Patient registration" },
+    { key: "admission_intake", name: "Admission intake form" },
+    { key: "bed_assignment", name: "Bed assignment" },
+  ],
+  RN: [
+    { key: "vitals_entry", name: "Vitals entry" },
+    { key: "medication_admin_confirm", name: "Medication administration confirmation" },
+    { key: "lab_result_view", name: "Lab result viewing" },
+  ],
+  MD: [
+    { key: "cpoe_ordering", name: "CPOE ordering" },
+    { key: "cds_hooks", name: "CDS Hooks alerts" },
+    { key: "semantic_autocomplete", name: "Semantic autocomplete" },
+  ],
+  PharmD: [
+    { key: "med_order_approval", name: "Medication order approval" },
+    { key: "drug_safety_override", name: "Drug safety override" },
+  ],
+  Lab: [
+    { key: "lab_result_entry", name: "Lab result entry" },
+    { key: "specimen_collection", name: "Specimen collection check-in" },
+  ],
+  Finance: [
+    { key: "billing_view", name: "Billing & charges view" },
+    { key: "invoice_export", name: "Invoice export" },
+  ],
+  Admin: [
+    { key: "bed_management", name: "Bed management board" },
+    { key: "discharge_authorization", name: "Discharge authorization" },
+  ],
+};
+
+const ROLE_LABELS_FULL: Record<string, string> = {
+  Admissions: "Admissions",
+  RN: "Nursing (RN)",
+  MD: "Physician / CPOE (MD)",
+  PharmD: "Pharmacy (PharmD)",
+  Lab: "Laboratory (CLT)",
+  Finance: "Finance",
+  Admin: "EHR Site Admin",
+};
+
+function RoleDefaultsSections({
+  facility,
+  grouped,
+}: {
+  facility: string;
+  grouped: Record<string, Perm[]>;
+}) {
+  const [toggles, setToggles] = useState<Record<string, boolean>>({});
+  const tk = (role: string, key: string) => `${facility}::${role}::${key}`;
+  const isOn = (role: string, key: string) => toggles[tk(role, key)] ?? true;
+  const set = (role: string, key: string, v: boolean) =>
+    setToggles((s) => ({ ...s, [tk(role, key)]: v }));
+
+  return (
+    <>
+      {Object.entries(DEFAULT_ROLE_FEATURES)
+        .filter(([role]) => !grouped[role] || grouped[role].length === 0)
+        .map(([role, feats]) => (
+          <div
+            key={`default-${role}`}
+            className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+          >
+            <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Role Scope · {facility}
+                </div>
+                <div className="text-sm font-semibold text-slate-900">
+                  {ROLE_LABELS_FULL[role] ?? role}
+                </div>
+              </div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Defaults
+              </span>
+            </div>
+            <ul className="divide-y divide-slate-100">
+              {feats.map((f) => {
+                const on = isOn(role, f.key);
+                return (
+                  <li
+                    key={f.key}
+                    className="flex items-center justify-between gap-4 px-5 py-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900 truncate">
+                        {f.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        {f.key}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wider ${
+                          on ? "text-emerald-600" : "text-slate-400"
+                        }`}
+                      >
+                        {on ? "Enabled" : "Disabled"}
+                      </span>
+                      <Switch checked={on} onCheckedChange={(v) => set(role, f.key, v)} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+    </>
+  );
+}
+
 function SystemAdminPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("feature_controls");
   const [perms, setPerms] = useState<Perm[]>([]);
