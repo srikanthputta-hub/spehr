@@ -2836,6 +2836,34 @@ function FhirInteroperability({ facility }: { facility: string }) {
     }
   }, [pushedMrns]);
   const [autoTick, setAutoTick] = useState(0);
+  const [lastSyncAt, setLastSyncAt] = useState<Record<string, number>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem("fhir.lastSyncAt");
+      return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    setLastSyncAt((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [mrn, st] of Object.entries(autoStatus)) {
+        if ((st === "ok" || st === "err") && !prev[mrn]) {
+          next[mrn] = Date.now();
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      try {
+        window.localStorage.setItem("fhir.lastSyncAt", JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, [autoStatus]);
 
   useEffect(() => {
     let cancelled = false;
