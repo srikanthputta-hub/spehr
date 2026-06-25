@@ -204,6 +204,8 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
           </div>
         </div>
 
+        <PopulationHealth />
+
         {/* Live Feed */}
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
