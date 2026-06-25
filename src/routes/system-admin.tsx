@@ -2845,17 +2845,9 @@ function FhirInteroperability({ facility }: { facility: string }) {
       return {};
     }
   });
-  useEffect(() => {
+  const stampSync = (mrn: string) => {
     setLastSyncAt((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const [mrn, st] of Object.entries(autoStatus)) {
-        if ((st === "ok" || st === "err") && !prev[mrn]) {
-          next[mrn] = Date.now();
-          changed = true;
-        }
-      }
-      if (!changed) return prev;
+      const next = { ...prev, [mrn]: Date.now() };
       try {
         window.localStorage.setItem("fhir.lastSyncAt", JSON.stringify(next));
       } catch {
@@ -2863,7 +2855,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
       }
       return next;
     });
-  }, [autoStatus]);
+  };
 
   useEffect(() => {
     let cancelled = false;
