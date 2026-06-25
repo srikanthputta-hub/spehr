@@ -27,6 +27,22 @@ import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { payInvoice } from "@/lib/auto-doc.functions";
 import spehrLogo from "@/assets/spehr-logo.png.asset.json";
+import { PlainEnglish } from "@/components/myspehr/PlainEnglish";
+import { FileHeart, Pill, FlaskConical, AlertTriangle } from "lucide-react";
+
+/* ----------------------------------------------------------------- */
+/* Plain English Mode — global toggle persisted in localStorage      */
+/* ----------------------------------------------------------------- */
+function usePlainEnglishMode(): [boolean, (v: boolean) => void] {
+  const [on, setOn] = useState<boolean>(() => {
+    try { return localStorage.getItem("myspehr.plainEnglish") !== "0"; } catch { return true; }
+  });
+  const set = (v: boolean) => {
+    setOn(v);
+    try { localStorage.setItem("myspehr.plainEnglish", v ? "1" : "0"); } catch {}
+  };
+  return [on, set];
+}
 
 export const Route = createFileRoute("/my-spehr")({
   head: () => ({
@@ -171,24 +187,49 @@ function MySpehrApp() {
 }
 
 function PortalHome({ mrn }: { mrn: string }) {
-  const [tab, setTab] = useState<"home" | "billing" | "appointments" | "messages" | "health">("home");
+  const [tab, setTab] = useState<"home" | "billing" | "appointments" | "messages" | "health" | "records">("home");
+  const [plain, setPlain] = usePlainEnglishMode();
   return (
     <div className="flex-1 flex flex-col">
+      {/* Plain English Mode global toggle */}
+      <div className="flex items-center justify-between px-4 py-2 bg-sky-50/70 border-b border-sky-100">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-sky-700">
+          Plain English Mode
+        </span>
+        <button
+          onClick={() => setPlain(!plain)}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition ${
+            plain ? "bg-sky-600" : "bg-slate-300"
+          }`}
+          aria-label="Toggle plain english mode"
+        >
+          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+            plain ? "translate-x-4" : "translate-x-0.5"
+          }`} />
+        </button>
+      </div>
       <div className="flex-1 overflow-y-auto pb-24">
         {tab === "home" && <HomeTab mrn={mrn} onOpenBilling={() => setTab("billing")} />}
         {tab === "billing" && <BillingTab mrn={mrn} />}
         {tab === "appointments" && <AppointmentsTab mrn={mrn} />}
         {tab === "messages" && <MessagesTab mrn={mrn} />}
         {tab === "health" && <HealthLogsTab mrn={mrn} />}
+        {tab === "records" && <RecordsTab mrn={mrn} plain={plain} />}
       </div>
 
       {/* Bottom nav */}
-      <nav className="sticky bottom-0 grid grid-cols-5 border-t border-slate-200 bg-white pb-safe">
+      <nav className="sticky bottom-0 grid grid-cols-6 border-t border-slate-200 bg-white pb-safe">
         <NavTab
           active={tab === "home"}
           icon={<ShieldCheck className="h-5 w-5" />}
           label="Home"
           onClick={() => setTab("home")}
+        />
+        <NavTab
+          active={tab === "records"}
+          icon={<FileHeart className="h-5 w-5" />}
+          label="Records"
+          onClick={() => setTab("records")}
         />
         <NavTab
           active={tab === "appointments"}
