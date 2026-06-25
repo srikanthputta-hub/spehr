@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -2778,7 +2778,9 @@ const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
   return (
     <tr className="hover:bg-slate-50/60">
       <td className="px-3 py-2.5 whitespace-nowrap text-slate-700">
-        {fmt(row.admission_time)}
+        {row.admission_time
+          ? new Date(row.admission_time).toLocaleString("en-GB", { hour12: false })
+          : "—"}
       </td>
       <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">
         {row.mrn}
