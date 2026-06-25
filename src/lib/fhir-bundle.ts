@@ -534,6 +534,46 @@ function vitalsObservations(p: EncounterPatient) {
   return out;
 }
 
+// Common LOINC codes for in-app lab tests. Lets us emit short stable IDs
+// (`lab-{loinc}-{mrn}`) and a proper code.coding even when the upstream
+// row didn't carry a loinc_code column.
+const LAB_LOINC_BY_NAME: Record<string, string> = {
+  "hemoglobin": "718-7",
+  "hgb": "718-7",
+  "wbc": "6690-2",
+  "white blood cell count": "6690-2",
+  "glucose": "2345-7",
+  "creatinine": "2160-0",
+  "troponin t": "89579-7",
+  "troponin t hs": "89579-7",
+  "high sensitivity troponin t": "89579-7",
+  "creatine kinase": "2157-6",
+  "ck": "2157-6",
+};
+function loincForLabName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const n = name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (LAB_LOINC_BY_NAME[n]) return LAB_LOINC_BY_NAME[n];
+  for (const k of Object.keys(LAB_LOINC_BY_NAME)) {
+    if (n.includes(k)) return LAB_LOINC_BY_NAME[k];
+  }
+  return null;
+}
+
+/**
+ * Block hallucinated lab entries from reaching the FHIR bundle. A real
+ * ordered lab always has either a short clinical name or an explicit LOINC
+ * code; sprawling 60+ char names like "Conditions related to mental
+ * retardation and developmental..." originate from the NLP pipeline and
+ * have no business in the patient's record.
+ */
+function isPlausibleLab(l: EncounterLab): boolean {
+  const loinc = l.loinc_code ?? loincForLabName(l.test_type);
+  if (loinc) return true;
+  const name = (l.test_type ?? "").trim();
+  return name.length > 0 && name.length <= 40;
+}
+
 function labObservation(mrn: string, l: EncounterLab) {
   const loinc = l.loinc_code ?? loincForLabName(l.test_type);
   const id = stableIds.lab(l.test_type ?? l.id ?? "unknown", mrn, loinc);
