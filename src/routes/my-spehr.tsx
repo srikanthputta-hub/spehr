@@ -27,6 +27,22 @@ import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { payInvoice } from "@/lib/auto-doc.functions";
 import spehrLogo from "@/assets/spehr-logo.png.asset.json";
+import { PlainEnglish } from "@/components/myspehr/PlainEnglish";
+import { FileHeart, Pill, FlaskConical, AlertTriangle } from "lucide-react";
+
+/* ----------------------------------------------------------------- */
+/* Plain English Mode — global toggle persisted in localStorage      */
+/* ----------------------------------------------------------------- */
+function usePlainEnglishMode(): [boolean, (v: boolean) => void] {
+  const [on, setOn] = useState<boolean>(() => {
+    try { return localStorage.getItem("myspehr.plainEnglish") !== "0"; } catch { return true; }
+  });
+  const set = (v: boolean) => {
+    setOn(v);
+    try { localStorage.setItem("myspehr.plainEnglish", v ? "1" : "0"); } catch {}
+  };
+  return [on, set];
+}
 
 export const Route = createFileRoute("/my-spehr")({
   head: () => ({
@@ -171,24 +187,49 @@ function MySpehrApp() {
 }
 
 function PortalHome({ mrn }: { mrn: string }) {
-  const [tab, setTab] = useState<"home" | "billing" | "appointments" | "messages" | "health">("home");
+  const [tab, setTab] = useState<"home" | "billing" | "appointments" | "messages" | "health" | "records">("home");
+  const [plain, setPlain] = usePlainEnglishMode();
   return (
     <div className="flex-1 flex flex-col">
+      {/* Plain English Mode global toggle */}
+      <div className="flex items-center justify-between px-4 py-2 bg-sky-50/70 border-b border-sky-100">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-sky-700">
+          Plain English Mode
+        </span>
+        <button
+          onClick={() => setPlain(!plain)}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition ${
+            plain ? "bg-sky-600" : "bg-slate-300"
+          }`}
+          aria-label="Toggle plain english mode"
+        >
+          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+            plain ? "translate-x-4" : "translate-x-0.5"
+          }`} />
+        </button>
+      </div>
       <div className="flex-1 overflow-y-auto pb-24">
         {tab === "home" && <HomeTab mrn={mrn} onOpenBilling={() => setTab("billing")} />}
         {tab === "billing" && <BillingTab mrn={mrn} />}
         {tab === "appointments" && <AppointmentsTab mrn={mrn} />}
         {tab === "messages" && <MessagesTab mrn={mrn} />}
         {tab === "health" && <HealthLogsTab mrn={mrn} />}
+        {tab === "records" && <RecordsTab mrn={mrn} plain={plain} />}
       </div>
 
       {/* Bottom nav */}
-      <nav className="sticky bottom-0 grid grid-cols-5 border-t border-slate-200 bg-white pb-safe">
+      <nav className="sticky bottom-0 grid grid-cols-6 border-t border-slate-200 bg-white pb-safe">
         <NavTab
           active={tab === "home"}
           icon={<ShieldCheck className="h-5 w-5" />}
           label="Home"
           onClick={() => setTab("home")}
+        />
+        <NavTab
+          active={tab === "records"}
+          icon={<FileHeart className="h-5 w-5" />}
+          label="Records"
+          onClick={() => setTab("records")}
         />
         <NavTab
           active={tab === "appointments"}
@@ -997,6 +1038,190 @@ function HealthLogsTab({ mrn }: { mrn: string }) {
           These logs are saved as FHIR Observation resources. They are flagged as "patient-reported" and will appear on your clinician's real-time monitoring dashboard immediately.
         </p>
       </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------- */
+/* Records Tab — Conditions, Medications, Labs, Allergies            */
+/* with Plain English (CHV) sub-lines                                */
+/* ----------------------------------------------------------------- */
+
+function RecordsTab({ mrn, plain }: { mrn: string; plain: boolean }) {
+  const [loading, setLoading] = useState(true);
+  const [conditions, setConditions] = useState<any[]>([]);
+  const [meds, setMeds] = useState<any[]>([]);
+  const [labs, setLabs] = useState<any[]>([]);
+  const [allergies, setAllergies] = useState<any[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const [c, m, l, a] = await Promise.all([
+        (supabase as any).from("conditions").select("id,display,icd10_code,icd10_display,snomed_code,snomed_display,onset_at,clinical_status").eq("mrn", mrn).order("created_at", { ascending: false }).limit(20),
+        (supabase as any).from("medication_orders").select("id,medication_name,dose,frequency,route,status,rxnorm_code,rxnorm_display,created_at").eq("mrn", mrn).order("created_at", { ascending: false }).limit(30),
+        (supabase as any).from("lab_results").select("id,test_name,result_value,result_unit,reference_range,abnormal_flag,reported_at,loinc_code,loinc_display").eq("mrn", mrn).order("reported_at", { ascending: false }).limit(30),
+        (supabase as any).from("allergies").select("id,allergen,reaction,severity,status,rxnorm_code,snomed_code").eq("mrn", mrn).limit(20),
+      ]);
+      if (cancelled) return;
+      setConditions(c.data ?? []);
+      setMeds(m.data ?? []);
+      setLabs(l.data ?? []);
+      setAllergies(a.data ?? []);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [mrn]);
+
+  if (loading) {
+    return <div className="grid place-items-center h-64"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>;
+  }
+
+  return (
+    <div className="px-5 py-6 space-y-6">
+      <header>
+        <h2 className="text-lg font-bold text-slate-900">Your Health Records</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Conditions, medications, labs and allergies — translated into plain English where available.
+        </p>
+      </header>
+
+      {/* Conditions */}
+      <section>
+        <div className="flex items-center gap-2 mb-2">
+          <FileHeart className="h-4 w-4 text-rose-600" />
+          <h3 className="text-sm font-semibold text-slate-900">Conditions</h3>
+          <span className="ml-auto text-[10px] text-slate-400">{conditions.length}</span>
+        </div>
+        {conditions.length === 0 ? (
+          <EmptyRow label="No active conditions recorded." />
+        ) : (
+          <ul className="space-y-2">
+            {conditions.map((c) => {
+              const code = c.snomed_code ?? c.icd10_code;
+              const sys = c.snomed_code ? "SNOMED CT" : "ICD-10";
+              const display = c.snomed_display ?? c.icd10_display ?? c.display;
+              return (
+                <li key={c.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="text-sm font-semibold text-slate-900">{display ?? "Unspecified condition"}</div>
+                  <div className="mt-0.5 text-[11px] font-mono text-slate-500">
+                    {sys}{code ? `: ${code}` : ""}
+                    {c.clinical_status ? ` · ${c.clinical_status}` : ""}
+                  </div>
+                  <PlainEnglish system={sys} code={code} display={display} enabled={plain} />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Medications */}
+      <section>
+        <div className="flex items-center gap-2 mb-2">
+          <Pill className="h-4 w-4 text-emerald-600" />
+          <h3 className="text-sm font-semibold text-slate-900">Medications</h3>
+          <span className="ml-auto text-[10px] text-slate-400">{meds.length}</span>
+        </div>
+        {meds.length === 0 ? (
+          <EmptyRow label="No medications on file." />
+        ) : (
+          <ul className="space-y-2">
+            {meds.map((m) => {
+              const display = m.rxnorm_display ?? m.medication_name;
+              return (
+                <li key={m.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="text-sm font-semibold text-slate-900">{display}</div>
+                  <div className="mt-0.5 text-[11px] text-slate-600">
+                    {[m.dose, m.frequency, m.route].filter(Boolean).join(" · ") || "—"}
+                  </div>
+                  <div className="text-[11px] font-mono text-slate-500">
+                    RxNorm{m.rxnorm_code ? `: ${m.rxnorm_code}` : ": —"} · {m.status ?? "active"}
+                  </div>
+                  <PlainEnglish system="RxNorm" code={m.rxnorm_code} display={display} enabled={plain} />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Lab Results */}
+      <section>
+        <div className="flex items-center gap-2 mb-2">
+          <FlaskConical className="h-4 w-4 text-sky-600" />
+          <h3 className="text-sm font-semibold text-slate-900">Lab Results</h3>
+          <span className="ml-auto text-[10px] text-slate-400">{labs.length}</span>
+        </div>
+        {labs.length === 0 ? (
+          <EmptyRow label="No lab results to display." />
+        ) : (
+          <ul className="space-y-2">
+            {labs.map((l) => {
+              const display = l.loinc_display ?? l.test_name;
+              const abnormal = l.abnormal_flag && l.abnormal_flag !== "N";
+              return (
+                <li key={l.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-slate-900 truncate">{display}</div>
+                    {abnormal && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-800">
+                        Abnormal
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-slate-700">
+                    <span className="font-semibold">{l.result_value ?? "—"}</span>
+                    {l.result_unit ? ` ${l.result_unit}` : ""}
+                    {l.reference_range ? ` · ref ${l.reference_range}` : ""}
+                  </div>
+                  <div className="text-[11px] font-mono text-slate-500">
+                    LOINC{l.loinc_code ? `: ${l.loinc_code}` : ": —"} · {l.reported_at ? fmtDate(l.reported_at) : ""}
+                  </div>
+                  <PlainEnglish system="LOINC" code={l.loinc_code} display={display} enabled={plain} />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Allergies */}
+      <section>
+        <div className="flex items-center gap-2 mb-2">
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <h3 className="text-sm font-semibold text-slate-900">Allergies</h3>
+          <span className="ml-auto text-[10px] text-slate-400">{allergies.length}</span>
+        </div>
+        {allergies.length === 0 ? (
+          <EmptyRow label="No known allergies on file." />
+        ) : (
+          <ul className="space-y-2">
+            {allergies.map((a) => {
+              const code = a.rxnorm_code ?? a.snomed_code;
+              const sys = a.rxnorm_code ? "RxNorm" : "SNOMED CT";
+              return (
+                <li key={a.id} className="rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+                  <div className="text-sm font-semibold text-slate-900">{a.allergen}</div>
+                  <div className="mt-0.5 text-[11px] text-slate-700">
+                    Reaction: {a.reaction ?? "—"} · Severity: {a.severity ?? "—"}
+                  </div>
+                  <PlainEnglish system={sys} code={code} display={a.allergen} enabled={plain} />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function EmptyRow({ label }: { label: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-[12px] text-slate-500">
+      {label}
     </div>
   );
 }
