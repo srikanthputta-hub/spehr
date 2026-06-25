@@ -85,6 +85,36 @@ export type Database = {
           },
         ]
       }
+      auto_api_events: {
+        Row: {
+          actor: string
+          created_at: string
+          event_type: string
+          facility_name: string | null
+          id: string
+          mrn: string | null
+          payload: Json | null
+        }
+        Insert: {
+          actor?: string
+          created_at?: string
+          event_type: string
+          facility_name?: string | null
+          id?: string
+          mrn?: string | null
+          payload?: Json | null
+        }
+        Update: {
+          actor?: string
+          created_at?: string
+          event_type?: string
+          facility_name?: string | null
+          id?: string
+          mrn?: string | null
+          payload?: Json | null
+        }
+        Relationships: []
+      }
       auto_doc_logs: {
         Row: {
           author_id: string | null
@@ -238,6 +268,54 @@ export type Database = {
         }
         Relationships: []
       }
+      cds_overrides: {
+        Row: {
+          alert_type: string
+          condition_name: string | null
+          condition_snomed: string | null
+          created_at: string
+          drug_name: string | null
+          drug_rxnorm: string | null
+          fired_at: string
+          id: string
+          mrn: string
+          physician_id: string | null
+          physician_name: string | null
+          reason: string
+          severity: string
+        }
+        Insert: {
+          alert_type: string
+          condition_name?: string | null
+          condition_snomed?: string | null
+          created_at?: string
+          drug_name?: string | null
+          drug_rxnorm?: string | null
+          fired_at?: string
+          id?: string
+          mrn: string
+          physician_id?: string | null
+          physician_name?: string | null
+          reason: string
+          severity: string
+        }
+        Update: {
+          alert_type?: string
+          condition_name?: string | null
+          condition_snomed?: string | null
+          created_at?: string
+          drug_name?: string | null
+          drug_rxnorm?: string | null
+          fired_at?: string
+          id?: string
+          mrn?: string
+          physician_id?: string | null
+          physician_name?: string | null
+          reason?: string
+          severity?: string
+        }
+        Relationships: []
+      }
       clinical_keyword_mappings: {
         Row: {
           author_id: string | null
@@ -381,6 +459,45 @@ export type Database = {
           resolved_by?: string | null
           severity?: string | null
           status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      custom_value_sets: {
+        Row: {
+          author: string | null
+          codes: Json
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          published_at: string | null
+          status: string
+          system: string
+          updated_at: string
+        }
+        Insert: {
+          author?: string | null
+          codes?: Json
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          published_at?: string | null
+          status?: string
+          system: string
+          updated_at?: string
+        }
+        Update: {
+          author?: string | null
+          codes?: Json
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          published_at?: string | null
+          status?: string
+          system?: string
           updated_at?: string
         }
         Relationships: []
@@ -1332,6 +1449,57 @@ export type Database = {
         }
         Relationships: []
       }
+      nlp_qa_queue: {
+        Row: {
+          complaint_snippet: string | null
+          confidence: number
+          created_at: string
+          facility_name: string | null
+          id: string
+          mrn: string
+          patient_name: string | null
+          proposed_codes: Json
+          reviewed_at: string | null
+          reviewer: string | null
+          sla_expires_at: string
+          source_audit_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          complaint_snippet?: string | null
+          confidence: number
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          mrn: string
+          patient_name?: string | null
+          proposed_codes?: Json
+          reviewed_at?: string | null
+          reviewer?: string | null
+          sla_expires_at?: string
+          source_audit_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          complaint_snippet?: string | null
+          confidence?: number
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          mrn?: string
+          patient_name?: string | null
+          proposed_codes?: Json
+          reviewed_at?: string | null
+          reviewer?: string | null
+          sla_expires_at?: string
+          source_audit_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       nurse_assignments: {
         Row: {
           assigned_at: string | null
@@ -1963,6 +2131,10 @@ export type Database = {
       system_settings: {
         Row: {
           author_id: string | null
+          auto_admin_enabled: boolean
+          auto_api_enabled: boolean
+          auto_doc_enabled: boolean
+          auto_it_enabled: boolean
           automation_enabled: boolean | null
           created_at: string
           created_by_type: Database["public"]["Enums"]["provenance_origin"]
@@ -1971,6 +2143,10 @@ export type Database = {
         }
         Insert: {
           author_id?: string | null
+          auto_admin_enabled?: boolean
+          auto_api_enabled?: boolean
+          auto_doc_enabled?: boolean
+          auto_it_enabled?: boolean
           automation_enabled?: boolean | null
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
@@ -1979,6 +2155,10 @@ export type Database = {
         }
         Update: {
           author_id?: string | null
+          auto_admin_enabled?: boolean
+          auto_api_enabled?: boolean
+          auto_doc_enabled?: boolean
+          auto_it_enabled?: boolean
           automation_enabled?: boolean | null
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]

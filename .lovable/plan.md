@@ -1,86 +1,84 @@
-# Auto Doc Backend Architecture — Implementation Plan
+# AUTO API Agent + Terminology Intelligence Suite
 
-A three-phase backend upgrade. No new clinical UI surfaces — only the existing Watch Dog area gets a new monitoring panel.
+Build all 6 parts in one coordinated pass, verifying each layer (DB → server → UI) before moving to the next. UMLS-backed where the spec says, mock where it's clinical confidence/CHV.
 
-## Phase 1 — Expanded Patient-Voice Chief Complaints
+## Sequence (each step is verified before the next)
 
-**Goal:** Replace the small, repetitive complaint pool with a large, patient-voice library, each entry pre-tagged with one of the 22 clinical departments.
+### Step 1 — Foundation: AUTO API engine registration
+- Add `AUTO_API` to the agent registry in `useAutomationWatchdog.ts` with 6 loops: `UMLS_LIVE_QUERY`, `NLP_PIPELINE`, `PRE_PUSH_STANDARDISATION`, `DRUG_SAFETY_RXNORM`, `FHIR_SERVER_SYNC`, `NLP_CONFIDENCE_GATE`.
+- Update Watchdog widget: "Monitoring 23 loops" grouped by agent (7/4/6/6).
+- `useAutomationEnabled` gains a per-engine selector so AUTO API can be toggled independently of the global kill-switch.
+- **Verify**: Watchdog widget renders 23 loops, AUTO API card shows in AI Engines list.
 
-- New file `src/lib/chief-complaints.ts` exporting:
-  - `Department` union of all 22 departments.
-  - `PATIENT_COMPLAINTS: { text: string; department: Department; acuity: "low"|"med"|"high"|"critical" }[]` — ~150+ entries written in lay language ("My chest feels incredibly tight and I'm dizzy", "I can't keep any food down since last night", etc.).
-  - `pickComplaint()` — rotates through the pool with low recent-repeat probability (in-memory recency set).
-  - `routeDepartment(text)` — keyword-based fallback router used when complaints arrive from other sources.
-- Update `simulation_chief_complaints` table seeding via a data-insert: replace contents with the new lay-language pool (keeps existing `get_next_ghost_complaint()` DB rotation working for the SQL `auto_admit_ghost_patient` path).
-- Update the in-app admission seed (the front-end Live Automation Loop) to use `pickComplaint()` + assign `department` onto the new patient record (stored in `patients.assigned_department` — added via migration).
+### Step 2 — DB: 3 new tables + audit log category
+Migration (single file, with GRANTs + RLS):
+- `nlp_qa_queue` (mrn, patient_name, complaint_snippet, confidence, proposed_codes jsonb, status, sla_expires_at)
+- `custom_value_sets` (name, system, codes jsonb, description, status, published_at)
+- `cds_overrides` (mrn, drug_rxnorm, condition_snomed, severity, reason, physician_id, fired_at)
+- `auto_api_events` (event_type enum, mrn, actor, facility, payload jsonb)
+- Seed 3 sample QA queue rows so the UI is non-empty on first paint.
+- **Verify**: tables visible in supabase types regen.
 
-## Phase 2 — "Auto Doc" Headless Clinical Reasoning Engine
+### Step 3 — Server functions / routes
+- Extend `src/routes/api/public/umls-search.ts` (already exists) — confirm response shape supports the autocomplete dropdown (canonical term, system, code, typed alias).
+- New `src/lib/auto-api.functions.ts`:
+  - `getQaQueue`, `approveQaItem`, `editQaItem`, `rejectQaItem` (also writes to `auto_api_events` + on approve, updates `patients.standardized_output`).
+  - `publishValueSet`, `listValueSets`.
+  - `logCdsOverride`, `getDrugDiseaseContraindications` (hardcoded contraindication table for NSAID/K92.2, BB/J45, ACE/hyperK + extensible).
+  - `runPopulationQuery({condition, loinc, facilities, window})`.
+  - `getAutoApiLoopStatus` (derives loop health from recent events / fhir sync timestamps).
 
-A pure server-side pipeline. No chat UI, no avatar.
+### Step 4 — Command Center UI
+- `src/routes/system-admin.tsx` UI & Feature Controls tab: add **AUTO API** card matching Auto Doc/Auto Admin/Auto IT style, with 6 loop rows, Force Sync button (triggers `useBackgroundFhirSync` manual run), Flush NLP Queue button.
+- Header bar: new **AUTO API · ACTIVE/DEGRADED/ERROR** pill next to AI ENGINES, popover with 6 loop statuses.
+- Medical Dictionary → **NLP Audit Logs** tab: add QA Governance Queue section + counter badge on tab label. Pending Review badges now show `<confidence>%` and live SLA countdown.
+- Medical Dictionary → **Catalog** tab: append "Custom Value Set Builder" collapsible (name, system dropdown, UMLS-backed code search, staging area, publish/draft/clear).
+- Medical Dictionary → **Safety Alerts** tab: rewire counters to live data, add "Powered by AUTO API · RxNorm Safety Loop" footer.
+- Medical Dictionary → **Live Terminology Matrix**: SNOMED column populates from approved QA items.
+- **Audit Log** tab: add AUTO API event source filter + render the 10 new event types with their badges.
 
-**Trigger:** runs on patient admission. Two trigger paths kept in sync:
-1. Frontend Live Automation Loop calls `runAutoDoc({ mrn })` server fn right after inserting a patient.
-2. SQL `auto_admit_ghost_patient` path: a DB trigger on `patients` INSERT calls a `notify_auto_doc` function (pg_net → `/api/public/hooks/auto-doc`) so admissions created in pg_cron also get processed.
+### Step 5 — Physician CPOE (Semantic Autocomplete + CDS Hooks)
+- New `src/components/cpoe/SemanticAutocomplete.tsx`: debounced 300ms UMLS query, grouped results (Dx / Procedures / Meds), shows canonical term + typed alias + codes, "≈ Mapped via UMLS" badge on selection.
+- New `src/components/cpoe/CdsHookAlert.tsx`: drug-allergy (existing) + drug-disease (new) inline alert card with Accept&Override / Change / Dismiss; overrides log to audit + `cds_overrides`.
+- Wire into `src/routes/physician-board.tsx` order entry panel.
 
-**New server function:** `src/lib/auto-doc.functions.ts` → `runAutoDoc({ mrn })` (no auth — internal endpoint, idempotent via `auto_doc_runs` row check).
+### Step 6 — Network Analytics Population Health
+- New section in `src/routes/analytics.tsx`: SNOMED condition filter, LOINC observation filter, facility multi-select, date window, Run Query → results table + summary cards + CSV export.
 
-**Pipeline steps (each writes a log row to `auto_doc_logs`):**
-1. `analyze` — load patient, read chief_complaint + assigned_department.
-2. `order` — pick condition-specific meds/labs from a per-department catalog in `src/lib/auto-doc-catalog.ts` (RxNorm-coded meds, LOINC-coded labs). Insert into `medication_orders` and `lab_orders` with `ordered_by = 'Auto Doc'`.
-3. `result` — generate realistic numeric lab results (value, unit, reference range, abnormal flag) and write to `lab_results` + update `lab_orders.status = 'Resulted'`.
-4. `document` — author HPI / Assessment / Plan notes into `clinical_notes`.
-5. `umls` — call the existing UMLS server fn for each condition/lab/med term; collect **all** returned SNOMED-CT / ICD-10 / LOINC / RxNorm codes and write the full arrays into `patients.standardized_output` (merging, not overwriting). Cached per term in a new `umls_term_cache` table to stay under rate limits.
-6. `fhir` — build a FHIR R4 transaction bundle (Patient, Encounter, Condition, Observation, MedicationRequest, DiagnosticReport, Composition) via `buildEncounterBundle` + a new `buildDiagnosticReport` helper added to `src/lib/fhir-bundle.ts`. Persist to `fhir_bundles` table; the existing FHIR push path picks it up.
-7. `discharge` — after a configurable dwell (default 6 min sim time), author a discharge summary into `patients.discharge_summary`, flip status to Discharged, free the bed.
+### Step 7 — MySpehr CHV translation layer
+- `src/lib/chv-translations.ts`: curated map for the codes appearing in synthetic data (CHV is largely static once mapped; UMLS CHV lookups are slow & spotty — using a curated mapping keyed by code is the production-realistic approach).
+- New `<PlainEnglish code={...} system={...} />` component with collapsible toggle.
+- Global "Plain English Mode: ON | OFF" toggle in `src/routes/my-spehr.tsx`, persisted to localStorage.
+- Apply to Conditions, Medications, Lab Reports, Allergies sections.
 
-**Tables (migration):**
-- `auto_doc_runs (mrn pk, started_at, completed_at, status, stage)` — idempotency + current stage.
-- `auto_doc_logs (id, mrn, stage, message, level, created_at)` — append-only stream for Watch Dog.
-- `umls_term_cache (term pk, codes jsonb, fetched_at)`.
-- `patients.assigned_department text` column add.
-- All tables get GRANT + RLS + service_role policies per project rules.
+### Step 8 — Cascade behaviour
+When AUTO API is disabled via the toggle:
+- Medical Dictionary shows amber "Manual Mode" banner.
+- CPOE Semantic Autocomplete falls back to plain text.
+- MySpehr hides CHV sub-lines.
+- `useBackgroundFhirSync` pauses (gated on `isAutoApiEnabled`).
 
-**Public hook:** `src/routes/api/public/hooks/auto-doc.ts` — POST `{ mrn }`, calls `runAutoDoc`. Used by the DB trigger and pg_cron sweep that retries any `auto_doc_runs` stuck in non-terminal state > 2 min.
+### Step 9 — Final cross-check pass
+- Run typecheck via build pipeline.
+- Hit the 4 main routes with playwright headless, screenshot each, confirm: 23 loops shown, AUTO API pill present, QA queue renders, value set builder collapsible visible, autocomplete dropdown opens on type, CDS alert fires on contraindicated order, population query returns rows, MySpehr plain-English lines render.
 
-## Phase 3 — Watch Dog "Systematic Health Check Cycle" Panel
+## Technical details
 
-Inside the existing Watch Dog section of `src/routes/system-admin.tsx`:
+- UMLS: `/api/public/umls-search` is already implemented and uses `UMLS_API_KEY` (already in secrets). Autocomplete + Value Set Builder + Population Health condition picker all call it client-side via fetch with 300ms debounce.
+- Confidence scoring: the existing `nlp_audit_logs.standardized_output` Pending Review rows already carry a confidence number in the AI's response. New `nlp_qa_queue` rows are *derived* from `nlp_audit_logs` where 80 ≤ confidence < 95.
+- SLA countdown: client-side `useEffect` ticking against `sla_expires_at` timestamp.
+- CHV: curated dictionary keyed by `{system, code}`. Returns null for unknown codes → no plain-English sub-line shown (cleaner than rendering "translation unavailable").
+- Drug-disease contraindications: hardcoded JSON in `src/lib/contraindications.ts` (NSAID×K92.2, BB×J45.x, ACEi×hyperK + ~6 more). Checked at CPOE submit time against the patient's active Condition resources.
 
-- New collapsible panel **"Auto Doc Pipeline Monitor"** (admin-only, no clinical surface).
-- Live tail of last 100 rows from `auto_doc_logs` (realtime channel subscription), grouped by MRN, with stage badges: Analyze ▸ Order ▸ Result ▸ Document ▸ UMLS ▸ FHIR ▸ Discharge.
-- Aggregate counters for the current cycle: runs started, completed, failed, avg duration per stage.
-- Each "Systematic Health Check Cycle" tick (existing watchdog loop) verifies: no run stuck > 2 min, UMLS cache hit rate, FHIR bundles generated count — adds a ✓/✗ next to "Auto Doc" in the existing automations checklist.
+## Files touched (~22)
 
-No changes anywhere else in clinical dashboards.
+New: 1 migration, `src/lib/auto-api.functions.ts`, `src/lib/contraindications.ts`, `src/lib/chv-translations.ts`, `src/components/cpoe/SemanticAutocomplete.tsx`, `src/components/cpoe/CdsHookAlert.tsx`, `src/components/admin/QaGovernanceQueue.tsx`, `src/components/admin/ValueSetBuilder.tsx`, `src/components/admin/AutoApiCard.tsx`, `src/components/admin/AutoApiStatusPill.tsx`, `src/components/analytics/PopulationHealth.tsx`, `src/components/myspehr/PlainEnglish.tsx`.
 
-## Technical Details
+Edited: `useAutomationWatchdog.ts`, `useAutomationEnabled.ts`, `useBackgroundFhirSync.ts`, `system-admin.tsx`, `physician-board.tsx`, `analytics.tsx`, `my-spehr.tsx`.
 
-**Files to add**
-- `src/lib/chief-complaints.ts`
-- `src/lib/auto-doc-catalog.ts` (per-department med/lab templates with RxNorm/LOINC codes + reference ranges)
-- `src/lib/auto-doc.functions.ts` (server fn `runAutoDoc`)
-- `src/lib/auto-doc.server.ts` (pipeline helpers, UMLS client, FHIR builder calls)
-- `src/routes/api/public/hooks/auto-doc.ts` (POST hook)
-- `src/components/admin/AutoDocMonitor.tsx` (Watch Dog panel)
+## Out of scope (will not touch)
 
-**Files to edit**
-- `src/lib/fhir-bundle.ts` — add `buildDiagnosticReport`, expose it from `buildEncounterBundle`.
-- `src/routes/system-admin.tsx` — embed `<AutoDocMonitor/>` inside the existing Watch Dog section and append "Auto Doc" to the automations checklist.
-- The front-end Live Automation Loop block in `system-admin.tsx` — after inserting a new patient, fire-and-forget call `runAutoDoc({ mrn })`.
-
-**Migration**
-- Add `patients.assigned_department`.
-- Create `auto_doc_runs`, `auto_doc_logs`, `umls_term_cache`, `fhir_bundles` (if not present).
-- Replace `simulation_chief_complaints` rows with the new lay-language pool.
-- DB trigger `patients_auto_doc_after_insert` → `net.http_post` to `/api/public/hooks/auto-doc`.
-- pg_cron sweeper every minute to retry stuck runs.
-- Grants + RLS as required.
-
-**Idempotency / dedup**
-- `runAutoDoc` short-circuits if an `auto_doc_runs` row for the MRN exists in a terminal state.
-- Continues from `stage` on partial-failure re-entry.
-- FHIR push reuses existing "successful = never re-queue" logic already in `system-admin.tsx`.
-
-**Out of scope**
-- No new clinical-facing UI, no chatbot, no avatar.
-- No changes to existing Auth, role gates, or unrelated dashboards.
+- Existing FHIR push pipeline behaviour (already working).
+- Discharge / admit cron jobs.
+- Auth or role gating beyond what's already in place.
+- Real-time websocket layer changes.

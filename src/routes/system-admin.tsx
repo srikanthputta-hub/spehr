@@ -64,6 +64,11 @@ import {
 import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
+import { AutoApiCard } from "@/components/admin/AutoApiCard";
+import { AutoApiStatusPill } from "@/components/admin/AutoApiStatusPill";
+import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
+import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
+import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
 
@@ -97,7 +102,7 @@ function WatchdogStatusWidget() {
   // are unchanged — this is purely a registry/UI grouping so the watchdog
   // can render them as a nested accordion.
   const AGENT_REGISTRY: {
-    id: "auto-doc" | "auto-admin" | "auto-it";
+    id: "auto-doc" | "auto-admin" | "auto-it" | "auto-api";
     name: string;
     tagline: string;
     accent: string;
@@ -144,6 +149,20 @@ function WatchdogStatusWidget() {
         { key: "Watchdog", label: "Watchdog Self-Heartbeat", group: "Core" },
       ],
     },
+    {
+      id: "auto-api",
+      name: "AUTO API",
+      tagline: "API Orchestration · UMLS · FHIR · Drug Safety · NLP Governance",
+      accent: "violet",
+      children: [
+        { key: "UMLS_LIVE_QUERY", label: "UMLS Live Query", group: "Terminology" },
+        { key: "NLP_PIPELINE", label: "NLP Pipeline (raw → mapping → standardised)", group: "Coding" },
+        { key: "PRE_PUSH_STANDARDISATION", label: "Pre-Push Code Standardisation", group: "Interop" },
+        { key: "DRUG_SAFETY_RXNORM", label: "Drug Safety · RxNorm × AllergyIntolerance", group: "Safety" },
+        { key: "FHIR_SERVER_SYNC", label: "FHIR Server Sync (400 ms heartbeat)", group: "Interop" },
+        { key: "NLP_CONFIDENCE_GATE", label: "NLP Confidence Gate", group: "Governance" },
+      ],
+    },
   ];
   const healedSet = new Set(latest?.healed_engines ?? []);
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({
@@ -157,6 +176,8 @@ function WatchdogStatusWidget() {
         return { bg: "bg-indigo-50", text: "text-indigo-600", chip: "bg-indigo-100 text-indigo-700 border-indigo-200" };
       case "emerald":
         return { bg: "bg-emerald-50", text: "text-emerald-600", chip: "bg-emerald-100 text-emerald-700 border-emerald-200" };
+      case "violet":
+        return { bg: "bg-violet-50", text: "text-violet-600", chip: "bg-violet-100 text-violet-700 border-violet-200" };
       default:
         return { bg: "bg-sky-50", text: "text-sky-600", chip: "bg-sky-100 text-sky-700 border-sky-200" };
     }
@@ -179,7 +200,7 @@ function WatchdogStatusWidget() {
             </div>
             <div className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-              Watchdog Active · Monitoring Loops
+              Watchdog Active · Monitoring 23 loops
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
@@ -513,6 +534,11 @@ function SystemAdminPage() {
 
       <section className="max-w-6xl mx-auto px-6 py-8">
         {isAdmin && tab === "feature_controls" && (
+          <div className="mb-3 flex items-center justify-end">
+            <AutoApiStatusPill />
+          </div>
+        )}
+        {isAdmin && tab === "feature_controls" && (
         <WatchdogStatusWidget />
         )}
         {isAdmin && tab === "feature_controls" && (
@@ -600,6 +626,8 @@ function SystemAdminPage() {
                 instantly updates button visibility for users of that role at the selected facility.
               </p>
             </div>
+
+            <AutoApiCard />
 
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-5 py-4">
               <label className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 mb-1.5">
@@ -1473,6 +1501,9 @@ function SafetyQueue({ facility }: { facility: string }) {
           ))}
         </div>
       )}
+      <div className="pt-2 text-right text-[10px] uppercase tracking-wider text-slate-400">
+        Powered by AUTO API · RxNorm Safety Loop
+      </div>
     </div>
   );
 }
@@ -4053,6 +4084,7 @@ function MedicalDictionary() {
 
   return (
     <div className="space-y-6">
+      <AutoApiManualBanner />
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -4128,12 +4160,14 @@ function MedicalDictionary() {
       </div>
 
       {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
+      {subtab === "audits" && <QaGovernanceQueue />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "fhir" && <FhirInteroperability facility={facilityFilter} />}
 
       {subtab === "catalog" && <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={remove} />}
       {subtab === "catalog" && <CustomRulesCard />}
+      {subtab === "catalog" && <ValueSetBuilder />}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
