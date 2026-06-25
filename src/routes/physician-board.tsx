@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplete";
 import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
+import { OrderPanelPicker } from "@/components/physician/OrderPanelPicker";
 import { autoCodeMedication } from "@/lib/auto-code";
 
 const TRANSFER_DESTINATIONS = [
@@ -615,6 +616,15 @@ function PhysicianBoard() {
                   )}
                 </form>
               </div>
+
+              {/* Value-set–driven physician order panels */}
+              <OrderPanelPicker
+                mrn={selected.mrn}
+                patientName={`${selected.first_name ?? ""} ${selected.last_name ?? ""}`.trim() || null}
+                facility={selected.facility_name}
+                diagnosis={selected.diagnosis || selected.chief_complaint}
+                physicianName={md.name}
+              />
 
               {/* AI DDx */}
               <div className="rounded-lg border border-slate-200 bg-white">
