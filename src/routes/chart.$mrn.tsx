@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
 import { PatientReportedVitals } from "@/components/PatientReportedVitals";
 import { PatientCommsInbox } from "@/components/PatientCommsInbox";
+import { autoCodeLab } from "@/lib/auto-code";
 import {
   getPatient,
   hrOutOfRange,
@@ -434,7 +435,7 @@ function ChartPage() {
   const handleOrderLab = async () => {
     setOrderingLab(true);
     try {
-      const { error } = await supabase.from("lab_orders").insert({
+      const { data: inserted, error } = await supabase.from("lab_orders").insert({
         patient_mrn: patient.mrn,
         patient_name: patient.name,
         requested_by: nurse.name,
@@ -442,8 +443,11 @@ function ChartPage() {
         test_type: labTest,
         clinical_condition: patient.diagnosis,
         status: "Pending Collection",
-      });
+      }).select("id").single();
       if (error) throw error;
+      if (inserted?.id) {
+        autoCodeLab(labTest, { resourceId: inserted.id, mrn: patient.mrn, resolver: "nurse-chart" });
+      }
       toast.success(`Lab order routed to ${facility} lab queue.`, {
         description: `${labTest} · ${patient.name}`,
       });

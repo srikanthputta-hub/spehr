@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplete";
 import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
+import { autoCodeMedication } from "@/lib/auto-code";
 
 const TRANSFER_DESTINATIONS = [
   "Memorial Hospital",
@@ -263,7 +264,7 @@ function PhysicianBoard() {
       [selected.first_name, selected.last_name].filter(Boolean).join(" ") ||
       selected.mrn;
     try {
-      const { error } = await supabase.from("medication_orders").insert({
+      const { data: inserted, error } = await supabase.from("medication_orders").insert({
         patient_name: patientName,
         mrn: selected.mrn,
         patient_mrn: selected.mrn,
@@ -276,8 +277,11 @@ function PhysicianBoard() {
         status: "PENDING_VERIFICATION",
         ordering_physician: md.name,
         ordered_by: md.name,
-      });
+      }).select("id").single();
       if (error) throw error;
+      if (inserted?.id) {
+        autoCodeMedication(drug.trim(), { resourceId: inserted.id, mrn: selected.mrn, resolver: "physician-cpoe" });
+      }
       toast.success("Order routed to Pharmacy queue", {
         description: `${drug.trim()} ${dose.trim()} ${route} ${freq}`,
       });
