@@ -3244,71 +3244,16 @@ function FhirInteroperability({ facility }: { facility: string }) {
                   </td>
                 </tr>
               )}
-              {rows.map((r) => {
-                const b = statusBadge(r);
-                return (
-                  <tr key={r.mrn} className="hover:bg-slate-50/60">
-                    <td className="px-3 py-2.5 whitespace-nowrap text-slate-700">
-                      {fmt(r.admission_time)}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">
-                      {r.mrn}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
-                      <div className="font-medium">{r.name ?? "—"}</div>
-                      <div className="text-[10px] text-slate-500 truncate max-w-[220px]">
-                        {r.chief_complaint ?? "—"}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">
-                      {r.facility ?? "—"}
-                    </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${b.cls}`}>
-                        {b.label}
-                      </span>
-                      {(() => {
-                        const a = autoStatus[r.mrn];
-                        if (!a) return null;
-                        if (a === "queued")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              In Queue
-                            </span>
-                          );
-                        if (a === "syncing")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                              Auto-Syncing…
-                            </span>
-                          );
-                        if (a === "ok")
-                          return (
-                            <span className="ml-1.5 inline-flex items-center rounded-full border border-emerald-300 bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                              ✓ Successful
-                            </span>
-                          );
-                        return (
-                          <span className="ml-1.5 inline-flex items-center rounded-full border border-red-300 bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                            ✗ Failed
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <button
-                        type="button"
-                        onClick={() => openBundle(r)}
-                        className="inline-flex items-center gap-1 rounded border border-[#0c2340] bg-white px-2 py-1 text-[10px] font-semibold text-[#0c2340] hover:bg-slate-50"
-                        title="View / export the full FHIR R4 encounter Bundle"
-                      >
-                        <FileJson className="h-3 w-3" /> View / Export JSON
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {rows.map((r) => (
+                <FhirEncounterTableRow
+                  key={r.mrn}
+                  row={r}
+                  badge={statusBadge(r)}
+                  autoStatus={autoStatus[r.mrn]}
+                  lastSyncAt={lastSyncAt[r.mrn]}
+                  onOpen={openBundle}
+                />
+              ))}
             </tbody>
           </table>
         </div>
