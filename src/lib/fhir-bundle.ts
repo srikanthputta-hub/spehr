@@ -535,7 +535,8 @@ function vitalsObservations(p: EncounterPatient) {
 }
 
 function labObservation(mrn: string, l: EncounterLab) {
-  const id = stableIds.lab(l.test_type ?? l.id ?? "unknown", mrn);
+  const loinc = l.loinc_code ?? loincForLabName(l.test_type);
+  const id = stableIds.lab(l.test_type ?? l.id ?? "unknown", mrn, loinc);
   const numeric = l.result_value ? Number((l.result_value.match(/-?\d+(\.\d+)?/) ?? [])[0]) : NaN;
   return {
     resourceType: "Observation",
@@ -555,7 +556,12 @@ function labObservation(mrn: string, l: EncounterLab) {
         ],
       },
     ],
-    code: { text: l.test_type ?? "Lab" },
+    code: loinc
+      ? {
+          coding: [{ system: "http://loinc.org", code: loinc, display: l.test_type ?? undefined }],
+          text: l.test_type ?? "Lab",
+        }
+      : { text: l.test_type ?? "Lab" },
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/enc-${mrn}` },
     effectiveDateTime: l.collected_at ?? l.created_at ?? undefined,
