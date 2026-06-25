@@ -2698,7 +2698,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
           </h2>
           <p className="text-sm text-slate-600 mt-0.5">
             Last 15 admissions{facility !== "all" ? ` at ${facility}` : " across the network"} mapped to
-            SNOMED-CT, ICD-10, LOINC, and RxNorm. Click any pill for the canonical
+            SNOMED-CT, ICD-10, CPT, LOINC, and RxNorm. Click any pill for the canonical
             display and value-set category.
           </p>
         </div>
@@ -2713,6 +2713,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Patient</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">SNOMED CT</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">ICD-10</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">CPT</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">LOINC</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">RxNorm</th>
               </tr>
@@ -2720,7 +2721,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
                     <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
                     Loading matrix…
                   </td>
@@ -2728,7 +2729,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
                     No admissions to display.
                   </td>
                 </tr>
@@ -2761,6 +2762,9 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                 const rxnorm = liveCoded?.rxnorm?.length
                   ? liveToDict("RxNorm", liveCoded.rxnorm)
                   : findCodes("RxNorm", r.meds);
+                const cpt = liveCoded?.cpt?.length
+                  ? liveToDict("CPT", liveCoded.cpt)
+                  : [];
                 return (
                   <tr key={r.mrn} className="hover:bg-slate-50/60">
                     <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{r.mrn}</td>
@@ -2770,6 +2774,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                     </td>
                     <td className="px-3 py-2.5"><PillRow entries={snomed} system="SNOMED CT" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={icd10} system="ICD-10" /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={cpt} system="CPT" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={loinc} system="LOINC" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={rxnorm} system="RxNorm" /></td>
                   </tr>
