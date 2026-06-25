@@ -860,11 +860,6 @@ export function buildEncounterBundle(opts: {
 
 function getResourceTimestamp(resource: any): number {
   if (!resource) return 0;
-  return _getResourceTimestamp(resource);
-}
-
-function _getResourceTimestamp(resource: any): number {
-  if (!resource) return 0;
   if (resource.effectiveDateTime)
     return new Date(resource.effectiveDateTime).getTime() || 0;
   if (resource.authoredOn)
