@@ -417,7 +417,7 @@ export async function runAutoDocPipeline(mrn: string) {
         return {
           patient_id: patientUuid,
           patient_mrn: mrn,
-          loinc_code: labCodesFinal[idx] ?? labCodesFinal[0] ?? null,
+          loinc_code: loincForLab(l.test_type),
           display_name: l.test_type ?? "Lab observation",
           value: valStr,
           value_numeric: Number.isFinite(numeric as number) ? numeric : null,
@@ -440,7 +440,7 @@ export async function runAutoDocPipeline(mrn: string) {
       const medReqRows = (medRows ?? []).map((m: any, idx: number) => ({
         patient_id: patientUuid,
         patient_mrn: mrn,
-        rxnorm_code: medCodesFinal[idx] ?? medCodesFinal[0] ?? null,
+        rxnorm_code: rxnormForMed(m.drug ?? m.drug_name ?? m.medication_name),
         display_name: m.drug ?? m.drug_name ?? m.medication_name ?? "Medication",
         dosage: m.dose ?? null,
         route: m.route ?? "PO",
@@ -512,7 +512,7 @@ export async function runAutoDocPipeline(mrn: string) {
           return {
             patient_id: patientUuid,
             patient_mrn: mrn,
-            loinc_code: labCodesFinal[idx] ?? labCodesFinal[0] ?? null,
+            loinc_code: loincForLab(l.test_type),
             display_name: l.test_type ?? "Lab observation",
             value: valStr,
             value_numeric: Number.isFinite(numeric as number) ? numeric : null,
@@ -529,7 +529,7 @@ export async function runAutoDocPipeline(mrn: string) {
         const rows = (freshMeds ?? []).map((m: any, idx: number) => ({
           patient_id: patientUuid,
           patient_mrn: mrn,
-          rxnorm_code: medCodesFinal[idx] ?? medCodesFinal[0] ?? null,
+          rxnorm_code: rxnormForMed(m.drug ?? m.drug_name ?? m.medication_name),
           display_name: m.drug ?? m.drug_name ?? m.medication_name ?? "Medication",
           dosage: m.dose ?? null,
           route: m.route ?? "PO",
@@ -571,7 +571,7 @@ export async function runAutoDocPipeline(mrn: string) {
       test_name: l.test_type ?? "Lab",
       test_type: l.test_type ?? undefined,
       result_value: l.result_value ?? undefined,
-      loinc: labCodesFinal[idx] ?? labCodesFinal[0],
+      loinc: loincForLab(l.test_type) ?? undefined,
       collected_at: l.collected_at ?? undefined,
       performing_lab: "SPEHR Central Laboratory",
       flag: typeof l.result_value === "string" && /CRITICAL|HIGH/i.test(l.result_value) ? "HIGH" : undefined,
@@ -593,7 +593,7 @@ export async function runAutoDocPipeline(mrn: string) {
       dose: m.dose ?? undefined,
       route: m.route ?? "PO",
       frequency: m.frequency ?? "Daily",
-      rxnorm: medCodesFinal[idx] ?? medCodesFinal[0],
+      rxnorm: rxnormForMed(m.drug ?? m.drug_name ?? m.medication_name) ?? undefined,
       status: m.status ?? "active",
       ordering_physician: m.ordering_physician ?? "Auto Doc Attending",
     })));
