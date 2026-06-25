@@ -619,6 +619,73 @@ function followUpAppointment(p: EncounterPatient) {
   };
 }
 
+/**
+ * Build the encounter-level Condition resources. The admitting working
+ * diagnosis (chief complaint at intake) is recorded as `provisional`. On
+ * discharge the final working diagnosis is recorded as a separate
+ * `confirmed` Condition so the discharge diagnosis is preserved alongside
+ * — not in place of — the admitting provisional diagnosis.
+ */
+function encounterConditions(p: EncounterPatient): any[] {
+  const out: any[] = [];
+  const subject = { reference: `Patient/${p.mrn}` };
+  const encounter = { reference: `Encounter/enc-${p.mrn}` };
+  const category = [
+    {
+      coding: [
+        {
+          system: "http://terminology.hl7.org/CodeSystem/condition-category",
+          code: "encounter-diagnosis",
+          display: "Encounter Diagnosis",
+        },
+      ],
+    },
+  ];
+  const clinicalActive = {
+    coding: [
+      {
+        system: "http://terminology.hl7.org/CodeSystem/condition-clinical",
+        code: "active",
+      },
+    ],
+  };
+  const verif = (code: "provisional" | "confirmed") => ({
+    coding: [
+      {
+        system: "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+        code,
+      },
+    ],
+  });
+  if (p.chief_complaint) {
+    out.push({
+      resourceType: "Condition",
+      id: stableIds.condition(`provisional-${slugify(p.chief_complaint)}`, p.mrn),
+      clinicalStatus: clinicalActive,
+      verificationStatus: verif("provisional"),
+      category,
+      code: { text: p.chief_complaint },
+      subject,
+      encounter,
+      recordedDate: p.admission_time ?? undefined,
+    });
+  }
+  if (p.discharge_time && p.diagnosis) {
+    out.push({
+      resourceType: "Condition",
+      id: stableIds.condition(`final-${slugify(p.diagnosis)}`, p.mrn),
+      clinicalStatus: clinicalActive,
+      verificationStatus: verif("confirmed"),
+      category,
+      code: { text: p.diagnosis },
+      subject,
+      encounter,
+      recordedDate: p.discharge_time ?? undefined,
+    });
+  }
+  return out;
+}
+
 export function buildEncounterBundle(opts: {
   patient: EncounterPatient;
   labs?: EncounterLab[];
