@@ -627,8 +627,6 @@ function SystemAdminPage() {
               </p>
             </div>
 
-            <AutoApiCard />
-
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-5 py-4">
               <label className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 mb-1.5">
                 🏥 Select Network Facility to Configure
@@ -702,6 +700,7 @@ function SystemAdminPage() {
                     </ul>
                   </div>
                 ))}
+                <RoleDefaultsSections facility={selectedFacility} grouped={grouped} />
               </div>
             )}
           </div>
