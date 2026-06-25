@@ -2758,6 +2758,71 @@ type FhirEncounterRow = {
   chief_complaint: string | null;
 };
 
+const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
+  row,
+  badge,
+  autoStatus,
+  lastSyncAt,
+  onOpen,
+}: {
+  row: FhirEncounterRow;
+  badge: { label: string; cls: string };
+  autoStatus: "queued" | "syncing" | "ok" | "err" | undefined;
+  lastSyncAt: number | undefined;
+  onOpen: (r: FhirEncounterRow) => void;
+}) {
+  const ts = lastSyncAt
+    ? new Date(lastSyncAt).toLocaleTimeString("en-GB", { hour12: false })
+    : null;
+  const failed = autoStatus === "err";
+  return (
+    <tr className="hover:bg-slate-50/60">
+      <td className="px-3 py-2.5 whitespace-nowrap text-slate-700">
+        {fmt(row.admission_time)}
+      </td>
+      <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">
+        {row.mrn}
+      </td>
+      <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
+        <div className="font-medium">{row.name ?? "—"}</div>
+        <div className="text-[10px] text-slate-500 truncate max-w-[220px]">
+          {row.chief_complaint ?? "—"}
+        </div>
+      </td>
+      <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">
+        {row.facility ?? "—"}
+      </td>
+      <td className="px-3 py-2.5 whitespace-nowrap">
+        <span
+          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badge.cls}`}
+        >
+          {badge.label}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 whitespace-nowrap">
+        {ts ? (
+          <span
+            className="text-[13px]"
+            style={{ color: failed ? "var(--color-text-danger, #b91c1c)" : "var(--color-text-secondary, #64748b)" }}
+          >
+            {failed ? "Failed" : "Synced"} {ts}
+          </span>
+        ) : (
+          <span className="text-[13px] text-slate-400">—</span>
+        )}
+        <button
+          type="button"
+          onClick={() => onOpen(row)}
+          className="ml-3 inline-flex items-center gap-1 rounded border border-[#0c2340] bg-white px-2 py-1 text-[10px] font-semibold text-[#0c2340] hover:bg-slate-50"
+          title="View / export the full FHIR R4 encounter Bundle"
+        >
+          <FileJson className="h-3 w-3" /> View / Export JSON
+        </button>
+      </td>
+    </tr>
+  );
+});
+
 function FhirInteroperability({ facility }: { facility: string }) {
   const [rows, setRows] = useState<FhirEncounterRow[]>([]);
   const [loading, setLoading] = useState(true);
