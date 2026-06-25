@@ -135,7 +135,10 @@ function AdmissionsBoard() {
             </div>
           </div>
         )}
-        {tab === "roster" && <RosterTab facility={facility} />}
+        {/* Keep roster mounted to preserve state and avoid remount flash on tab switch */}
+        <div style={{ display: tab === "roster" ? "block" : "none" }}>
+          <RosterTab facility={facility} />
+        </div>
         {tab === "scheduling" && <SchedulingTab facility={facility} />}
         {(tab === "admit" || tab === "beds") && (
           <div className="rounded-xl border border-dashed border-border bg-card/40 p-10 text-center text-sm text-muted-foreground">
