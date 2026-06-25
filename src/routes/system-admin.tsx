@@ -2652,6 +2652,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
   const [bundleLoading, setBundleLoading] = useState(false);
   const [activeRow, setActiveRow] = useState<FhirEncounterRow | null>(null);
   const [pushing, setPushing] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<"json" | "ledger" | "scan">("json");
+  const [dupScan, setDupScan] = useState<null | { ran: boolean; clean: boolean; details: string }>(null);
   const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>(() => {
     if (typeof window === "undefined") return {};
     try {
