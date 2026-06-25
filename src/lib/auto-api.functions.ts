@@ -383,16 +383,63 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const sb = client();
+    // ── 1. Coded MRN gates (Part 6: terminology-driven cohort) ──────────
+    // If a LOINC keyword is given, narrow to MRNs that have a matching
+    // pre-coded lab_orders row (via loinc_code or loinc_display). If a
+    // SNOMED-style condition keyword is given, also collect MRNs with a
+    // matching coded conditions row so the cohort isn't limited to the
+    // free-text chief_complaint match alone.
+    let labMrns: Set<string> | null = null;
+    let condMrns: Set<string> | null = null;
+    const topLoinc: Record<string, number> = {};
+    const topSnomed: Record<string, number> = {};
+
+    if (data.loinc_keyword) {
+      const k = data.loinc_keyword.trim();
+      const { data: lab } = await sb
+        .from("lab_orders")
+        .select("patient_mrn, loinc_code, loinc_display")
+        .or(`loinc_display.ilike.%${k}%,loinc_code.ilike.%${k}%,test_type.ilike.%${k}%`)
+        .limit(2000);
+      labMrns = new Set();
+      for (const r of (lab as any[]) ?? []) {
+        if (r.patient_mrn) labMrns.add(r.patient_mrn);
+        const key = r.loinc_display
+          ? `${r.loinc_code ?? "?"} · ${r.loinc_display}`
+          : r.loinc_code ?? "uncoded";
+        topLoinc[key] = (topLoinc[key] ?? 0) + 1;
+      }
+    }
+
+    if (data.condition_keyword) {
+      const k = data.condition_keyword.trim();
+      const { data: cond } = await sb
+        .from("conditions")
+        .select("patient_mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
+        .or(
+          `snomed_display.ilike.%${k}%,icd10_display.ilike.%${k}%,display_text.ilike.%${k}%`,
+        )
+        .limit(2000);
+      condMrns = new Set();
+      for (const r of (cond as any[]) ?? []) {
+        if (r.patient_mrn) condMrns.add(r.patient_mrn);
+        const key = r.snomed_display
+          ? `${r.snomed_code ?? "?"} · ${r.snomed_display}`
+          : r.icd10_display
+          ? `${r.icd10_code ?? "?"} · ${r.icd10_display}`
+          : r.display_text ?? "uncoded";
+        topSnomed[key] = (topSnomed[key] ?? 0) + 1;
+      }
+    }
+
+    // ── 2. Patient query (preserves chief_complaint ilike as fallback) ──
     let q = sb
       .from("patients")
       .select(
         "mrn, name, age, gender, facility_name, chief_complaint, admission_time, standardized_output",
       )
       .order("admission_time", { ascending: false })
-      .limit(200);
-    if (data.condition_keyword) {
-      q = q.ilike("chief_complaint", `%${data.condition_keyword}%`);
-    }
+      .limit(500);
     if (data.facilities && data.facilities.length > 0) {
       q = q.in("facility_name", data.facilities);
     }
@@ -401,13 +448,24 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
     }
     const { data: rows } = await q;
     let filtered = (rows as any[]) ?? [];
+
+    if (data.condition_keyword) {
+      const k = data.condition_keyword.toLowerCase();
+      filtered = filtered.filter(
+        (r) =>
+          (condMrns && condMrns.has(r.mrn)) ||
+          (r.chief_complaint ?? "").toLowerCase().includes(k),
+      );
+    }
     if (data.loinc_keyword) {
       const k = data.loinc_keyword.toLowerCase();
       filtered = filtered.filter((r) => {
+        if (labMrns && labMrns.has(r.mrn)) return true;
         const loinc = (r.standardized_output?.LOINC as any[]) ?? [];
         return loinc.some((c) => String(c).toLowerCase().includes(k));
       });
     }
+
     const ages = filtered.map((r) => Number(r.age)).filter((n) => !isNaN(n));
     const avgAge =
       ages.length > 0 ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : 0;
@@ -416,10 +474,23 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       const g = (r.gender ?? "unknown").toLowerCase();
       genderCount[g] = (genderCount[g] ?? 0) + 1;
     }
+    const topN = (m: Record<string, number>, n = 5) =>
+      Object.entries(m)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n)
+        .map(([label, count]) => ({ label, count }));
+    await logEvent("POPULATION_QUERY", {
+      condition: data.condition_keyword ?? null,
+      loinc: data.loinc_keyword ?? null,
+      facilities: data.facilities ?? null,
+      cohort_size: filtered.length,
+    });
     return {
       total: filtered.length,
       avg_age: avgAge,
       gender_distribution: genderCount,
+      top_loinc: topN(topLoinc),
+      top_snomed: topN(topSnomed),
       rows: filtered.slice(0, 100),
     };
   });
