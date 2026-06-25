@@ -17,41 +17,65 @@ export type Database = {
       allergies: {
         Row: {
           author_id: string | null
+          coded_at: string | null
+          coding_source: string | null
           created_at: string
           created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
           logged_at: string | null
           mrn: string | null
           reaction: string | null
+          reaction_meddra: string | null
+          reaction_snomed: string | null
+          reaction_umls_cui: string | null
           severity: string | null
           status: string | null
           substance: string
+          substance_rxcui: string | null
+          substance_snomed: string | null
+          substance_umls_cui: string | null
           updated_at: string
         }
         Insert: {
           author_id?: string | null
+          coded_at?: string | null
+          coding_source?: string | null
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           logged_at?: string | null
           mrn?: string | null
           reaction?: string | null
+          reaction_meddra?: string | null
+          reaction_snomed?: string | null
+          reaction_umls_cui?: string | null
           severity?: string | null
           status?: string | null
           substance: string
+          substance_rxcui?: string | null
+          substance_snomed?: string | null
+          substance_umls_cui?: string | null
           updated_at?: string
         }
         Update: {
           author_id?: string | null
+          coded_at?: string | null
+          coding_source?: string | null
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
           logged_at?: string | null
           mrn?: string | null
           reaction?: string | null
+          reaction_meddra?: string | null
+          reaction_snomed?: string | null
+          reaction_umls_cui?: string | null
           severity?: string | null
           status?: string | null
           substance?: string
+          substance_rxcui?: string | null
+          substance_snomed?: string | null
+          substance_umls_cui?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -82,6 +106,65 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "unified_patient_view"
             referencedColumns: ["mrn"]
+          },
+        ]
+      }
+      allergy_reactions: {
+        Row: {
+          allergy_id: string
+          coded_at: string | null
+          coding_source: string | null
+          created_at: string
+          id: string
+          manifestation: string
+          meddra_code: string | null
+          meddra_display: string | null
+          mrn: string
+          severity: string | null
+          snomed_code: string | null
+          snomed_display: string | null
+          umls_cui: string | null
+          updated_at: string
+        }
+        Insert: {
+          allergy_id: string
+          coded_at?: string | null
+          coding_source?: string | null
+          created_at?: string
+          id?: string
+          manifestation: string
+          meddra_code?: string | null
+          meddra_display?: string | null
+          mrn: string
+          severity?: string | null
+          snomed_code?: string | null
+          snomed_display?: string | null
+          umls_cui?: string | null
+          updated_at?: string
+        }
+        Update: {
+          allergy_id?: string
+          coded_at?: string | null
+          coding_source?: string | null
+          created_at?: string
+          id?: string
+          manifestation?: string
+          meddra_code?: string | null
+          meddra_display?: string | null
+          mrn?: string
+          severity?: string | null
+          snomed_code?: string | null
+          snomed_display?: string | null
+          umls_cui?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "allergy_reactions_allergy_id_fkey"
+            columns: ["allergy_id"]
+            isOneToOne: false
+            referencedRelation: "allergies"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -316,6 +399,48 @@ export type Database = {
         }
         Relationships: []
       }
+      chv_translations: {
+        Row: {
+          consumer_term: string
+          created_at: string
+          id: string
+          language: string
+          professional_term: string
+          reading_level: string | null
+          source: string
+          source_code: string | null
+          umls_cui: string | null
+          updated_at: string
+          vocabulary: string
+        }
+        Insert: {
+          consumer_term: string
+          created_at?: string
+          id?: string
+          language?: string
+          professional_term: string
+          reading_level?: string | null
+          source?: string
+          source_code?: string | null
+          umls_cui?: string | null
+          updated_at?: string
+          vocabulary: string
+        }
+        Update: {
+          consumer_term?: string
+          created_at?: string
+          id?: string
+          language?: string
+          professional_term?: string
+          reading_level?: string | null
+          source?: string
+          source_code?: string | null
+          umls_cui?: string | null
+          updated_at?: string
+          vocabulary?: string
+        }
+        Relationships: []
+      }
       clinical_keyword_mappings: {
         Row: {
           author_id: string | null
@@ -460,6 +585,72 @@ export type Database = {
           severity?: string | null
           status?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      conditions: {
+        Row: {
+          category: string | null
+          clinical_status: string | null
+          coded_at: string | null
+          coding_source: string | null
+          created_at: string
+          created_by_type: string | null
+          display_text: string
+          icd10_code: string | null
+          icd10_display: string | null
+          id: string
+          mrn: string
+          onset_date: string | null
+          patient_name: string | null
+          recorded_by: string | null
+          snomed_code: string | null
+          snomed_display: string | null
+          umls_cui: string | null
+          updated_at: string
+          verification_status: string | null
+        }
+        Insert: {
+          category?: string | null
+          clinical_status?: string | null
+          coded_at?: string | null
+          coding_source?: string | null
+          created_at?: string
+          created_by_type?: string | null
+          display_text: string
+          icd10_code?: string | null
+          icd10_display?: string | null
+          id?: string
+          mrn: string
+          onset_date?: string | null
+          patient_name?: string | null
+          recorded_by?: string | null
+          snomed_code?: string | null
+          snomed_display?: string | null
+          umls_cui?: string | null
+          updated_at?: string
+          verification_status?: string | null
+        }
+        Update: {
+          category?: string | null
+          clinical_status?: string | null
+          coded_at?: string | null
+          coding_source?: string | null
+          created_at?: string
+          created_by_type?: string | null
+          display_text?: string
+          icd10_code?: string | null
+          icd10_display?: string | null
+          id?: string
+          mrn?: string
+          onset_date?: string | null
+          patient_name?: string | null
+          recorded_by?: string | null
+          snomed_code?: string | null
+          snomed_display?: string | null
+          umls_cui?: string | null
+          updated_at?: string
+          verification_status?: string | null
         }
         Relationships: []
       }
@@ -1017,11 +1208,15 @@ export type Database = {
         Row: {
           author_id: string | null
           clinical_condition: string | null
+          coded_at: string | null
+          coding_source: string | null
           collected_at: string | null
           created_at: string | null
           created_by_type: Database["public"]["Enums"]["provenance_origin"]
           facility_name: string
           id: string
+          loinc_code: string | null
+          loinc_display: string | null
           ordered_by: string | null
           patient_mrn: string
           patient_name: string
@@ -1031,16 +1226,21 @@ export type Database = {
           results_data: Json | null
           status: string | null
           test_type: string
+          umls_cui: string | null
           updated_at: string
         }
         Insert: {
           author_id?: string | null
           clinical_condition?: string | null
+          coded_at?: string | null
+          coding_source?: string | null
           collected_at?: string | null
           created_at?: string | null
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           facility_name: string
           id?: string
+          loinc_code?: string | null
+          loinc_display?: string | null
           ordered_by?: string | null
           patient_mrn: string
           patient_name: string
@@ -1050,16 +1250,21 @@ export type Database = {
           results_data?: Json | null
           status?: string | null
           test_type: string
+          umls_cui?: string | null
           updated_at?: string
         }
         Update: {
           author_id?: string | null
           clinical_condition?: string | null
+          coded_at?: string | null
+          coding_source?: string | null
           collected_at?: string | null
           created_at?: string | null
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           facility_name?: string
           id?: string
+          loinc_code?: string | null
+          loinc_display?: string | null
           ordered_by?: string | null
           patient_mrn?: string
           patient_name?: string
@@ -1069,6 +1274,7 @@ export type Database = {
           results_data?: Json | null
           status?: string | null
           test_type?: string
+          umls_cui?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -1213,6 +1419,8 @@ export type Database = {
           administered_at: string | null
           approved_at: string | null
           author_id: string | null
+          coded_at: string | null
+          coding_source: string | null
           created_at: string | null
           created_by_type: Database["public"]["Enums"]["provenance_origin"]
           dispensed_at: string | null
@@ -1222,6 +1430,7 @@ export type Database = {
           facility_name: string | null
           frequency: string | null
           id: string
+          ingredient_rxcui: string | null
           medication: string | null
           medication_name: string | null
           mrn: string | null
@@ -1232,13 +1441,19 @@ export type Database = {
           patient_mrn: string | null
           patient_name: string | null
           route: string | null
+          rxnorm_code: string | null
+          rxnorm_display: string | null
+          rxnorm_tty: string | null
           status: string | null
+          umls_cui: string | null
           updated_at: string
         }
         Insert: {
           administered_at?: string | null
           approved_at?: string | null
           author_id?: string | null
+          coded_at?: string | null
+          coding_source?: string | null
           created_at?: string | null
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           dispensed_at?: string | null
@@ -1248,6 +1463,7 @@ export type Database = {
           facility_name?: string | null
           frequency?: string | null
           id?: string
+          ingredient_rxcui?: string | null
           medication?: string | null
           medication_name?: string | null
           mrn?: string | null
@@ -1258,13 +1474,19 @@ export type Database = {
           patient_mrn?: string | null
           patient_name?: string | null
           route?: string | null
+          rxnorm_code?: string | null
+          rxnorm_display?: string | null
+          rxnorm_tty?: string | null
           status?: string | null
+          umls_cui?: string | null
           updated_at?: string
         }
         Update: {
           administered_at?: string | null
           approved_at?: string | null
           author_id?: string | null
+          coded_at?: string | null
+          coding_source?: string | null
           created_at?: string | null
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           dispensed_at?: string | null
@@ -1274,6 +1496,7 @@ export type Database = {
           facility_name?: string | null
           frequency?: string | null
           id?: string
+          ingredient_rxcui?: string | null
           medication?: string | null
           medication_name?: string | null
           mrn?: string | null
@@ -1284,7 +1507,11 @@ export type Database = {
           patient_mrn?: string | null
           patient_name?: string | null
           route?: string | null
+          rxnorm_code?: string | null
+          rxnorm_display?: string | null
+          rxnorm_tty?: string | null
           status?: string | null
+          umls_cui?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -1948,6 +2175,69 @@ export type Database = {
         }
         Relationships: []
       }
+      procedures: {
+        Row: {
+          coded_at: string | null
+          coding_source: string | null
+          cpt_code: string | null
+          cpt_display: string | null
+          created_at: string
+          created_by_type: string | null
+          display_text: string
+          icd10pcs_code: string | null
+          id: string
+          mrn: string
+          patient_name: string | null
+          performed_at: string | null
+          performed_by: string | null
+          snomed_code: string | null
+          snomed_display: string | null
+          status: string | null
+          umls_cui: string | null
+          updated_at: string
+        }
+        Insert: {
+          coded_at?: string | null
+          coding_source?: string | null
+          cpt_code?: string | null
+          cpt_display?: string | null
+          created_at?: string
+          created_by_type?: string | null
+          display_text: string
+          icd10pcs_code?: string | null
+          id?: string
+          mrn: string
+          patient_name?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          snomed_code?: string | null
+          snomed_display?: string | null
+          status?: string | null
+          umls_cui?: string | null
+          updated_at?: string
+        }
+        Update: {
+          coded_at?: string | null
+          coding_source?: string | null
+          cpt_code?: string | null
+          cpt_display?: string | null
+          created_at?: string
+          created_by_type?: string | null
+          display_text?: string
+          icd10pcs_code?: string | null
+          id?: string
+          mrn?: string
+          patient_name?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          snomed_code?: string | null
+          snomed_display?: string | null
+          status?: string | null
+          umls_cui?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           author_id: string | null
@@ -2164,6 +2454,63 @@ export type Database = {
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: number
           updated_at?: string
+        }
+        Relationships: []
+      }
+      terminology_audit: {
+        Row: {
+          action: string
+          cache_hit: boolean | null
+          confidence: number | null
+          created_at: string
+          elapsed_ms: number | null
+          id: string
+          input_text: string
+          mrn: string | null
+          raw_response: Json | null
+          resolved_code: string | null
+          resolved_display: string | null
+          resolver: string | null
+          resource_id: string | null
+          resource_type: string
+          umls_cui: string | null
+          vocabulary: string
+        }
+        Insert: {
+          action: string
+          cache_hit?: boolean | null
+          confidence?: number | null
+          created_at?: string
+          elapsed_ms?: number | null
+          id?: string
+          input_text: string
+          mrn?: string | null
+          raw_response?: Json | null
+          resolved_code?: string | null
+          resolved_display?: string | null
+          resolver?: string | null
+          resource_id?: string | null
+          resource_type: string
+          umls_cui?: string | null
+          vocabulary: string
+        }
+        Update: {
+          action?: string
+          cache_hit?: boolean | null
+          confidence?: number | null
+          created_at?: string
+          elapsed_ms?: number | null
+          id?: string
+          input_text?: string
+          mrn?: string | null
+          raw_response?: Json | null
+          resolved_code?: string | null
+          resolved_display?: string | null
+          resolver?: string | null
+          resource_id?: string | null
+          resource_type?: string
+          umls_cui?: string | null
+          vocabulary?: string
         }
         Relationships: []
       }
