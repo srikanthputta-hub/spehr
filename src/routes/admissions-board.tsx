@@ -175,7 +175,6 @@ function RosterTab({ facility }: { facility: string }) {
   const [query, setQuery] = useState("");
 
   const load = async () => {
-    setLoading(true);
     // Source: `patients` (the local mirror of the FHIR Encounter resource).
     // status = 'Admitted' → FHIR Encounter.status = in-progress
     // status = 'Discharged' → FHIR Encounter.status = finished
