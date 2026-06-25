@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { autoCodeLab, autoCodeMedication } from "@/lib/auto-code";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import {
   ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X,
