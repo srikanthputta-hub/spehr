@@ -410,6 +410,7 @@ export type EncounterLab = {
   status?: string | null;
   collected_at?: string | null;
   created_at?: string | null;
+  loinc_code?: string | null;
 };
 
 export type EncounterMed = {
