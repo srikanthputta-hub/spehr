@@ -2692,7 +2692,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
       const parsed = raw ? JSON.parse(raw) : {};
       const out: Record<string, "ok" | "err"> = {};
       for (const [k, v] of Object.entries(parsed)) {
-        if (v === "ok" || v === "err") out[k] = v as any;
+        if (v === "ok") out[k] = v as any;
       }
       return out;
     } catch {
