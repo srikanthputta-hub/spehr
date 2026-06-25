@@ -213,7 +213,23 @@ export const stableIds = {
   encounter: (mrn: string) => `enc-${mrn}`,
   relatedPerson: (mrn: string) => `relp-${mrn}-econ`,
   vital: (loinc: string, mrn: string) => `vital-${loinc}-${mrn}`,
-  lab: (testName: string, mrn: string) => `lab-${slugify(testName)}-${mrn}`,
+  // FHIR R4 IDs must match [A-Za-z0-9\-\.]{1,64}. Prefer a LOINC code when
+  // available (always short, always safe); otherwise fall back to a hard-
+  // capped slug of the test name. Never let free-text LOINC display names
+  // produce IDs > 64 chars — HAPI rejects them with HAPI-0521.
+  lab: (testName: string, mrn: string, loincCode?: string | null) => {
+    if (loincCode) {
+      const code = String(loincCode).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 40);
+      if (code) return `lab-${code}-${mrn}`;
+    }
+    const slug = (testName ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .substring(0, 40) || "unknown";
+    return `lab-${slug}-${mrn}`;
+  },
   medRequest: (drug: string, mrn: string) => `medreq-${slugify(drug)}-${mrn}`,
   medAdmin: (drug: string, mrn: string) => `medadmin-${slugify(drug)}-${mrn}`,
   allergy: (allergen: string, mrn: string) => `allergy-${slugify(allergen)}-${mrn}`,
@@ -394,6 +410,7 @@ export type EncounterLab = {
   status?: string | null;
   collected_at?: string | null;
   created_at?: string | null;
+  loinc_code?: string | null;
 };
 
 export type EncounterMed = {
@@ -517,8 +534,49 @@ function vitalsObservations(p: EncounterPatient) {
   return out;
 }
 
+// Common LOINC codes for in-app lab tests. Lets us emit short stable IDs
+// (`lab-{loinc}-{mrn}`) and a proper code.coding even when the upstream
+// row didn't carry a loinc_code column.
+const LAB_LOINC_BY_NAME: Record<string, string> = {
+  "hemoglobin": "718-7",
+  "hgb": "718-7",
+  "wbc": "6690-2",
+  "white blood cell count": "6690-2",
+  "glucose": "2345-7",
+  "creatinine": "2160-0",
+  "troponin t": "89579-7",
+  "troponin t hs": "89579-7",
+  "high sensitivity troponin t": "89579-7",
+  "creatine kinase": "2157-6",
+  "ck": "2157-6",
+};
+function loincForLabName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const n = name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (LAB_LOINC_BY_NAME[n]) return LAB_LOINC_BY_NAME[n];
+  for (const k of Object.keys(LAB_LOINC_BY_NAME)) {
+    if (n.includes(k)) return LAB_LOINC_BY_NAME[k];
+  }
+  return null;
+}
+
+/**
+ * Block hallucinated lab entries from reaching the FHIR bundle. A real
+ * ordered lab always has either a short clinical name or an explicit LOINC
+ * code; sprawling 60+ char names like "Conditions related to mental
+ * retardation and developmental..." originate from the NLP pipeline and
+ * have no business in the patient's record.
+ */
+function isPlausibleLab(l: EncounterLab): boolean {
+  const loinc = l.loinc_code ?? loincForLabName(l.test_type);
+  if (loinc) return true;
+  const name = (l.test_type ?? "").trim();
+  return name.length > 0 && name.length <= 40;
+}
+
 function labObservation(mrn: string, l: EncounterLab) {
-  const id = stableIds.lab(l.test_type ?? l.id ?? "unknown", mrn);
+  const loinc = l.loinc_code ?? loincForLabName(l.test_type);
+  const id = stableIds.lab(l.test_type ?? l.id ?? "unknown", mrn, loinc);
   const numeric = l.result_value ? Number((l.result_value.match(/-?\d+(\.\d+)?/) ?? [])[0]) : NaN;
   return {
     resourceType: "Observation",
@@ -538,7 +596,12 @@ function labObservation(mrn: string, l: EncounterLab) {
         ],
       },
     ],
-    code: { text: l.test_type ?? "Lab" },
+    code: loinc
+      ? {
+          coding: [{ system: "http://loinc.org", code: loinc, display: l.test_type ?? undefined }],
+          text: l.test_type ?? "Lab",
+        }
+      : { text: l.test_type ?? "Lab" },
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/enc-${mrn}` },
     effectiveDateTime: l.collected_at ?? l.created_at ?? undefined,
@@ -744,6 +807,12 @@ export function buildEncounterBundle(opts: {
     new Date(l.collected_at ?? l.created_at ?? 0).getTime() || 0;
   const labsByTest = new Map<string, EncounterLab>();
   for (const l of opts.labs ?? []) {
+    if (!isPlausibleLab(l)) {
+      console.warn(
+        `[fhir-bundle] dropping implausible lab for ${patient.mrn}: ${l.test_type}`,
+      );
+      continue;
+    }
     const slug = slugify(l.test_type ?? l.id ?? "unknown");
     const prev = labsByTest.get(slug);
     if (!prev) {
