@@ -3063,12 +3063,14 @@ function FhirInteroperability({ facility }: { facility: string }) {
       if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
       setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
       setPushedMrns((m) => ({ ...m, [r.mrn]: "ok" }));
+      stampSync(r.mrn);
       // Silent on success — live mode fires constantly; only surface failures.
     } catch (e: any) {
       const msg = typeof e?.message === "string" ? e.message : "Sync failed";
       console.error("[FHIR auto-sync]", r.mrn, e);
       setAutoStatus((s) => ({ ...s, [r.mrn]: "err" }));
       setPushedMrns((m) => ({ ...m, [r.mrn]: "err" }));
+      stampSync(r.mrn);
       toast.error(`Auto-Sync failed for ${r.name ?? r.mrn} · ${msg}`);
     }
   };
