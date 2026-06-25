@@ -54,7 +54,6 @@ export function CdsHookAlert({
           drug_name: drugName,
           drug_rxnorm: hit?.rule.drug_rxnorm,
           condition_name: hit?.matched_condition ?? allergy ?? undefined,
-          condition_icd10: hit?.rule.condition_icd10,
           condition_snomed: hit?.rule.condition_snomed,
           reason: overrideReason.trim(),
           physician_name: physicianName,
