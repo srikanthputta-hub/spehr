@@ -2526,6 +2526,18 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
   const [rows, setRows] = useState<MatrixCell[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshTick, setRefreshTick] = useState(0);
+  // step-8 coded columns indexed by MRN
+  const [coded, setCoded] = useState<
+    Record<
+      string,
+      {
+        snomed: { code: string; display?: string | null }[];
+        icd10: { code: string; display?: string | null }[];
+        loinc: { code: string; display?: string | null }[];
+        rxnorm: { code: string; display?: string | null }[];
+      }
+    >
+  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -2546,12 +2558,29 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         return;
       }
       const mrns = (patients ?? []).map((p: any) => p.mrn).filter(Boolean);
-      const [labsRes, medsRes] = await Promise.all([
+      const [labsRes, medsRes, condsRes] = await Promise.all([
         supabase.from("lab_orders").select("patient_mrn, test_type").in("patient_mrn", mrns),
         supabase
           .from("medication_orders")
           .select("patient_mrn, medication_name, drug_name")
           .in("patient_mrn", mrns),
+        supabase
+          .from("conditions")
+          .select("patient_mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
+          .in("patient_mrn", mrns),
+      ]);
+      // Pull coded columns from step-8 schema (auto-coded by `auto-code.ts`).
+      const [labsCoded, medsCoded] = await Promise.all([
+        supabase
+          .from("lab_orders")
+          .select("patient_mrn, loinc_code, loinc_display")
+          .in("patient_mrn", mrns)
+          .not("loinc_code", "is", null),
+        supabase
+          .from("medication_orders")
+          .select("patient_mrn, rxnorm_code, rxnorm_display")
+          .in("patient_mrn", mrns)
+          .not("rxnorm_code", "is", null),
       ]);
       const labMap = new Map<string, Set<string>>();
       for (const r of (labsRes.data ?? []) as any[]) {
@@ -2563,6 +2592,28 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         const m = r.medication_name || r.drug_name;
         if (!r.patient_mrn || !m) continue;
         (medMap.get(r.patient_mrn) ?? medMap.set(r.patient_mrn, new Set()).get(r.patient_mrn)!).add(m);
+      }
+      // Build coded index from conditions/labs/meds
+      const codedIdx: Record<string, any> = {};
+      const bucket = (mrn: string) =>
+        (codedIdx[mrn] ||= { snomed: [], icd10: [], loinc: [], rxnorm: [] });
+      const seen = new Map<string, Set<string>>();
+      const pushUnique = (mrn: string, sys: string, code: string, display?: string | null) => {
+        const key = `${mrn}|${sys}|${code}`;
+        const ms = seen.get(mrn) ?? seen.set(mrn, new Set()).get(mrn)!;
+        if (ms.has(key)) return;
+        ms.add(key);
+        bucket(mrn)[sys].push({ code, display });
+      };
+      for (const r of (condsRes.data ?? []) as any[]) {
+        if (r.snomed_code) pushUnique(r.patient_mrn, "snomed", r.snomed_code, r.snomed_display ?? r.display_text);
+        if (r.icd10_code) pushUnique(r.patient_mrn, "icd10", r.icd10_code, r.icd10_display ?? r.display_text);
+      }
+      for (const r of (labsCoded.data ?? []) as any[]) {
+        if (r.loinc_code) pushUnique(r.patient_mrn, "loinc", r.loinc_code, r.loinc_display);
+      }
+      for (const r of (medsCoded.data ?? []) as any[]) {
+        if (r.rxnorm_code) pushUnique(r.patient_mrn, "rxnorm", r.rxnorm_code, r.rxnorm_display);
       }
       const cells: MatrixCell[] = (patients ?? []).map((p: any) => ({
         mrn: p.mrn,
@@ -2577,6 +2628,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       }));
       if (!cancelled) {
         setRows(cells);
+        setCoded(codedIdx);
         setLoading(false);
       }
     })();
@@ -2668,14 +2720,32 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               )}
               {rows.map((r) => {
                 const cc = r.chief_complaint ? [r.chief_complaint] : [];
-                const snomed = r.snomed_codes.length
+                const liveCoded = coded[r.mrn];
+                const liveToDict = (sys: string, list: { code: string; display?: string | null }[]): DictEntry[] =>
+                  list.slice(0, 6).map((x) => ({
+                    id: `live-${sys}-${x.code}`,
+                    code_system: sys,
+                    code: x.code,
+                    display: x.display ?? x.code,
+                    category: "AUTO API · live",
+                    description: null,
+                  } as unknown as DictEntry));
+                const snomed = liveCoded?.snomed?.length
+                  ? liveToDict("SNOMED CT", liveCoded.snomed)
+                  : r.snomed_codes.length
                   ? findByExactCodes("SNOMED CT", r.snomed_codes)
                   : findCodes("SNOMED CT", cc);
-                const icd10 = r.icd10_codes.length
+                const icd10 = liveCoded?.icd10?.length
+                  ? liveToDict("ICD-10", liveCoded.icd10)
+                  : r.icd10_codes.length
                   ? findByExactCodes("ICD-10", r.icd10_codes)
                   : findCodes("ICD-10", cc);
-                const loinc = findCodes("LOINC", r.labs);
-                const rxnorm = findCodes("RxNorm", r.meds);
+                const loinc = liveCoded?.loinc?.length
+                  ? liveToDict("LOINC", liveCoded.loinc)
+                  : findCodes("LOINC", r.labs);
+                const rxnorm = liveCoded?.rxnorm?.length
+                  ? liveToDict("RxNorm", liveCoded.rxnorm)
+                  : findCodes("RxNorm", r.meds);
                 return (
                   <tr key={r.mrn} className="hover:bg-slate-50/60">
                     <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{r.mrn}</td>
