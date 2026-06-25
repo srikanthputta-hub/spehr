@@ -2541,6 +2541,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         icd10: { code: string; display?: string | null }[];
         loinc: { code: string; display?: string | null }[];
         rxnorm: { code: string; display?: string | null }[];
+        cpt: { code: string; display?: string | null }[];
       }
     >
   >({});
@@ -2588,6 +2589,11 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
           .in("patient_mrn", mrns)
           .not("rxnorm_code", "is", null),
       ]);
+      const procsRes = await supabase
+        .from("procedures")
+        .select("mrn, cpt_code, cpt_display, display_text")
+        .in("mrn", mrns)
+        .not("cpt_code", "is", null);
       const labMap = new Map<string, Set<string>>();
       for (const r of (labsRes.data ?? []) as any[]) {
         if (!r.patient_mrn || !r.test_type) continue;
@@ -2602,7 +2608,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       // Build coded index from conditions/labs/meds
       const codedIdx: Record<string, any> = {};
       const bucket = (mrn: string) =>
-        (codedIdx[mrn] ||= { snomed: [], icd10: [], loinc: [], rxnorm: [] });
+        (codedIdx[mrn] ||= { snomed: [], icd10: [], loinc: [], rxnorm: [], cpt: [] });
       const seen = new Map<string, Set<string>>();
       const pushUnique = (mrn: string, sys: string, code: string, display?: string | null) => {
         const key = `${mrn}|${sys}|${code}`;
@@ -2620,6 +2626,9 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       }
       for (const r of (medsCoded.data ?? []) as any[]) {
         if (r.rxnorm_code) pushUnique(r.patient_mrn, "rxnorm", r.rxnorm_code, r.rxnorm_display);
+      }
+      for (const r of (procsRes.data ?? []) as any[]) {
+        if (r.cpt_code && r.mrn) pushUnique(r.mrn, "cpt", r.cpt_code, r.cpt_display ?? r.display_text);
       }
       const cells: MatrixCell[] = (patients ?? []).map((p: any) => ({
         mrn: p.mrn,
@@ -2689,7 +2698,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
           </h2>
           <p className="text-sm text-slate-600 mt-0.5">
             Last 15 admissions{facility !== "all" ? ` at ${facility}` : " across the network"} mapped to
-            SNOMED-CT, ICD-10, LOINC, and RxNorm. Click any pill for the canonical
+            SNOMED-CT, ICD-10, CPT, LOINC, and RxNorm. Click any pill for the canonical
             display and value-set category.
           </p>
         </div>
@@ -2704,6 +2713,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Patient</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">SNOMED CT</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">ICD-10</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">CPT</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">LOINC</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">RxNorm</th>
               </tr>
@@ -2711,7 +2721,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
                     <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
                     Loading matrix…
                   </td>
@@ -2719,7 +2729,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
+                  <td colSpan={7} className="px-4 py-6 text-center text-xs text-slate-500">
                     No admissions to display.
                   </td>
                 </tr>
@@ -2752,6 +2762,9 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                 const rxnorm = liveCoded?.rxnorm?.length
                   ? liveToDict("RxNorm", liveCoded.rxnorm)
                   : findCodes("RxNorm", r.meds);
+                const cpt = liveCoded?.cpt?.length
+                  ? liveToDict("CPT", liveCoded.cpt)
+                  : [];
                 return (
                   <tr key={r.mrn} className="hover:bg-slate-50/60">
                     <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{r.mrn}</td>
@@ -2761,6 +2774,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                     </td>
                     <td className="px-3 py-2.5"><PillRow entries={snomed} system="SNOMED CT" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={icd10} system="ICD-10" /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={cpt} system="CPT" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={loinc} system="LOINC" /></td>
                     <td className="px-3 py-2.5"><PillRow entries={rxnorm} system="RxNorm" /></td>
                   </tr>
@@ -3875,6 +3889,7 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
   "SNOMED CT":  { tint: "border-indigo-200 bg-indigo-50/40",   chip: "bg-indigo-100 text-indigo-800 border-indigo-200",   blurb: "Clinical findings & procedures" },
   "LOINC":      { tint: "border-amber-200 bg-amber-50/40",     chip: "bg-amber-100 text-amber-800 border-amber-200",      blurb: "Laboratory observations" },
   "RxNorm":     { tint: "border-emerald-200 bg-emerald-50/40", chip: "bg-emerald-100 text-emerald-800 border-emerald-200", blurb: "Medications & doses" },
+  "CPT":        { tint: "border-violet-200 bg-violet-50/40",   chip: "bg-violet-100 text-violet-800 border-violet-200",   blurb: "Procedure codes" },
   "VSAC":       { tint: "border-sky-200 bg-sky-50/40",         chip: "bg-sky-100 text-sky-800 border-sky-200",            blurb: "Aligned value sets" },
 };
 
