@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplete";
 import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
+import { autoCodeMedication } from "@/lib/auto-code";
 
 const TRANSFER_DESTINATIONS = [
   "Memorial Hospital",
