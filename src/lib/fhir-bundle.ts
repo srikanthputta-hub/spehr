@@ -629,11 +629,48 @@ export function buildEncounterBundle(opts: {
   const patientRes = fullPatient(patient);
   const encounterRes = buildEncounterResource(patient);
   const vitals = vitalsObservations(patient);
-  const labs = (opts.labs ?? []).map((l) => labObservation(patient.mrn, l));
-  const medReqs = (opts.meds ?? []).map((m) => medRequest(patient.mrn, m));
-  const medAdms = (opts.meds ?? [])
-    .filter((m) => !!m.administered_at)
-    .map((m) => medAdministration(patient.mrn, m));
+  // Lab collapse: keep the latest event per test slug. This prevents
+  // HAPI-0534 "Transaction bundle contains multiple resources with ID"
+  // when a patient has both an ordered (registered) and resulted (final)
+  // observation for the same test (e.g. creatinine, hemoglobin).
+  const labTime = (l: EncounterLab) =>
+    new Date(l.collected_at ?? l.created_at ?? 0).getTime() || 0;
+  const labsByTest = new Map<string, EncounterLab>();
+  for (const l of opts.labs ?? []) {
+    const slug = slugify(l.test_type ?? l.id ?? "unknown");
+    const prev = labsByTest.get(slug);
+    if (!prev) {
+      labsByTest.set(slug, l);
+      continue;
+    }
+    const prevHasResult = !!prev.result_value;
+    const curHasResult = !!l.result_value;
+    if (curHasResult && !prevHasResult) labsByTest.set(slug, l);
+    else if (curHasResult === prevHasResult && labTime(l) > labTime(prev))
+      labsByTest.set(slug, l);
+  }
+  const labs = Array.from(labsByTest.values()).map((l) => labObservation(patient.mrn, l));
+
+  // Meds collapse: keep latest per stable id for both requests and admins.
+  const medTime = (m: EncounterMed) =>
+    new Date(m.administered_at ?? m.approved_at ?? m.created_at ?? 0).getTime() || 0;
+  const reqByKey = new Map<string, EncounterMed>();
+  for (const m of opts.meds ?? []) {
+    const drug = m.drug_name ?? m.drug ?? m.medication_name ?? "medication";
+    const key = slugify(`${drug}${m.dose ? `-${m.dose}` : ""}`);
+    const prev = reqByKey.get(key);
+    if (!prev || medTime(m) > medTime(prev)) reqByKey.set(key, m);
+  }
+  const medReqs = Array.from(reqByKey.values()).map((m) => medRequest(patient.mrn, m));
+  const admByKey = new Map<string, EncounterMed>();
+  for (const m of opts.meds ?? []) {
+    if (!m.administered_at) continue;
+    const drug = m.drug_name ?? m.drug ?? m.medication_name ?? "medication";
+    const key = slugify(`${drug}${m.dose ? `-${m.dose}` : ""}`);
+    const prev = admByKey.get(key);
+    if (!prev || medTime(m) > medTime(prev)) admByKey.set(key, m);
+  }
+  const medAdms = Array.from(admByKey.values()).map((m) => medAdministration(patient.mrn, m));
   const docs = (opts.notes ?? []).map((n) => docReference(patient.mrn, n));
   const carePlan = carePlanFromDischarge(patient);
   const appt = followUpAppointment(patient);
@@ -686,17 +723,52 @@ export function buildEncounterBundle(opts: {
     ...(appt ? [appt] : []),
   ];
 
+  // Final safety net: deduplicate by stable id so a single transaction
+  // bundle never contains two entries that resolve to the same client
+  // assigned id. Keeps the latest by effectiveDateTime / authoredOn /
+  // meta.lastUpdated when a collision slips through earlier collapses.
+  const seen = new Map<string, any>();
+  for (const r of all) {
+    const key = `${r.resourceType}/${r.id}`;
+    const prev = seen.get(key);
+    if (!prev) {
+      seen.set(key, r);
+      continue;
+    }
+    if (getResourceTimestamp(r) >= getResourceTimestamp(prev)) seen.set(key, r);
+  }
+  const deduped = Array.from(seen.values());
+
   return {
     resourceType: "Bundle",
     id: `encounter-${patient.mrn}-${Date.now()}`,
     type: "transaction",
     timestamp: new Date().toISOString(),
-    entry: all.map((r) => ({
-      fullUrl: `urn:uuid:${r.resourceType}-${r.id}`,
+    // For client-assigned PUT upserts, fullUrl must be the absolute
+    // resource path (ResourceType/id) so HAPI matches it against the
+    // request.url and performs an UPSERT instead of a create-with-id.
+    entry: deduped.map((r) => ({
+      fullUrl: `${r.resourceType}/${r.id}`,
       resource: r,
       request: requestFor(r),
     })),
   };
+}
+
+function getResourceTimestamp(resource: any): number {
+  if (!resource) return 0;
+  if (resource.effectiveDateTime)
+    return new Date(resource.effectiveDateTime).getTime() || 0;
+  if (resource.authoredOn)
+    return new Date(resource.authoredOn).getTime() || 0;
+  if (resource.period?.end)
+    return new Date(resource.period.end).getTime() || 0;
+  if (resource.period?.start)
+    return new Date(resource.period.start).getTime() || 0;
+  if (resource.date) return new Date(resource.date).getTime() || 0;
+  if (resource.meta?.lastUpdated)
+    return new Date(resource.meta.lastUpdated).getTime() || 0;
+  return 0;
 }
 
 /** Trigger a JSON download in the browser. */
