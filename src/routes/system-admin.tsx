@@ -3167,10 +3167,11 @@ function FhirInteroperability({ facility }: { facility: string }) {
               (type=<span className="font-mono">transaction</span>) containing the
               Composition, Patient, Encounter, Observations (vitals + labs),
               MedicationRequest, MedicationAdministration, DocumentReference,
-              CarePlan, and follow-up Appointment. Each entry carries a per-resource
-              <span className="font-mono"> request </span>directive (PUT upsert for
-              Patient/Encounter, POST append for everything else) — the exact
-              payload pushed live to the Medblocks FHIR server.
+              CarePlan, and follow-up Appointment. Every entry uses
+              <span className="font-mono"> PUT /{`{ResourceType}/{stableId}`}</span>{" "}
+              with a deterministic stable id derived from MRN + clinical content,
+              so every push is an idempotent UPSERT — re-syncing the same patient
+              can never create duplicate resources on the Medblocks server.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-md border border-slate-200 bg-slate-950 text-slate-100 max-h-[60vh] overflow-auto p-3">
