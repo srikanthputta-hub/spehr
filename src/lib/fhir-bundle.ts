@@ -629,6 +629,7 @@ export function buildEncounterBundle(opts: {
   const patientRes = fullPatient(patient);
   const encounterRes = buildEncounterResource(patient);
   const vitals = vitalsObservations(patient);
+  const conditions = encounterConditions(patient);
   // Lab collapse: keep the latest event per test slug. This prevents
   // HAPI-0534 "Transaction bundle contains multiple resources with ID"
   // when a patient has both an ordered (registered) and resulted (final)
@@ -692,6 +693,7 @@ export function buildEncounterBundle(opts: {
     title: `Encounter summary — ${patient.name ?? patient.mrn}`,
     section: [
       { title: "Encounter", entry: [{ reference: `Encounter/enc-${patient.mrn}` }] },
+      { title: "Diagnoses", entry: conditions.map((c) => ({ reference: `Condition/${c.id}` })) },
       { title: "Vital Signs", entry: vitals.map((o) => ({ reference: `Observation/${o.id}` })) },
       { title: "Laboratory", entry: labs.map((o) => ({ reference: `Observation/${o.id}` })) },
       { title: "Medication Orders", entry: medReqs.map((m) => ({ reference: `MedicationRequest/${m.id}` })) },
@@ -714,6 +716,7 @@ export function buildEncounterBundle(opts: {
     composition,
     patientRes,
     encounterRes,
+    ...conditions,
     ...vitals,
     ...labs,
     ...medReqs,
