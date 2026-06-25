@@ -23,7 +23,8 @@ async function patch(
   id: string,
   patchData: Record<string, unknown>,
 ): Promise<void> {
-  const { error } = await supabase.from(table).update(patchData).eq("id", id);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase.from(table) as any).update(patchData).eq("id", id);
   if (error) console.warn(`[auto-code] ${table} update failed`, error.message);
 }
 
