@@ -2167,6 +2167,30 @@ export type Database = {
         }
         Relationships: []
       }
+      umls_cache: {
+        Row: {
+          cache_key: string
+          cached_at: string
+          expires_at: string
+          response: Json
+          vocabulary: string
+        }
+        Insert: {
+          cache_key: string
+          cached_at?: string
+          expires_at?: string
+          response: Json
+          vocabulary: string
+        }
+        Update: {
+          cache_key?: string
+          cached_at?: string
+          expires_at?: string
+          response?: Json
+          vocabulary?: string
+        }
+        Relationships: []
+      }
       umls_term_cache: {
         Row: {
           author_id: string | null
