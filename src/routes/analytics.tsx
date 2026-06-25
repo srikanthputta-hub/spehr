@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Activity, Users, LogOut as LogOutIcon, Loader2 } from "lucide-react";
+import { PopulationHealth } from "@/components/admin/PopulationHealth";
 
 export const Route = createFileRoute("/analytics")({
   component: AnalyticsPage,
@@ -202,6 +203,8 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
             </ResponsiveContainer>
           </div>
         </div>
+
+        <PopulationHealth />
 
         {/* Live Feed */}
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">

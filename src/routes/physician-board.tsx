@@ -35,6 +35,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplete";
+import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
 
 const TRANSFER_DESTINATIONS = [
   "Memorial Hospital",
@@ -540,11 +542,11 @@ function PhysicianBoard() {
                 </div>
                 <form onSubmit={submitOrder} className="grid grid-cols-12 gap-3 p-5">
                   <Field label="Drug Name" className="col-span-12 md:col-span-5">
-                    <input
+                    <SemanticAutocomplete
                       value={drug}
-                      onChange={(e) => setDrug(e.target.value)}
+                      onChange={setDrug}
                       placeholder="e.g. Furosemide"
-                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
+                      vocabulary="RxNorm"
                     />
                   </Field>
                   <Field label="Dose" className="col-span-6 md:col-span-3">
@@ -594,6 +596,19 @@ function PhysicianBoard() {
                       Submit &amp; Route to Pharmacy
                     </button>
                   </div>
+                  {selected && (
+                    <div className="col-span-12">
+                      <CdsHookAlert
+                        drugName={drug}
+                        mrn={selected.mrn}
+                        patientConditions={[
+                          selected.chief_complaint ?? "",
+                          selected.diagnosis ?? "",
+                        ].filter(Boolean)}
+                        physicianName={md.name}
+                      />
+                    </div>
+                  )}
                 </form>
               </div>
 
