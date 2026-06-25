@@ -3948,7 +3948,7 @@ function TaxonomyTree({
 }
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety" | "fhir">("catalog");
+  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety" | "auto_api" | "fhir">("catalog");
   const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4381,6 +4381,7 @@ function MedicalDictionary() {
           { id: "audits",  label: "NLP Audit Logs", Icon: Sparkles },
           { id: "matrix",  label: "Live Terminology Matrix", Icon: Grid3x3 },
           { id: "safety",  label: "Safety Alerts", Icon: ShieldAlert },
+          { id: "auto_api", label: "AUTO API", Icon: Activity },
           { id: "fhir",    label: "FHIR Interoperability", Icon: FileJson },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
@@ -4404,6 +4405,7 @@ function MedicalDictionary() {
       {subtab === "audits" && <QaGovernanceQueue />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
+      {subtab === "auto_api" && <AutoApiCard />}
       {subtab === "fhir" && <FhirInteroperability facility={facilityFilter} />}
 
       {subtab === "catalog" && <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={remove} />}
