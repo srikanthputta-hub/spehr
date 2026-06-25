@@ -65,6 +65,12 @@ import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
 import { AutoApiCard } from "@/components/admin/AutoApiCard";
+import {
+  TerminologyMetricsStrip,
+  UmlsResolutionTrail,
+  CdsOverridesFeed,
+  AutoApiEventsFeed,
+} from "@/components/admin/Step8Surfacing";
 import { AutoApiStatusPill } from "@/components/admin/AutoApiStatusPill";
 import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
 import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
