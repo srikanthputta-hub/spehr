@@ -2759,16 +2759,14 @@ function FhirInteroperability({ facility }: { facility: string }) {
       return { label: "Discharged", cls: "bg-slate-100 text-slate-700 border-slate-300" };
     }
     if (s === "admitted" || r.admission_time) {
-      return { label: "Admitted", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+      return { label: "Admitted", cls: "bg-sky-50 text-sky-700 border-sky-200" };
     }
     return { label: "Pending Sync", cls: "bg-amber-50 text-amber-700 border-amber-200" };
   };
 
-  // Only discharged encounters are eligible for FHIR live sync.
-  const isDischarged = (r: FhirEncounterRow) => {
-    const s = (r.status ?? "").toLowerCase();
-    return s === "discharged" || !!r.discharge_time;
-  };
+  // Full live-sync mode: every row is sync-eligible regardless of
+  // admission status. Stable-id PUT bundles are idempotent.
+  const isSyncEligible = (_r: FhirEncounterRow) => true;
 
   const openBundle = async (r: FhirEncounterRow) => {
     setActiveRow(r);
@@ -2945,12 +2943,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setAutoStatus((prev) => {
       const next = { ...prev };
       for (const r of rows) {
-        // Discharged-only sync: skip patients who are still admitted.
-        if (!isDischarged(r)) continue;
-        // Live-sync mode: every encounter is pushed at least once.
-        // Re-pushing is safe because the bundle uses PUT with stable
-        // resource IDs (idempotent UPSERT on the FHIR server), so it
-        // never creates duplicates even if fired repeatedly.
+        if (!isSyncEligible(r)) continue;
+        // Live-sync mode: every encounter is pushed on every clinical
+        // event. PUT-with-stable-id guarantees UPSERT semantics, so the
+        // server can never accumulate duplicates.
         if (next[r.mrn] === "syncing") continue;
         if (!next[r.mrn]) next[r.mrn] = "queued";
       }
@@ -2970,9 +2966,9 @@ function FhirInteroperability({ facility }: { facility: string }) {
   // the PUT-with-stable-id bundle, so re-firing never duplicates resources.
   useEffect(() => {
     if (!autoOn || rows.length === 0) return;
-    const dischargedMrns = new Set(rows.filter(isDischarged).map((r) => r.mrn));
+    const eligibleMrns = new Set(rows.map((r) => r.mrn));
     const requeue = (mrn: string | null | undefined) => {
-      if (!mrn || !dischargedMrns.has(mrn)) return;
+      if (!mrn || !eligibleMrns.has(mrn)) return;
       setAutoStatus((s) => (s[mrn] === "syncing" ? s : { ...s, [mrn]: "queued" }));
     };
     const channel = supabase
@@ -2998,7 +2994,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
     if (!autoOn) return;
     const inFlight = Object.values(autoStatus).some((v) => v === "syncing");
     if (inFlight) return;
-    const next = rows.find((r) => isDischarged(r) && autoStatus[r.mrn] === "queued");
+    const next = rows.find((r) => autoStatus[r.mrn] === "queued");
     if (!next) return;
     void autoPushRow(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
