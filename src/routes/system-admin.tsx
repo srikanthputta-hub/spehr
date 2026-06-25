@@ -3875,6 +3875,7 @@ const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }>
   "SNOMED CT":  { tint: "border-indigo-200 bg-indigo-50/40",   chip: "bg-indigo-100 text-indigo-800 border-indigo-200",   blurb: "Clinical findings & procedures" },
   "LOINC":      { tint: "border-amber-200 bg-amber-50/40",     chip: "bg-amber-100 text-amber-800 border-amber-200",      blurb: "Laboratory observations" },
   "RxNorm":     { tint: "border-emerald-200 bg-emerald-50/40", chip: "bg-emerald-100 text-emerald-800 border-emerald-200", blurb: "Medications & doses" },
+  "CPT":        { tint: "border-violet-200 bg-violet-50/40",   chip: "bg-violet-100 text-violet-800 border-violet-200",   blurb: "Procedure codes" },
   "VSAC":       { tint: "border-sky-200 bg-sky-50/40",         chip: "bg-sky-100 text-sky-800 border-sky-200",            blurb: "Aligned value sets" },
 };
 
