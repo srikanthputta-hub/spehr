@@ -182,6 +182,32 @@ export function slugify(input: string): string {
     .slice(0, 60) || "unknown";
 }
 
+/**
+ * Defensive per-entry builder. If a single resource throws (malformed
+ * manual order, missing required field, etc.) it is logged and skipped
+ * so the rest of the bundle still ships. Bug-4 safety net.
+ */
+function safeMap<T>(
+  items: T[],
+  build: (item: T) => any,
+  kind: string,
+  mrn: string,
+): any[] {
+  const out: any[] = [];
+  for (const item of items) {
+    try {
+      out.push(build(item));
+    } catch (e) {
+      console.warn(
+        `[fhir-bundle] skipping malformed ${kind} for ${mrn}:`,
+        item,
+        e,
+      );
+    }
+  }
+  return out;
+}
+
 export const stableIds = {
   patient: (mrn: string) => mrn,
   encounter: (mrn: string) => `enc-${mrn}`,
@@ -730,7 +756,12 @@ export function buildEncounterBundle(opts: {
     else if (curHasResult === prevHasResult && labTime(l) > labTime(prev))
       labsByTest.set(slug, l);
   }
-  const labs = Array.from(labsByTest.values()).map((l) => labObservation(patient.mrn, l));
+  const labs = safeMap(
+    Array.from(labsByTest.values()),
+    (l) => labObservation(patient.mrn, l),
+    "lab",
+    patient.mrn,
+  );
 
   // Meds collapse: keep latest per stable id for both requests and admins.
   const medTime = (m: EncounterMed) =>
@@ -742,7 +773,12 @@ export function buildEncounterBundle(opts: {
     const prev = reqByKey.get(key);
     if (!prev || medTime(m) > medTime(prev)) reqByKey.set(key, m);
   }
-  const medReqs = Array.from(reqByKey.values()).map((m) => medRequest(patient.mrn, m));
+  const medReqs = safeMap(
+    Array.from(reqByKey.values()),
+    (m) => medRequest(patient.mrn, m),
+    "medication request",
+    patient.mrn,
+  );
   const admByKey = new Map<string, EncounterMed>();
   for (const m of opts.meds ?? []) {
     if (!m.administered_at) continue;
@@ -751,8 +787,18 @@ export function buildEncounterBundle(opts: {
     const prev = admByKey.get(key);
     if (!prev || medTime(m) > medTime(prev)) admByKey.set(key, m);
   }
-  const medAdms = Array.from(admByKey.values()).map((m) => medAdministration(patient.mrn, m));
-  const docs = (opts.notes ?? []).map((n) => docReference(patient.mrn, n));
+  const medAdms = safeMap(
+    Array.from(admByKey.values()),
+    (m) => medAdministration(patient.mrn, m),
+    "medication administration",
+    patient.mrn,
+  );
+  const docs = safeMap(
+    opts.notes ?? [],
+    (n) => docReference(patient.mrn, n),
+    "clinical note",
+    patient.mrn,
+  );
   const carePlan = carePlanFromDischarge(patient);
   const appt = followUpAppointment(patient);
 

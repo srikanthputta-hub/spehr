@@ -152,8 +152,19 @@ export function useBackgroundFhirSync() {
         };
         // Full live sync mode: every patient is eligible regardless of
         // admission status. PUT-with-stable-id bundles are idempotent.
+        // Re-enqueue whenever an existing patient's discharge_time or
+        // status changes (e.g. admitted → discharged) so a previously
+        // ✓ Successful badge does NOT freeze us out of syncing the
+        // discharge encounter, late labs, manual med orders, etc.
+        const prev = rowsRef.current.get(r.mrn);
+        const changed =
+          !prev ||
+          prev.status !== r.status ||
+          prev.discharge_time !== r.discharge_time ||
+          prev.admission_time !== r.admission_time ||
+          prev.chief_complaint !== r.chief_complaint;
         rowsRef.current.set(r.mrn, r);
-        if (!statusRef.current.has(r.mrn)) enqueue(r.mrn);
+        if (!statusRef.current.has(r.mrn) || changed) enqueue(r.mrn);
       }
     };
 
