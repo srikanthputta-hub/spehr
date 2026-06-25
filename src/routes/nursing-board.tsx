@@ -360,6 +360,7 @@ function Dashboard() {
     available: 0,
     total: 0,
   });
+  const [admittedFacilityCount, setAdmittedFacilityCount] = useState<number>(0);
   const automationEnabled = useAutomationEnabled();
   const { gate } = useRolePermissions("RN");
 
@@ -391,6 +392,12 @@ function Dashboard() {
         (b: { status: string | null }) => (b.status ?? "").toLowerCase() === "available",
       ).length;
       setBedCounts({ available, total: data.length });
+      const { count } = await supabase
+        .from("patients")
+        .select("mrn", { count: "exact", head: true })
+        .eq("facility_name", facility)
+        .eq("status", "Admitted");
+      if (!cancelled) setAdmittedFacilityCount(count ?? 0);
     };
     load();
     const ch = supabase
@@ -704,7 +711,7 @@ function Dashboard() {
           <StatCard
             icon={Users}
             label="Total Patients"
-            value={`${facilityPatients.length}`}
+            value={`${admittedFacilityCount}`}
             tone="navy"
           />
           <StatCard

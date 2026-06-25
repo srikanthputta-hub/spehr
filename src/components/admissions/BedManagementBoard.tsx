@@ -73,7 +73,7 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
         .eq("facility_name", facility)
         .order("room_number", { ascending: true })
         .order("bed_letter", { ascending: true })
-        .limit(10);
+        .limit(20);
       if (cancelled) return;
       setBeds((data ?? []) as BedRow[]);
       setLoading(false);
