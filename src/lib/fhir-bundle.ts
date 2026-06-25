@@ -165,6 +165,39 @@ function urn(resource: any): string {
   return `urn:uuid:${resource.resourceType}-${resource.id ?? Math.random().toString(36).slice(2, 10)}`;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Deterministic stable-ID helpers                                    */
+/*  Every clinical fact maps to the SAME FHIR resource id every time,  */
+/*  so PUT /ResourceType/{stableId} performs an idempotent UPSERT and  */
+/*  the Medblocks server can never accumulate duplicates.              */
+/* ------------------------------------------------------------------ */
+
+export function slugify(input: string): string {
+  return (input ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60) || "unknown";
+}
+
+export const stableIds = {
+  patient: (mrn: string) => mrn,
+  encounter: (mrn: string) => `enc-${mrn}`,
+  relatedPerson: (mrn: string) => `relp-${mrn}-econ`,
+  vital: (loinc: string, mrn: string) => `vital-${loinc}-${mrn}`,
+  lab: (testName: string, mrn: string) => `lab-${slugify(testName)}-${mrn}`,
+  medRequest: (drug: string, mrn: string) => `medreq-${slugify(drug)}-${mrn}`,
+  medAdmin: (drug: string, mrn: string) => `medadmin-${slugify(drug)}-${mrn}`,
+  allergy: (allergen: string, mrn: string) => `allergy-${slugify(allergen)}-${mrn}`,
+  condition: (icd10: string, mrn: string) => `cond-${slugify(icd10)}-${mrn}`,
+  carePlan: (mrn: string) => `careplan-${mrn}`,
+  composition: (mrn: string) => `summary-${mrn}`,
+  appointment: (mrn: string) => `appt-followup-${mrn}`,
+  docRef: (mrn: string) => `docref-${mrn}`,
+};
+
 /**
  * Build a FHIR R4 Bundle of type=`document` containing a Composition that
  * references every approved Condition / Observation / MedicationRequest for
