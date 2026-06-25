@@ -711,7 +711,7 @@ function Dashboard() {
           <StatCard
             icon={Users}
             label="Total Patients"
-            value={`${facilityPatients.length}`}
+            value={`${admittedFacilityCount}`}
             tone="navy"
           />
           <StatCard
