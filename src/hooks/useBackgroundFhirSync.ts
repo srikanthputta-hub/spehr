@@ -124,9 +124,6 @@ export function useBackgroundFhirSync() {
   useEffect(() => {
     let cancelled = false;
 
-    const isDischarged = (r: Row) =>
-      (r.status ?? "").toLowerCase() === "discharged" || !!r.discharge_time;
-
     const enqueue = (mrn: string) => {
       const cur = statusRef.current.get(mrn);
       if (cur === "syncing") return;
@@ -139,9 +136,8 @@ export function useBackgroundFhirSync() {
         .select(
           "mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint",
         )
-        .eq("status", "Discharged")
         .not("mrn", "is", null)
-        .order("discharge_time", { ascending: false })
+        .order("admission_time", { ascending: false })
         .limit(200);
       if (cancelled) return;
       for (const p of (data ?? []) as any[]) {
@@ -154,7 +150,8 @@ export function useBackgroundFhirSync() {
           status: p.status ?? null,
           chief_complaint: p.chief_complaint ?? null,
         };
-        if (!isDischarged(r)) continue;
+        // Full live sync mode: every patient is eligible regardless of
+        // admission status. PUT-with-stable-id bundles are idempotent.
         rowsRef.current.set(r.mrn, r);
         if (!statusRef.current.has(r.mrn)) enqueue(r.mrn);
       }
@@ -213,11 +210,9 @@ export function useBackgroundFhirSync() {
         { event: "*", schema: "public", table: "patients" },
         (p: any) => {
           const mrn = p?.new?.mrn ?? p?.old?.mrn;
-          const status = (p?.new?.status ?? "").toLowerCase();
-          if (status === "discharged") {
-            // Newly discharged — make sure row map knows about them.
-            void loadRows();
-          }
+          // Refresh row map on any patient change so newly admitted /
+          // updated patients enter the live sync queue immediately.
+          void loadRows();
           requeueByMrn(mrn);
         },
       )

@@ -165,6 +165,39 @@ function urn(resource: any): string {
   return `urn:uuid:${resource.resourceType}-${resource.id ?? Math.random().toString(36).slice(2, 10)}`;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Deterministic stable-ID helpers                                    */
+/*  Every clinical fact maps to the SAME FHIR resource id every time,  */
+/*  so PUT /ResourceType/{stableId} performs an idempotent UPSERT and  */
+/*  the Medblocks server can never accumulate duplicates.              */
+/* ------------------------------------------------------------------ */
+
+export function slugify(input: string): string {
+  return (input ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60) || "unknown";
+}
+
+export const stableIds = {
+  patient: (mrn: string) => mrn,
+  encounter: (mrn: string) => `enc-${mrn}`,
+  relatedPerson: (mrn: string) => `relp-${mrn}-econ`,
+  vital: (loinc: string, mrn: string) => `vital-${loinc}-${mrn}`,
+  lab: (testName: string, mrn: string) => `lab-${slugify(testName)}-${mrn}`,
+  medRequest: (drug: string, mrn: string) => `medreq-${slugify(drug)}-${mrn}`,
+  medAdmin: (drug: string, mrn: string) => `medadmin-${slugify(drug)}-${mrn}`,
+  allergy: (allergen: string, mrn: string) => `allergy-${slugify(allergen)}-${mrn}`,
+  condition: (icd10: string, mrn: string) => `cond-${slugify(icd10)}-${mrn}`,
+  carePlan: (mrn: string) => `careplan-${mrn}`,
+  composition: (mrn: string) => `summary-${mrn}`,
+  appointment: (mrn: string) => `appt-followup-${mrn}`,
+  docRef: (mrn: string) => `docref-${mrn}`,
+};
+
 /**
  * Build a FHIR R4 Bundle of type=`document` containing a Composition that
  * references every approved Condition / Observation / MedicationRequest for
@@ -406,13 +439,13 @@ function vitalsObservations(p: EncounterPatient) {
   const enc = { reference: `Encounter/enc-${p.mrn}` };
   const out: any[] = [];
   const push = (
-    id: string,
+    loinc: string,
     code: { code: string; display: string },
     value: { value: number; unit: string } | { valueString: string },
   ) => {
     out.push({
       resourceType: "Observation",
-      id,
+      id: stableIds.vital(loinc, p.mrn),
       status: "final",
       category: [
         {
@@ -437,21 +470,24 @@ function vitalsObservations(p: EncounterPatient) {
         : { valueString: value.valueString }),
     });
   };
-  if (typeof p.hr === "number") push(`vital-hr-${p.mrn}`, { code: "8867-4", display: "Heart rate" }, { value: p.hr, unit: "/min" });
-  if (typeof p.rr === "number") push(`vital-rr-${p.mrn}`, { code: "9279-1", display: "Respiratory rate" }, { value: p.rr, unit: "/min" });
-  if (typeof p.spo2 === "number") push(`vital-spo2-${p.mrn}`, { code: "59408-5", display: "Oxygen saturation" }, { value: p.spo2, unit: "%" });
-  if (typeof p.temp === "number") push(`vital-temp-${p.mrn}`, { code: "8310-5", display: "Body temperature" }, { value: p.temp, unit: "Cel" });
-  if (p.bp) push(`vital-bp-${p.mrn}`, { code: "85354-9", display: "Blood pressure panel" }, { valueString: p.bp });
+  if (typeof p.hr === "number") push("8867-4", { code: "8867-4", display: "Heart rate" }, { value: p.hr, unit: "/min" });
+  if (typeof p.rr === "number") push("9279-1", { code: "9279-1", display: "Respiratory rate" }, { value: p.rr, unit: "/min" });
+  if (typeof p.spo2 === "number") push("59408-5", { code: "59408-5", display: "Oxygen saturation" }, { value: p.spo2, unit: "%" });
+  if (typeof p.temp === "number") push("8310-5", { code: "8310-5", display: "Body temperature" }, { value: p.temp, unit: "Cel" });
+  if (p.bp) push("85354-9", { code: "85354-9", display: "Blood pressure panel" }, { valueString: p.bp });
   return out;
 }
 
 function labObservation(mrn: string, l: EncounterLab) {
-  const id = `lab-${l.id ?? l.test_type ?? Math.random().toString(36).slice(2, 8)}`;
+  const id = stableIds.lab(l.test_type ?? l.id ?? "unknown", mrn);
   const numeric = l.result_value ? Number((l.result_value.match(/-?\d+(\.\d+)?/) ?? [])[0]) : NaN;
   return {
     resourceType: "Observation",
     id,
-    status: (l.status ?? "").toLowerCase() === "resulted" ? "final" : "registered",
+    status:
+      (l.status ?? "").toLowerCase() === "resulted" || l.result_value
+        ? "final"
+        : "registered",
     category: [
       {
         coding: [
@@ -493,7 +529,7 @@ function medRequest(mrn: string, m: EncounterMed) {
               : "active";
   return {
     resourceType: "MedicationRequest",
-    id: `medreq-${m.id ?? drug}`.replace(/\s+/g, "-"),
+    id: stableIds.medRequest(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
     status,
     intent: "order",
     medicationCodeableConcept: { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` },
@@ -511,7 +547,7 @@ function medAdministration(mrn: string, m: EncounterMed) {
   const drug = m.drug_name ?? m.drug ?? m.medication_name ?? "medication";
   return {
     resourceType: "MedicationAdministration",
-    id: `medadm-${m.id ?? drug}`.replace(/\s+/g, "-"),
+    id: stableIds.medAdmin(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
     status: "completed",
     medicationCodeableConcept: { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` },
     subject: { reference: `Patient/${mrn}` },
@@ -526,7 +562,7 @@ function medAdministration(mrn: string, m: EncounterMed) {
 function docReference(mrn: string, n: EncounterNote) {
   return {
     resourceType: "DocumentReference",
-    id: `doc-${n.id ?? Math.random().toString(36).slice(2, 8)}`,
+    id: stableIds.docRef(mrn),
     status: "current",
     type: { text: n.note_type ?? "Clinical note" },
     subject: { reference: `Patient/${mrn}` },
@@ -552,7 +588,7 @@ function carePlanFromDischarge(p: EncounterPatient) {
   if (!p.discharge_summary && !p.diagnosis) return null;
   return {
     resourceType: "CarePlan",
-    id: `careplan-${p.mrn}`,
+    id: stableIds.carePlan(p.mrn),
     status: p.discharge_time ? "completed" : "active",
     intent: "plan",
     title: "Discharge instructions & follow-up",
@@ -573,7 +609,7 @@ function followUpAppointment(p: EncounterPatient) {
   start.setDate(start.getDate() + 14);
   return {
     resourceType: "Appointment",
-    id: `appt-${p.mrn}`,
+    id: stableIds.appointment(p.mrn),
     status: "proposed",
     description: "Post-discharge follow-up / recall",
     start: start.toISOString(),
@@ -604,7 +640,7 @@ export function buildEncounterBundle(opts: {
 
   const composition = {
     resourceType: "Composition",
-    id: `composition-enc-${patient.mrn}`,
+    id: stableIds.composition(patient.mrn),
     status: "final",
     type: {
       coding: [
@@ -629,19 +665,13 @@ export function buildEncounterBundle(opts: {
     ],
   };
 
-  // Transaction-bundle request wrappers. Patient + Encounter use PUT with an
-  // identifier-based conditional URL (upsert) so re-pushing the same encounter
-  // updates instead of duplicating. Everything else is a plain POST (append).
-  const requestFor = (r: any): { method: string; url: string } => {
-    switch (r.resourceType) {
-      case "Patient":
-        return { method: "PUT", url: `Patient/${r.id}` };
-      case "Encounter":
-        return { method: "PUT", url: `Encounter/${r.id}` };
-      default:
-        return { method: "POST", url: r.resourceType };
-    }
-  };
+  // Every resource is PUT with its deterministic stable ID. This is the
+  // FHIR UPSERT contract: the same clinical fact always maps to the same
+  // resource id, so re-pushing can never create duplicates.
+  const requestFor = (r: any): { method: string; url: string } => ({
+    method: "PUT",
+    url: `${r.resourceType}/${r.id}`,
+  });
 
   const all: any[] = [
     composition,
