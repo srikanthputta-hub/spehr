@@ -3070,9 +3070,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
         </div>
         <div className="flex items-center gap-3">
           {autoOn && (
-            <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
-              Streaming · 400ms · Realtime
-            </span>
+            <div className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider text-right leading-tight">
+              <div>LIVE</div>
+              <div>REALTIME</div>
+            </div>
           )}
           <Switch checked={autoOn} onCheckedChange={setAutoOn} />
         </div>
