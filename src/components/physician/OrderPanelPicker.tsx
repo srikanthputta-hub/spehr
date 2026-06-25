@@ -47,7 +47,7 @@ export function OrderPanelPicker({
     setLoading(true);
     listValueSets()
       .then((r) => {
-        const all = (r.items ?? []) as ValueSet[];
+        const all = (r.items ?? []) as unknown as ValueSet[];
         setSets(
           all.filter(
             (v) =>
