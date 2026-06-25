@@ -4506,12 +4506,16 @@ function MedicalDictionary() {
       </div>
 
       {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
+      {subtab === "audits" && <UmlsResolutionTrail />}
       {subtab === "audits" && <QaGovernanceQueue />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
+      {subtab === "safety" && <CdsOverridesFeed />}
       {subtab === "auto_api" && <AutoApiCard />}
+      {subtab === "auto_api" && <AutoApiEventsFeed />}
       {subtab === "fhir" && <FhirInteroperability facility={facilityFilter} />}
 
+      {subtab === "catalog" && <TerminologyMetricsStrip />}
       {subtab === "catalog" && <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={remove} />}
       {subtab === "catalog" && <CustomRulesCard />}
       {subtab === "catalog" && <ValueSetBuilder />}
