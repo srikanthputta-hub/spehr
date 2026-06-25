@@ -760,7 +760,7 @@ export function buildEncounterBundle(opts: {
     title: `Encounter summary — ${patient.name ?? patient.mrn}`,
     section: [
       { title: "Encounter", entry: [{ reference: `Encounter/enc-${patient.mrn}` }] },
-      { title: "Diagnoses", entry: conditions.map((c) => ({ reference: `Condition/${c.id}` })) },
+      { title: "Diagnoses", entry: conditions.map((c: any) => ({ reference: `Condition/${c.id}` })) },
       { title: "Vital Signs", entry: vitals.map((o) => ({ reference: `Observation/${o.id}` })) },
       { title: "Laboratory", entry: labs.map((o) => ({ reference: `Observation/${o.id}` })) },
       { title: "Medication Orders", entry: medReqs.map((m) => ({ reference: `MedicationRequest/${m.id}` })) },
