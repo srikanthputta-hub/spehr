@@ -227,6 +227,39 @@ export async function runAutoDocPipeline(mrn: string) {
   const labCodesFinal = loinc.length > 0 ? loinc : [FALLBACK_LAB.loinc];
   const medCodesFinal = rxnorm.length > 0 ? rxnorm : [FALLBACK_MED.rxnorm];
 
+  /* ------------------------------------------------------------------
+   * Per-row code resolvers. The flattened `labCodesFinal` /
+   * `medCodesFinal` arrays above are correct for the global terminology
+   * registry (every code that COULD apply to this condition), but they
+   * MUST NOT be indexed by an unrelated row position when stamping the
+   * loinc_code / rxnorm_code on a specific observation or medication
+   * request — that was the source of the Bufotenine / ALPHANINE SD style
+   * hallucinations: the lab/med row sitting at index N inherited the
+   * Nth code from a flattened multi-term UMLS dump. We instead resolve
+   * the code from the actual test/drug name against the template, and
+   * leave the field null when there is no clinically relevant match.
+   * ---------------------------------------------------------------- */
+  const norm = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const loincForLab = (testType: string | null | undefined): string | null => {
+    const t = norm(testType ?? "");
+    if (!t) return null;
+    const hit = tpl.labs.find((l) => {
+      const n = norm(l.name);
+      return n === t || n.includes(t) || t.includes(n);
+    });
+    return hit?.loinc ?? null;
+  };
+  const rxnormForMed = (drugName: string | null | undefined): string | null => {
+    const t = norm(drugName ?? "");
+    if (!t) return null;
+    const hit = tpl.meds.find((m) => {
+      const n = norm(m.name);
+      return n === t || n.includes(t) || t.includes(n);
+    });
+    return hit?.rxnorm ?? null;
+  };
+
   // Register every assigned code into the canonical medical_terminology
   // dictionary so the Live Terminology Matrix and FHIR exports can resolve
   // them by code. Idempotent upsert keyed on (code_system, code).
