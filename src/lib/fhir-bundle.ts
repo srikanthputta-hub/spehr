@@ -807,6 +807,12 @@ export function buildEncounterBundle(opts: {
     new Date(l.collected_at ?? l.created_at ?? 0).getTime() || 0;
   const labsByTest = new Map<string, EncounterLab>();
   for (const l of opts.labs ?? []) {
+    if (!isPlausibleLab(l)) {
+      console.warn(
+        `[fhir-bundle] dropping implausible lab for ${patient.mrn}: ${l.test_type}`,
+      );
+      continue;
+    }
     const slug = slugify(l.test_type ?? l.id ?? "unknown");
     const prev = labsByTest.get(slug);
     if (!prev) {
