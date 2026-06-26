@@ -64,6 +64,85 @@ function persistPushed(mrn: string, outcome: "ok" | "err") {
   }
 }
 
+/**
+ * Fix #5/#6/#7: the engine previously created BOTH old-format ids
+ * (`cond-mrn-{MRN}-hpi`, `allergy-mrn-{MRN}-environment-bee-sting`, ...)
+ * and new-format ids (`cond-hpi-{MRN}`, `allergy-bee-sting-{MRN}`).
+ * Every resource builder now uses the new format exclusively; this
+ * helper sweeps the FHIR server once per MRN to DELETE any lingering
+ * old-format ghosts so the audit shows a single canonical resource per
+ * clinical fact. Successful cleanups are remembered in localStorage so
+ * we never replay the sweep for the same MRN.
+ */
+const OLD_ID_RE = /^(?:cond|allergy|medreq|medadmin|lab|vital|obs)-mrn-/i;
+const CLEAN_KEY = "fhir.cleanedOldIds";
+
+function alreadyCleaned(mrn: string): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = window.localStorage.getItem(CLEAN_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    return !!obj[mrn];
+  } catch {
+    return false;
+  }
+}
+
+function markCleaned(mrn: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(CLEAN_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    obj[mrn] = Date.now();
+    window.localStorage.setItem(CLEAN_KEY, JSON.stringify(obj));
+  } catch {
+    /* ignore */
+  }
+}
+
+async function deleteOldFormatResource(resourceType: string, id: string) {
+  try {
+    await supabase.functions.invoke("fhir-proxy", {
+      body: { method: "DELETE", path: `${resourceType}/${id}` },
+    });
+  } catch (e) {
+    console.warn("[bg-fhir-sync] DELETE old-format failed", resourceType, id, e);
+  }
+}
+
+async function cleanupOldFormatIds(mrn: string) {
+  if (alreadyCleaned(mrn)) return;
+  const types = [
+    "Condition",
+    "AllergyIntolerance",
+    "MedicationRequest",
+    "MedicationAdministration",
+    "Observation",
+  ];
+  for (const t of types) {
+    try {
+      const res = await supabase.functions.invoke("fhir-proxy", {
+        body: {
+          method: "GET",
+          path: t,
+          query: { patient: mrn, _count: "200", _elements: "id" },
+        },
+      });
+      const data: any = res.data;
+      const entries: any[] = Array.isArray(data?.entry) ? data.entry : [];
+      for (const e of entries) {
+        const id = String(e?.resource?.id ?? "");
+        if (id && OLD_ID_RE.test(id)) {
+          await deleteOldFormatResource(t, id);
+        }
+      }
+    } catch (e) {
+      console.warn("[bg-fhir-sync] cleanup query failed", t, mrn, e);
+    }
+  }
+  markCleaned(mrn);
+}
+
 function persistQuality(mrn: string, quality: FhirQuality) {
   if (typeof window === "undefined") return;
   try {
