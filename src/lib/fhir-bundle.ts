@@ -1010,21 +1010,37 @@ export function buildEncounterBundle(opts: {
   const carePlan = carePlanFromDischarge(patient);
   const appt = followUpAppointment(patient);
 
+  // Fix #9: discharged encounters get the dedicated Discharge Summary
+  // Composition (LOINC 18842-5) under a stable id of
+  // `composition-{MRN}-discharge`. In-progress encounters keep the
+  // legacy `summary-{MRN}` id with LOINC 34133-9 so admission-time
+  // pushes remain backwards compatible with the rest of the pipeline.
+  const isDischarged =
+    (patient.status ?? "").toLowerCase() === "discharged" ||
+    !!patient.discharge_time;
+  const compositionId = isDischarged
+    ? `composition-${patient.mrn}-discharge`
+    : stableIds.composition(patient.mrn);
+  const compositionTypeCoding = isDischarged
+    ? { system: "http://loinc.org", code: "18842-5", display: "Discharge summary" }
+    : { system: "http://loinc.org", code: "34133-9", display: "Summary of episode note" };
+  const compositionTitle = isDischarged
+    ? `Discharge summary — ${patient.name ?? patient.mrn}`
+    : `Encounter summary — ${patient.name ?? patient.mrn}`;
+
   const composition = {
     resourceType: "Composition",
-    id: stableIds.composition(patient.mrn),
+    id: compositionId,
     status: "final",
     type: {
-      coding: [
-        { system: "http://loinc.org", code: "34133-9", display: "Summary of episode note" },
-      ],
-      text: "S.P.E.H.R Encounter Summary",
+      coding: [compositionTypeCoding],
+      text: isDischarged ? "Discharge Summary" : "S.P.E.H.R Encounter Summary",
     },
     subject: { reference: `Patient/${patient.mrn}` },
     encounter: { reference: `Encounter/enc-${patient.mrn}` },
     date: new Date().toISOString(),
     author: [{ display: "S.P.E.H.R AI Coding Engine" }],
-    title: `Encounter summary — ${patient.name ?? patient.mrn}`,
+    title: compositionTitle,
     section: [
       { title: "Encounter", entry: [{ reference: `Encounter/enc-${patient.mrn}` }] },
       { title: "Diagnoses", entry: conditions.map((c: any) => ({ reference: `Condition/${c.id}` })) },
