@@ -643,12 +643,27 @@ function medRequest(mrn: string, m: EncounterMed) {
             : raw === "stopped" || raw === "discontinued"
               ? "stopped"
               : "active";
+  // FHIR R4 mandates a coding array for machine-readable interoperability.
+  // Use the RxNorm code emitted by AUTO API when available; fall back to
+  // text-only when AUTO API hasn't (yet) resolved this drug.
+  const medCC = m.rxnorm_code
+    ? {
+        coding: [
+          {
+            system: FHIR_SYSTEM_URI.RxNorm,
+            code: m.rxnorm_code,
+            display: m.rxnorm_display ?? drug,
+          },
+        ],
+        text: `${drug}${m.dose ? ` ${m.dose}` : ""}`,
+      }
+    : { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` };
   return {
     resourceType: "MedicationRequest",
     id: stableIds.medRequest(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
     status,
     intent: "order",
-    medicationCodeableConcept: { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` },
+    medicationCodeableConcept: medCC,
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/enc-${mrn}` },
     authoredOn: m.created_at ?? undefined,
@@ -661,11 +676,23 @@ function medRequest(mrn: string, m: EncounterMed) {
 
 function medAdministration(mrn: string, m: EncounterMed) {
   const drug = m.drug_name ?? m.drug ?? m.medication_name ?? "medication";
+  const medCC = m.rxnorm_code
+    ? {
+        coding: [
+          {
+            system: FHIR_SYSTEM_URI.RxNorm,
+            code: m.rxnorm_code,
+            display: m.rxnorm_display ?? drug,
+          },
+        ],
+        text: `${drug}${m.dose ? ` ${m.dose}` : ""}`,
+      }
+    : { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` };
   return {
     resourceType: "MedicationAdministration",
     id: stableIds.medAdmin(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
     status: "completed",
-    medicationCodeableConcept: { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` },
+    medicationCodeableConcept: medCC,
     subject: { reference: `Patient/${mrn}` },
     context: { reference: `Encounter/enc-${mrn}` },
     effectiveDateTime: m.administered_at ?? undefined,
