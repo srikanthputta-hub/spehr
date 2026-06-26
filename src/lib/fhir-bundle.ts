@@ -848,17 +848,22 @@ function encounterConditions(
   );
   if (p.chief_complaint) {
     const codingArr: Array<{ system: string; code: string; display: string }> = [];
+    // Fix #3: distill the verbatim chief-complaint free text into a
+    // search-worthy working diagnosis before any UMLS lookup. The
+    // distilled string is also written to code.text so the resource's
+    // textual label and the UMLS search input are guaranteed identical.
+    const hpiText = distillClinicalText(p.chief_complaint) || p.chief_complaint;
     if (primaryCoded?.snomed_code)
       codingArr.push({
         system: FHIR_SYSTEM_URI["SNOMED CT"],
         code: primaryCoded.snomed_code,
-        display: primaryCoded.snomed_display ?? p.chief_complaint,
+        display: primaryCoded.snomed_display ?? hpiText,
       });
     if (primaryCoded?.icd10_code)
       codingArr.push({
         system: FHIR_SYSTEM_URI["ICD-10"],
         code: primaryCoded.icd10_code,
-        display: primaryCoded.icd10_display ?? p.chief_complaint,
+        display: primaryCoded.icd10_display ?? hpiText,
       });
     out.push({
       resourceType: "Condition",
@@ -868,14 +873,19 @@ function encounterConditions(
       category,
       code:
         codingArr.length > 0
-          ? { coding: codingArr, text: p.chief_complaint }
-          : { text: p.chief_complaint },
+          ? { coding: codingArr, text: hpiText }
+          : { text: hpiText },
       subject,
       encounter,
       recordedDate: p.admission_time ?? undefined,
     });
   }
   if (p.discharge_time && p.diagnosis) {
+    // Fix #4: discharge Condition.code.text MUST be the discharge
+    // diagnosis itself (e.g. "Community-Acquired Pneumonia"), never the
+    // chief complaint. The text below is exactly what the async builder
+    // will resend to UMLS for ICD-10 + SNOMED resolution.
+    const dxText = (p.diagnosis ?? "").trim();
     // Discharge diagnosis: prefer a coded condition that matches the
     // discharge text, otherwise reuse the primary coded one.
     const dischargeCoded =
@@ -890,13 +900,13 @@ function encounterConditions(
       codingArr.push({
         system: FHIR_SYSTEM_URI["SNOMED CT"],
         code: dischargeCoded.snomed_code,
-        display: dischargeCoded.snomed_display ?? p.diagnosis,
+        display: dischargeCoded.snomed_display ?? dxText,
       });
     if (dischargeCoded?.icd10_code)
       codingArr.push({
         system: FHIR_SYSTEM_URI["ICD-10"],
         code: dischargeCoded.icd10_code,
-        display: dischargeCoded.icd10_display ?? p.diagnosis,
+        display: dischargeCoded.icd10_display ?? dxText,
       });
     out.push({
       resourceType: "Condition",
@@ -906,8 +916,8 @@ function encounterConditions(
       category,
       code:
         codingArr.length > 0
-          ? { coding: codingArr, text: p.diagnosis }
-          : { text: p.diagnosis },
+          ? { coding: codingArr, text: dxText }
+          : { text: dxText },
       subject,
       encounter,
       recordedDate: p.discharge_time ?? undefined,
