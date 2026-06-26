@@ -2573,8 +2573,8 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
           .in("patient_mrn", mrns),
         supabase
           .from("conditions")
-          .select("patient_mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
-          .in("patient_mrn", mrns),
+          .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
+          .in("mrn", mrns),
       ]);
       // Pull coded columns from step-8 schema (auto-coded by `auto-code.ts`).
       const [labsCoded, medsCoded] = await Promise.all([
@@ -2618,8 +2618,10 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         bucket(mrn)[sys].push({ code, display });
       };
       for (const r of (condsRes.data ?? []) as any[]) {
-        if (r.snomed_code) pushUnique(r.patient_mrn, "snomed", r.snomed_code, r.snomed_display ?? r.display_text);
-        if (r.icd10_code) pushUnique(r.patient_mrn, "icd10", r.icd10_code, r.icd10_display ?? r.display_text);
+        const m = r.mrn ?? r.patient_mrn;
+        if (!m) continue;
+        if (r.snomed_code) pushUnique(m, "snomed", r.snomed_code, r.snomed_display ?? r.display_text);
+        if (r.icd10_code) pushUnique(m, "icd10", r.icd10_code, r.icd10_display ?? r.display_text);
       }
       for (const r of (labsCoded.data ?? []) as any[]) {
         if (r.loinc_code) pushUnique(r.patient_mrn, "loinc", r.loinc_code, r.loinc_display);
