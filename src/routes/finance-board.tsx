@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
 import { Button } from "@/components/ui/button";
@@ -101,8 +101,11 @@ function FinanceBoard() {
   const backfill = useServerFn(backfillInvoices);
   const regenerate = useServerFn(generateInvoiceForMrn);
 
+  const initialLoadRef = useRef(true);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const refresh = async () => {
-    setLoading(true);
+    if (initialLoadRef.current) setLoading(true);
     const { data, error } = await (supabase as any)
       .from("fhir_invoices")
       .select(
@@ -112,6 +115,15 @@ function FinanceBoard() {
     if (error) toast.error(`Unable to load invoices: ${error.message}`);
     else setInvoices((data ?? []) as InvoiceRow[]);
     setLoading(false);
+    initialLoadRef.current = false;
+  };
+
+  const scheduleRefresh = () => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      refresh();
+    }, 600);
   };
 
   useEffect(() => {
@@ -125,15 +137,16 @@ function FinanceBoard() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "fhir_invoices" },
-        () => refresh(),
+        () => scheduleRefresh(),
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "fhir_payment_notices" },
-        () => refresh(),
+        () => scheduleRefresh(),
       )
       .subscribe();
     return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
