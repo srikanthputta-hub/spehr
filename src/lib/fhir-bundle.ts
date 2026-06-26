@@ -403,6 +403,7 @@ export type EncounterPatient = {
   allergies?: string | null;
 };
 
+
 export type EncounterLab = {
   id?: string;
   test_type?: string | null;
