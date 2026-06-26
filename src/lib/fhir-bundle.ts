@@ -426,6 +426,8 @@ export type EncounterMed = {
   administered_at?: string | null;
   approved_at?: string | null;
   created_at?: string | null;
+  rxnorm_code?: string | null;
+  rxnorm_display?: string | null;
 };
 
 export type EncounterNote = {
@@ -434,6 +436,18 @@ export type EncounterNote = {
   author?: string | null;
   content?: string | null;
   created_at?: string | null;
+};
+
+export type EncounterCondition = {
+  display_text?: string | null;
+  snomed_code?: string | null;
+  snomed_display?: string | null;
+  icd10_code?: string | null;
+  icd10_display?: string | null;
+  verification_status?: string | null;
+  clinical_status?: string | null;
+  recorded_date?: string | null;
+  coded_at?: string | null;
 };
 
 function fullPatient(p: EncounterPatient) {
