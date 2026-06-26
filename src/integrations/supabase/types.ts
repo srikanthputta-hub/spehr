@@ -2668,6 +2668,10 @@ export type Database = {
     }
     Functions: {
       auto_admit_ghost_patient: { Args: never; Returns: undefined }
+      auto_code_patient_complaint: {
+        Args: { _complaint: string; _mrn: string; _name: string }
+        Returns: undefined
+      }
       auto_discharge_ghost_patients: { Args: never; Returns: undefined }
       auto_order_ghost_labs: { Args: never; Returns: undefined }
       auto_result_ghost_labs: { Args: never; Returns: undefined }
