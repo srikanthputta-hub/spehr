@@ -3155,18 +3155,18 @@ function FhirInteroperability({ facility }: { facility: string }) {
 
   // Build an Encounter Bundle for any row (used by both manual + auto loop).
   const buildBundleForRow = async (r: FhirEncounterRow) => {
-    const [patientRes, labsRes, medsRes, notesRes] = await Promise.all([
+    const [patientRes, labsRes, medsRes, notesRes, condsRes] = await Promise.all([
       supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
       supabase
         .from("lab_orders")
-        .select("id, test_type, result_value, status, collected_at, created_at")
+        .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
         .eq("patient_mrn", r.mrn)
         .order("created_at", { ascending: false })
         .limit(40),
       supabase
         .from("medication_orders")
         .select(
-          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
         )
         .eq("patient_mrn", r.mrn)
         .order("created_at", { ascending: false })
@@ -3176,6 +3176,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
         .select("id, note_type, author, content, created_at")
         .eq("mrn", r.mrn)
         .order("created_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("conditions")
+        .select("display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at")
+        .eq("mrn", r.mrn)
+        .order("coded_at", { ascending: false })
         .limit(20),
     ]);
     const p = (patientRes.data ?? {}) as any;
@@ -3207,6 +3213,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
       labs: (labsRes.data ?? []) as any[],
       meds: (medsRes.data ?? []) as any[],
       notes: (notesRes.data ?? []) as any[],
+      conditions: (condsRes.data ?? []) as any[],
     });
   };
 
