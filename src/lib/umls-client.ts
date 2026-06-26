@@ -108,7 +108,24 @@ export function resolveRxNorm(drugName: string): Promise<ResolvedCode | null> {
   let p = memo.get(key);
   if (!p) {
     p = invokeProxy("rxnorm", { drugName: name })
-      .then(topRxnormHit)
+      .then(async (payload) => {
+        const hit = topRxnormHit(payload);
+        if (!hit) return null;
+        // Fix #1: RxCUI is a meaningless number on its own. Always look
+        // up properties.name via rxnormDetail so display[] never echoes
+        // the code value, and FHIR consumers see a human-readable drug
+        // name in coding[0].display.
+        if (!hit.display || hit.display === hit.code || /^\d+$/.test(hit.display)) {
+          try {
+            const detail: any = await invokeProxy("rxnormDetail", { rxcui: hit.code });
+            const properName = String(detail?.properties?.name ?? "").trim();
+            if (properName) hit.display = properName;
+          } catch (e) {
+            console.warn("[umls] rxnormDetail enrich failed:", hit.code, e);
+          }
+        }
+        return hit;
+      })
       .catch((e) => {
         console.warn("[umls] rxnorm resolve failed:", name, e);
         return null;
