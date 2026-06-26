@@ -4,6 +4,8 @@ import {
   buildEncounterBundle,
   splitEncounterBundle,
   assessBundleQuality,
+  buildEncounterBundleAsync,
+  type EncounterAllergy,
   type FhirQuality,
 } from "@/lib/fhir-bundle";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
@@ -98,7 +100,7 @@ async function flagSafetyAlert(mrn: string, quality: FhirQuality) {
 }
 
 async function buildBundleForMrn(r: Row) {
-  const [patientRes, labsRes, medsRes, notesRes, condsRes] = await Promise.all([
+  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes] = await Promise.all([
     supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
     supabase
       .from("lab_orders")
@@ -128,9 +130,34 @@ async function buildBundleForMrn(r: Row) {
       .eq("mrn", r.mrn)
       .order("coded_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("allergies")
+      .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
+      .eq("mrn", r.mrn)
+      .limit(40),
+    supabase
+      .from("allergy_reactions")
+      .select("allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display")
+      .eq("mrn", r.mrn)
+      .limit(80),
   ]);
   const p = (patientRes.data ?? {}) as any;
-  return buildEncounterBundle({
+  const reactionsByAllergy = new Map<string, any[]>();
+  for (const rx of ((reactionsRes as any)?.data ?? []) as any[]) {
+    const arr = reactionsByAllergy.get(rx.allergy_id) ?? [];
+    arr.push(rx);
+    reactionsByAllergy.set(rx.allergy_id, arr);
+  }
+  const allergies: EncounterAllergy[] = (((allergiesRes as any)?.data ?? []) as any[]).map((a) => ({
+    id: a.id,
+    substance: a.substance,
+    reaction: a.reaction,
+    severity: a.severity,
+    substance_rxcui: a.substance_rxcui,
+    substance_snomed: a.substance_snomed,
+    reactions: reactionsByAllergy.get(a.id) ?? [],
+  }));
+  return buildEncounterBundleAsync({
     patient: {
       mrn: r.mrn,
       name: p.name ?? r.name,
@@ -154,11 +181,13 @@ async function buildBundleForMrn(r: Row) {
       spo2: p.spo2 ?? null,
       temp: p.temp ?? null,
       allergies: p.allergies ?? null,
+      past_medical_history: p.past_medical_history ?? null,
     },
     labs: (labsRes.data ?? []) as any[],
     meds: (medsRes.data ?? []) as any[],
     notes: (notesRes.data ?? []) as any[],
     conditions: (condsRes.data ?? []) as any[],
+    allergies,
   });
 }
 
