@@ -183,6 +183,43 @@ export function slugify(input: string): string {
 }
 
 /**
+ * Fixes #3 / #4: distill a free-text chief complaint into a clinically
+ * search-worthy phrase before sending to UMLS. Strips duration, onset and
+ * timing fragments ("for 4 days", "since yesterday", "this morning",
+ * "x 3 days", "started 2 hours ago"), leaving the working-diagnosis core
+ * (e.g. "Productive cough and shortness of breath"). The result is used
+ * as BOTH the UMLS search string and Condition.code.text so the two
+ * always agree.
+ */
+export function distillClinicalText(raw: string | null | undefined): string {
+  const src = (raw ?? "").trim();
+  if (!src) return "";
+  let s = ` ${src} `;
+  const patterns: RegExp[] = [
+    /\bfor\s+(?:the\s+)?(?:past\s+)?\d+\s*(?:day|days|week|weeks|hour|hours|hr|hrs|month|months|year|years)\b/gi,
+    /\bsince\s+(?:yesterday|last\s+\w+|this\s+morning|this\s+afternoon|this\s+evening|last\s+night|\d+\s*(?:day|days|week|weeks|hour|hours|hr|hrs)\s+ago)\b/gi,
+    /\bthis\s+(?:morning|afternoon|evening)\b/gi,
+    /\blast\s+night\b/gi,
+    /\b(?:yesterday|today|tonight)\b/gi,
+    /\bx\s*\d+\s*(?:d|day|days|h|hr|hrs|hour|hours|w|wk|week|weeks)\b/gi,
+    /\bover\s+the\s+(?:past|last)\s+\w+\s+\w+\b/gi,
+    /\b(?:past|last)\s+\d+\s*(?:day|days|week|weeks|hour|hours|hr|hrs)\b/gi,
+    /\b\d+\s*(?:day|days|week|weeks|hour|hours|hr|hrs|month|months)\s+ago\b/gi,
+    /\b(?:onset|started|began|beginning|noticed)\s+\w+(?:\s+\w+){0,3}\b/gi,
+    /\bgradual(?:ly)?\s+(?:worsening|onset)\b/gi,
+    /\bsudden(?:ly)?\s+onset\b/gi,
+  ];
+  for (const re of patterns) s = s.replace(re, " ");
+  return s
+    .replace(/[,;]\s*(?:and|with)?\s*\./g, ".")
+    .replace(/\s+/g, " ")
+    .replace(/\s*([,.;:])\s*/g, "$1 ")
+    .replace(/^\s*[,.;:]+\s*/, "")
+    .replace(/\s*[,.;:]+\s*$/, "")
+    .trim();
+}
+
+/**
  * Defensive per-entry builder. If a single resource throws (malformed
  * manual order, missing required field, etc.) it is logged and skipped
  * so the rest of the bundle still ships. Bug-4 safety net.
