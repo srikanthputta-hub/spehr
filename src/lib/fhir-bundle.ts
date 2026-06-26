@@ -401,6 +401,7 @@ export type EncounterPatient = {
   spo2?: number | null;
   temp?: number | null;
   allergies?: string | null;
+  past_medical_history?: string | null;
 };
 
 
