@@ -380,6 +380,9 @@ export function useBackgroundFhirSync() {
         }
         statusRef.current.set(target.mrn, "ok");
         persistPushed(target.mrn, "ok");
+        // One-shot sweep of legacy `*-mrn-{MRN}-*` ids so the FHIR server
+        // never holds parallel old + new resources for the same fact.
+        void cleanupOldFormatIds(target.mrn);
       } catch (e) {
         console.warn("[bg-fhir-sync]", target.mrn, e);
         statusRef.current.set(target.mrn, "err");
