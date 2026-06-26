@@ -1059,6 +1059,66 @@ function getResourceTimestamp(resource: any): number {
   return 0;
 }
 
+/**
+ * FHIR Data-Quality self-test. Walks an encounter bundle and confirms the
+ * minimum required machine-readable codes are present: the primary
+ * diagnosis must carry a SNOMED CT or ICD-10 coding, and every active
+ * MedicationRequest must carry an RxNorm coding. Returns a structured
+ * verdict the sync banner uses to flag "Degraded / Incomplete".
+ */
+export type FhirQuality = {
+  ok: boolean;
+  missing: string[];
+  primaryHasCode: boolean;
+  medsTotal: number;
+  medsCoded: number;
+  labsTotal: number;
+  labsCoded: number;
+};
+
+export function assessBundleQuality(bundle: any): FhirQuality {
+  const entries: any[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
+  const conditions = entries
+    .map((e) => e?.resource)
+    .filter((r) => r?.resourceType === "Condition");
+  const meds = entries
+    .map((e) => e?.resource)
+    .filter(
+      (r) =>
+        r?.resourceType === "MedicationRequest" &&
+        ["active", "completed", "draft"].includes(r.status),
+    );
+  const labs = entries
+    .map((e) => e?.resource)
+    .filter(
+      (r) =>
+        r?.resourceType === "Observation" &&
+        Array.isArray(r.category) &&
+        r.category.some((c: any) =>
+          c?.coding?.some((cc: any) => cc?.code === "laboratory"),
+        ),
+    );
+  const primary = conditions[0];
+  const primaryHasCode =
+    !!primary?.code?.coding?.length;
+  const medsCoded = meds.filter(
+    (m) => !!m?.medicationCodeableConcept?.coding?.length,
+  ).length;
+  const labsCoded = labs.filter((l) => !!l?.code?.coding?.length).length;
+  const missing: string[] = [];
+  if (conditions.length > 0 && !primaryHasCode) missing.push("primary diagnosis SNOMED/ICD-10");
+  if (meds.length > 0 && medsCoded < meds.length) missing.push(`${meds.length - medsCoded} med RxNorm`);
+  return {
+    ok: missing.length === 0,
+    missing,
+    primaryHasCode,
+    medsTotal: meds.length,
+    medsCoded,
+    labsTotal: labs.length,
+    labsCoded,
+  };
+}
+
 /** Trigger a JSON download in the browser. */
 export function downloadJson(filename: string, payload: unknown) {
   if (typeof window === "undefined") return;
