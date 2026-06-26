@@ -26,7 +26,10 @@ type Action =
   | "rxnormDetail"
   | "rxnormRelated"
   | "validate"
-  | "meddra";
+  | "meddra"
+  | "icd10"
+  | "snomed"
+  | "loinc";
 
 interface Body {
   action: Action;
@@ -92,6 +95,39 @@ function buildUrl(action: Action, p: Record<string, unknown>): {
         apiKey: UMLS_API_KEY,
       });
       return { url: `${UTS}/search/current?${qs}`, vocab: String(p.sabs ?? "") };
+    }
+    case "icd10": {
+      const qs = new URLSearchParams({
+        string: String(p.string ?? ""),
+        sabs: "ICD10CM",
+        returnIdType: "sourceUi",
+        searchType: String(p.searchType ?? "words"),
+        pageSize: String(p.pageSize ?? 5),
+        apiKey: UMLS_API_KEY,
+      });
+      return { url: `${UTS}/search/current?${qs}`, vocab: "ICD10CM" };
+    }
+    case "snomed": {
+      const qs = new URLSearchParams({
+        string: String(p.string ?? ""),
+        sabs: "SNOMEDCT_US",
+        returnIdType: "sourceUi",
+        searchType: String(p.searchType ?? "words"),
+        pageSize: String(p.pageSize ?? 5),
+        apiKey: UMLS_API_KEY,
+      });
+      return { url: `${UTS}/search/current?${qs}`, vocab: "SNOMEDCT_US" };
+    }
+    case "loinc": {
+      const qs = new URLSearchParams({
+        string: String(p.string ?? ""),
+        sabs: "LNC",
+        returnIdType: "sourceUi",
+        searchType: String(p.searchType ?? "words"),
+        pageSize: String(p.pageSize ?? 5),
+        apiKey: UMLS_API_KEY,
+      });
+      return { url: `${UTS}/search/current?${qs}`, vocab: "LNC" };
     }
     case "crosswalk": {
       const qs = new URLSearchParams({

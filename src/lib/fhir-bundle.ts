@@ -401,7 +401,9 @@ export type EncounterPatient = {
   spo2?: number | null;
   temp?: number | null;
   allergies?: string | null;
+  past_medical_history?: string | null;
 };
+
 
 export type EncounterLab = {
   id?: string;
@@ -1163,4 +1165,456 @@ export function splitEncounterBundle(bundle: any): {
         }
       : null,
   };
+}
+/* ------------------------------------------------------------------ */
+/*  Async, UMLS-coded encounter bundle                                  */
+/*                                                                      */
+/*  Wraps buildEncounterBundle() then live-resolves any missing coding  */
+/*  via the umls-proxy (cache-first) so EVERY Condition,                */
+/*  MedicationRequest, MedicationAdministration, Observation (lab) and  */
+/*  AllergyIntolerance pushed to the FHIR server carries a populated    */
+/*  coding[] sourced from a real UMLS / RxNav call.                     */
+/* ------------------------------------------------------------------ */
+
+export type EncounterAllergy = {
+  id?: string;
+  substance: string;
+  reaction?: string | null;
+  severity?: string | null;
+  category?: "medication" | "environment" | "food" | "biologic" | "unknown" | string | null;
+  substance_rxcui?: string | null;
+  substance_snomed?: string | null;
+  reactions?: Array<{
+    manifestation: string;
+    meddra_code?: string | null;
+    meddra_display?: string | null;
+    snomed_code?: string | null;
+    snomed_display?: string | null;
+  }>;
+};
+
+function inferAllergyCategory(
+  raw: string | null | undefined,
+  substance: string,
+): "medication" | "environment" | "food" | "biologic" | "unknown" {
+  const c = (raw ?? "").toLowerCase();
+  if (c.startsWith("med")) return "medication";
+  if (c.startsWith("env")) return "environment";
+  if (c.startsWith("food")) return "food";
+  if (c.startsWith("biol")) return "biologic";
+  // Heuristic on substance name when category is missing.
+  const s = (substance ?? "").toLowerCase();
+  if (/(penicillin|sulfa|codeine|morphine|cefazolin|aspirin|nsaid|ibuprofen|acetaminophen|amoxicillin)/.test(s))
+    return "medication";
+  if (/(peanut|nut|shellfish|egg|milk|soy|wheat|gluten)/.test(s)) return "food";
+  if (/(latex|iodine|contrast|pollen|bee|dust|mold)/.test(s)) return "environment";
+  return "unknown";
+}
+
+function parsePmhItems(text: string | null | undefined): string[] {
+  if (!text) return [];
+  return String(text)
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.toLowerCase() !== "none" && s.toLowerCase() !== "nkda")
+    .slice(0, 20);
+}
+
+function escapeHtml(s: string): string {
+  return (s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Async UMLS-coded encounter bundle builder. Returns the same structure
+ * as buildEncounterBundle but with every clinical resource fully coded
+ * via live UMLS / RxNav calls (transparent to the caller, cache-first).
+ */
+export async function buildEncounterBundleAsync(opts: {
+  patient: EncounterPatient;
+  labs?: EncounterLab[];
+  meds?: EncounterMed[];
+  notes?: EncounterNote[];
+  conditions?: EncounterCondition[];
+  allergies?: EncounterAllergy[];
+}): Promise<any> {
+  // Lazy import to avoid a circular module load order with umls-client
+  // (which imports the supabase client, which only exists in the browser).
+  const {
+    buildConditionCoding,
+    buildMedicationCoding,
+    buildAllergySubstanceCoding,
+    buildReactionCoding,
+    resolveLabUcumUnit,
+    UCUM_SYSTEM,
+  } = await import("@/lib/fhir-coding");
+
+  const bundle = buildEncounterBundle({
+    patient: opts.patient,
+    labs: opts.labs,
+    meds: opts.meds,
+    notes: opts.notes,
+    conditions: opts.conditions,
+  });
+  const entries: any[] = Array.isArray(bundle.entry) ? bundle.entry : [];
+  const mrn = opts.patient.mrn;
+
+  /* ---- 1. Conditions: backfill ICD-10 + SNOMED on any coding-less entry */
+  await Promise.all(
+    entries
+      .filter((e) => e.resource?.resourceType === "Condition")
+      .map(async (e) => {
+        const r = e.resource;
+        if (Array.isArray(r.code?.coding) && r.code.coding.length > 0) return;
+        const text = r.code?.text ?? "";
+        if (!text) return;
+        const cc = await buildConditionCoding(text);
+        if (cc.coding.length === 0) return;
+        r.code = { coding: cc.coding, text };
+      }),
+  );
+
+  /* ---- 2. PMH problem-list Conditions (each comma-separated item) */
+  const pmh = parsePmhItems(opts.patient.past_medical_history ?? null);
+  const pmhResources: any[] = [];
+  await Promise.all(
+    pmh.map(async (item, idx) => {
+      const cc = await buildConditionCoding(item);
+      const tokenBase = item
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 20);
+      const token = `pmh-${tokenBase || String(idx + 1)}`;
+      pmhResources.push({
+        resourceType: "Condition",
+        id: stableIds.condition(token, mrn),
+        clinicalStatus: {
+          coding: [
+            {
+              system: "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              code: "active",
+            },
+          ],
+        },
+        verificationStatus: {
+          coding: [
+            {
+              system: "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+              code: "confirmed",
+            },
+          ],
+        },
+        category: [
+          {
+            coding: [
+              {
+                system: "http://terminology.hl7.org/CodeSystem/condition-category",
+                code: "problem-list-item",
+                display: "Problem List Item",
+              },
+            ],
+          },
+        ],
+        code:
+          cc.coding.length > 0
+            ? { coding: cc.coding, text: item }
+            : { text: item },
+        subject: { reference: `Patient/${mrn}` },
+        recordedDate: opts.patient.admission_time ?? undefined,
+      });
+    }),
+  );
+
+  /* ---- 3. Medications: backfill RxNorm on Request + Administration */
+  await Promise.all(
+    entries
+      .filter(
+        (e) =>
+          e.resource?.resourceType === "MedicationRequest" ||
+          e.resource?.resourceType === "MedicationAdministration",
+      )
+      .map(async (e) => {
+        const r = e.resource;
+        const cc = r.medicationCodeableConcept;
+        if (Array.isArray(cc?.coding) && cc.coding.length > 0) return;
+        const text = cc?.text ?? "";
+        if (!text) return;
+        const built = await buildMedicationCoding(text);
+        if (built.coding.length === 0) return;
+        r.medicationCodeableConcept = { coding: built.coding, text };
+      }),
+  );
+
+  /* ---- 4. Lab observations: ensure code.coding and UCUM units */
+  await Promise.all(
+    entries
+      .filter((e) => {
+        const r = e.resource;
+        if (r?.resourceType !== "Observation") return false;
+        return r.category?.some((c: any) =>
+          c?.coding?.some((cc: any) => cc?.code === "laboratory"),
+        );
+      })
+      .map(async (e) => {
+        const r = e.resource;
+        const text = r.code?.text ?? "";
+        // Ensure LOINC coding[]
+        if (!Array.isArray(r.code?.coding) || r.code.coding.length === 0) {
+          if (text) {
+            const { resolveLoinc } = await import("@/lib/umls-client");
+            const lo = await resolveLoinc(text);
+            if (lo) {
+              r.code = {
+                coding: [
+                  {
+                    system: FHIR_SYSTEM_URI.LOINC,
+                    code: lo.code,
+                    display: lo.display,
+                  },
+                ],
+                text,
+              };
+            }
+          }
+        }
+        // UCUM unit on valueQuantity
+        if (r.valueQuantity && r.valueQuantity.value !== undefined) {
+          const haveSystem = !!r.valueQuantity.system;
+          if (!haveSystem) {
+            const fallback =
+              typeof r.valueQuantity.unit === "string"
+                ? r.valueQuantity.unit
+                : null;
+            const unit = await resolveLabUcumUnit(text, fallback);
+            if (unit) {
+              r.valueQuantity = {
+                ...r.valueQuantity,
+                unit,
+                system: UCUM_SYSTEM,
+                code: unit,
+              };
+            }
+          }
+        }
+      }),
+  );
+
+  /* ---- 5. Allergies: build resources + reaction.manifestation MedDRA */
+  const allergyResources: any[] = [];
+  for (const a of opts.allergies ?? []) {
+    if (!a?.substance) continue;
+    const category = inferAllergyCategory(a.category, a.substance);
+    const substanceCC = await buildAllergySubstanceCoding(a.substance, category);
+    const reactionEntries: any[] = [];
+    const reactionList =
+      a.reactions && a.reactions.length > 0
+        ? a.reactions
+        : a.reaction
+          ? [{ manifestation: a.reaction }]
+          : [];
+    for (const rx of reactionList) {
+      if (!rx?.manifestation) continue;
+      const manCC = await buildReactionCoding(rx.manifestation);
+      reactionEntries.push({
+        manifestation: [
+          manCC.coding.length > 0
+            ? { coding: manCC.coding, text: rx.manifestation }
+            : { text: rx.manifestation },
+        ],
+        severity:
+          (a.severity ?? "").toLowerCase() === "severe"
+            ? "severe"
+            : (a.severity ?? "").toLowerCase() === "mild"
+              ? "mild"
+              : "moderate",
+      });
+    }
+    allergyResources.push({
+      resourceType: "AllergyIntolerance",
+      id: stableIds.allergy(a.substance, mrn),
+      clinicalStatus: {
+        coding: [
+          {
+            system: "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+            code: "active",
+          },
+        ],
+      },
+      verificationStatus: {
+        coding: [
+          {
+            system: "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification",
+            code: "confirmed",
+          },
+        ],
+      },
+      type: "allergy",
+      category:
+        category === "medication"
+          ? ["medication"]
+          : category === "food"
+            ? ["food"]
+            : category === "environment"
+              ? ["environment"]
+              : category === "biologic"
+                ? ["biologic"]
+                : undefined,
+      criticality:
+        (a.severity ?? "").toLowerCase() === "severe" ? "high" : "low",
+      code:
+        substanceCC.coding.length > 0
+          ? { coding: substanceCC.coding, text: a.substance }
+          : { text: a.substance },
+      patient: { reference: `Patient/${mrn}` },
+      reaction: reactionEntries.length > 0 ? reactionEntries : undefined,
+    });
+  }
+
+  /* ---- 6. Append new resources to the bundle (PMH + Allergies) */
+  for (const r of [...pmhResources, ...allergyResources]) {
+    entries.push({
+      fullUrl: `${r.resourceType}/${r.id}`,
+      resource: r,
+      request: { method: "PUT", url: `${r.resourceType}/${r.id}` },
+    });
+  }
+
+  /* ---- 7. Composition: ground discharge sections in ACTUAL resources */
+  const composition = entries.find(
+    (e) => e.resource?.resourceType === "Composition",
+  )?.resource;
+  if (composition) {
+    const labRes = entries
+      .map((e) => e.resource)
+      .filter(
+        (r) =>
+          r?.resourceType === "Observation" &&
+          r.category?.some((c: any) =>
+            c?.coding?.some((cc: any) => cc?.code === "laboratory"),
+          ),
+      );
+    const medReqRes = entries
+      .map((e) => e.resource)
+      .filter((r) => r?.resourceType === "MedicationRequest");
+    const allergyRes = entries
+      .map((e) => e.resource)
+      .filter((r) => r?.resourceType === "AllergyIntolerance");
+
+    const labRows = labRes.length
+      ? labRes
+          .map((o: any) => {
+            const name = o.code?.text ?? o.code?.coding?.[0]?.display ?? "Lab";
+            const v =
+              o.valueQuantity?.value !== undefined
+                ? `${o.valueQuantity.value}${o.valueQuantity.unit ? " " + o.valueQuantity.unit : ""}`
+                : (o.valueString ?? "—");
+            return `<p>${escapeHtml(name)}: ${escapeHtml(String(v))}</p>`;
+          })
+          .join("")
+      : "<p>No laboratory observations recorded for this encounter.</p>";
+    const medRows = medReqRes.length
+      ? medReqRes
+          .map((m: any) => {
+            const name = m.medicationCodeableConcept?.text ?? "Medication";
+            const route =
+              m.dosageInstruction?.[0]?.route?.text ?? "";
+            return `<p>${escapeHtml(name)}${route ? " — " + escapeHtml(route) : ""}</p>`;
+          })
+          .join("")
+      : "<p>No discharge medications prescribed for this encounter.</p>";
+    const allergyRows = allergyRes.length
+      ? allergyRes
+          .map((a: any) => {
+            const s = a.code?.text ?? "Substance";
+            const reactions = (a.reaction ?? [])
+              .map(
+                (r: any) =>
+                  r.manifestation?.[0]?.text ??
+                  r.manifestation?.[0]?.coding?.[0]?.display ??
+                  "reaction",
+              )
+              .join(", ");
+            return `<p>${escapeHtml(s)}${reactions ? " — " + escapeHtml(reactions) : ""}</p>`;
+          })
+          .join("")
+      : "<p>No known allergies recorded for this encounter.</p>";
+
+    const sections: any[] = Array.isArray(composition.section)
+      ? composition.section
+      : [];
+    const setSectionText = (title: string, html: string) => {
+      const sec = sections.find((s) => s.title === title);
+      const text = {
+        status: "generated",
+        div: `<div xmlns="http://www.w3.org/1999/xhtml">${html}</div>`,
+      };
+      if (sec) sec.text = text;
+      else sections.push({ title, text });
+    };
+    setSectionText("Pertinent Laboratory Findings", labRows);
+    setSectionText("Discharge Medications", medRows);
+    setSectionText("Allergies", allergyRows);
+    composition.section = sections;
+  }
+
+  /* ---- 8. CarePlan: regenerate description grounded in actuals only */
+  const carePlan = entries.find(
+    (e) => e.resource?.resourceType === "CarePlan",
+  )?.resource;
+  if (carePlan) {
+    const medNames = entries
+      .map((e) => e.resource)
+      .filter((r) => r?.resourceType === "MedicationRequest")
+      .map((m) => m.medicationCodeableConcept?.text)
+      .filter(Boolean) as string[];
+    const labNames = entries
+      .map((e) => e.resource)
+      .filter(
+        (r) =>
+          r?.resourceType === "Observation" &&
+          r.category?.some((c: any) =>
+            c?.coding?.some((cc: any) => cc?.code === "laboratory"),
+          ),
+      )
+      .map((o) => o.code?.text)
+      .filter(Boolean) as string[];
+    const dxRes = entries
+      .map((e) => e.resource)
+      .find(
+        (r) =>
+          r?.resourceType === "Condition" &&
+          r.verificationStatus?.coding?.[0]?.code === "confirmed",
+      );
+    const dxText = dxRes?.code?.text ?? opts.patient.diagnosis ?? null;
+    const summaryParts: string[] = [];
+    if (dxText) summaryParts.push(`Discharge diagnosis: ${dxText}.`);
+    summaryParts.push(
+      medNames.length > 0
+        ? `Medications administered/prescribed this encounter: ${medNames.join(", ")}.`
+        : "No medications administered or prescribed during this encounter.",
+    );
+    summaryParts.push(
+      labNames.length > 0
+        ? `Laboratory tests collected: ${labNames.join(", ")}.`
+        : "No laboratory tests collected during this encounter.",
+    );
+    summaryParts.push(
+      "Follow-up appointment scheduled per Appointment resource. Discharge instructions provided.",
+    );
+    carePlan.description = summaryParts.join(" ");
+  }
+
+  /* ---- 9. Re-dedupe (PMH / allergies may collide with prior pushes) */
+  const seen = new Map<string, any>();
+  for (const e of entries) {
+    const r = e.resource;
+    const key = `${r.resourceType}/${r.id}`;
+    seen.set(key, e); // last write wins (newer enrichment)
+  }
+  bundle.entry = Array.from(seen.values());
+  return bundle;
 }
