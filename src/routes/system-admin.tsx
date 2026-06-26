@@ -3322,11 +3322,22 @@ function FhirInteroperability({ facility }: { facility: string }) {
         const pending = Object.values(autoStatus).filter((v) => v === "queued").length;
         const errors = Object.values(autoStatus).filter((v) => v === "err").length;
         const ok = Object.values(autoStatus).filter((v) => v === "ok").length;
+        // Read FHIR Data-Quality verdicts persisted by the background sync
+        // hook. Any encounter missing primary diagnosis SNOMED/ICD-10 or
+        // missing RxNorm on its meds counts as "degraded / incomplete".
+        let degraded = 0;
+        try {
+          const raw = typeof window !== "undefined" ? window.localStorage.getItem("fhir.quality") : null;
+          const obj = raw ? JSON.parse(raw) : {};
+          for (const k of Object.keys(obj)) if (obj[k]?.ok === false) degraded++;
+        } catch { /* ignore */ }
         const tone =
           !autoOn
             ? { bg: "bg-rose-50", border: "border-rose-200", text: "text-rose-700", dot: "bg-rose-500", icon: "✗", label: "FHIR Sync Error" }
             : errors > 0
               ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800", dot: "bg-amber-500", icon: "⚠", label: "FHIR Sync Degraded" }
+              : degraded > 0
+                ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800", dot: "bg-amber-500", icon: "⚠", label: "FHIR Sync Degraded / Incomplete" }
               : { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-800", dot: "bg-emerald-500", icon: "✓", label: "FHIR Sync Active" };
         return (
           <div className={`rounded-xl border ${tone.border} ${tone.bg} px-4 py-2.5 flex items-center justify-between gap-3`}>
@@ -3336,6 +3347,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
               <span className={`text-[11px] ${tone.text} opacity-80`}>
                 {autoOn ? "Live sync active" : "loop paused — toggle on above"} ·
                 {" "}{ok} synced · {syncing} in flight · {pending} queued · {errors} errors
+                {degraded > 0 ? ` · ${degraded} incomplete (missing AUTO API codes)` : ""}
               </span>
             </div>
             <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">
