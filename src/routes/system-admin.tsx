@@ -2573,8 +2573,8 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
           .in("patient_mrn", mrns),
         supabase
           .from("conditions")
-          .select("patient_mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
-          .in("patient_mrn", mrns),
+          .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
+          .in("mrn", mrns),
       ]);
       // Pull coded columns from step-8 schema (auto-coded by `auto-code.ts`).
       const [labsCoded, medsCoded] = await Promise.all([
@@ -2618,8 +2618,10 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         bucket(mrn)[sys].push({ code, display });
       };
       for (const r of (condsRes.data ?? []) as any[]) {
-        if (r.snomed_code) pushUnique(r.patient_mrn, "snomed", r.snomed_code, r.snomed_display ?? r.display_text);
-        if (r.icd10_code) pushUnique(r.patient_mrn, "icd10", r.icd10_code, r.icd10_display ?? r.display_text);
+        const m = r.mrn ?? r.patient_mrn;
+        if (!m) continue;
+        if (r.snomed_code) pushUnique(m, "snomed", r.snomed_code, r.snomed_display ?? r.display_text);
+        if (r.icd10_code) pushUnique(m, "icd10", r.icd10_code, r.icd10_display ?? r.display_text);
       }
       for (const r of (labsCoded.data ?? []) as any[]) {
         if (r.loinc_code) pushUnique(r.patient_mrn, "loinc", r.loinc_code, r.loinc_display);
@@ -3153,18 +3155,18 @@ function FhirInteroperability({ facility }: { facility: string }) {
 
   // Build an Encounter Bundle for any row (used by both manual + auto loop).
   const buildBundleForRow = async (r: FhirEncounterRow) => {
-    const [patientRes, labsRes, medsRes, notesRes] = await Promise.all([
+    const [patientRes, labsRes, medsRes, notesRes, condsRes] = await Promise.all([
       supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
       supabase
         .from("lab_orders")
-        .select("id, test_type, result_value, status, collected_at, created_at")
+        .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
         .eq("patient_mrn", r.mrn)
         .order("created_at", { ascending: false })
         .limit(40),
       supabase
         .from("medication_orders")
         .select(
-          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
         )
         .eq("patient_mrn", r.mrn)
         .order("created_at", { ascending: false })
@@ -3174,6 +3176,12 @@ function FhirInteroperability({ facility }: { facility: string }) {
         .select("id, note_type, author, content, created_at")
         .eq("mrn", r.mrn)
         .order("created_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("conditions")
+        .select("display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at")
+        .eq("mrn", r.mrn)
+        .order("coded_at", { ascending: false })
         .limit(20),
     ]);
     const p = (patientRes.data ?? {}) as any;
@@ -3205,6 +3213,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
       labs: (labsRes.data ?? []) as any[],
       meds: (medsRes.data ?? []) as any[],
       notes: (notesRes.data ?? []) as any[],
+      conditions: (condsRes.data ?? []) as any[],
     });
   };
 
@@ -3320,11 +3329,22 @@ function FhirInteroperability({ facility }: { facility: string }) {
         const pending = Object.values(autoStatus).filter((v) => v === "queued").length;
         const errors = Object.values(autoStatus).filter((v) => v === "err").length;
         const ok = Object.values(autoStatus).filter((v) => v === "ok").length;
+        // Read FHIR Data-Quality verdicts persisted by the background sync
+        // hook. Any encounter missing primary diagnosis SNOMED/ICD-10 or
+        // missing RxNorm on its meds counts as "degraded / incomplete".
+        let degraded = 0;
+        try {
+          const raw = typeof window !== "undefined" ? window.localStorage.getItem("fhir.quality") : null;
+          const obj = raw ? JSON.parse(raw) : {};
+          for (const k of Object.keys(obj)) if (obj[k]?.ok === false) degraded++;
+        } catch { /* ignore */ }
         const tone =
           !autoOn
             ? { bg: "bg-rose-50", border: "border-rose-200", text: "text-rose-700", dot: "bg-rose-500", icon: "✗", label: "FHIR Sync Error" }
             : errors > 0
               ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800", dot: "bg-amber-500", icon: "⚠", label: "FHIR Sync Degraded" }
+              : degraded > 0
+                ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800", dot: "bg-amber-500", icon: "⚠", label: "FHIR Sync Degraded / Incomplete" }
               : { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-800", dot: "bg-emerald-500", icon: "✓", label: "FHIR Sync Active" };
         return (
           <div className={`rounded-xl border ${tone.border} ${tone.bg} px-4 py-2.5 flex items-center justify-between gap-3`}>
@@ -3334,6 +3354,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
               <span className={`text-[11px] ${tone.text} opacity-80`}>
                 {autoOn ? "Live sync active" : "loop paused — toggle on above"} ·
                 {" "}{ok} synced · {syncing} in flight · {pending} queued · {errors} errors
+                {degraded > 0 ? ` · ${degraded} incomplete (missing AUTO API codes)` : ""}
               </span>
             </div>
             <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">

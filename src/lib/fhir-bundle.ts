@@ -426,6 +426,8 @@ export type EncounterMed = {
   administered_at?: string | null;
   approved_at?: string | null;
   created_at?: string | null;
+  rxnorm_code?: string | null;
+  rxnorm_display?: string | null;
 };
 
 export type EncounterNote = {
@@ -434,6 +436,18 @@ export type EncounterNote = {
   author?: string | null;
   content?: string | null;
   created_at?: string | null;
+};
+
+export type EncounterCondition = {
+  display_text?: string | null;
+  snomed_code?: string | null;
+  snomed_display?: string | null;
+  icd10_code?: string | null;
+  icd10_display?: string | null;
+  verification_status?: string | null;
+  clinical_status?: string | null;
+  recorded_date?: string | null;
+  coded_at?: string | null;
 };
 
 function fullPatient(p: EncounterPatient) {
@@ -629,12 +643,27 @@ function medRequest(mrn: string, m: EncounterMed) {
             : raw === "stopped" || raw === "discontinued"
               ? "stopped"
               : "active";
+  // FHIR R4 mandates a coding array for machine-readable interoperability.
+  // Use the RxNorm code emitted by AUTO API when available; fall back to
+  // text-only when AUTO API hasn't (yet) resolved this drug.
+  const medCC = m.rxnorm_code
+    ? {
+        coding: [
+          {
+            system: FHIR_SYSTEM_URI.RxNorm,
+            code: m.rxnorm_code,
+            display: m.rxnorm_display ?? drug,
+          },
+        ],
+        text: `${drug}${m.dose ? ` ${m.dose}` : ""}`,
+      }
+    : { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` };
   return {
     resourceType: "MedicationRequest",
     id: stableIds.medRequest(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
     status,
     intent: "order",
-    medicationCodeableConcept: { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` },
+    medicationCodeableConcept: medCC,
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/enc-${mrn}` },
     authoredOn: m.created_at ?? undefined,
@@ -647,11 +676,23 @@ function medRequest(mrn: string, m: EncounterMed) {
 
 function medAdministration(mrn: string, m: EncounterMed) {
   const drug = m.drug_name ?? m.drug ?? m.medication_name ?? "medication";
+  const medCC = m.rxnorm_code
+    ? {
+        coding: [
+          {
+            system: FHIR_SYSTEM_URI.RxNorm,
+            code: m.rxnorm_code,
+            display: m.rxnorm_display ?? drug,
+          },
+        ],
+        text: `${drug}${m.dose ? ` ${m.dose}` : ""}`,
+      }
+    : { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` };
   return {
     resourceType: "MedicationAdministration",
     id: stableIds.medAdmin(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
     status: "completed",
-    medicationCodeableConcept: { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` },
+    medicationCodeableConcept: medCC,
     subject: { reference: `Patient/${mrn}` },
     context: { reference: `Encounter/enc-${mrn}` },
     effectiveDateTime: m.administered_at ?? undefined,
@@ -728,7 +769,10 @@ function followUpAppointment(p: EncounterPatient) {
  * `confirmed` Condition so the discharge diagnosis is preserved alongside
  * — not in place of — the admitting provisional diagnosis.
  */
-function encounterConditions(p: EncounterPatient): any[] {
+function encounterConditions(
+  p: EncounterPatient,
+  coded: EncounterCondition[] = [],
+): any[] {
   const out: any[] = [];
   const subject = { reference: `Patient/${p.mrn}` };
   const encounter = { reference: `Encounter/enc-${p.mrn}` };
@@ -759,27 +803,72 @@ function encounterConditions(p: EncounterPatient): any[] {
       },
     ],
   });
+  // Find the best AUTO API-coded condition for the working diagnosis (HPI).
+  const primaryCoded = coded.find(
+    (c) => c.snomed_code || c.icd10_code,
+  );
   if (p.chief_complaint) {
+    const codingArr: Array<{ system: string; code: string; display: string }> = [];
+    if (primaryCoded?.snomed_code)
+      codingArr.push({
+        system: FHIR_SYSTEM_URI["SNOMED CT"],
+        code: primaryCoded.snomed_code,
+        display: primaryCoded.snomed_display ?? p.chief_complaint,
+      });
+    if (primaryCoded?.icd10_code)
+      codingArr.push({
+        system: FHIR_SYSTEM_URI["ICD-10"],
+        code: primaryCoded.icd10_code,
+        display: primaryCoded.icd10_display ?? p.chief_complaint,
+      });
     out.push({
       resourceType: "Condition",
       id: stableIds.condition("hpi", p.mrn),
       clinicalStatus: clinicalActive,
       verificationStatus: verif("provisional"),
       category,
-      code: { text: p.chief_complaint },
+      code:
+        codingArr.length > 0
+          ? { coding: codingArr, text: p.chief_complaint }
+          : { text: p.chief_complaint },
       subject,
       encounter,
       recordedDate: p.admission_time ?? undefined,
     });
   }
   if (p.discharge_time && p.diagnosis) {
+    // Discharge diagnosis: prefer a coded condition that matches the
+    // discharge text, otherwise reuse the primary coded one.
+    const dischargeCoded =
+      coded.find(
+        (c) =>
+          c.display_text &&
+          p.diagnosis &&
+          c.display_text.toLowerCase().includes(p.diagnosis.toLowerCase().slice(0, 12)),
+      ) ?? primaryCoded;
+    const codingArr: Array<{ system: string; code: string; display: string }> = [];
+    if (dischargeCoded?.snomed_code)
+      codingArr.push({
+        system: FHIR_SYSTEM_URI["SNOMED CT"],
+        code: dischargeCoded.snomed_code,
+        display: dischargeCoded.snomed_display ?? p.diagnosis,
+      });
+    if (dischargeCoded?.icd10_code)
+      codingArr.push({
+        system: FHIR_SYSTEM_URI["ICD-10"],
+        code: dischargeCoded.icd10_code,
+        display: dischargeCoded.icd10_display ?? p.diagnosis,
+      });
     out.push({
       resourceType: "Condition",
       id: stableIds.condition("discharge", p.mrn),
       clinicalStatus: clinicalActive,
       verificationStatus: verif("confirmed"),
       category,
-      code: { text: p.diagnosis },
+      code:
+        codingArr.length > 0
+          ? { coding: codingArr, text: p.diagnosis }
+          : { text: p.diagnosis },
       subject,
       encounter,
       recordedDate: p.discharge_time ?? undefined,
@@ -793,12 +882,13 @@ export function buildEncounterBundle(opts: {
   labs?: EncounterLab[];
   meds?: EncounterMed[];
   notes?: EncounterNote[];
+  conditions?: EncounterCondition[];
 }) {
   const { patient } = opts;
   const patientRes = fullPatient(patient);
   const encounterRes = buildEncounterResource(patient);
   const vitals = vitalsObservations(patient);
-  const conditions = encounterConditions(patient);
+  const conditions = encounterConditions(patient, opts.conditions ?? []);
   // Lab collapse: keep the latest event per test slug. This prevents
   // HAPI-0534 "Transaction bundle contains multiple resources with ID"
   // when a patient has both an ordered (registered) and resulted (final)
@@ -967,6 +1057,66 @@ function getResourceTimestamp(resource: any): number {
   if (resource.meta?.lastUpdated)
     return new Date(resource.meta.lastUpdated).getTime() || 0;
   return 0;
+}
+
+/**
+ * FHIR Data-Quality self-test. Walks an encounter bundle and confirms the
+ * minimum required machine-readable codes are present: the primary
+ * diagnosis must carry a SNOMED CT or ICD-10 coding, and every active
+ * MedicationRequest must carry an RxNorm coding. Returns a structured
+ * verdict the sync banner uses to flag "Degraded / Incomplete".
+ */
+export type FhirQuality = {
+  ok: boolean;
+  missing: string[];
+  primaryHasCode: boolean;
+  medsTotal: number;
+  medsCoded: number;
+  labsTotal: number;
+  labsCoded: number;
+};
+
+export function assessBundleQuality(bundle: any): FhirQuality {
+  const entries: any[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
+  const conditions = entries
+    .map((e) => e?.resource)
+    .filter((r) => r?.resourceType === "Condition");
+  const meds = entries
+    .map((e) => e?.resource)
+    .filter(
+      (r) =>
+        r?.resourceType === "MedicationRequest" &&
+        ["active", "completed", "draft"].includes(r.status),
+    );
+  const labs = entries
+    .map((e) => e?.resource)
+    .filter(
+      (r) =>
+        r?.resourceType === "Observation" &&
+        Array.isArray(r.category) &&
+        r.category.some((c: any) =>
+          c?.coding?.some((cc: any) => cc?.code === "laboratory"),
+        ),
+    );
+  const primary = conditions[0];
+  const primaryHasCode =
+    !!primary?.code?.coding?.length;
+  const medsCoded = meds.filter(
+    (m) => !!m?.medicationCodeableConcept?.coding?.length,
+  ).length;
+  const labsCoded = labs.filter((l) => !!l?.code?.coding?.length).length;
+  const missing: string[] = [];
+  if (conditions.length > 0 && !primaryHasCode) missing.push("primary diagnosis SNOMED/ICD-10");
+  if (meds.length > 0 && medsCoded < meds.length) missing.push(`${meds.length - medsCoded} med RxNorm`);
+  return {
+    ok: missing.length === 0,
+    missing,
+    primaryHasCode,
+    medsTotal: meds.length,
+    medsCoded,
+    labsTotal: labs.length,
+    labsCoded,
+  };
 }
 
 /** Trigger a JSON download in the browser. */

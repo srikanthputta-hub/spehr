@@ -1,6 +1,11 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { buildEncounterBundle, splitEncounterBundle } from "@/lib/fhir-bundle";
+import {
+  buildEncounterBundle,
+  splitEncounterBundle,
+  assessBundleQuality,
+  type FhirQuality,
+} from "@/lib/fhir-bundle";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
 
 /**
@@ -57,19 +62,54 @@ function persistPushed(mrn: string, outcome: "ok" | "err") {
   }
 }
 
+function persistQuality(mrn: string, quality: FhirQuality) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem("fhir.quality");
+    const obj = raw ? JSON.parse(raw) : {};
+    obj[mrn] = {
+      ok: quality.ok,
+      missing: quality.missing,
+      ts: Date.now(),
+    };
+    window.localStorage.setItem("fhir.quality", JSON.stringify(obj));
+    window.dispatchEvent(new CustomEvent("spehr:fhir-quality"));
+  } catch {
+    /* ignore */
+  }
+}
+
+async function flagSafetyAlert(mrn: string, quality: FhirQuality) {
+  if (quality.ok) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("clinical_safety_alerts") as any).insert({
+      mrn,
+      alert_type: "fhir_data_quality",
+      severity: "medium",
+      title: "FHIR Data Quality: Degraded",
+      description: `AUTO API could not resolve required codes: ${quality.missing.join(", ")}`,
+      source: "auto-api",
+      status: "open",
+    });
+  } catch {
+    /* ignore — table may not exist locally */
+  }
+}
+
 async function buildBundleForMrn(r: Row) {
-  const [patientRes, labsRes, medsRes, notesRes] = await Promise.all([
+  const [patientRes, labsRes, medsRes, notesRes, condsRes] = await Promise.all([
     supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
     supabase
       .from("lab_orders")
-      .select("id, test_type, result_value, status, collected_at, created_at")
+      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
       .eq("patient_mrn", r.mrn)
       .order("created_at", { ascending: false })
       .limit(40),
     supabase
       .from("medication_orders")
       .select(
-        "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+        "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
       )
       .eq("patient_mrn", r.mrn)
       .order("created_at", { ascending: false })
@@ -79,6 +119,14 @@ async function buildBundleForMrn(r: Row) {
       .select("id, note_type, author, content, created_at")
       .eq("mrn", r.mrn)
       .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("conditions")
+      .select(
+        "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at",
+      )
+      .eq("mrn", r.mrn)
+      .order("coded_at", { ascending: false })
       .limit(20),
   ]);
   const p = (patientRes.data ?? {}) as any;
@@ -110,6 +158,7 @@ async function buildBundleForMrn(r: Row) {
     labs: (labsRes.data ?? []) as any[],
     meds: (medsRes.data ?? []) as any[],
     notes: (notesRes.data ?? []) as any[],
+    conditions: (condsRes.data ?? []) as any[],
   });
 }
 
@@ -183,6 +232,12 @@ export function useBackgroundFhirSync() {
       statusRef.current.set(target.mrn, "syncing");
       try {
         const bundle = await buildBundleForMrn(target);
+        // FHIR Data Quality self-test: persist verdict so the banner can
+        // flag "Degraded / Incomplete" when AUTO API hasn't (yet) resolved
+        // the minimum required codes for the encounter.
+        const quality = assessBundleQuality(bundle);
+        persistQuality(target.mrn, quality);
+        if (!quality.ok) void flagSafetyAlert(target.mrn, quality);
         const isDischarged =
           (target.status ?? "").toLowerCase() === "discharged" ||
           !!target.discharge_time;
