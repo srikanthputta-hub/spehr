@@ -22,6 +22,7 @@ type Action =
   | "snomed"
   | "loinc"
   | "rxnorm"
+  | "rxnormDetail"
   | "meddra"
   | "crosswalk";
 
