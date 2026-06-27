@@ -9,6 +9,8 @@ import {
   type FhirQuality,
 } from "@/lib/fhir-bundle";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
+import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { logLoop } from "@/lib/loop-logger";
 
 /**
  * Background FHIR live-sync. Runs at the app root so discharged-patient
@@ -329,6 +331,11 @@ export function useBackgroundFhirSync() {
       if (cancelled || inFlightRef.current) return;
       if (!readEnabled()) return;
       if (!enabledRef.current) return;
+      // Spec-literal global pause: when AI Engines toggle is OFF, every
+      // loop (incl. FHIR sync) pauses. We still emit a PAUSED heartbeat
+      // periodically via the watchdog so the dashboard reflects state.
+      const globalOn = await getAutomationEnabled();
+      if (!globalOn) return;
       let target: Row | null = null;
       for (const [mrn, st] of statusRef.current) {
         if (st !== "queued") continue;
@@ -387,14 +394,26 @@ export function useBackgroundFhirSync() {
         console.warn("[bg-fhir-sync]", target.mrn, e);
         statusRef.current.set(target.mrn, "err");
         persistPushed(target.mrn, "err");
+        void logLoop("FHIR_SYNC", "ERROR", { mrn: target.mrn, error: String(e) });
       } finally {
         inFlightRef.current = false;
+        if (target && statusRef.current.get(target.mrn) === "ok") {
+          void logLoop("FHIR_SYNC", "NORMAL", { mrn: target.mrn });
+          void logLoop("FHIR_R4_COMPLIANCE", "NORMAL", { mrn: target.mrn });
+        }
       }
     };
 
     void loadRows();
     const refresh = setInterval(() => void loadRows(), 30_000);
     const heartbeat = setInterval(() => void pushNext(), 400);
+    // Idle heartbeat: even when no MRN is queued, prove the loop is alive.
+    const idleHeartbeat = setInterval(async () => {
+      const globalOn = await getAutomationEnabled();
+      if (!globalOn) { void logLoop("FHIR_SYNC", "PAUSED", { global_control_status: "OFF" }); return; }
+      // Only log idle heartbeat if nothing else has logged recently — avoids spam.
+      void logLoop("FHIR_SYNC", "NORMAL", { idle: true, queue_depth: statusRef.current.size });
+    }, 8_000);
 
     const requeueByMrn = (mrn: string | null | undefined) => {
       if (!mrn) return;
@@ -441,6 +460,7 @@ export function useBackgroundFhirSync() {
       cancelled = true;
       clearInterval(refresh);
       clearInterval(heartbeat);
+      clearInterval(idleHeartbeat);
       void supabase.removeChannel(channel);
     };
   }, []);
