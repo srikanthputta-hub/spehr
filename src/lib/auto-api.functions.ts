@@ -270,92 +270,125 @@ export const logCdsOverride = createServerFn({ method: "POST" })
 export const getAutoApiLoopStatus = createServerFn({ method: "GET" }).handler(
   async () => {
     const sb = client();
-    // Heuristic: derive each loop's last activity from recent table writes.
-    const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
-    const [qaPending, recentEvents, recentOverrides, recentDischarges] =
-      await Promise.all([
-        sb
-          .from("nlp_qa_queue")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "pending"),
-        sb
-          .from("auto_api_events")
-          .select("event_type, created_at")
-          .gte("created_at", fiveMinAgo)
-          .order("created_at", { ascending: false })
-          .limit(50),
-        sb
-          .from("cds_overrides")
-          .select("id", { count: "exact", head: true })
-          .gte("created_at", fiveMinAgo),
-        sb
-          .from("patients")
-          .select("discharge_time")
-          .eq("status", "Discharged")
-          .order("discharge_time", { ascending: false })
-          .limit(1),
-      ]);
-
-    const lastDischarge = (recentDischarges.data as any[])?.[0]?.discharge_time;
-    const lastEventByType: Record<string, string> = {};
-    for (const ev of (recentEvents.data as any[]) ?? []) {
-      if (!lastEventByType[ev.event_type])
-        lastEventByType[ev.event_type] = ev.created_at;
+    // Derive real status from automation_watchdog_logs (engine + created_at).
+    // Each loop's max age (seconds before WARNING).
+    const SLA: Record<string, { label: string; group: string; maxAge: number }> = {
+      UMLS_LIVE_QUERY:      { label: "UMLS Live Query",                     group: "Terminology", maxAge: 360 },
+      NLP_PIPELINE:         { label: "NLP Pipeline",                        group: "Coding",      maxAge: 45 },
+      PRE_PUSH_STANDARD:    { label: "Pre-Push Code Standardisation",       group: "Interop",     maxAge: 90 },
+      DRUG_SAFETY:          { label: "Drug Safety · RxNorm × Allergy",      group: "Safety",      maxAge: 130 },
+      FHIR_SYNC:            { label: "FHIR Server Sync · API Heartbeat",    group: "Interop",     maxAge: 10 },
+      NLP_CONFIDENCE_GATE:  { label: "NLP Confidence Gate",                 group: "Governance",  maxAge: 70 },
+    };
+    const keys = Object.keys(SLA);
+    const since = new Date(Date.now() - 30 * 60_000).toISOString();
+    const { data: logs } = await sb
+      .from("automation_watchdog_logs")
+      .select("engine, status, created_at, payload")
+      .in("engine", keys)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false });
+    const latest: Record<string, any> = {};
+    for (const l of (logs ?? []) as any[]) {
+      if (!latest[l.engine]) latest[l.engine] = l;
     }
-
-    const loops = [
-      {
-        key: "UMLS_LIVE_QUERY",
-        label: "UMLS Live Query",
-        group: "Terminology",
-        status: "NORMAL" as const,
-        last_run: new Date().toISOString(),
-      },
-      {
-        key: "NLP_PIPELINE",
-        label: "NLP Pipeline (raw → mapping → standardised)",
-        group: "Coding",
-        status: "NORMAL" as const,
-        last_run: lastEventByType["NLP_MAPPING_APPROVED"] ?? new Date().toISOString(),
-      },
-      {
-        key: "PRE_PUSH_STANDARDISATION",
-        label: "Pre-Push Code Standardisation",
-        group: "Interop",
-        status: "NORMAL" as const,
-        last_run: lastDischarge ?? new Date().toISOString(),
-      },
-      {
-        key: "DRUG_SAFETY_RXNORM",
-        label: "Drug Safety · RxNorm × AllergyIntolerance",
-        group: "Safety",
-        status: "NORMAL" as const,
-        last_run: lastEventByType["DRUG_SAFETY_HALT"] ?? new Date().toISOString(),
-      },
-      {
-        key: "FHIR_SERVER_SYNC",
-        label: "FHIR Server Sync (400 ms heartbeat)",
-        group: "Interop",
-        status: "NORMAL" as const,
-        last_run: lastDischarge ?? new Date().toISOString(),
-      },
-      {
-        key: "NLP_CONFIDENCE_GATE",
-        label: "NLP Confidence Gate",
-        group: "Governance",
-        status: ((qaPending.count ?? 0) > 0 ? "WARNING" : "NORMAL") as
-          | "NORMAL"
-          | "WARNING",
-        last_run: new Date().toISOString(),
-      },
-    ];
-
+    const loops = keys.map((k) => {
+      const def = SLA[k];
+      const row = latest[k];
+      let status: "NORMAL" | "WARNING" | "ERROR" | "INACTIVE" = "INACTIVE";
+      let last_run = new Date(0).toISOString();
+      if (row) {
+        last_run = row.created_at;
+        const ageSec = (Date.now() - new Date(row.created_at).getTime()) / 1000;
+        if (row.status === "PAUSED") status = "INACTIVE";
+        else if (row.status === "ERROR" || ageSec > def.maxAge * 2) status = "ERROR";
+        else if (row.status === "WARNING" || ageSec > def.maxAge) status = "WARNING";
+        else status = "NORMAL";
+      }
+      return { key: k, label: def.label, group: def.group, status, last_run, payload: row?.payload ?? {} };
+    });
+    const qaPending = await sb
+      .from("nlp_qa_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "review_required");
+    const recentEvents = await sb
+      .from("auto_api_events")
+      .select("event_type, created_at")
+      .gte("created_at", new Date(Date.now() - 5 * 60_000).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(50);
     return {
       loops,
       pending_qa: qaPending.count ?? 0,
       recent_events: (recentEvents.data as any[]) ?? [],
-      recent_overrides: recentOverrides.count ?? 0,
+      recent_overrides: 0,
     };
+  },
+);
+
+/**
+ * Unified loop status across all 4 Watchdog agent groups. Reads
+ * `automation_watchdog_logs` keyed by engine + created_at and returns
+ * NORMAL / WARNING / ERROR / INACTIVE / PAUSED for each loop.
+ */
+export const getAllLoopStatuses = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const sb = client();
+    const SLA: Record<string, { label: string; group: string; maxAge: number }> = {
+      VITALS_SIMULATION:    { label: "Vitals Simulation",                   group: "Auto Doc",   maxAge: 10 },
+      CLINICAL_ALERTS:      { label: "Clinical Alerts",                     group: "Auto Doc",   maxAge: 30 },
+      CDS_MONITOR:          { label: "Clinical Decision Support",           group: "Auto Doc",   maxAge: 90 },
+      AUTO_DISCHARGE:       { label: "Auto Discharge Engine",               group: "Auto Doc",   maxAge: 60 },
+      REVENUE_CYCLE:        { label: "Revenue Cycle",                       group: "Auto Admin", maxAge: 1200 },
+      STAFF_ASSIGNMENT:     { label: "Staff Assignment",                    group: "Auto Admin", maxAge: 300 },
+      UMLS_VALIDATION:      { label: "UMLS Terminology Validation",         group: "Auto IT",    maxAge: 900 },
+      LATENCY_PING:         { label: "Latency & API Health Ping",           group: "Auto IT",    maxAge: 130 },
+      FHIR_SYNC:            { label: "FHIR Server Sync",                    group: "Auto IT",    maxAge: 10 },
+      WATCHDOG_HEARTBEAT:   { label: "Watchdog Heartbeat",                  group: "Auto IT",    maxAge: 70 },
+      UMLS_LIVE_QUERY:      { label: "UMLS Live Query",                     group: "AUTO API",   maxAge: 360 },
+      NLP_PIPELINE:         { label: "NLP Pipeline",                        group: "AUTO API",   maxAge: 45 },
+      PRE_PUSH_STANDARD:    { label: "Pre-Push Code Standardisation",       group: "AUTO API",   maxAge: 90 },
+      DRUG_SAFETY:          { label: "Drug Safety Monitor",                 group: "AUTO API",   maxAge: 130 },
+      NLP_CONFIDENCE_GATE:  { label: "NLP Confidence Gate",                 group: "AUTO API",   maxAge: 70 },
+    };
+    const keys = Object.keys(SLA);
+    const since = new Date(Date.now() - 60 * 60_000).toISOString();
+    const { data: logs } = await sb
+      .from("automation_watchdog_logs")
+      .select("engine, status, created_at, payload")
+      .in("engine", keys)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false });
+    const latest: Record<string, any> = {};
+    for (const l of (logs ?? []) as any[]) {
+      if (!latest[l.engine]) latest[l.engine] = l;
+    }
+    const loops = keys.map((k) => {
+      const def = SLA[k];
+      const row = latest[k];
+      let status: "NORMAL" | "WARNING" | "ERROR" | "INACTIVE" | "PAUSED" = "INACTIVE";
+      let last_run: string | null = null;
+      if (row) {
+        last_run = row.created_at;
+        const ageSec = (Date.now() - new Date(row.created_at).getTime()) / 1000;
+        if (row.status === "PAUSED") status = "PAUSED";
+        else if (row.status === "ERROR" || ageSec > def.maxAge * 2) status = "ERROR";
+        else if (row.status === "WARNING" || ageSec > def.maxAge) status = "WARNING";
+        else status = "NORMAL";
+      }
+      return { key: k, label: def.label, group: def.group, status, last_run, payload: row?.payload ?? null };
+    });
+    // Latest latency ping snapshot for the AUTO IT card
+    const { data: pings } = await sb
+      .from("api_health_pings")
+      .select("service, status, latency_ms, created_at")
+      .order("created_at", { ascending: false })
+      .limit(9);
+    const latencyByService: Record<string, any> = {};
+    for (const p of (pings ?? []) as any[]) {
+      if (!latencyByService[p.service]) latencyByService[p.service] = p;
+    }
+    return { loops, latency: latencyByService };
   },
 );
 
