@@ -475,9 +475,10 @@ async function nlpConfidenceGateTick() {
     if (newStatus === "auto_approved") approved++;
     else rejected++;
     await supabase.from("terminology_audit").insert({
-      mrn: null,
       action: "SLA_AUTO_RESOLVE",
-      detail: { id: r.id, confidence: r.confidence, resolution: newStatus },
+      resolver: "SLA_TIMEOUT",
+      confidence: Number(r.confidence),
+      raw_response: { id: r.id, resolution: newStatus },
     } as any).then(() => {}, () => {});
   }
   const { count: pending } = await supabase
