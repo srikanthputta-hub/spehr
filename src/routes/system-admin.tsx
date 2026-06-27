@@ -64,6 +64,7 @@ import {
 import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
+import { getAllLoopStatuses } from "@/lib/auto-api.functions";
 import { AutoApiCard } from "@/components/admin/AutoApiCard";
 import {
   TerminologyMetricsStrip,
@@ -85,6 +86,52 @@ export const Route = createFileRoute("/system-admin")({
 function WatchdogStatusWidget() {
   const latest = useLatestWatchdogLog();
   const [open, setOpen] = useState(false);
+  const [loopCounts, setLoopCounts] = useState<{
+    total: number;
+    normal: number;
+    warning: number;
+    error: number;
+    paused: number;
+    inactive: number;
+  }>({ total: 23, normal: 0, warning: 0, error: 0, paused: 0, inactive: 0 });
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await getAllLoopStatuses();
+        if (cancelled) return;
+        const loops = (res.loops ?? []) as Array<{ status: string }>;
+        const next = { total: loops.length, normal: 0, warning: 0, error: 0, paused: 0, inactive: 0 };
+        for (const l of loops) {
+          if (l.status === "NORMAL") next.normal++;
+          else if (l.status === "WARNING") next.warning++;
+          else if (l.status === "ERROR") next.error++;
+          else if (l.status === "PAUSED") next.paused++;
+          else next.inactive++;
+        }
+        setLoopCounts(next);
+      } catch {
+        /* ignore */
+      }
+    };
+    void load();
+    const id = setInterval(load, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+  const allPaused = loopCounts.paused > 0 && loopCounts.normal === 0 && loopCounts.warning === 0 && loopCounts.error === 0;
+  const headerLabel = allPaused
+    ? `Engines Paused · ${loopCounts.total} loops idle`
+    : `✓ ${loopCounts.normal} NORMAL · ⚠ ${loopCounts.warning} WARNING · ✗ ${loopCounts.error} ERROR`;
+  const headerTone = allPaused
+    ? "text-slate-600"
+    : loopCounts.error > 0
+      ? "text-rose-700"
+      : loopCounts.warning > 0
+        ? "text-amber-700"
+        : "text-emerald-700";
   const ts = latest ? new Date(latest.checker_timestamp) : null;
   const ago = ts
     ? Math.max(0, Math.round((Date.now() - ts.getTime()) / 1000))
@@ -205,8 +252,18 @@ function WatchdogStatusWidget() {
               Watchdog Status
             </div>
             <div className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-              Watchdog Active · Monitoring 23 loops
+              <ShieldCheck
+                className={`h-3.5 w-3.5 ${
+                  allPaused
+                    ? "text-slate-400"
+                    : loopCounts.error > 0
+                      ? "text-rose-600"
+                      : loopCounts.warning > 0
+                        ? "text-amber-600"
+                        : "text-emerald-600"
+                }`}
+              />
+              <span className={headerTone}>{headerLabel}</span>
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}

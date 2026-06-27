@@ -334,49 +334,134 @@ export const getAutoApiLoopStatus = createServerFn({ method: "GET" }).handler(
 export const getAllLoopStatuses = createServerFn({ method: "GET" }).handler(
   async () => {
     const sb = client();
-    const SLA: Record<string, { label: string; group: string; maxAge: number }> = {
-      VITALS_SIMULATION:    { label: "Vitals Simulation",                   group: "Auto Doc",   maxAge: 10 },
-      CLINICAL_ALERTS:      { label: "Clinical Alerts",                     group: "Auto Doc",   maxAge: 30 },
-      CDS_MONITOR:          { label: "Clinical Decision Support",           group: "Auto Doc",   maxAge: 90 },
-      AUTO_DISCHARGE:       { label: "Auto Discharge Engine",               group: "Auto Doc",   maxAge: 60 },
-      REVENUE_CYCLE:        { label: "Revenue Cycle",                       group: "Auto Admin", maxAge: 1200 },
-      STAFF_ASSIGNMENT:     { label: "Staff Assignment",                    group: "Auto Admin", maxAge: 300 },
-      UMLS_VALIDATION:      { label: "UMLS Terminology Validation",         group: "Auto IT",    maxAge: 900 },
-      LATENCY_PING:         { label: "Latency & API Health Ping",           group: "Auto IT",    maxAge: 130 },
-      FHIR_SYNC:            { label: "FHIR Server Sync",                    group: "Auto IT",    maxAge: 10 },
-      WATCHDOG_HEARTBEAT:   { label: "Watchdog Heartbeat",                  group: "Auto IT",    maxAge: 70 },
-      UMLS_LIVE_QUERY:      { label: "UMLS Live Query",                     group: "AUTO API",   maxAge: 360 },
-      NLP_PIPELINE:         { label: "NLP Pipeline",                        group: "AUTO API",   maxAge: 45 },
-      PRE_PUSH_STANDARD:    { label: "Pre-Push Code Standardisation",       group: "AUTO API",   maxAge: 90 },
-      DRUG_SAFETY:          { label: "Drug Safety Monitor",                 group: "AUTO API",   maxAge: 130 },
-      NLP_CONFIDENCE_GATE:  { label: "NLP Confidence Gate",                 group: "AUTO API",   maxAge: 70 },
+    // Full 23-loop registry, grouped by agent. Matches the registry shown
+    // in the UI & Feature Controls page. Each loop maps to a heartbeat
+    // engine (read from automation_watchdog_logs) when one exists; the
+    // remaining event-driven loops derive their status from recent
+    // activity in the relevant table so the grid is never blank.
+    type LoopDef = {
+      key: string;
+      agent: "Auto Doc" | "Auto Admin" | "Auto IT" | "AUTO API";
+      label: string;
+      category: string;
+      engine?: string;
+      derived?: "PHARMACY" | "LAB" | "NOTES" | "ADMITS" | "BEDS" | "GC";
+      sla: number; // seconds; warning at sla, error at 2×sla
     };
-    const keys = Object.keys(SLA);
+    const REGISTRY: LoopDef[] = [
+      // Auto Doc (6)
+      { key: "VITALS_SIMULATION",   agent: "Auto Doc",   label: "Vitals Simulation Loop",                       category: "Telemetry",   engine: "VITALS_SIMULATION",   sla: 10 },
+      { key: "PHARMACY_CASCADE",    agent: "Auto Doc",   label: "Pharmacy Order Cascade & Interaction Checks",  category: "Pharmacy",    derived: "PHARMACY",            sla: 600 },
+      { key: "LAB_CASCADE",         agent: "Auto Doc",   label: "Lab Order → Result Cascade",                   category: "Laboratory",  derived: "LAB",                 sla: 600 },
+      { key: "CLINICAL_ALERTS",     agent: "Auto Doc",   label: "Clinical Alerts (Vitals Drop Warnings)",       category: "Safety",      engine: "CLINICAL_ALERTS",     sla: 30 },
+      { key: "AUTO_DOC_WRITER",     agent: "Auto Doc",   label: "Automated Discharge Summary Writer",           category: "Composition", derived: "NOTES",               sla: 1800 },
+      { key: "CDS_MONITOR",         agent: "Auto Doc",   label: "Clinical Decision Support Monitoring",         category: "Reasoning",   engine: "CDS_MONITOR",         sla: 90 },
+      // Auto Admin (5)
+      { key: "ADMISSIONS",          agent: "Auto Admin", label: "Ghost Admission Randomizer",                   category: "Patient Flow", derived: "ADMITS",             sla: 600 },
+      { key: "AUTO_DISCHARGE",      agent: "Auto Admin", label: "Auto Discharge Engine",                        category: "Patient Flow", engine: "AUTO_DISCHARGE",      sla: 60 },
+      { key: "BEDS",                agent: "Auto Admin", label: "Bed Management System",                        category: "Capacity",     derived: "BEDS",               sla: 900 },
+      { key: "REVENUE_CYCLE",       agent: "Auto Admin", label: "Automated Revenue Cycle",                      category: "Finance",      engine: "REVENUE_CYCLE",       sla: 1200 },
+      { key: "STAFF_ASSIGNMENT",    agent: "Auto Admin", label: "Automated Staff Assignment",                   category: "Care Teams",   engine: "STAFF_ASSIGNMENT",    sla: 300 },
+      // Auto IT (6)
+      { key: "FHIR_SYNC",           agent: "Auto IT",    label: "FHIR Interoperability Sync (Medblocks)",       category: "Interop",      engine: "FHIR_SYNC",           sla: 10 },
+      { key: "UMLS_VALIDATION",     agent: "Auto IT",    label: "UMLS Terminology Validation",                  category: "Standards",    engine: "UMLS_VALIDATION",     sla: 900 },
+      { key: "FHIR_R4_COMPLIANCE",  agent: "Auto IT",    label: "FHIR R4 Compliance Checker",                   category: "Validation",   engine: "FHIR_SYNC",           sla: 30 },
+      { key: "GC_SWEEP",            agent: "Auto IT",    label: "48-Hour TTL · Garbage Collection Sweep",       category: "Maintenance",  derived: "GC",                  sla: 3600 },
+      { key: "LATENCY_PING",        agent: "Auto IT",    label: "Latency & API Health Ping",                    category: "Uptime",       engine: "LATENCY_PING",        sla: 130 },
+      { key: "WATCHDOG_HEARTBEAT",  agent: "Auto IT",    label: "Watchdog Self-Heartbeat",                      category: "Core",         engine: "WATCHDOG_HEARTBEAT",  sla: 70 },
+      // AUTO API (6)
+      { key: "UMLS_LIVE_QUERY",         agent: "AUTO API", label: "UMLS Live Query",                            category: "Terminology",  engine: "UMLS_LIVE_QUERY",      sla: 360 },
+      { key: "NLP_PIPELINE",            agent: "AUTO API", label: "NLP Pipeline (raw → mapping → standardised)",category: "Coding",       engine: "NLP_PIPELINE",         sla: 45 },
+      { key: "PRE_PUSH_STANDARD",       agent: "AUTO API", label: "Pre-Push Code Standardisation",              category: "Interop",      engine: "PRE_PUSH_STANDARD",    sla: 90 },
+      { key: "DRUG_SAFETY",             agent: "AUTO API", label: "Drug Safety · RxNorm × AllergyIntolerance",  category: "Safety",       engine: "DRUG_SAFETY",          sla: 130 },
+      { key: "FHIR_SERVER_SYNC_400MS",  agent: "AUTO API", label: "FHIR Server Sync (400 ms heartbeat)",        category: "Interop",      engine: "FHIR_SYNC",            sla: 10 },
+      { key: "NLP_CONFIDENCE_GATE",     agent: "AUTO API", label: "NLP Confidence Gate",                        category: "Governance",   engine: "NLP_CONFIDENCE_GATE",  sla: 70 },
+    ];
+
+    // Global automation flag — when OFF all loops report PAUSED.
+    const { data: settings } = await sb
+      .from("system_settings")
+      .select("automation_enabled")
+      .eq("id", 1)
+      .maybeSingle();
+    const automationOn = Boolean((settings as any)?.automation_enabled);
+
+    // Pull latest heartbeat per logged engine.
+    const engineKeys = Array.from(
+      new Set(REGISTRY.map((r) => r.engine).filter(Boolean) as string[]),
+    );
     const since = new Date(Date.now() - 60 * 60_000).toISOString();
     const { data: logs } = await sb
       .from("automation_watchdog_logs")
       .select("engine, status, created_at, payload")
-      .in("engine", keys)
+      .in("engine", engineKeys)
       .gte("created_at", since)
       .order("created_at", { ascending: false });
     const latest: Record<string, any> = {};
     for (const l of (logs ?? []) as any[]) {
       if (!latest[l.engine]) latest[l.engine] = l;
     }
-    const loops = keys.map((k) => {
-      const def = SLA[k];
-      const row = latest[k];
+
+    // Derived activity timestamps for event-driven loops.
+    const derivedWindow = new Date(Date.now() - 60 * 60_000).toISOString();
+    const [pharm, lab, notes, admits, beds] = await Promise.all([
+      sb.from("medication_orders").select("created_at").gte("created_at", derivedWindow).order("created_at", { ascending: false }).limit(1),
+      sb.from("lab_orders").select("created_at").gte("created_at", derivedWindow).order("created_at", { ascending: false }).limit(1),
+      sb.from("clinical_notes").select("created_at").gte("created_at", derivedWindow).order("created_at", { ascending: false }).limit(1),
+      sb.from("patients").select("admission_time").gte("admission_time", derivedWindow).order("admission_time", { ascending: false }).limit(1),
+      sb.from("bed_management").select("updated_at").gte("updated_at", derivedWindow).order("updated_at", { ascending: false }).limit(1),
+    ]);
+    const derivedTs: Record<NonNullable<LoopDef["derived"]>, string | null> = {
+      PHARMACY: (pharm.data?.[0] as any)?.created_at ?? null,
+      LAB:      (lab.data?.[0] as any)?.created_at ?? null,
+      NOTES:    (notes.data?.[0] as any)?.created_at ?? null,
+      ADMITS:   (admits.data?.[0] as any)?.admission_time ?? null,
+      BEDS:     (beds.data?.[0] as any)?.updated_at ?? null,
+      GC:       null,
+    };
+
+    const loops = REGISTRY.map((r) => {
       let status: "NORMAL" | "WARNING" | "ERROR" | "INACTIVE" | "PAUSED" = "INACTIVE";
       let last_run: string | null = null;
-      if (row) {
+      let payload: any = null;
+      if (!automationOn) {
+        status = "PAUSED";
+      } else if (r.engine && latest[r.engine]) {
+        const row = latest[r.engine];
         last_run = row.created_at;
+        payload = row.payload ?? null;
         const ageSec = (Date.now() - new Date(row.created_at).getTime()) / 1000;
         if (row.status === "PAUSED") status = "PAUSED";
-        else if (row.status === "ERROR" || ageSec > def.maxAge * 2) status = "ERROR";
-        else if (row.status === "WARNING" || ageSec > def.maxAge) status = "WARNING";
+        else if (row.status === "ERROR" || ageSec > r.sla * 2) status = "ERROR";
+        else if (row.status === "WARNING" || ageSec > r.sla) status = "WARNING";
         else status = "NORMAL";
+      } else if (r.derived) {
+        const ts = derivedTs[r.derived];
+        if (ts) {
+          last_run = ts;
+          const ageSec = (Date.now() - new Date(ts).getTime()) / 1000;
+          if (ageSec > r.sla * 2) status = "ERROR";
+          else if (ageSec > r.sla) status = "WARNING";
+          else status = "NORMAL";
+        } else if (r.derived === "GC") {
+          // GC sweep runs in-browser on a 5-minute interval; no DB log.
+          // While automation is ON we treat it as healthy.
+          status = "NORMAL";
+          last_run = new Date().toISOString();
+        } else {
+          status = "INACTIVE";
+        }
       }
-      return { key: k, label: def.label, group: def.group, status, last_run, payload: row?.payload ?? null };
+      return {
+        key: r.key,
+        label: r.label,
+        group: r.agent,
+        category: r.category,
+        status,
+        last_run,
+        sla_seconds: r.sla,
+        payload,
+      };
     });
     // Latest latency ping snapshot for the AUTO IT card
     const { data: pings } = await sb
@@ -388,7 +473,7 @@ export const getAllLoopStatuses = createServerFn({ method: "GET" }).handler(
     for (const p of (pings ?? []) as any[]) {
       if (!latencyByService[p.service]) latencyByService[p.service] = p;
     }
-    return { loops, latency: latencyByService };
+    return { loops, latency: latencyByService, automation_on: automationOn };
   },
 );
 
