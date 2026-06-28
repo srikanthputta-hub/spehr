@@ -77,6 +77,8 @@ import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
+import { AUTOMATION_STORAGE_KEY, getAutomationEnabled, setLocalAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -528,23 +530,18 @@ function SystemAdminPage() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const { data, error } = await supabase
-        .from("system_settings")
-        .select("automation_enabled")
-        .eq("id", 1)
-        .maybeSingle();
+      const next = await getAutomationEnabled();
       if (!active) return;
-      if (error) {
-        toast.error("Failed to load automation state", { description: error.message });
-        setAutomation(true);
-      } else {
-        // Default ON unless explicitly set to false
-        const val = (data as any)?.automation_enabled;
-        setAutomation(val === false ? false : true);
-      }
+      setAutomation(next);
     })();
+    const handler = (e: Event) => {
+      if (!active) return;
+      setAutomation(Boolean((e as CustomEvent<{ enabled: boolean }>).detail?.enabled));
+    };
+    window.addEventListener("automation-toggle", handler as EventListener);
     return () => {
       active = false;
+      window.removeEventListener("automation-toggle", handler as EventListener);
     };
   }, []);
 
@@ -552,15 +549,30 @@ function SystemAdminPage() {
     if (automation === null || automationSaving) return;
     const next = !automation;
     setAutomation(next);
+    setLocalAutomationEnabled(next);
     setAutomationSaving(true);
-    const { error } = await supabase
-      .from("system_settings")
-      .update({ automation_enabled: next })
-      .eq("id", 1);
+    const { error } = await fetchWithTimeout(
+      () =>
+        supabase
+          .from("system_settings")
+          .upsert({ id: 1, automation_enabled: next } as any),
+      { data: null, error: new Error("system_settings write timeout") } as any,
+    );
     setAutomationSaving(false);
     if (error) {
-      setAutomation(!next);
-      toast.error("Could not update automation", { description: error.message });
+      try {
+        window.localStorage.setItem(AUTOMATION_STORAGE_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+      supabase.functions.invoke("apply-grants", { body: { reason: "automation-write-failed" } }).catch(() => {});
+      toast.warning("Automation switched locally", {
+        description: "Database write is blocked; using local fallback while permissions repair runs.",
+      });
+    } else {
+      toast.success("Automation setting saved", {
+        description: next ? "Background engines active." : "Manual mode active.",
+      });
       return;
     }
     if (next) {

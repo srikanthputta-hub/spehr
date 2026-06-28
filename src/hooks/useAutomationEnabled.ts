@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 
-const AUTOMATION_STORAGE_KEY = "spehr_automation_enabled";
+export const AUTOMATION_STORAGE_KEY = "spehr_automation_enabled";
 const AUTOMATION_EVENT = "automation-toggle";
 
 function readStoredAutomation(): boolean | null {
@@ -139,11 +139,15 @@ const apiListeners = new Set<(v: boolean) => void>();
 let apiChannelStarted = false;
 
 async function fetchApiFlag(): Promise<boolean> {
-  const { data } = await supabase
-    .from("system_settings")
-    .select("auto_api_enabled")
-    .eq("id", 1)
-    .maybeSingle();
+  const { data } = await fetchWithTimeout(
+    () =>
+      supabase
+        .from("system_settings")
+        .select("auto_api_enabled")
+        .eq("id", 1)
+        .maybeSingle(),
+    { data: null, error: null } as any,
+  );
   // Default true if the column is missing (older deployments).
   const v = (data as any)?.auto_api_enabled;
   return v === false ? false : true;

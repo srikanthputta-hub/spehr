@@ -50,9 +50,8 @@ export function useStartupRecovery() {
 
       if (res?.error || res?.count !== 0) return;
 
-      await supabase
-        .rpc("auto_admit_ghost_patient")
-        .catch((error) => console.warn("[startup-recovery] seed patient failed", error));
+      const { error } = await supabase.rpc("auto_admit_ghost_patient");
+      if (error) console.warn("[startup-recovery] seed patient failed", error);
     })();
   }, [automationEnabled]);
 }
