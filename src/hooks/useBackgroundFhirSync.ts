@@ -9,8 +9,6 @@ import {
   type FhirQuality,
 } from "@/lib/fhir-bundle";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
-import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import { logLoop } from "@/lib/loop-logger";
 
 /**
  * Background FHIR live-sync. Runs at the app root so discharged-patient
@@ -181,7 +179,7 @@ async function flagSafetyAlert(mrn: string, quality: FhirQuality) {
 }
 
 async function buildBundleForMrn(r: Row) {
-  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes, assignRes] = await Promise.all([
+  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes] = await Promise.all([
     supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
     supabase
       .from("lab_orders")
@@ -221,14 +219,8 @@ async function buildBundleForMrn(r: Row) {
       .select("allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display")
       .eq("mrn", r.mrn)
       .limit(80),
-    supabase
-      .from("patient_assignments")
-      .select("nurse_name, physician_name, assigned_at")
-      .eq("mrn", r.mrn)
-      .maybeSingle(),
   ]);
   const p = (patientRes.data ?? {}) as any;
-  const assignment = ((assignRes as any)?.data ?? {}) as any;
   const reactionsByAllergy = new Map<string, any[]>();
   for (const rx of ((reactionsRes as any)?.data ?? []) as any[]) {
     const arr = reactionsByAllergy.get(rx.allergy_id) ?? [];
@@ -269,9 +261,6 @@ async function buildBundleForMrn(r: Row) {
       temp: p.temp ?? null,
       allergies: p.allergies ?? null,
       past_medical_history: p.past_medical_history ?? null,
-      attending_physician: assignment.physician_name ?? null,
-      assigned_nurse: assignment.nurse_name ?? null,
-      assignment_started_at: assignment.assigned_at ?? null,
     },
     labs: (labsRes.data ?? []) as any[],
     meds: (medsRes.data ?? []) as any[],
@@ -340,11 +329,6 @@ export function useBackgroundFhirSync() {
       if (cancelled || inFlightRef.current) return;
       if (!readEnabled()) return;
       if (!enabledRef.current) return;
-      // Spec-literal global pause: when AI Engines toggle is OFF, every
-      // loop (incl. FHIR sync) pauses. We still emit a PAUSED heartbeat
-      // periodically via the watchdog so the dashboard reflects state.
-      const globalOn = await getAutomationEnabled();
-      if (!globalOn) return;
       let target: Row | null = null;
       for (const [mrn, st] of statusRef.current) {
         if (st !== "queued") continue;
@@ -403,26 +387,14 @@ export function useBackgroundFhirSync() {
         console.warn("[bg-fhir-sync]", target.mrn, e);
         statusRef.current.set(target.mrn, "err");
         persistPushed(target.mrn, "err");
-        void logLoop("FHIR_SYNC", "ERROR", { mrn: target.mrn, error: String(e) });
       } finally {
         inFlightRef.current = false;
-        if (target && statusRef.current.get(target.mrn) === "ok") {
-          void logLoop("FHIR_SYNC", "NORMAL", { mrn: target.mrn });
-          void logLoop("FHIR_R4_COMPLIANCE", "NORMAL", { mrn: target.mrn });
-        }
       }
     };
 
     void loadRows();
     const refresh = setInterval(() => void loadRows(), 30_000);
     const heartbeat = setInterval(() => void pushNext(), 400);
-    // Idle heartbeat: even when no MRN is queued, prove the loop is alive.
-    const idleHeartbeat = setInterval(async () => {
-      const globalOn = await getAutomationEnabled();
-      if (!globalOn) { void logLoop("FHIR_SYNC", "PAUSED", { global_control_status: "OFF" }); return; }
-      // Only log idle heartbeat if nothing else has logged recently — avoids spam.
-      void logLoop("FHIR_SYNC", "NORMAL", { idle: true, queue_depth: statusRef.current.size });
-    }, 8_000);
 
     const requeueByMrn = (mrn: string | null | undefined) => {
       if (!mrn) return;
@@ -469,7 +441,6 @@ export function useBackgroundFhirSync() {
       cancelled = true;
       clearInterval(refresh);
       clearInterval(heartbeat);
-      clearInterval(idleHeartbeat);
       void supabase.removeChannel(channel);
     };
   }, []);
