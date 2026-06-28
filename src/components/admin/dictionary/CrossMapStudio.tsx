@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Loader2, Download, Copy } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,24 @@ export function CrossMapStudio() {
   const [batchText, setBatchText] = useState("");
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchResults, setBatchResults] = useState<any[]>([]);
+
+  // Listen for prefill events from Live Terminology Matrix pills
+  useEffect(() => {
+    const onPrefill = (e: Event) => {
+      const d = (e as CustomEvent).detail ?? {};
+      if (d.sourceVocab) {
+        const match = VOCABS.find(v => v.label === d.sourceVocab || v.label.startsWith(d.sourceVocab));
+        if (match) setSrc(match);
+      }
+      if (d.targetVocab) {
+        const match = VOCABS.find(v => v.label === d.targetVocab || v.label.startsWith(d.targetVocab));
+        if (match) setTgt(match);
+      }
+      if (d.code) setCode(String(d.code));
+    };
+    window.addEventListener("spehr:crossmap-prefill", onPrefill as any);
+    return () => window.removeEventListener("spehr:crossmap-prefill", onPrefill as any);
+  }, []);
 
   const translate = async () => {
     if (!code.trim()) return toast.error("Enter a source code");
