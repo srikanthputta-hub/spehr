@@ -74,6 +74,11 @@ import {
 import { AutoApiStatusPill } from "@/components/admin/AutoApiStatusPill";
 import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
 import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
+import { ValueSetLibrary } from "@/components/admin/dictionary/ValueSetLibrary";
+import { AuthoringWorkbench } from "@/components/admin/dictionary/AuthoringWorkbench";
+import { CrossMapStudio } from "@/components/admin/dictionary/CrossMapStudio";
+import { FhirTerminologyServerOps } from "@/components/admin/dictionary/FhirTerminologyServerOps";
+import { TerminologyStatusStrip } from "@/components/admin/dictionary/TerminologyStatusStrip";
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
@@ -4174,7 +4179,7 @@ function TaxonomyTree({
 }
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"catalog" | "audits" | "matrix" | "safety" | "auto_api" | "fhir">("catalog");
+  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "fhir">("library");
   const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4582,15 +4587,15 @@ function MedicalDictionary() {
             VSAC-aligned terminology library used across the EHR. Browse SNOMED CT, ICD-10,
             LOINC, RxNorm, and curated value sets; extend with site-specific codes.
           </p>
-          {subtab === "catalog" && (
+          {subtab === "library" && (
             <p className="text-[11px] mt-1 text-slate-500">
-              Showing only codes referenced by the latest {usageMeta.count} admission{usageMeta.count === 1 ? "" : "s"}
+              VSAC-aligned value set repository · {usageMeta.count} admissions referenced
               {facilityFilter !== "all" ? ` at ${facilityFilter}` : " across the network"}.
             </p>
           )}
         </div>
         <div className="flex items-center gap-2">
-          {subtab === "catalog" && (
+          {subtab === "library" && (
             <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
               <Download className="h-4 w-4" /> Export FHIR
             </Button>
@@ -4604,22 +4609,26 @@ function MedicalDictionary() {
         </div>
       </div>
 
+      {/* Terminology Services status strip */}
+      <TerminologyStatusStrip />
+
       {/* Sub-tab nav */}
-      <div className="flex items-center gap-1 border-b border-slate-200">
+      <div className="flex items-center gap-1 border-b border-slate-200 overflow-x-auto">
         {([
-          { id: "catalog", label: "Catalog", Icon: BookMarked },
-          { id: "audits",  label: "NLP Audit Logs", Icon: Sparkles },
-          { id: "matrix",  label: "Live Terminology Matrix", Icon: Grid3x3 },
-          { id: "safety",  label: "Safety Alerts", Icon: ShieldAlert },
-          { id: "auto_api", label: "AUTO API", Icon: Activity },
-          { id: "fhir",    label: "FHIR Interoperability", Icon: FileJson },
+          { id: "library",   label: "Value Set Library", Icon: BookMarked },
+          { id: "authoring", label: "Authoring Workbench", Icon: Sparkles },
+          { id: "crossmap",  label: "Cross-Map Studio", Icon: Activity },
+          { id: "audits",    label: "NLP Audit Logs", Icon: Sparkles },
+          { id: "matrix",    label: "Live Terminology Matrix", Icon: Grid3x3 },
+          { id: "safety",    label: "Safety Alerts", Icon: ShieldAlert },
+          { id: "fhir",      label: "FHIR Terminology Server", Icon: FileJson },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
           return (
             <button
               key={id}
               onClick={() => setSubtab(id)}
-              className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-t-md transition cursor-pointer border-b-2 -mb-px ${
+              className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-t-md transition cursor-pointer border-b-2 -mb-px whitespace-nowrap ${
                 active
                   ? "border-[#0c2340] text-[#0c2340] bg-white"
                   : "border-transparent text-slate-500 hover:text-slate-800"
@@ -4631,20 +4640,21 @@ function MedicalDictionary() {
         })}
       </div>
 
+      {subtab === "library"   && <ValueSetLibrary />}
+      {subtab === "authoring" && <AuthoringWorkbench />}
+      {subtab === "crossmap"  && <CrossMapStudio />}
       {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
       {subtab === "audits" && <UmlsResolutionTrail />}
       {subtab === "audits" && <QaGovernanceQueue />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "safety" && <CdsOverridesFeed />}
-      {subtab === "auto_api" && <AutoApiCard />}
-      {subtab === "auto_api" && <AutoApiEventsFeed />}
-      {subtab === "fhir" && <FhirInteroperability facility={facilityFilter} />}
-
-      {subtab === "catalog" && <TerminologyMetricsStrip />}
-      {subtab === "catalog" && <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={remove} />}
-      {subtab === "catalog" && <CustomRulesCard />}
-      {subtab === "catalog" && <ValueSetBuilder />}
+      {subtab === "fhir" && (
+        <div className="space-y-6">
+          <FhirTerminologyServerOps />
+          <FhirInteroperability facility={facilityFilter} />
+        </div>
+      )}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
