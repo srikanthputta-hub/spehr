@@ -470,9 +470,29 @@ function Dashboard() {
       }
       const mrns = Array.from(bedByMrn.keys());
       if (mrns.length === 0) {
-        setPatients([]);
+        // Fallback: bed_management has nothing assigned, but admitted
+        // patients may exist (orphaned admits). Show them so the floor
+        // census never appears empty when patients are truly on the unit,
+        // and kick reconcileOrphanedBeds() to repair the bed mapping.
+        const { data: orphanPts } = await supabase
+          .from("patients")
+          .select(
+            "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
+          )
+          .eq("facility_name", facility)
+          .eq("status", "Admitted")
+          .order("admission_time", { ascending: false })
+          .limit(40);
+        if (cancelled) return;
+        const fallbackRows = (orphanPts ?? []).map((p: any) => ({
+          ...toRow(p),
+          facility,
+        }));
+        setPatients(fallbackRows);
         setLoading(false);
         initialLoadRef.current = false;
+        // Best-effort repair in the background.
+        void reconcileOrphanedBeds(facility).catch(() => {});
         return;
       }
       const { data, error } = await supabase
