@@ -1,3 +1,45 @@
+
+function AllergiesBlock({ mrn }: { mrn: string }) {
+  const [rows, setRows] = useState<Array<{ substance: string; reaction: string | null }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("allergies")
+        .select("substance, reaction")
+        .eq("mrn", mrn);
+      if (cancelled) return;
+      setRows(((data ?? []) as any[]).map((r) => ({
+        substance: r.substance, reaction: r.reaction ?? null,
+      })));
+    };
+    void load();
+    const ch = supabase
+      .channel(`allergies-${mrn}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "allergies", filter: `mrn=eq.${mrn}` },
+        () => void load(),
+      )
+      .subscribe();
+    return () => { cancelled = true; void supabase.removeChannel(ch); };
+  }, [mrn]);
+  return (
+    <div className="px-3 py-2 border-b border-slate-200">
+      <div className="text-[12px] font-semibold text-slate-800 mb-1">● Allergies</div>
+      {rows.length === 0 ? (
+        <div className="text-[11.5px] italic text-slate-500">No known allergies</div>
+      ) : (
+        rows.map((r, i) => (
+          <div key={`${r.substance}-${i}`} className="text-[11.5px] text-slate-700 flex justify-between">
+            <span>{r.substance}</span>
+            <span className="text-slate-500">{r.reaction ?? ""}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
 import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,6 +58,82 @@ import {
 } from "@/lib/complaint-protocols";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { loadIntake, type IntakeRecord } from "@/lib/intake-record";
+
+/* ------------------------------------------------------------------ */
+/*  Care Team sidebar block                                            */
+/* ------------------------------------------------------------------ */
+function CareTeamBlock({ mrn }: { mrn: string }) {
+  const [team, setTeam] = useState<{
+    nurse: string | null;
+    physician: string | null;
+    assigned_at: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("patient_assignments")
+        .select("nurse_name, physician_name, assigned_at")
+        .eq("mrn", mrn)
+        .maybeSingle();
+      if (cancelled) return;
+      const row = (data ?? {}) as any;
+      setTeam({
+        nurse: row.nurse_name ?? null,
+        physician: row.physician_name ?? null,
+        assigned_at: row.assigned_at ?? null,
+      });
+    };
+    void load();
+    const ch = supabase
+      .channel(`care-team-${mrn}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "patient_assignments", filter: `mrn=eq.${mrn}` },
+        () => void load(),
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(ch);
+    };
+  }, [mrn]);
+
+  const physician = team?.physician;
+  const nurse = team?.nurse;
+  const when = team?.assigned_at
+    ? new Date(team.assigned_at).toLocaleString(undefined, {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div className="px-3 py-2 border-b border-slate-200">
+      <div className="text-[12px] font-semibold text-slate-800 mb-1">● Care Team</div>
+      {!physician && !nurse ? (
+        <div className="text-[11.5px] italic text-slate-500">Assigning…</div>
+      ) : (
+        <div className="grid grid-cols-[64px_1fr] gap-y-1 text-[11.5px]">
+          <span className="text-slate-600">Attending</span>
+          <span className="font-mono text-slate-800">{physician ?? "—"}</span>
+          <span className="text-slate-600">Nurse</span>
+          <span className="font-mono text-slate-800">{nurse ?? "—"}</span>
+          {when && (
+            <>
+              <span className="text-slate-600">Assigned</span>
+              <span className="font-mono text-slate-500">{when}</span>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
@@ -1569,11 +1687,9 @@ function PatientChart() {
             <div className="text-[12px] text-slate-700">{patient.chief_complaint ?? "—"}</div>
           </div>
 
-          <div className="px-3 py-2 border-b border-slate-200">
-            <div className="text-[12px] font-semibold text-slate-800 mb-1">● Allergies</div>
-            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>cefazolin</span><span className="text-slate-500">Diarrhea</span></div>
-            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>penicillin G</span><span className="text-slate-500">Rash</span></div>
-          </div>
+          <CareTeamBlock mrn={patient.mrn} />
+
+          <AllergiesBlock mrn={patient.mrn} />
 
           <div className="px-3 py-2">
             <div className="text-[12px] font-semibold text-slate-800 mb-1">● Vitals — Current</div>

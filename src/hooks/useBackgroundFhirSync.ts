@@ -181,7 +181,7 @@ async function flagSafetyAlert(mrn: string, quality: FhirQuality) {
 }
 
 async function buildBundleForMrn(r: Row) {
-  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes] = await Promise.all([
+  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes, assignRes] = await Promise.all([
     supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
     supabase
       .from("lab_orders")
@@ -221,8 +221,14 @@ async function buildBundleForMrn(r: Row) {
       .select("allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display")
       .eq("mrn", r.mrn)
       .limit(80),
+    supabase
+      .from("patient_assignments")
+      .select("nurse_name, physician_name, assigned_at")
+      .eq("mrn", r.mrn)
+      .maybeSingle(),
   ]);
   const p = (patientRes.data ?? {}) as any;
+  const assignment = ((assignRes as any)?.data ?? {}) as any;
   const reactionsByAllergy = new Map<string, any[]>();
   for (const rx of ((reactionsRes as any)?.data ?? []) as any[]) {
     const arr = reactionsByAllergy.get(rx.allergy_id) ?? [];
@@ -263,6 +269,9 @@ async function buildBundleForMrn(r: Row) {
       temp: p.temp ?? null,
       allergies: p.allergies ?? null,
       past_medical_history: p.past_medical_history ?? null,
+      attending_physician: assignment.physician_name ?? null,
+      assigned_nurse: assignment.nurse_name ?? null,
+      assignment_started_at: assignment.assigned_at ?? null,
     },
     labs: (labsRes.data ?? []) as any[],
     meds: (medsRes.data ?? []) as any[],

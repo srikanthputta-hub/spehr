@@ -7,6 +7,7 @@ import { assignStaffToPatient, releaseStaffForPatient } from "@/lib/staff-assign
 import { resolveIcd10, resolveSnomed, resolveRxNorm, resolveLoinc } from "@/lib/umls-client";
 import { backfillInvoices } from "@/lib/auto-doc.functions";
 import { runAutoDoc } from "@/lib/auto-doc.functions";
+import { checkNameMatch } from "@/lib/drug-allergy-check";
 
 /**
  * Root-mounted background loops — Parts 1-7 of the Automation Engine spec.
@@ -424,28 +425,49 @@ async function drugSafetyTick() {
   let new_alerts = 0;
   for (const p of admitted) {
     const [meds, allergies] = await Promise.all([
-      supabase.from("medication_orders").select("drug_name, rxnorm_code").eq("patient_mrn", p.mrn).limit(30),
+      supabase
+        .from("medication_orders")
+        .select("drug_name, medication_name, rxnorm_code, status, administered_at")
+        .or(`patient_mrn.eq.${p.mrn},mrn.eq.${p.mrn}`)
+        .limit(60),
       supabase.from("allergies").select("substance, substance_rxcui").eq("mrn", p.mrn).limit(30),
     ]);
     for (const m of (meds.data ?? []) as any[]) {
-      const drug = String(m.drug_name ?? "").toLowerCase();
+      const drugLabel: string = String(m.drug_name ?? m.medication_name ?? "");
+      if (!drugLabel) continue;
+      const administered = !!m.administered_at || String(m.status ?? "").toLowerCase() === "administered";
       for (const a of (allergies.data ?? []) as any[]) {
-        const sub = String(a.substance ?? "").toLowerCase();
-        if (!drug || !sub) continue;
-        const ingredientMatch = (a.substance_rxcui && m.rxnorm_code && a.substance_rxcui === m.rxnorm_code) || drug.includes(sub);
-        if (ingredientMatch) {
-          const { error } = await supabase.from("safety_alerts").insert({
-            mrn: p.mrn,
-            alert_type: "DRUG_ALLERGY_CONFLICT",
-            severity: "CRITICAL",
-            drug_name: m.drug_name,
-            drug_rxcui: m.rxnorm_code,
-            allergy_substance: a.substance,
-            allergy_rxcui: a.substance_rxcui,
-            detail: { detected_by: "DRUG_SAFETY_SWEEP" },
-          } as any);
-          // Unique-index dedupe → ignore conflict errors
-          if (!error) new_alerts++;
+        const sub: string = String(a.substance ?? "");
+        if (!sub) continue;
+        const rxMatch = a.substance_rxcui && m.rxnorm_code && a.substance_rxcui === m.rxnorm_code;
+        const nameMatch = checkNameMatch(drugLabel, sub);
+        if (!rxMatch && !nameMatch) continue;
+        const alertType = administered ? "ADMINISTERED_DESPITE_ALLERGY" : "DRUG_ALLERGY_CONFLICT";
+        const { error } = await supabase.from("safety_alerts").insert({
+          mrn: p.mrn,
+          alert_type: alertType,
+          severity: "CRITICAL",
+          drug_name: drugLabel,
+          drug_rxcui: m.rxnorm_code,
+          allergy_substance: sub,
+          allergy_rxcui: a.substance_rxcui,
+          status: administered ? "open" : "PENDING_REVIEW",
+          detail: {
+            detected_by: "DRUG_SAFETY_SWEEP",
+            match: rxMatch ? "rxnorm_ingredient" : "name_normalised",
+            administered,
+          },
+        } as any);
+        if (!error) {
+          new_alerts++;
+          if (administered) {
+            await supabase.from("clinical_alerts").insert({
+              mrn: p.mrn,
+              type: "DRUG_ALLERGY_ADMINISTERED",
+              severity: "CRITICAL",
+              detail: { drug: drugLabel, allergy: sub },
+            } as any).then(() => {}, () => {});
+          }
         }
       }
     }
@@ -512,11 +534,22 @@ function wireClinicalAlertBroadcast() {
  * Mount everything
  * =========================================================== */
 
-type LoopDef = { key: LoopKey; fn: () => Promise<void>; intervalMs: number; bootDelayMs: number };
+type LoopDef = {
+  key: LoopKey;
+  fn: () => Promise<void>;
+  intervalMs: number;
+  bootDelayMs: number;
+  /**
+   * `alwaysRun: true` keeps the loop ticking even when the global
+   * automation toggle is OFF. Used for patient-safety surfaces and
+   * passive telemetry that humans cannot reasonably do by hand.
+   */
+  alwaysRun?: boolean;
+};
 
 const LOOPS: LoopDef[] = [
-  { key: "VITALS_SIMULATION",  fn: vitalsTick,                  intervalMs: 3_000,        bootDelayMs: 4_000 },
-  { key: "CDS_MONITOR",        fn: cdsMonitorTick,              intervalMs: 60_000,       bootDelayMs: 12_000 },
+  { key: "VITALS_SIMULATION",  fn: vitalsTick,                  intervalMs: 3_000,        bootDelayMs: 4_000,  alwaysRun: true },
+  { key: "CDS_MONITOR",        fn: cdsMonitorTick,              intervalMs: 60_000,       bootDelayMs: 12_000, alwaysRun: true },
   { key: "AUTO_DISCHARGE",     fn: autoDischargeTick,           intervalMs: 45_000,       bootDelayMs: 15_000 },
   { key: "REVENUE_CYCLE",      fn: revenueCycleTick,            intervalMs: 15 * 60_000,  bootDelayMs: 20_000 },
   { key: "STAFF_ASSIGNMENT",   fn: staffAssignTick,             intervalMs: 60_000,       bootDelayMs: 10_000 },
@@ -524,7 +557,7 @@ const LOOPS: LoopDef[] = [
   { key: "LATENCY_PING",       fn: latencyPingTick,             intervalMs: 2 * 60_000,   bootDelayMs: 6_000 },
   { key: "NLP_PIPELINE",       fn: nlpPipelineTick,             intervalMs: 30_000,       bootDelayMs: 8_000 },
   { key: "PRE_PUSH_STANDARD",  fn: prePushStandardizationTick,  intervalMs: 60_000,       bootDelayMs: 18_000 },
-  { key: "DRUG_SAFETY",        fn: drugSafetyTick,              intervalMs: 2 * 60_000,   bootDelayMs: 22_000 },
+  { key: "DRUG_SAFETY",        fn: drugSafetyTick,              intervalMs: 2 * 60_000,   bootDelayMs: 22_000, alwaysRun: true },
   { key: "NLP_CONFIDENCE_GATE",fn: nlpConfidenceGateTick,       intervalMs: 60_000,       bootDelayMs: 14_000 },
 ];
 
@@ -536,11 +569,18 @@ export function useBackgroundLoops() {
     // Broadcast first — does not depend on automation toggle.
     cleanups.push(wireClinicalAlertBroadcast());
 
+    // One-shot retroactive drug-allergy sweep on boot. Catches anything
+    // administered before this guard shipped (e.g. MRN-945694 / ceFAZolin).
+    setTimeout(() => {
+      if (!isLoopLeader()) return;
+      void drugSafetyTick().catch(() => {});
+    }, 5_000);
+
     for (const loop of LOOPS) {
       const wrap = async () => {
         if (!isLoopLeader()) return;
         const enabled = await getAutomationEnabled();
-        if (!enabled) {
+        if (!enabled && !loop.alwaysRun) {
           // Spec: when global toggle is OFF, all loops pause.
           await logLoop(loop.key, "PAUSED", { global_control_status: "OFF" });
           return;
