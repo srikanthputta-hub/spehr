@@ -425,28 +425,49 @@ async function drugSafetyTick() {
   let new_alerts = 0;
   for (const p of admitted) {
     const [meds, allergies] = await Promise.all([
-      supabase.from("medication_orders").select("drug_name, rxnorm_code").eq("patient_mrn", p.mrn).limit(30),
+      supabase
+        .from("medication_orders")
+        .select("drug_name, medication_name, rxnorm_code, status, administered_at")
+        .or(`patient_mrn.eq.${p.mrn},mrn.eq.${p.mrn}`)
+        .limit(60),
       supabase.from("allergies").select("substance, substance_rxcui").eq("mrn", p.mrn).limit(30),
     ]);
     for (const m of (meds.data ?? []) as any[]) {
-      const drug = String(m.drug_name ?? "").toLowerCase();
+      const drugLabel: string = String(m.drug_name ?? m.medication_name ?? "");
+      if (!drugLabel) continue;
+      const administered = !!m.administered_at || String(m.status ?? "").toLowerCase() === "administered";
       for (const a of (allergies.data ?? []) as any[]) {
-        const sub = String(a.substance ?? "").toLowerCase();
-        if (!drug || !sub) continue;
-        const ingredientMatch = (a.substance_rxcui && m.rxnorm_code && a.substance_rxcui === m.rxnorm_code) || drug.includes(sub);
-        if (ingredientMatch) {
-          const { error } = await supabase.from("safety_alerts").insert({
-            mrn: p.mrn,
-            alert_type: "DRUG_ALLERGY_CONFLICT",
-            severity: "CRITICAL",
-            drug_name: m.drug_name,
-            drug_rxcui: m.rxnorm_code,
-            allergy_substance: a.substance,
-            allergy_rxcui: a.substance_rxcui,
-            detail: { detected_by: "DRUG_SAFETY_SWEEP" },
-          } as any);
-          // Unique-index dedupe → ignore conflict errors
-          if (!error) new_alerts++;
+        const sub: string = String(a.substance ?? "");
+        if (!sub) continue;
+        const rxMatch = a.substance_rxcui && m.rxnorm_code && a.substance_rxcui === m.rxnorm_code;
+        const nameMatch = checkNameMatch(drugLabel, sub);
+        if (!rxMatch && !nameMatch) continue;
+        const alertType = administered ? "ADMINISTERED_DESPITE_ALLERGY" : "DRUG_ALLERGY_CONFLICT";
+        const { error } = await supabase.from("safety_alerts").insert({
+          mrn: p.mrn,
+          alert_type: alertType,
+          severity: "CRITICAL",
+          drug_name: drugLabel,
+          drug_rxcui: m.rxnorm_code,
+          allergy_substance: sub,
+          allergy_rxcui: a.substance_rxcui,
+          status: administered ? "open" : "PENDING_REVIEW",
+          detail: {
+            detected_by: "DRUG_SAFETY_SWEEP",
+            match: rxMatch ? "rxnorm_ingredient" : "name_normalised",
+            administered,
+          },
+        } as any);
+        if (!error) {
+          new_alerts++;
+          if (administered) {
+            await supabase.from("clinical_alerts").insert({
+              mrn: p.mrn,
+              type: "DRUG_ALLERGY_ADMINISTERED",
+              severity: "CRITICAL",
+              detail: { drug: drugLabel, allergy: sub },
+            } as any).then(() => {}, () => {});
+          }
         }
       }
     }
