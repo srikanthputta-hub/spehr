@@ -1099,6 +1099,7 @@ export function buildEncounterBundle(opts: {
   );
   const carePlan = carePlanFromDischarge(patient);
   const appt = followUpAppointment(patient);
+  const careTeam = buildCareTeam(patient);
 
   // Fix #9: discharged encounters get the dedicated Discharge Summary
   // Composition (LOINC 18842-5) under a stable id of
@@ -1141,6 +1142,7 @@ export function buildEncounterBundle(opts: {
       { title: "Clinical Notes", entry: docs.map((d) => ({ reference: `DocumentReference/${d.id}` })) },
       ...(carePlan ? [{ title: "Care Plan", entry: [{ reference: `CarePlan/${carePlan.id}` }] }] : []),
       ...(appt ? [{ title: "Follow-up", entry: [{ reference: `Appointment/${appt.id}` }] }] : []),
+      ...(careTeam ? [{ title: "Care Team", entry: [{ reference: `CareTeam/${careTeam.id}` }] }] : []),
     ],
   };
 
@@ -1164,6 +1166,7 @@ export function buildEncounterBundle(opts: {
     ...docs,
     ...(carePlan ? [carePlan] : []),
     ...(appt ? [appt] : []),
+    ...(careTeam ? [careTeam] : []),
   ];
 
   // Final safety net: deduplicate by stable id so a single transaction
