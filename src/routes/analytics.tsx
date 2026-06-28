@@ -261,7 +261,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
                 {!loading && feed.length === 0 && !error && (
                   <tr>
                     <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                      No records found.
+                      No recent admissions.
                     </td>
                   </tr>
                 )}

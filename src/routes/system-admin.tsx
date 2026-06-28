@@ -509,6 +509,7 @@ function SystemAdminPage() {
   const [selectedFacility, setSelectedFacility] = useState<Facility>("Memorial Hospital");
   const [automation, setAutomation] = useState<boolean | null>(true);
   const [automationSaving, setAutomationSaving] = useState(false);
+  const [seedingDemo, setSeedingDemo] = useState<number | null>(null);
   const [isAdmin, setIsAdmin] = useState(true);
 
   useEffect(() => {
@@ -580,6 +581,32 @@ function SystemAdminPage() {
     } else {
       toast("System Automation Paused", {
         description: "Manual mode active.",
+      });
+    }
+  };
+
+  const seedDemoPatients = async () => {
+    if (seedingDemo !== null) return;
+    const total = 10;
+    setSeedingDemo(0);
+    toast.info("Seeding demo patients", {
+      description: `Admitting ${total} ghost patients across facilities…`,
+    });
+    let ok = 0;
+    for (let i = 0; i < total; i++) {
+      const { error } = await supabase.rpc("auto_admit_ghost_patient");
+      if (!error) ok++;
+      setSeedingDemo(i + 1);
+      if (i < total - 1) await new Promise((r) => setTimeout(r, 1_000));
+    }
+    setSeedingDemo(null);
+    if (ok > 0) {
+      toast.success("Demo patients seeded", {
+        description: `${ok}/${total} ghost admissions created. Dashboards will populate shortly.`,
+      });
+    } else {
+      toast.error("Seed failed", {
+        description: "Ghost admission RPC returned no rows. Check permissions.",
       });
     }
   };
@@ -744,6 +771,21 @@ function SystemAdminPage() {
                     automation ? "translate-x-8" : "translate-x-1"
                   }`}
                 />
+              </button>
+              <button
+                onClick={seedDemoPatients}
+                disabled={seedingDemo !== null}
+                title="Manually admit 10 ghost patients across facilities"
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {seedingDemo !== null ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Seeding {seedingDemo}/10
+                  </>
+                ) : (
+                  <>⚡ Seed Demo Patients</>
+                )}
               </button>
             </div>
           </div>
