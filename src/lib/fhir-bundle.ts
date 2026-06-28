@@ -439,6 +439,10 @@ export type EncounterPatient = {
   temp?: number | null;
   allergies?: string | null;
   past_medical_history?: string | null;
+  /** Care team — sourced from `patient_assignments` + `staff_roster`. */
+  attending_physician?: string | null;
+  assigned_nurse?: string | null;
+  assignment_started_at?: string | null;
 };
 
 
