@@ -1,3 +1,45 @@
+
+function AllergiesBlock({ mrn }: { mrn: string }) {
+  const [rows, setRows] = useState<Array<{ substance: string; reaction: string | null }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("allergies")
+        .select("substance, reaction")
+        .eq("mrn", mrn);
+      if (cancelled) return;
+      setRows(((data ?? []) as any[]).map((r) => ({
+        substance: r.substance, reaction: r.reaction ?? null,
+      })));
+    };
+    void load();
+    const ch = supabase
+      .channel(`allergies-${mrn}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "allergies", filter: `mrn=eq.${mrn}` },
+        () => void load(),
+      )
+      .subscribe();
+    return () => { cancelled = true; void supabase.removeChannel(ch); };
+  }, [mrn]);
+  return (
+    <div className="px-3 py-2 border-b border-slate-200">
+      <div className="text-[12px] font-semibold text-slate-800 mb-1">● Allergies</div>
+      {rows.length === 0 ? (
+        <div className="text-[11.5px] italic text-slate-500">No known allergies</div>
+      ) : (
+        rows.map((r, i) => (
+          <div key={`${r.substance}-${i}`} className="text-[11.5px] text-slate-700 flex justify-between">
+            <span>{r.substance}</span>
+            <span className="text-slate-500">{r.reaction ?? ""}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
 import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { supabase } from "@/integrations/supabase/client";
