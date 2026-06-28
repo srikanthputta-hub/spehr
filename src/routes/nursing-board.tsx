@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
 import { ManualModeBanner } from "@/components/ManualModeBanner";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
 import {
@@ -20,62 +20,6 @@ import { type CodeStatus } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
-
-/**
- * Subscribe to `patient_assignments` and return a live map of
- * MRN → { nurse, physician }. The Staff Assignment background loop
- * writes the record within ~60s of admission; while empty we render
- * "Assigning…" in the row.
- */
-function useAssignmentsMap(): Record<string, { nurse: string | null; physician: string | null }> {
-  const [map, setMap] = useState<Record<string, { nurse: string | null; physician: string | null }>>({});
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      const { data } = await supabase
-        .from("patient_assignments")
-        .select("mrn, nurse_name, physician_name, released_at")
-        .is("released_at", null)
-        .limit(2000);
-      if (cancelled) return;
-      const next: Record<string, { nurse: string | null; physician: string | null }> = {};
-      for (const r of (data ?? []) as any[]) {
-        next[r.mrn] = { nurse: r.nurse_name ?? null, physician: r.physician_name ?? null };
-      }
-      setMap(next);
-    };
-    void load();
-    const ch = supabase
-      .channel("nursing-assignments")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "patient_assignments" },
-        (payload) => {
-          const row: any = payload.new ?? payload.old;
-          if (!row?.mrn) return;
-          setMap((prev) => {
-            const next = { ...prev };
-            if (payload.eventType === "DELETE" || row.released_at) {
-              delete next[row.mrn];
-            } else {
-              next[row.mrn] = {
-                nurse: row.nurse_name ?? null,
-                physician: row.physician_name ?? null,
-              };
-            }
-            return next;
-          });
-        },
-      )
-      .subscribe();
-    return () => {
-      cancelled = true;
-      supabase.removeChannel(ch);
-    };
-  }, []);
-  return map;
-}
-
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -406,8 +350,9 @@ function Dashboard() {
   const [now, setNow] = useState(new Date());
   const [query, setQuery] = useState("");
   const [patients, setPatients] = useState<PatientRow[]>([]);
-  const assignments = useAssignmentsMap();
   const [loading, setLoading] = useState(true);
+  const initialLoadRef = useRef(true);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
@@ -487,7 +432,7 @@ function Dashboard() {
     if (!ready) return;
     let cancelled = false;
     const load = async () => {
-      setLoading(true);
+      if (initialLoadRef.current) setLoading(true);
       setFetchError(null);
       // Floor census is bed-driven. The authoritative list of patients
       // currently on the unit is "every Occupied bed in this facility".
@@ -503,6 +448,7 @@ function Dashboard() {
       if (bedErr) {
         setFetchError(bedErr.message);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const bedByMrn = new Map<string, { room: string }>();
@@ -516,6 +462,7 @@ function Dashboard() {
       if (mrns.length === 0) {
         setPatients([]);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const { data, error } = await supabase
@@ -528,6 +475,7 @@ function Dashboard() {
       if (error) {
         setFetchError(error.message);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const patientByMrn = new Map<string, any>();
@@ -569,10 +517,26 @@ function Dashboard() {
         if (a.admittedAt && b.admittedAt) return b.admittedAt.localeCompare(a.admittedAt);
         return (a.room ?? "").localeCompare(b.room ?? "");
       });
-      setPatients(rows);
+      setPatients((prev) => {
+        // Patch in place when shape matches to avoid remount flicker.
+        if (prev.length === rows.length) {
+          const sameKeys = prev.every((p, i) => p.mrn === rows[i].mrn);
+          if (sameKeys) {
+            return prev.map((p, i) => ({ ...p, ...rows[i] }));
+          }
+        }
+        return rows;
+      });
       setLoading(false);
+      initialLoadRef.current = false;
     };
-    load();
+    const scheduleReload = () => {
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = setTimeout(() => {
+        if (!cancelled) void load();
+      }, 400);
+    };
+    void load();
     // Re-load whenever bed_management OR patients change for this facility
     // so the Floor Overview tally never drifts from the bed KPI.
     const ch = supabase
@@ -585,16 +549,25 @@ function Dashboard() {
           table: "bed_management",
           filter: `facility_name=eq.${facility}`,
         },
-        () => load(),
+        () => scheduleReload(),
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
-        () => load(),
+        // Only reload census on admit/discharge/delete — vitals UPDATEs are
+        // patched in place by the patients-live channel, so refetching here
+        // just causes the table to remount and flicker.
+        { event: "INSERT", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
+        () => scheduleReload(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
+        () => scheduleReload(),
       )
       .subscribe();
     return () => {
       cancelled = true;
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
       supabase.removeChannel(ch);
     };
   }, [ready, facility]);
@@ -902,24 +875,6 @@ function Dashboard() {
                           <span className="ml-1.5 text-[11px] font-normal text-slate-500">
                             {p.age ? `${p.age}${p.sex ?? ""}` : ""}
                           </span>
-                          {(() => {
-                            const a = assignments[p.mrn];
-                            if (!a) {
-                              return (
-                                <div className="mt-0.5 text-[10.5px] font-normal italic text-slate-400">
-                                  Assigning…
-                                </div>
-                              );
-                            }
-                            const parts: string[] = [];
-                            if (a.nurse) parts.push(`RN: ${a.nurse}`);
-                            if (a.physician) parts.push(`Dr. ${a.physician}`);
-                            return (
-                              <div className="mt-0.5 text-[10.5px] font-normal text-slate-500 truncate">
-                                {parts.length ? parts.join(" · ") : "Assigning…"}
-                              </div>
-                            );
-                          })()}
                         </td>
                         <td className="px-3 py-2 align-middle text-slate-700 max-w-[260px]">
                           <div className="truncate" title={p.diagnosis}>
