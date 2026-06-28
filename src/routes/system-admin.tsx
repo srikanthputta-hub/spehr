@@ -585,6 +585,32 @@ function SystemAdminPage() {
     }
   };
 
+  const seedDemoPatients = async () => {
+    if (seedingDemo !== null) return;
+    const total = 10;
+    setSeedingDemo(0);
+    toast.info("Seeding demo patients", {
+      description: `Admitting ${total} ghost patients across facilities…`,
+    });
+    let ok = 0;
+    for (let i = 0; i < total; i++) {
+      const { error } = await supabase.rpc("auto_admit_ghost_patient");
+      if (!error) ok++;
+      setSeedingDemo(i + 1);
+      if (i < total - 1) await new Promise((r) => setTimeout(r, 1_000));
+    }
+    setSeedingDemo(null);
+    if (ok > 0) {
+      toast.success("Demo patients seeded", {
+        description: `${ok}/${total} ghost admissions created. Dashboards will populate shortly.`,
+      });
+    } else {
+      toast.error("Seed failed", {
+        description: "Ghost admission RPC returned no rows. Check permissions.",
+      });
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     const { data, error } = await fetchWithTimeout(
