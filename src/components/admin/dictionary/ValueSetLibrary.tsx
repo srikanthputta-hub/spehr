@@ -354,13 +354,14 @@ function slug(s: string) {
 }
 
 function ValueSetDrawer({
-  vs, onClose, onSubmitForReview, onApprove, onRequestChanges,
+  vs, onClose, onSubmitForReview, onApprove, onRequestChanges, onDeprecate,
 }: {
   vs: ValueSet | null;
   onClose: () => void;
   onSubmitForReview: (r: ValueSet) => void;
   onApprove: (r: ValueSet) => void;
   onRequestChanges: (r: ValueSet) => void;
+  onDeprecate: (r: ValueSet) => void;
 }) {
   const [expanding, setExpanding] = useState(false);
   const [expansion, setExpansion] = useState<any>(null);
