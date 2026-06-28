@@ -534,11 +534,22 @@ function wireClinicalAlertBroadcast() {
  * Mount everything
  * =========================================================== */
 
-type LoopDef = { key: LoopKey; fn: () => Promise<void>; intervalMs: number; bootDelayMs: number };
+type LoopDef = {
+  key: LoopKey;
+  fn: () => Promise<void>;
+  intervalMs: number;
+  bootDelayMs: number;
+  /**
+   * `alwaysRun: true` keeps the loop ticking even when the global
+   * automation toggle is OFF. Used for patient-safety surfaces and
+   * passive telemetry that humans cannot reasonably do by hand.
+   */
+  alwaysRun?: boolean;
+};
 
 const LOOPS: LoopDef[] = [
-  { key: "VITALS_SIMULATION",  fn: vitalsTick,                  intervalMs: 3_000,        bootDelayMs: 4_000 },
-  { key: "CDS_MONITOR",        fn: cdsMonitorTick,              intervalMs: 60_000,       bootDelayMs: 12_000 },
+  { key: "VITALS_SIMULATION",  fn: vitalsTick,                  intervalMs: 3_000,        bootDelayMs: 4_000,  alwaysRun: true },
+  { key: "CDS_MONITOR",        fn: cdsMonitorTick,              intervalMs: 60_000,       bootDelayMs: 12_000, alwaysRun: true },
   { key: "AUTO_DISCHARGE",     fn: autoDischargeTick,           intervalMs: 45_000,       bootDelayMs: 15_000 },
   { key: "REVENUE_CYCLE",      fn: revenueCycleTick,            intervalMs: 15 * 60_000,  bootDelayMs: 20_000 },
   { key: "STAFF_ASSIGNMENT",   fn: staffAssignTick,             intervalMs: 60_000,       bootDelayMs: 10_000 },
@@ -546,7 +557,7 @@ const LOOPS: LoopDef[] = [
   { key: "LATENCY_PING",       fn: latencyPingTick,             intervalMs: 2 * 60_000,   bootDelayMs: 6_000 },
   { key: "NLP_PIPELINE",       fn: nlpPipelineTick,             intervalMs: 30_000,       bootDelayMs: 8_000 },
   { key: "PRE_PUSH_STANDARD",  fn: prePushStandardizationTick,  intervalMs: 60_000,       bootDelayMs: 18_000 },
-  { key: "DRUG_SAFETY",        fn: drugSafetyTick,              intervalMs: 2 * 60_000,   bootDelayMs: 22_000 },
+  { key: "DRUG_SAFETY",        fn: drugSafetyTick,              intervalMs: 2 * 60_000,   bootDelayMs: 22_000, alwaysRun: true },
   { key: "NLP_CONFIDENCE_GATE",fn: nlpConfidenceGateTick,       intervalMs: 60_000,       bootDelayMs: 14_000 },
 ];
 
@@ -558,11 +569,18 @@ export function useBackgroundLoops() {
     // Broadcast first — does not depend on automation toggle.
     cleanups.push(wireClinicalAlertBroadcast());
 
+    // One-shot retroactive drug-allergy sweep on boot. Catches anything
+    // administered before this guard shipped (e.g. MRN-945694 / ceFAZolin).
+    setTimeout(() => {
+      if (!isLoopLeader()) return;
+      void drugSafetyTick().catch(() => {});
+    }, 5_000);
+
     for (const loop of LOOPS) {
       const wrap = async () => {
         if (!isLoopLeader()) return;
         const enabled = await getAutomationEnabled();
-        if (!enabled) {
+        if (!enabled && !loop.alwaysRun) {
           // Spec: when global toggle is OFF, all loops pause.
           await logLoop(loop.key, "PAUSED", { global_control_status: "OFF" });
           return;
