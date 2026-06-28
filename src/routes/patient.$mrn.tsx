@@ -1647,11 +1647,7 @@ function PatientChart() {
 
           <CareTeamBlock mrn={patient.mrn} />
 
-          <div className="px-3 py-2 border-b border-slate-200">
-            <div className="text-[12px] font-semibold text-slate-800 mb-1">● Allergies</div>
-            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>cefazolin</span><span className="text-slate-500">Diarrhea</span></div>
-            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>penicillin G</span><span className="text-slate-500">Rash</span></div>
-          </div>
+          <AllergiesBlock mrn={patient.mrn} />
 
           <div className="px-3 py-2">
             <div className="text-[12px] font-semibold text-slate-800 mb-1">● Vitals — Current</div>
