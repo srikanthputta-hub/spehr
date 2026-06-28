@@ -33,6 +33,7 @@ export function AuthoringWorkbench() {
   const [log, setLog] = useState<string[]>([]);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [savedStatus, setSavedStatus] = useState<"draft" | "review" | "published" | null>(null);
+  const [savedFlash, setSavedFlash] = useState(false);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -109,8 +110,12 @@ export function AuthoringWorkbench() {
       if (error) throw error;
       if (data?.id) setSavedId(data.id);
       setSavedStatus(status);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2000);
       toast.success(status === "review" ? "Submitted for review" : "Draft saved");
       setLog(l => [`Saved as ${status}`, ...l].slice(0, 10));
+      // IMPORTANT: do NOT reset name / picks / excluded / notes — keep workbench loaded
+      // so the user can immediately click "Submit for Review" or keep editing.
     } catch (e: any) {
       toast.error(e.message);
     } finally { setSaving(false); }
@@ -213,8 +218,8 @@ export function AuthoringWorkbench() {
             </div>
             <div className="flex gap-1.5">
               <Button size="sm" variant="outline" onClick={() => save("draft")} disabled={saving}>
-                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                Save Draft
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : savedFlash ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Save className="h-3.5 w-3.5" />}
+                {savedFlash ? "Saved ✓" : "Save Draft"}
               </Button>
               <Button
                 size="sm"

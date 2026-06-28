@@ -181,6 +181,9 @@ export function ValueSetLibrary() {
                         { experimental: false })}
                       onRequestChanges={() => transitionStatus(r, "draft",
                         `Send "${r.name}" back to draft?`, "Returned to draft")}
+                      onDeprecate={() => transitionStatus(r, "deprecated",
+                        `Deprecate "${r.name}"? It will be marked inactive in the registry.`,
+                        "Deprecated")}
                     />
                   </td>
                   <td className="px-3 py-2 text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
@@ -211,12 +214,13 @@ export function ValueSetLibrary() {
 }
 
 function StatusBadge({
-  row, onSubmit, onApprove, onRequestChanges,
+  row, onSubmit, onApprove, onRequestChanges, onDeprecate,
 }: {
   row: ValueSet;
   onSubmit: () => void;
   onApprove: () => void;
   onRequestChanges: () => void;
+  onDeprecate: () => void;
 }) {
   const cls = `inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize ${STATUS_STYLES[row.status] ?? ""}`;
   if (row.status === "draft") {
@@ -237,6 +241,15 @@ function StatusBadge({
         <button className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700"
           onClick={onRequestChanges}>Changes</button>
       </span>
+    );
+  }
+  if (row.status === "published") {
+    return (
+      <button className={`${cls} hover:ring-2 hover:ring-rose-300`}
+        onClick={(e) => { e.stopPropagation(); onDeprecate(); }}
+        title="Deprecate this value set">
+        published ▸
+      </button>
     );
   }
   return <span className={cls}>{row.status}</span>;
