@@ -77,6 +77,34 @@ export function ValueSetLibrary() {
     );
   }, [rows, query]);
 
+  const transitionStatus = async (
+    row: ValueSet,
+    next: ValueSet["status"],
+    confirmMsg: string,
+    successMsg: string,
+    extra: Record<string, unknown> = {},
+  ) => {
+    if (!confirm(confirmMsg)) return;
+    const history = Array.isArray((row as any).change_history) ? (row as any).change_history : [];
+    const { error } = await supabase
+      .from("custom_value_sets")
+      .update({
+        status: next,
+        ...extra,
+        change_history: [...history, {
+          at: new Date().toISOString(),
+          actor: "S.P.E.H.R. Terminology Services",
+          change: `Status: ${row.status} → ${next}`,
+        }],
+        updated_at: new Date().toISOString(),
+      } as any)
+      .eq("id", row.id);
+    if (error) return toast.error(error.message);
+    toast.success(successMsg);
+    setRows(rs => rs.map(r => r.id === row.id ? { ...r, status: next, ...(extra as any) } : r));
+    setSelected(s => s && s.id === row.id ? { ...s, status: next, ...(extra as any) } : s);
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-slate-200 bg-white p-5">
@@ -144,9 +172,16 @@ export function ValueSetLibrary() {
                   </td>
                   <td className="px-3 py-2 text-right font-mono">{Array.isArray(r.codes) ? r.codes.length : 0}</td>
                   <td className="px-3 py-2">
-                    <span className={`inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize ${STATUS_STYLES[r.status] ?? ""}`}>
-                      {r.status === "review" ? "In Review" : r.status}
-                    </span>
+                    <StatusBadge
+                      row={r}
+                      onSubmit={() => transitionStatus(r, "review",
+                        `Submit "${r.name}" for review?`, "Submitted for review")}
+                      onApprove={() => transitionStatus(r, "published",
+                        `Approve & publish "${r.name}"?`, "Published",
+                        { experimental: false })}
+                      onRequestChanges={() => transitionStatus(r, "draft",
+                        `Send "${r.name}" back to draft?`, "Returned to draft")}
+                    />
                   </td>
                   <td className="px-3 py-2 text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
                   <td className="px-3 py-2 text-right">
@@ -161,9 +196,50 @@ export function ValueSetLibrary() {
         </div>
       </div>
 
-      <ValueSetDrawer vs={selected} onClose={() => setSelected(null)} />
+      <ValueSetDrawer
+        vs={selected}
+        onClose={() => setSelected(null)}
+        onSubmitForReview={(r) => transitionStatus(r, "review",
+          `Submit "${r.name}" for review?`, "Submitted for review")}
+        onApprove={(r) => transitionStatus(r, "published",
+          `Approve & publish "${r.name}"?`, "Published", { experimental: false })}
+        onRequestChanges={(r) => transitionStatus(r, "draft",
+          `Send "${r.name}" back to draft?`, "Returned to draft")}
+      />
     </div>
   );
+}
+
+function StatusBadge({
+  row, onSubmit, onApprove, onRequestChanges,
+}: {
+  row: ValueSet;
+  onSubmit: () => void;
+  onApprove: () => void;
+  onRequestChanges: () => void;
+}) {
+  const cls = `inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize ${STATUS_STYLES[row.status] ?? ""}`;
+  if (row.status === "draft") {
+    return (
+      <button className={`${cls} hover:ring-2 hover:ring-slate-300`}
+        onClick={(e) => { e.stopPropagation(); onSubmit(); }}
+        title="Submit for review">
+        draft ▸
+      </button>
+    );
+  }
+  if (row.status === "review") {
+    return (
+      <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <span className={cls}>In Review</span>
+        <button className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+          onClick={onApprove}>Approve</button>
+        <button className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700"
+          onClick={onRequestChanges}>Changes</button>
+      </span>
+    );
+  }
+  return <span className={cls}>{row.status}</span>;
 }
 
 function exportBundle(rows: ValueSet[]) {
@@ -228,7 +304,15 @@ function slug(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-function ValueSetDrawer({ vs, onClose }: { vs: ValueSet | null; onClose: () => void }) {
+function ValueSetDrawer({
+  vs, onClose, onSubmitForReview, onApprove, onRequestChanges,
+}: {
+  vs: ValueSet | null;
+  onClose: () => void;
+  onSubmitForReview: (r: ValueSet) => void;
+  onApprove: (r: ValueSet) => void;
+  onRequestChanges: (r: ValueSet) => void;
+}) {
   const [expanding, setExpanding] = useState(false);
   const [expansion, setExpansion] = useState<any>(null);
   const [copied, setCopied] = useState(false);
@@ -365,9 +449,26 @@ function ValueSetDrawer({ vs, onClose }: { vs: ValueSet | null; onClose: () => v
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             {vs.name}
-            <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${STATUS_STYLES[vs.status] ?? ""}`}>
-              {vs.status === "review" ? "In Review" : vs.status}
-            </span>
+            {vs.status === "draft" ? (
+              <button
+                className={`text-[10px] px-2 py-0.5 rounded border font-semibold hover:ring-2 hover:ring-slate-300 ${STATUS_STYLES[vs.status]}`}
+                onClick={() => onSubmitForReview(vs)}
+                title="Submit for review">
+                draft ▸ submit
+              </button>
+            ) : vs.status === "review" ? (
+              <span className="inline-flex items-center gap-1">
+                <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${STATUS_STYLES[vs.status]}`}>In Review</span>
+                <button className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                  onClick={() => onApprove(vs)}>Approve & Publish</button>
+                <button className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700"
+                  onClick={() => onRequestChanges(vs)}>Request Changes</button>
+              </span>
+            ) : (
+              <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${STATUS_STYLES[vs.status] ?? ""}`}>
+                {vs.status}
+              </span>
+            )}
             <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize ${TYPE_STYLES[vs.type] ?? ""}`}>
               {vs.type}
             </span>
