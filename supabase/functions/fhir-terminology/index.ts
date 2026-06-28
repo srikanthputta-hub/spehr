@@ -85,35 +85,28 @@ async function opLookup(p: { system: string; code: string }) {
     const detail = await rxnavFetch(`/rxcui/${encodeURIComponent(p.code)}/properties.json`);
     display = detail?.properties?.name ?? p.code;
   } else {
-    // exact-match search
-    const json = await utsFetch("/search/current", {
-      string: p.code,
-      sabs: sab,
-      returnIdType: "sourceUi",
-      searchType: "exact",
-      pageSize: "1",
-    });
-    const top = json?.result?.results?.[0];
-    if (top?.name) display = top.name;
+    // Resolve display + CUI via source/{sab}/{code}/atoms
+    let cui = "";
+    try {
+      const atoms = await utsFetch(
+        `/content/current/source/${encodeURIComponent(sab)}/${encodeURIComponent(p.code)}/atoms`,
+        { language: "ENG", pageSize: "5" },
+      );
+      const list = atoms?.result ?? [];
+      // Prefer PT termType, else first
+      const pref = list.find((a: any) => a.termType === "PT") ?? list[0];
+      if (pref?.name) display = pref.name;
+      const conceptUri: string = pref?.concept ?? "";
+      cui = conceptUri.split("/").pop() ?? "";
+    } catch (_) { /* best-effort */ }
 
-    if (top?.ui && top.ui !== "NONE" && sab === "SNOMEDCT_US") {
-      // try to fetch a parent via CUI
+    if (cui && sab === "SNOMEDCT_US") {
       try {
-        const cuiSearch = await utsFetch("/search/current", {
-          string: p.code,
-          sabs: sab,
-          returnIdType: "concept",
-          searchType: "exact",
-          pageSize: "1",
-        });
-        const cui = cuiSearch?.result?.results?.[0]?.ui;
-        if (cui && cui !== "NONE") {
           const rels = await utsFetch(
             `/content/current/CUI/${cui}/relations`,
             { sabs: sab, includeRelationLabels: "PAR", pageSize: "1" },
           );
           parent = rels?.result?.[0]?.relatedIdName;
-        }
       } catch (_) { /* best-effort */ }
     }
   }
