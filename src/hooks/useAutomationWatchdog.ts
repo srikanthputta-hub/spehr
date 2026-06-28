@@ -24,7 +24,9 @@ import { fetchWithTimeout } from "@/lib/async-timeout";
 // Accelerated for preview: real 15-min cycle is `15 * 60_000`.
 const WATCHDOG_INTERVAL_MS = 60_000;
 // Ghost admission randomizer cadence when engines are active.
-const GHOST_ADMIT_INTERVAL_MS = 90_000;
+// Primary admit driver is pg_cron (`ghost_triage_job`, every 5 min, ~3.47
+// admits/tick → ~1000/24h). This client tick is a recovery beat only.
+const GHOST_ADMIT_INTERVAL_MS = 600_000;
 // Activity windows used to flag a stalled engine.
 const ADMISSION_IDLE_MS = 6 * 60_000;
 const QUEUE_IDLE_MS = 6 * 60_000;
