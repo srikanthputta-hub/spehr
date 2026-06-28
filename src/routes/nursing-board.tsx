@@ -845,24 +845,6 @@ function Dashboard() {
                           <span className="ml-1.5 text-[11px] font-normal text-slate-500">
                             {p.age ? `${p.age}${p.sex ?? ""}` : ""}
                           </span>
-                          {(() => {
-                            const a = assignments[p.mrn];
-                            if (!a) {
-                              return (
-                                <div className="mt-0.5 text-[10.5px] font-normal italic text-slate-400">
-                                  Assigning…
-                                </div>
-                              );
-                            }
-                            const parts: string[] = [];
-                            if (a.nurse) parts.push(`RN: ${a.nurse}`);
-                            if (a.physician) parts.push(`Dr. ${a.physician}`);
-                            return (
-                              <div className="mt-0.5 text-[10.5px] font-normal text-slate-500 truncate">
-                                {parts.length ? parts.join(" · ") : "Assigning…"}
-                              </div>
-                            );
-                          })()}
                         </td>
                         <td className="px-3 py-2 align-middle text-slate-700 max-w-[260px]">
                           <div className="truncate" title={p.diagnosis}>
