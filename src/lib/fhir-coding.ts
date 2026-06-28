@@ -57,15 +57,7 @@ const ROUTE_RX =
 
 /** Strip dose / route / frequency to isolate the drug name for RxNav. */
 export function stripDoseRoute(raw: string): string {
-  // Fix #2: combination drugs ("Amoxicillin-Clavulanate 875/125 mg",
-  // "Trimethoprim/Sulfamethoxazole", "Hydrocodone+Acetaminophen") never
-  // resolve when the separator stays embedded in the search string.
-  // Normalise `-`, `/`, `+` (and the leftover ratio numbers like 875/125)
-  // to whitespace BEFORE stripping units so RxNav sees two real ingredient
-  // tokens (`amoxicillin clavulanate`).
   return (raw ?? "")
-    .replace(/\b\d+\s*[\/\-]\s*\d+\b/g, " ") // ratio "875/125"
-    .replace(/[\-\/+]/g, " ") // combo separators
     .replace(DOSE_UNIT_RX, " ")
     .replace(ROUTE_RX, " ")
     .replace(/[,;]/g, " ")
