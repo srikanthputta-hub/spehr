@@ -239,9 +239,24 @@ export function useAutomationWatchdog() {
     // Stagger the first tick by 8s so other boot-time queries settle.
     const boot = setTimeout(tick, 8_000);
     const id = setInterval(tick, WATCHDOG_INTERVAL_MS);
+    // Independent Ghost Admission Randomizer — fires every 90s when
+    // engines are active so the census keeps churning even without
+    // a stalled-engine trigger.
+    const ghostTick = async () => {
+      if (!tryAcquireLeader()) return;
+      const on = await getAutomationEnabled();
+      if (!on) return;
+      try {
+        await supabase.rpc("auto_admit_ghost_patient");
+      } catch (e) {
+        console.warn("[ghost-admit] RPC failed", e);
+      }
+    };
+    const ghostId = setInterval(ghostTick, GHOST_ADMIT_INTERVAL_MS);
     return () => {
       clearTimeout(boot);
       clearInterval(id);
+      clearInterval(ghostId);
     };
   }, []);
 }
