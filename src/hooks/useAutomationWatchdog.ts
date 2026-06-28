@@ -23,6 +23,8 @@ import { fetchWithTimeout } from "@/lib/async-timeout";
 
 // Accelerated for preview: real 15-min cycle is `15 * 60_000`.
 const WATCHDOG_INTERVAL_MS = 60_000;
+// Ghost admission randomizer cadence when engines are active.
+const GHOST_ADMIT_INTERVAL_MS = 90_000;
 // Activity windows used to flag a stalled engine.
 const ADMISSION_IDLE_MS = 6 * 60_000;
 const QUEUE_IDLE_MS = 6 * 60_000;
@@ -31,8 +33,36 @@ const STUCK_ORDER_MS = 3 * 60_000;
 
 type Engine = "Admissions" | "Pharmacy Queue" | "Lab Queue";
 
+/**
+ * Force-seed the network with ghost patients when the census is empty.
+ * Called once on the first watchdog cycle after engines come online so
+ * dashboards don't sit empty waiting for the 90s randomizer tick.
+ */
+export async function forceSeedGhostPatients(target = 5, gapMs = 2_000) {
+  for (let i = 0; i < target; i++) {
+    try {
+      await supabase.rpc("auto_admit_ghost_patient");
+    } catch (e) {
+      console.warn("[watchdog] force-seed RPC failed", e);
+    }
+    if (i < target - 1) await new Promise((r) => setTimeout(r, gapMs));
+  }
+}
+
 async function runWatchdogCycle() {
   const automationOn = await getAutomationEnabled();
+
+  // First-cycle seed: if engines are on but the active census is < 3,
+  // fire the randomizer 5x with 2s gaps to populate facilities.
+  if (automationOn) {
+    const { count: admittedNow } = await supabase
+      .from("patients")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "Admitted");
+    if ((admittedNow ?? 0) < 3) {
+      await forceSeedGhostPatients(5, 2_000);
+    }
+  }
 
   const enginesChecked: Record<string, any> = {};
   const healed: Engine[] = [];
