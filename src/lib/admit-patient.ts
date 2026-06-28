@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { seedAdmission } from "@/hooks/useAIAutomation";
 import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
+import { assignStaffToPatient } from "@/lib/staff-assignment";
 import type { CodeStatus } from "@/lib/patients";
 
 export interface AdmitInput {
@@ -161,6 +162,14 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
     );
   } catch (e: any) {
     console.warn("[admit] seedAdmission failed", e);
+  }
+
+  // Assign nurse + physician synchronously at admission so the chart and
+  // FHIR Encounter/CareTeam resources have the care-team on day one.
+  try {
+    await assignStaffToPatient(data.mrn ?? mrn, data.facility_name ?? facility);
+  } catch (e) {
+    console.warn("[admit] assignStaffToPatient failed", e);
   }
 
   const { data: bedCheck } = await supabase
