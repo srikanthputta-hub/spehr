@@ -735,39 +735,72 @@ export type Database = {
       custom_value_sets: {
         Row: {
           author: string | null
+          binding_strength: string | null
+          change_history: Json | null
+          clinical_application: string | null
           codes: Json
           created_at: string
           description: string | null
+          fhir_url: string | null
           id: string
+          intensional_rule: Json | null
           name: string
+          oid: string | null
+          peer_reviewer: string | null
           published_at: string | null
           status: string
+          steward: string | null
           system: string
+          type: string
           updated_at: string
+          version: string | null
+          vocabulary: string | null
         }
         Insert: {
           author?: string | null
+          binding_strength?: string | null
+          change_history?: Json | null
+          clinical_application?: string | null
           codes?: Json
           created_at?: string
           description?: string | null
+          fhir_url?: string | null
           id?: string
+          intensional_rule?: Json | null
           name: string
+          oid?: string | null
+          peer_reviewer?: string | null
           published_at?: string | null
           status?: string
+          steward?: string | null
           system: string
+          type?: string
           updated_at?: string
+          version?: string | null
+          vocabulary?: string | null
         }
         Update: {
           author?: string | null
+          binding_strength?: string | null
+          change_history?: Json | null
+          clinical_application?: string | null
           codes?: Json
           created_at?: string
           description?: string | null
+          fhir_url?: string | null
           id?: string
+          intensional_rule?: Json | null
           name?: string
+          oid?: string | null
+          peer_reviewer?: string | null
           published_at?: string | null
           status?: string
+          steward?: string | null
           system?: string
+          type?: string
           updated_at?: string
+          version?: string | null
+          vocabulary?: string | null
         }
         Relationships: []
       }
