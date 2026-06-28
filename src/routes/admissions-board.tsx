@@ -357,12 +357,16 @@ function SchedulingTab({ facility }: { facility: string }) {
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await (supabase as any)
-      .from("fhir_appointments")
-      .select("*")
-      .eq("facility_name", facility)
-      .order("start_time", { ascending: true })
-      .limit(100);
+    const { data, error } = await fetchWithTimeout(
+      () =>
+        (supabase as any)
+          .from("fhir_appointments")
+          .select("*")
+          .eq("facility_name", facility)
+          .order("start_time", { ascending: true })
+          .limit(100),
+      { data: [], error: null } as any,
+    );
     if (error) toast.error("Could not load appointments", { description: error.message });
     setRows((data ?? []) as AppointmentRow[]);
     setLoading(false);

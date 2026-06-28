@@ -2572,42 +2572,53 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       if (facility && facility !== "all") {
         pq = pq.eq("facility_name", facility);
       }
-      const { data: patients, error } = await pq;
+      const { data: patients, error } = await fetchWithTimeout(
+        () => pq,
+        { data: [], error: null } as any,
+      );
       if (error) {
         toast.error("Could not load patient matrix", { description: error.message });
         setLoading(false);
         return;
       }
       const mrns = (patients ?? []).map((p: any) => p.mrn).filter(Boolean);
-      const [labsRes, medsRes, condsRes] = await Promise.all([
-        supabase.from("lab_orders").select("patient_mrn, test_type").in("patient_mrn", mrns),
-        supabase
-          .from("medication_orders")
-          .select("patient_mrn, medication_name, drug_name")
-          .in("patient_mrn", mrns),
-        supabase
-          .from("conditions")
-          .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
-          .in("mrn", mrns),
-      ]);
+      const [labsRes, medsRes, condsRes] = await fetchWithTimeout(
+        () =>
+          Promise.all([
+            supabase.from("lab_orders").select("patient_mrn, test_type").in("patient_mrn", mrns),
+            supabase
+              .from("medication_orders")
+              .select("patient_mrn, medication_name, drug_name")
+              .in("patient_mrn", mrns),
+            supabase
+              .from("conditions")
+              .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
+              .in("mrn", mrns),
+          ]),
+        [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }] as any,
+      );
       // Pull coded columns from step-8 schema (auto-coded by `auto-code.ts`).
-      const [labsCoded, medsCoded] = await Promise.all([
-        supabase
-          .from("lab_orders")
-          .select("patient_mrn, loinc_code, loinc_display")
-          .in("patient_mrn", mrns)
-          .not("loinc_code", "is", null),
-        supabase
-          .from("medication_orders")
-          .select("patient_mrn, rxnorm_code, rxnorm_display")
-          .in("patient_mrn", mrns)
-          .not("rxnorm_code", "is", null),
-      ]);
-      const procsRes = await supabase
-        .from("procedures")
-        .select("mrn, cpt_code, cpt_display, display_text")
-        .in("mrn", mrns)
-        .not("cpt_code", "is", null);
+      const [labsCoded, medsCoded, procsRes] = await fetchWithTimeout(
+        () =>
+          Promise.all([
+            supabase
+              .from("lab_orders")
+              .select("patient_mrn, loinc_code, loinc_display")
+              .in("patient_mrn", mrns)
+              .not("loinc_code", "is", null),
+            supabase
+              .from("medication_orders")
+              .select("patient_mrn, rxnorm_code, rxnorm_display")
+              .in("patient_mrn", mrns)
+              .not("rxnorm_code", "is", null),
+            supabase
+              .from("procedures")
+              .select("mrn, cpt_code, cpt_display, display_text")
+              .in("mrn", mrns)
+              .not("cpt_code", "is", null),
+          ]),
+        [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }] as any,
+      );
       const labMap = new Map<string, Set<string>>();
       for (const r of (labsRes.data ?? []) as any[]) {
         if (!r.patient_mrn || !r.test_type) continue;
@@ -3040,7 +3051,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
         .order("admission_time", { ascending: false })
         .limit(50);
       if (facility !== "all") q = q.eq("facility_name", facility);
-      const { data } = await q;
+      const { data } = await fetchWithTimeout(
+        () => q,
+        { data: [], error: null } as any,
+      );
       if (cancelled) return;
       const out: FhirEncounterRow[] = ((data ?? []) as any[])
         .filter((p) => !!p.mrn)
@@ -4262,11 +4276,15 @@ function MedicalDictionary() {
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("medical_terminology")
-      .select("id, code_system, code, display, category, description, status")
-      .order("code_system")
-      .order("code");
+    const { data, error } = await fetchWithTimeout(
+      () =>
+        supabase
+          .from("medical_terminology")
+          .select("id, code_system, code, display, category, description, status")
+          .order("code_system")
+          .order("code"),
+      { data: [], error: null } as any,
+    );
     if (error) toast.error("Failed to load dictionary", { description: error.message });
     else setRows((data as any) ?? []);
     setLoading(false);
