@@ -240,7 +240,7 @@ async function opTranslate(p: {
   try {
     const atoms = await utsFetch(
       `/content/current/CUI/${cui}/atoms`,
-      { sabs: tgtSab, ttys: "PT", pageSize: "10", language: "ENG" },
+      { sabs: tgtSab, pageSize: "25", language: "ENG" },
     );
     atomResult = atoms?.result ?? [];
   } catch (_) { /* leave empty */ }
