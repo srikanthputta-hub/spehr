@@ -246,6 +246,34 @@ async function opTranslate(p: {
     }
   } catch (_) { /* leave empty */ }
 
+  // Fallback: many SNOMED codes have no direct UMLS xwalk row, but the
+  // same CUI is represented in the target vocabulary's atoms. Resolve the
+  // source code → CUI → atoms in target SAB.
+  if (xwalk.length === 0) {
+    try {
+      const search = await utsFetch("/search/current", {
+        string: p.code, sabs: srcSab, inputType: "sourceUi",
+        searchType: "exact", returnIdType: "concept", pageSize: "1",
+      });
+      const cui = search?.result?.results?.[0]?.ui;
+      if (cui && cui !== "NONE") {
+        const atoms = await utsFetch(
+          `/content/current/CUI/${cui}/atoms`,
+          { sabs: tgtSab, pageSize: "10" },
+        );
+        const results = (atoms?.result ?? []) as any[];
+        // Prefer preferred atoms; dedupe by code
+        const seen = new Set<string>();
+        for (const a of results) {
+          const code = String(a.code ?? "").split("/").pop()?.trim() ?? "";
+          if (!code || seen.has(code)) continue;
+          seen.add(code);
+          xwalk.push({ ui: code, name: a.name, rootSource: tgtSab });
+        }
+      }
+    } catch (_) { /* leave empty */ }
+  }
+
   const matches = xwalk.map((a: any, i: number) => ({
     name: "match",
     part: [
