@@ -509,6 +509,7 @@ function SystemAdminPage() {
   const [selectedFacility, setSelectedFacility] = useState<Facility>("Memorial Hospital");
   const [automation, setAutomation] = useState<boolean | null>(true);
   const [automationSaving, setAutomationSaving] = useState(false);
+  const [seedingDemo, setSeedingDemo] = useState<number | null>(null);
   const [isAdmin, setIsAdmin] = useState(true);
 
   useEffect(() => {
