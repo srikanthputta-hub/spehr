@@ -569,10 +569,6 @@ function SystemAdminPage() {
       toast.warning("Automation switched locally", {
         description: "Database write is blocked; using local fallback while permissions repair runs.",
       });
-    } else {
-      toast.success("Automation setting saved", {
-        description: next ? "Background engines active." : "Manual mode active.",
-      });
       return;
     }
     if (next) {
@@ -588,12 +584,16 @@ function SystemAdminPage() {
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("role_permissions")
-      .select("id, target_role, feature_key, feature_name, is_active")
-      .eq("facility_name", selectedFacility)
-      .order("target_role")
-      .order("feature_key");
+    const { data, error } = await fetchWithTimeout(
+      () =>
+        supabase
+          .from("role_permissions")
+          .select("id, target_role, feature_key, feature_name, is_active")
+          .eq("facility_name", selectedFacility)
+          .order("target_role")
+          .order("feature_key"),
+      { data: [], error: null } as any,
+    );
     if (error) {
       toast.error("Failed to load permissions", { description: error.message });
     } else {
@@ -3673,29 +3673,39 @@ function AuditLog() {
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
-    const [patientsRes, labsRes, medsRes, permsRes, settingsRes] = await Promise.all([
-      supabase
-        .from("patients")
-        .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint")
-        .order("admission_time", { ascending: false })
-        .limit(60),
-      supabase
-        .from("lab_orders")
-        .select("id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at")
-        .order("created_at", { ascending: false })
-        .limit(60),
-      supabase
-        .from("medication_orders")
-        .select("id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at")
-        .order("created_at", { ascending: false })
-        .limit(60),
-      supabase
-        .from("role_permissions")
-        .select("id, facility_name, target_role, feature_key, feature_name, is_active, updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(30),
-      supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
-    ]);
+    const [patientsRes, labsRes, medsRes, permsRes, settingsRes] = await fetchWithTimeout(
+      () =>
+        Promise.all([
+          supabase
+            .from("patients")
+            .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint")
+            .order("admission_time", { ascending: false })
+            .limit(60),
+          supabase
+            .from("lab_orders")
+            .select("id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at")
+            .order("created_at", { ascending: false })
+            .limit(60),
+          supabase
+            .from("medication_orders")
+            .select("id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at")
+            .order("created_at", { ascending: false })
+            .limit(60),
+          supabase
+            .from("role_permissions")
+            .select("id, facility_name, target_role, feature_key, feature_name, is_active, updated_at")
+            .order("updated_at", { ascending: false })
+            .limit(30),
+          supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
+        ]),
+      [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: null, error: null },
+      ] as any,
+    );
 
     const out: AuditEvent[] = [];
 
