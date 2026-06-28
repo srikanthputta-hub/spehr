@@ -431,6 +431,16 @@ function Dashboard() {
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
+    // Safety net: never let the "Loading floor census…" spinner stick
+    // around longer than 4s on first paint. If the bed/patient queries
+    // are slow or empty, fall through to the empty/error state instead
+    // of an indefinite spinner.
+    const loadingFailsafe = setTimeout(() => {
+      if (!cancelled) {
+        setLoading(false);
+        initialLoadRef.current = false;
+      }
+    }, 4000);
     const load = async () => {
       if (initialLoadRef.current) setLoading(true);
       setFetchError(null);
@@ -460,9 +470,29 @@ function Dashboard() {
       }
       const mrns = Array.from(bedByMrn.keys());
       if (mrns.length === 0) {
-        setPatients([]);
+        // Fallback: bed_management has nothing assigned, but admitted
+        // patients may exist (orphaned admits). Show them so the floor
+        // census never appears empty when patients are truly on the unit,
+        // and kick reconcileOrphanedBeds() to repair the bed mapping.
+        const { data: orphanPts } = await supabase
+          .from("patients")
+          .select(
+            "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
+          )
+          .eq("facility_name", facility)
+          .eq("status", "Admitted")
+          .order("admission_time", { ascending: false })
+          .limit(40);
+        if (cancelled) return;
+        const fallbackRows = (orphanPts ?? []).map((p: any) => ({
+          ...toRow(p),
+          facility,
+        }));
+        setPatients(fallbackRows);
         setLoading(false);
         initialLoadRef.current = false;
+        // Best-effort repair in the background.
+        void reconcileOrphanedBeds(facility).catch(() => {});
         return;
       }
       const { data, error } = await supabase
@@ -568,6 +598,7 @@ function Dashboard() {
     return () => {
       cancelled = true;
       if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      clearTimeout(loadingFailsafe);
       supabase.removeChannel(ch);
     };
   }, [ready, facility]);
