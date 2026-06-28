@@ -351,6 +351,8 @@ function Dashboard() {
   const [query, setQuery] = useState("");
   const [patients, setPatients] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const initialLoadRef = useRef(true);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
@@ -430,7 +432,7 @@ function Dashboard() {
     if (!ready) return;
     let cancelled = false;
     const load = async () => {
-      setLoading(true);
+      if (initialLoadRef.current) setLoading(true);
       setFetchError(null);
       // Floor census is bed-driven. The authoritative list of patients
       // currently on the unit is "every Occupied bed in this facility".
@@ -446,6 +448,7 @@ function Dashboard() {
       if (bedErr) {
         setFetchError(bedErr.message);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const bedByMrn = new Map<string, { room: string }>();
@@ -459,6 +462,7 @@ function Dashboard() {
       if (mrns.length === 0) {
         setPatients([]);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const { data, error } = await supabase
@@ -471,6 +475,7 @@ function Dashboard() {
       if (error) {
         setFetchError(error.message);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const patientByMrn = new Map<string, any>();
@@ -512,10 +517,26 @@ function Dashboard() {
         if (a.admittedAt && b.admittedAt) return b.admittedAt.localeCompare(a.admittedAt);
         return (a.room ?? "").localeCompare(b.room ?? "");
       });
-      setPatients(rows);
+      setPatients((prev) => {
+        // Patch in place when shape matches to avoid remount flicker.
+        if (prev.length === rows.length) {
+          const sameKeys = prev.every((p, i) => p.mrn === rows[i].mrn);
+          if (sameKeys) {
+            return prev.map((p, i) => ({ ...p, ...rows[i] }));
+          }
+        }
+        return rows;
+      });
       setLoading(false);
+      initialLoadRef.current = false;
     };
-    load();
+    const scheduleReload = () => {
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = setTimeout(() => {
+        if (!cancelled) void load();
+      }, 400);
+    };
+    void load();
     // Re-load whenever bed_management OR patients change for this facility
     // so the Floor Overview tally never drifts from the bed KPI.
     const ch = supabase
@@ -528,16 +549,25 @@ function Dashboard() {
           table: "bed_management",
           filter: `facility_name=eq.${facility}`,
         },
-        () => load(),
+        () => scheduleReload(),
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
-        () => load(),
+        // Only reload census on admit/discharge/delete — vitals UPDATEs are
+        // patched in place by the patients-live channel, so refetching here
+        // just causes the table to remount and flicker.
+        { event: "INSERT", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
+        () => scheduleReload(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
+        () => scheduleReload(),
       )
       .subscribe();
     return () => {
       cancelled = true;
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
       supabase.removeChannel(ch);
     };
   }, [ready, facility]);
