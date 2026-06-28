@@ -144,6 +144,13 @@ export function AuthoringWorkbench() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (timer.current) clearTimeout(timer.current);
+                  runSearch(query);
+                }
+              }}
               placeholder="Search concepts..."
               className="pl-7 h-8 text-xs"
             />
