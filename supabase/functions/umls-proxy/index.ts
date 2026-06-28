@@ -130,14 +130,19 @@ function buildUrl(action: Action, p: Record<string, unknown>): {
       return { url: `${UTS}/search/current?${qs}`, vocab: "LNC" };
     }
     case "crosswalk": {
+      // Use the dedicated UMLS crosswalk endpoint, which is the only reliable
+      // way to map a source code to its equivalents in another vocabulary.
+      // GET /crosswalk/current/source/{fromSab}/{fromCode}?targetSource={toSab}
+      const fromSab = String(p.fromSab ?? p.sourceSab ?? "");
+      const fromCode = String(p.fromCode ?? p.code ?? "");
+      const toSab = String(p.toSab ?? p.targetSab ?? "");
       const qs = new URLSearchParams({
-        sabs: String(p.targetSab ?? ""),
-        ttys: "PT",
+        targetSource: toSab,
         apiKey: UMLS_API_KEY,
       });
       return {
-        url: `${UTS}/content/current/CUI/${encodeURIComponent(String(p.cui ?? ""))}/atoms?${qs}`,
-        vocab: String(p.targetSab ?? ""),
+        url: `${UTS}/crosswalk/current/source/${encodeURIComponent(fromSab)}/${encodeURIComponent(fromCode)}?${qs}`,
+        vocab: toSab,
       };
     }
     case "concept": {

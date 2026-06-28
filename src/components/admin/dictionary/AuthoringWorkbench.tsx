@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, Save, Send, Loader2, X, Plus, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -31,45 +31,49 @@ export function AuthoringWorkbench() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [savedStatus, setSavedStatus] = useState<"draft" | "review" | "published" | null>(null);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const runSearch = useCallback(async (q: string, v = vocab) => {
+    if (!q || q.length < 2) { setResults([]); return; }
+    setSearching(true);
+    try {
+      const { data } = await supabase.functions.invoke("umls-proxy", {
+        body: { action: v.action, params: { string: q, sabs: v.value, pageSize: 15 } },
+      });
+      setResults(data?.result?.results ?? []);
+    } finally { setSearching(false); }
+  }, [vocab]);
 
   // Listen for cross-tab prefill events from Live Terminology Matrix pills
   useEffect(() => {
     const onPrefill = (e: Event) => {
       const d = (e as CustomEvent).detail ?? {};
+      let nextVocab = vocab;
       if (d.vocabulary) {
         const match = VOCABS.find(v => v.label === d.vocabulary);
-        if (match) setVocab(match);
+        if (match) { nextVocab = match; setVocab(match); }
       }
-      if (d.code || d.query) setQuery(String(d.code ?? d.query));
+      const q = d.code ?? d.query;
+      if (q != null) {
+        const qStr = String(q);
+        setQuery(qStr);
+        // Programmatic prefill → fire search after a 100ms delay
+        setTimeout(() => runSearch(qStr, nextVocab), 100);
+      }
     };
     window.addEventListener("spehr:authoring-prefill", onPrefill as any);
     return () => window.removeEventListener("spehr:authoring-prefill", onPrefill as any);
-  }, []);
+  }, [runSearch, vocab]);
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
     if (!query || query.length < 2) { setResults([]); return; }
-    timer.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        if (vocab.action === "rxnorm") {
-          // RxNorm uses a different proxy action that returns RXCUI directly; fall back to UMLS search
-          const { data } = await supabase.functions.invoke("umls-proxy", {
-            body: { action: "search", params: { string: query, sabs: vocab.value, pageSize: 15 } },
-          });
-          setResults(data?.result?.results ?? []);
-        } else {
-          const { data } = await supabase.functions.invoke("umls-proxy", {
-            body: { action: vocab.action, params: { string: query, pageSize: 15 } },
-          });
-          setResults(data?.result?.results ?? []);
-        }
-      } finally { setSearching(false); }
-    }, 300);
+    timer.current = setTimeout(() => runSearch(query), 300);
     return () => { if (timer.current) clearTimeout(timer.current); };
-  }, [query, vocab]);
+  }, [query, vocab, runSearch]);
 
   const addPick = (hit: Hit, exclude = false) => {
     const picked: Picked = { code: hit.ui, display: hit.name, vocabulary: vocab.label, excluded: exclude };
@@ -90,7 +94,7 @@ export function AuthoringWorkbench() {
     setSaving(true);
     try {
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      const { error } = await supabase.from("custom_value_sets").upsert({
+      const { data, error } = await supabase.from("custom_value_sets").upsert({
         name,
         system: vocab.label.replace(" ", "-"),
         vocabulary: vocab.label,
@@ -101,8 +105,10 @@ export function AuthoringWorkbench() {
         fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
         oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
         change_history: [{ at: new Date().toISOString(), action: status === "review" ? "submitted" : "saved", codes: picks.length }],
-      }, { onConflict: "name" });
+      }, { onConflict: "name" }).select("id, status").maybeSingle();
       if (error) throw error;
+      if (data?.id) setSavedId(data.id);
+      setSavedStatus(status);
       toast.success(status === "review" ? "Submitted for review" : "Draft saved");
       setLog(l => [`Saved as ${status}`, ...l].slice(0, 10));
     } catch (e: any) {
@@ -144,6 +150,13 @@ export function AuthoringWorkbench() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (timer.current) clearTimeout(timer.current);
+                  runSearch(query);
+                }
+              }}
               placeholder="Search concepts..."
               className="pl-7 h-8 text-xs"
             />
@@ -181,18 +194,33 @@ export function AuthoringWorkbench() {
         {/* RIGHT — Active value set editor */}
         <div className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Active Value Set Name…"
-              className="h-8 text-sm font-semibold"
-            />
+            <div className="flex-1 flex items-center gap-2">
+              <Input
+                value={name}
+                onChange={(e) => { setName(e.target.value); setSavedStatus(null); setSavedId(null); }}
+                placeholder="Active Value Set Name…"
+                className="h-8 text-sm font-semibold"
+              />
+              {savedStatus && (
+                <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold whitespace-nowrap ${
+                  savedStatus === "draft" ? "bg-slate-100 text-slate-700 border-slate-200"
+                  : savedStatus === "review" ? "bg-amber-100 text-amber-800 border-amber-200"
+                  : "bg-emerald-100 text-emerald-800 border-emerald-200"
+                }`}>
+                  {savedStatus === "draft" ? "Saved as Draft" : savedStatus === "review" ? "In Review" : "Published"}
+                </span>
+              )}
+            </div>
             <div className="flex gap-1.5">
               <Button size="sm" variant="outline" onClick={() => save("draft")} disabled={saving}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 Save Draft
               </Button>
-              <Button size="sm" className="bg-[#0c2340] hover:bg-[#0c2340]/90" onClick={() => save("review")} disabled={saving}>
+              <Button
+                size="sm"
+                className="bg-[#0c2340] hover:bg-[#0c2340]/90"
+                onClick={() => save("review")}
+                disabled={saving || (savedStatus !== null && savedStatus !== "draft")}>
                 <Send className="h-3.5 w-3.5" /> Submit for Review
               </Button>
             </div>
