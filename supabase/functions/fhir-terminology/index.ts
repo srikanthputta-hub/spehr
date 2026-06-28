@@ -217,10 +217,11 @@ async function opTranslate(p: {
   const srcSab = toSab(p.system);
   const tgtSab = toSab(p.targetSystem);
 
-  // 1) find CUI from source code
+  // 1) find CUI from source code (treat input as a source UI, not free text)
   const cuiSearch = await utsFetch("/search/current", {
     string: p.code,
     sabs: srcSab,
+    inputType: "sourceUi",
     returnIdType: "concept",
     searchType: "exact",
     pageSize: "1",
