@@ -234,18 +234,23 @@ async function opTranslate(p: {
     };
   }
 
-  // 2) crosswalk to target SAB
-  const atoms = await utsFetch(
-    `/content/current/CUI/${cui}/atoms`,
-    { sabs: tgtSab, ttys: "PT", pageSize: "10" },
-  );
-  const matches = (atoms?.result ?? []).map((a: any, i: number) => ({
+  // 2) crosswalk to target SAB. UMLS returns 404 when the CUI has no atoms
+  // in the requested SAB — treat as "no match" rather than an error.
+  let atomResult: any[] = [];
+  try {
+    const atoms = await utsFetch(
+      `/content/current/CUI/${cui}/atoms`,
+      { sabs: tgtSab, ttys: "PT", pageSize: "10", language: "ENG" },
+    );
+    atomResult = atoms?.result ?? [];
+  } catch (_) { /* leave empty */ }
+  const matches = atomResult.map((a: any, i: number) => ({
     name: "match",
     part: [
       { name: "equivalence", valueCode: i === 0 ? "equivalent" : "wider" },
       { name: "concept", valueCoding: {
         system: p.targetSystem,
-        code: String(a.code ?? "").split("/").pop() ?? "",
+        code: (String(a.code ?? "").split("/").pop() ?? "").trim(),
         display: String(a.name ?? ""),
       } },
       { name: "source", valueUri: `urn:uuid:${cui}` },
