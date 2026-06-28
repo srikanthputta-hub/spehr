@@ -1,5 +1,29 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchWithTimeout } from "@/lib/async-timeout";
+
+export const AUTOMATION_STORAGE_KEY = "spehr_automation_enabled";
+const AUTOMATION_EVENT = "automation-toggle";
+
+function readStoredAutomation(): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.localStorage.getItem(AUTOMATION_STORAGE_KEY);
+    if (stored === null) return null;
+    return stored !== "false";
+  } catch {
+    return null;
+  }
+}
+
+function persistStoredAutomation(v: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(AUTOMATION_STORAGE_KEY, String(v));
+  } catch {
+    /* ignore */
+  }
+}
 
 /**
  * Global System Automation flag (system_settings.automation_enabled).
@@ -18,17 +42,32 @@ const listeners = new Set<(v: boolean) => void>();
 let channelStarted = false;
 
 async function fetchFlag(): Promise<boolean> {
-  const { data } = await supabase
-    .from("system_settings")
-    .select("automation_enabled")
-    .eq("id", 1)
-    .maybeSingle();
-  return Boolean((data as any)?.automation_enabled);
+  const fallback = readStoredAutomation() ?? true;
+  const { data, error } = await fetchWithTimeout(
+    () =>
+      supabase
+        .from("system_settings")
+        .select("automation_enabled")
+        .eq("id", 1)
+        .maybeSingle(),
+    { data: null, error: new Error("system_settings timeout") } as any,
+  );
+  if (error) return fallback;
+  const v = (data as any)?.automation_enabled;
+  return v === false ? false : true;
 }
 
 function broadcast(v: boolean) {
   cached = v;
+  persistStoredAutomation(v);
   listeners.forEach((cb) => cb(v));
+}
+
+export function setLocalAutomationEnabled(v: boolean) {
+  broadcast(v);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(AUTOMATION_EVENT, { detail: { enabled: v } }));
+  }
 }
 
 function ensureChannel() {
@@ -49,11 +88,16 @@ function ensureChannel() {
 
 export function useAutomationEnabled(): boolean {
   // Default to true so first paint doesn't disable engines for a flicker.
-  const [enabled, setEnabled] = useState<boolean>(cached ?? true);
+  const [enabled, setEnabled] = useState<boolean>(cached ?? readStoredAutomation() ?? true);
 
   useEffect(() => {
     let mounted = true;
     ensureChannel();
+    const eventHandler = (e: Event) => {
+      const next = Boolean((e as CustomEvent<{ enabled: boolean }>).detail?.enabled);
+      broadcast(next);
+    };
+    window.addEventListener(AUTOMATION_EVENT, eventHandler as EventListener);
     if (cached === null) {
       fetchFlag()
         .then((v) => {
@@ -68,6 +112,7 @@ export function useAutomationEnabled(): boolean {
     listeners.add(cb);
     return () => {
       mounted = false;
+      window.removeEventListener(AUTOMATION_EVENT, eventHandler as EventListener);
       listeners.delete(cb);
     };
   }, []);
@@ -94,11 +139,15 @@ const apiListeners = new Set<(v: boolean) => void>();
 let apiChannelStarted = false;
 
 async function fetchApiFlag(): Promise<boolean> {
-  const { data } = await supabase
-    .from("system_settings")
-    .select("auto_api_enabled")
-    .eq("id", 1)
-    .maybeSingle();
+  const { data } = await fetchWithTimeout(
+    () =>
+      supabase
+        .from("system_settings")
+        .select("auto_api_enabled")
+        .eq("id", 1)
+        .maybeSingle(),
+    { data: null, error: null } as any,
+  );
   // Default true if the column is missing (older deployments).
   const v = (data as any)?.auto_api_enabled;
   return v === false ? false : true;

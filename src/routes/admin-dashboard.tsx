@@ -40,6 +40,7 @@ import { Progress } from "@/components/ui/progress";
 import { useFacility, useActiveStaff, STAFF_BY_FACILITY, type Facility, type StaffRole } from "@/lib/facility-context";
 import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -271,16 +272,20 @@ function AdminDashboard() {
 
   useEffect(() => {
     (async () => {
-      const [pRes, mRes] = await Promise.all([
-        supabase
-          .from("patients")
-          .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time")
-          .order("admission_time", { ascending: false }),
-        supabase
-          .from("medication_orders")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "PENDING_PHARMACY"),
-      ]);
+      const [pRes, mRes] = await fetchWithTimeout(
+        () =>
+          Promise.all([
+            supabase
+              .from("patients")
+              .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time")
+              .order("admission_time", { ascending: false }),
+            supabase
+              .from("medication_orders")
+              .select("id", { count: "exact", head: true })
+              .eq("status", "PENDING_PHARMACY"),
+          ]),
+        [{ data: [], error: null }, { count: 0, error: null }] as any,
+      );
       if (pRes.error) toast.error(pRes.error.message);
       else setPatients((pRes.data ?? []) as Patient[]);
       if (!mRes.error) setPendingPharm(mRes.count ?? 0);
@@ -295,11 +300,15 @@ function AdminDashboard() {
   }, [facility]);
 
   const loadTransfers = async () => {
-    const { data, error } = await supabase
-      .from("patient_transfers")
-      .select("*")
-      .eq("status", "Pending Approval")
-      .order("created_at", { ascending: false });
+    const { data, error } = await fetchWithTimeout(
+      () =>
+        supabase
+          .from("patient_transfers")
+          .select("*")
+          .eq("status", "Pending Approval")
+          .order("created_at", { ascending: false }),
+      { data: [], error: null } as any,
+    );
     if (error) toast.error(error.message);
     else setTransfers((data ?? []) as TransferRequest[]);
     setTransfersLoading(false);
