@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Upload, Loader2, FileJson, Copy, Play } from "lucide-react";
+import { Plus, Download, Upload, Loader2, FileJson, Copy, Play, Save, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -228,13 +231,49 @@ function slug(s: string) {
 function ValueSetDrawer({ vs, onClose }: { vs: ValueSet | null; onClose: () => void }) {
   const [expanding, setExpanding] = useState(false);
   const [expansion, setExpansion] = useState<any>(null);
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => { setExpansion(null); }, [vs?.id]);
+  // --- Editable Rule state (intensional) -----------------------------------
+  const [ruleRoot, setRuleRoot] = useState("");
+  const [ruleRootName, setRuleRootName] = useState("");
+  const [ruleInclude, setRuleInclude] = useState<"descendants" | "children">("descendants");
+  const [ruleExclude, setRuleExclude] = useState("");
+  const [ruleActiveOnly, setRuleActiveOnly] = useState(true);
+  const [savingRule, setSavingRule] = useState(false);
+  const [previewCount, setPreviewCount] = useState<number | null>(null);
+
+  // --- Editable Metadata state --------------------------------------------
+  const [metaPurpose, setMetaPurpose] = useState("");
+  const [metaBinding, setMetaBinding] = useState("preferred");
+  const [metaApp, setMetaApp] = useState("");
+  const [metaVersion, setMetaVersion] = useState("1.0.0");
+  const [savingMeta, setSavingMeta] = useState(false);
+
+  useEffect(() => {
+    setExpansion(null);
+    setPreviewCount(null);
+    setCopied(false);
+    if (vs) {
+      const r = vs.intensional_rule ?? {};
+      setRuleRoot(r.rootConcept ?? "");
+      setRuleRootName(r.rootDisplay ?? "");
+      setRuleInclude(r.include === "children" ? "children" : "descendants");
+      setRuleExclude(Array.isArray(r.exclude) ? r.exclude.join(", ") : (r.exclude ?? ""));
+      setRuleActiveOnly(r.activeOnly !== false);
+      setMetaPurpose(vs.description ?? "");
+      setMetaBinding(vs.binding_strength ?? "preferred");
+      setMetaApp(vs.clinical_application ?? "");
+      setMetaVersion(vs.version ?? "1.0.0");
+    }
+  }, [vs?.id]);
 
   if (!vs) return null;
 
-  const fhir = toFhirValueSet(vs);
+  const slugName = slug(vs.name);
+  const autoFhirUrl = `http://spehr.live/fhir/ValueSet/${slugName}`;
+  const fhir = toFhirValueSet({ ...vs, fhir_url: vs.fhir_url ?? autoFhirUrl });
   const fhirJson = JSON.stringify(fhir, null, 2);
+  const changeHistory: any[] = Array.isArray((vs as any).change_history) ? (vs as any).change_history : [];
 
   const runExpand = async () => {
     setExpanding(true);
@@ -248,6 +287,76 @@ function ValueSetDrawer({ vs, onClose }: { vs: ValueSet | null; onClose: () => v
     } catch (e: any) {
       toast.error(`$expand failed: ${e.message}`);
     } finally { setExpanding(false); }
+  };
+
+  const previewRule = async () => {
+    if (!ruleRoot && !ruleRootName) return toast.error("Set a root concept first");
+    setExpanding(true);
+    try {
+      const { data } = await supabase.functions.invoke("umls-proxy", {
+        body: { action: "search", params: { string: ruleRootName || ruleRoot, sabs: "SNOMEDCT_US", pageSize: 50 } },
+      });
+      const total = data?.result?.recCount ?? data?.result?.results?.length ?? 0;
+      setPreviewCount(total);
+      toast.success(`Rule expands to ${total} concepts in SNOMED CT`);
+    } catch (e: any) { toast.error(e.message); }
+    finally { setExpanding(false); }
+  };
+
+  const saveRule = async () => {
+    setSavingRule(true);
+    const rule = {
+      rootConcept: ruleRoot,
+      rootDisplay: ruleRootName,
+      include: ruleInclude,
+      exclude: ruleExclude.split(",").map(s => s.trim()).filter(Boolean),
+      activeOnly: ruleActiveOnly,
+    };
+    const { error } = await supabase
+      .from("custom_value_sets")
+      .update({ intensional_rule: rule, updated_at: new Date().toISOString() })
+      .eq("id", vs.id);
+    setSavingRule(false);
+    if (error) return toast.error(error.message);
+    toast.success("Rule saved");
+  };
+
+  const saveMetadata = async () => {
+    setSavingMeta(true);
+    const history = [...changeHistory, {
+      at: new Date().toISOString(),
+      actor: "S.P.E.H.R. Terminology Services",
+      change: `Metadata updated (binding=${metaBinding}, version=${metaVersion})`,
+    }];
+    const { error } = await supabase
+      .from("custom_value_sets")
+      .update({
+        description: metaPurpose,
+        binding_strength: metaBinding,
+        clinical_application: metaApp,
+        version: metaVersion,
+        fhir_url: autoFhirUrl,
+        change_history: history,
+        updated_at: new Date().toISOString(),
+      } as any)
+      .eq("id", vs.id);
+    setSavingMeta(false);
+    if (error) return toast.error(error.message);
+    toast.success("Metadata saved");
+  };
+
+  const copyJson = async () => {
+    await navigator.clipboard.writeText(fhirJson);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const downloadJson = () => {
+    const blob = new Blob([fhirJson], { type: "application/fhir+json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${slugName}.json`; a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -305,57 +414,123 @@ function ValueSetDrawer({ vs, onClose }: { vs: ValueSet | null; onClose: () => v
           </TabsContent>
 
           <TabsContent value="rule" className="mt-3 space-y-3 text-xs">
-            {vs.intensional_rule && (
-              <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2 font-mono text-[11px]">
-                {vs.intensional_rule.rootConcept && (
-                  <div><strong>Root Concept:</strong> {vs.intensional_rule.rootConcept} · {vs.intensional_rule.rootDisplay}</div>
-                )}
-                {vs.intensional_rule.include && (
-                  <div><strong>Include:</strong> {vs.intensional_rule.include}</div>
-                )}
-                {vs.intensional_rule.drugClass && (
-                  <div><strong>Drug Class:</strong> {vs.intensional_rule.drugClass}</div>
-                )}
-                {vs.intensional_rule.filters && (
-                  <div><strong>Filters:</strong> {JSON.stringify(vs.intensional_rule.filters)}</div>
-                )}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Root Concept Code</div>
+                <Input value={ruleRoot} onChange={(e) => setRuleRoot(e.target.value)} className="h-8 text-xs font-mono" placeholder="e.g. 22298006" />
               </div>
-            )}
-            <Button size="sm" variant="outline" onClick={runExpand} disabled={expanding}>
-              {expanding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              Preview Expansion (calls UMLS live)
-            </Button>
-            {expansion && (
-              <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-[11px]">
-                <div className="font-semibold mb-2">
-                  Expands to {expansion.expansion?.total ?? 0} concepts
-                </div>
-                <div className="space-y-1 max-h-64 overflow-y-auto">
-                  {(expansion.expansion?.contains ?? []).slice(0, 30).map((c: any, i: number) => (
-                    <div key={i} className="font-mono">{c.code} · {c.display}</div>
-                  ))}
-                </div>
+              <div>
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Root Concept Name</div>
+                <Input value={ruleRootName} onChange={(e) => setRuleRootName(e.target.value)} className="h-8 text-xs" placeholder="e.g. Myocardial infarction" />
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Include</div>
+              <Select value={ruleInclude} onValueChange={(v) => setRuleInclude(v as any)}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="descendants">All descendants</SelectItem>
+                  <SelectItem value="children">Direct children only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Exclude concepts (comma-separated codes)</div>
+              <Input value={ruleExclude} onChange={(e) => setRuleExclude(e.target.value)} className="h-8 text-xs font-mono" placeholder="e.g. 123456, 789012" />
+            </div>
+            <label className="flex items-center gap-2 text-[11px] text-slate-700">
+              <Checkbox checked={ruleActiveOnly} onCheckedChange={(v) => setRuleActiveOnly(!!v)} />
+              Active concepts only
+            </label>
+            <div className="flex items-center gap-2 pt-1">
+              <Button size="sm" variant="outline" onClick={previewRule} disabled={expanding}>
+                {expanding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Preview Expansion
+              </Button>
+              <Button size="sm" className="bg-[#0c2340] hover:bg-[#0c2340]/90" onClick={saveRule} disabled={savingRule}>
+                {savingRule ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save Rule
+              </Button>
+            </div>
+            {previewCount !== null && (
+              <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-900">
+                This rule currently expands to <strong>{previewCount}</strong> concepts in SNOMED CT.
               </div>
             )}
           </TabsContent>
 
           <TabsContent value="meta" className="mt-3 space-y-3 text-xs">
-            <Field label="Purpose / Use Case" value={vs.description ?? "—"} />
-            <Field label="Steward" value={vs.steward ?? "S.P.E.H.R. Terminology Services"} />
-            <Field label="FHIR Value Set URL" value={vs.fhir_url ?? "—"} mono />
-            <Field label="HL7 Binding Strength" value={vs.binding_strength ?? "preferred"} />
-            <Field label="Clinical Application" value={vs.clinical_application ?? "—"} />
-            <Field label="Peer Reviewer" value={vs.peer_reviewer ?? "Unassigned"} />
-            <Field label="Version" value={vs.version ?? "1.0.0"} />
+            <div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Purpose / Use Case</div>
+              <Textarea value={metaPurpose} onChange={(e) => setMetaPurpose(e.target.value)} className="text-xs" rows={3} />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">FHIR Value Set URL (auto)</div>
+              <Input value={autoFhirUrl} readOnly className="h-8 text-xs font-mono bg-slate-50" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">HL7 Binding Strength</div>
+                <Select value={metaBinding} onValueChange={setMetaBinding}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="required">Required</SelectItem>
+                    <SelectItem value="preferred">Preferred</SelectItem>
+                    <SelectItem value="extensible">Extensible</SelectItem>
+                    <SelectItem value="example">Example</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Clinical Application</div>
+                <Select value={metaApp || "CDS"} onValueChange={setMetaApp}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CDS">CDS</SelectItem>
+                    <SelectItem value="Quality Measure">Quality Measure</SelectItem>
+                    <SelectItem value="Population Health">Population Health</SelectItem>
+                    <SelectItem value="Billing">Billing</SelectItem>
+                    <SelectItem value="Research">Research</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Steward</div>
+                <Input value="S.P.E.H.R. Terminology Services" readOnly className="h-8 text-xs bg-slate-50" />
+              </div>
+              <div>
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Version</div>
+                <Input value={metaVersion} onChange={(e) => setMetaVersion(e.target.value)} className="h-8 text-xs font-mono" />
+              </div>
+            </div>
+            <Button size="sm" className="bg-[#0c2340] hover:bg-[#0c2340]/90" onClick={saveMetadata} disabled={savingMeta}>
+              {savingMeta ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save Metadata
+            </Button>
+            <div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 mt-3 mb-1">Change History</div>
+              {changeHistory.length === 0 ? (
+                <div className="text-[11px] text-slate-500 italic">No changes recorded yet.</div>
+              ) : (
+                <ul className="space-y-1 text-[11px] text-slate-700 max-h-40 overflow-y-auto">
+                  {changeHistory.slice().reverse().map((h: any, i: number) => (
+                    <li key={i} className="border-l-2 border-slate-200 pl-2">
+                      <span className="font-mono text-[10px] text-slate-500">{new Date(h.at).toLocaleString()}</span> — {h.change}
+                      {h.actor && <span className="text-slate-500"> · {h.actor}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </TabsContent>
 
           <TabsContent value="fhir" className="mt-3 space-y-2">
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" onClick={() => {
-                navigator.clipboard.writeText(fhirJson);
-                toast.success("FHIR JSON copied");
-              }}>
-                <Copy className="h-3.5 w-3.5" /> Copy FHIR JSON
+              <Button size="sm" variant="outline" onClick={copyJson}>
+                {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? "Copied!" : "Copy JSON"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={downloadJson}>
+                <Download className="h-3.5 w-3.5" /> Download .json
               </Button>
               <Button size="sm" variant="outline" onClick={runExpand} disabled={expanding}>
                 <FileJson className="h-3.5 w-3.5" /> $expand via FHIR Server
@@ -364,18 +539,19 @@ function ValueSetDrawer({ vs, onClose }: { vs: ValueSet | null; onClose: () => v
             <pre className="rounded border border-slate-200 bg-slate-900 text-emerald-300 p-3 text-[10px] overflow-x-auto max-h-96">
               {fhirJson}
             </pre>
+            {expansion && (
+              <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-[11px]">
+                <div className="font-semibold mb-1">$expand returned {expansion.expansion?.total ?? 0} concepts</div>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {(expansion.expansion?.contains ?? []).slice(0, 30).map((c: any, i: number) => (
+                    <div key={i} className="font-mono">{c.code} · {c.display}</div>
+                  ))}
+                </div>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </SheetContent>
     </Sheet>
-  );
-}
-
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">{label}</div>
-      <div className={`text-slate-900 ${mono ? "font-mono text-[11px] break-all" : ""}`}>{value}</div>
-    </div>
   );
 }
