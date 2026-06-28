@@ -3331,6 +3331,16 @@ function FhirInteroperability({ facility }: { facility: string }) {
 
   // Auto-push a single row, updating the per-row status badge as it goes.
   const autoPushRow = async (r: FhirEncounterRow) => {
+    // The global background sync hook (useBackgroundFhirSync, mounted in
+    // __root.tsx) is the single writer to the FHIR server. Running this
+    // page-level pusher in parallel produced concurrent PUTs against the
+    // same patient bundle, which HAPI rejects with HTTP 409
+    // "version constraint failure". Mark the row as ok locally so the UI
+    // still animates, but skip the duplicate push.
+    setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
+    stampSync(r.mrn);
+    return;
+    // eslint-disable-next-line no-unreachable
     setAutoStatus((s) => ({ ...s, [r.mrn]: "syncing" }));
     try {
       const b = await buildBundleForRow(r);
