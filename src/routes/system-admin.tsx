@@ -600,13 +600,13 @@ function SystemAdminPage() {
       const nowIso = new Date().toISOString();
       const { data: discharged, error: pErr } = await supabase
         .from("patients")
-        .update({ status: "Discharged", discharge_at: nowIso })
+        .update({ status: "Discharged", discharge_time: nowIso })
         .neq("status", "Discharged")
         .select("mrn");
       if (pErr) throw pErr;
       const { error: bErr } = await supabase
         .from("bed_management")
-        .update({ status: "Available", patient_mrn: null, patient_name: null })
+        .update({ status: "Available", current_patient_mrn: null })
         .neq("status", "Available");
       if (bErr) throw bErr;
       toast.success("All patients discharged", {
