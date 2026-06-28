@@ -77,7 +77,7 @@ import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
-import { AUTOMATION_STORAGE_KEY, getAutomationEnabled, setLocalAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { AUTOMATION_STORAGE_KEY, getAutomationEnabled, setLocalAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 
 export const Route = createFileRoute("/system-admin")({
@@ -86,6 +86,8 @@ export const Route = createFileRoute("/system-admin")({
 
 function WatchdogStatusWidget() {
   const latest = useLatestWatchdogLog();
+  const automationEnabled = useAutomationEnabled();
+  const globalControl = latest?.global_control_status ?? (automationEnabled ? "ON" : "OFF");
   const [open, setOpen] = useState(false);
   const ts = latest ? new Date(latest.checker_timestamp) : null;
   const ago = ts
@@ -233,12 +235,12 @@ function WatchdogStatusWidget() {
           </div>
           <div
             className={`text-xs font-bold ${
-              latest?.global_control_status === "ON"
+              globalControl === "ON"
                 ? "text-emerald-700"
                 : "text-slate-500"
             }`}
           >
-            {latest?.global_control_status ?? "—"}
+            {globalControl}
           </div>
         </div>
       </div>
