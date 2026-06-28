@@ -1569,6 +1569,8 @@ function PatientChart() {
             <div className="text-[12px] text-slate-700">{patient.chief_complaint ?? "—"}</div>
           </div>
 
+          <CareTeamBlock mrn={patient.mrn} />
+
           <div className="px-3 py-2 border-b border-slate-200">
             <div className="text-[12px] font-semibold text-slate-800 mb-1">● Allergies</div>
             <div className="text-[11.5px] text-slate-700 flex justify-between"><span>cefazolin</span><span className="text-slate-500">Diarrhea</span></div>
