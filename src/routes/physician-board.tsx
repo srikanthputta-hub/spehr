@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { ModuleRibbon, SectionHeader } from "@/components/ClinicalShell";
+import { ManualModeBanner } from "@/components/ManualModeBanner";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
@@ -343,6 +344,9 @@ function PhysicianBoard() {
         badge="Provider · MD"
         subtitle={`${md.ward} · Computerized Provider Order Entry`}
       />
+      <div className="max-w-[1400px] mx-auto px-5 pt-4">
+        <ManualModeBanner context="CPOE will not auto-cascade — verify orders manually." />
+      </div>
       <ModuleRibbon
         module="EDM"
         context={`${facility} · CPOE`}

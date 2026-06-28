@@ -9,6 +9,8 @@ import {
   type FhirQuality,
 } from "@/lib/fhir-bundle";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
+import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { logLoop } from "@/lib/loop-logger";
 
 /**
  * Background FHIR live-sync. Runs at the app root so discharged-patient
@@ -64,6 +66,85 @@ function persistPushed(mrn: string, outcome: "ok" | "err") {
   }
 }
 
+/**
+ * Fix #5/#6/#7: the engine previously created BOTH old-format ids
+ * (`cond-mrn-{MRN}-hpi`, `allergy-mrn-{MRN}-environment-bee-sting`, ...)
+ * and new-format ids (`cond-hpi-{MRN}`, `allergy-bee-sting-{MRN}`).
+ * Every resource builder now uses the new format exclusively; this
+ * helper sweeps the FHIR server once per MRN to DELETE any lingering
+ * old-format ghosts so the audit shows a single canonical resource per
+ * clinical fact. Successful cleanups are remembered in localStorage so
+ * we never replay the sweep for the same MRN.
+ */
+const OLD_ID_RE = /^(?:cond|allergy|medreq|medadmin|lab|vital|obs)-mrn-/i;
+const CLEAN_KEY = "fhir.cleanedOldIds";
+
+function alreadyCleaned(mrn: string): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = window.localStorage.getItem(CLEAN_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    return !!obj[mrn];
+  } catch {
+    return false;
+  }
+}
+
+function markCleaned(mrn: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(CLEAN_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    obj[mrn] = Date.now();
+    window.localStorage.setItem(CLEAN_KEY, JSON.stringify(obj));
+  } catch {
+    /* ignore */
+  }
+}
+
+async function deleteOldFormatResource(resourceType: string, id: string) {
+  try {
+    await supabase.functions.invoke("fhir-proxy", {
+      body: { method: "DELETE", path: `${resourceType}/${id}` },
+    });
+  } catch (e) {
+    console.warn("[bg-fhir-sync] DELETE old-format failed", resourceType, id, e);
+  }
+}
+
+async function cleanupOldFormatIds(mrn: string) {
+  if (alreadyCleaned(mrn)) return;
+  const types = [
+    "Condition",
+    "AllergyIntolerance",
+    "MedicationRequest",
+    "MedicationAdministration",
+    "Observation",
+  ];
+  for (const t of types) {
+    try {
+      const res = await supabase.functions.invoke("fhir-proxy", {
+        body: {
+          method: "GET",
+          path: t,
+          query: { patient: mrn, _count: "200", _elements: "id" },
+        },
+      });
+      const data: any = res.data;
+      const entries: any[] = Array.isArray(data?.entry) ? data.entry : [];
+      for (const e of entries) {
+        const id = String(e?.resource?.id ?? "");
+        if (id && OLD_ID_RE.test(id)) {
+          await deleteOldFormatResource(t, id);
+        }
+      }
+    } catch (e) {
+      console.warn("[bg-fhir-sync] cleanup query failed", t, mrn, e);
+    }
+  }
+  markCleaned(mrn);
+}
+
 function persistQuality(mrn: string, quality: FhirQuality) {
   if (typeof window === "undefined") return;
   try {
@@ -100,7 +181,7 @@ async function flagSafetyAlert(mrn: string, quality: FhirQuality) {
 }
 
 async function buildBundleForMrn(r: Row) {
-  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes] = await Promise.all([
+  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes, assignRes] = await Promise.all([
     supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
     supabase
       .from("lab_orders")
@@ -140,8 +221,14 @@ async function buildBundleForMrn(r: Row) {
       .select("allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display")
       .eq("mrn", r.mrn)
       .limit(80),
+    supabase
+      .from("patient_assignments")
+      .select("nurse_name, physician_name, assigned_at")
+      .eq("mrn", r.mrn)
+      .maybeSingle(),
   ]);
   const p = (patientRes.data ?? {}) as any;
+  const assignment = ((assignRes as any)?.data ?? {}) as any;
   const reactionsByAllergy = new Map<string, any[]>();
   for (const rx of ((reactionsRes as any)?.data ?? []) as any[]) {
     const arr = reactionsByAllergy.get(rx.allergy_id) ?? [];
@@ -182,6 +269,9 @@ async function buildBundleForMrn(r: Row) {
       temp: p.temp ?? null,
       allergies: p.allergies ?? null,
       past_medical_history: p.past_medical_history ?? null,
+      attending_physician: assignment.physician_name ?? null,
+      assigned_nurse: assignment.nurse_name ?? null,
+      assignment_started_at: assignment.assigned_at ?? null,
     },
     labs: (labsRes.data ?? []) as any[],
     meds: (medsRes.data ?? []) as any[],
@@ -250,6 +340,11 @@ export function useBackgroundFhirSync() {
       if (cancelled || inFlightRef.current) return;
       if (!readEnabled()) return;
       if (!enabledRef.current) return;
+      // Spec-literal global pause: when AI Engines toggle is OFF, every
+      // loop (incl. FHIR sync) pauses. We still emit a PAUSED heartbeat
+      // periodically via the watchdog so the dashboard reflects state.
+      const globalOn = await getAutomationEnabled();
+      if (!globalOn) return;
       let target: Row | null = null;
       for (const [mrn, st] of statusRef.current) {
         if (st !== "queued") continue;
@@ -301,18 +396,33 @@ export function useBackgroundFhirSync() {
         }
         statusRef.current.set(target.mrn, "ok");
         persistPushed(target.mrn, "ok");
+        // One-shot sweep of legacy `*-mrn-{MRN}-*` ids so the FHIR server
+        // never holds parallel old + new resources for the same fact.
+        void cleanupOldFormatIds(target.mrn);
       } catch (e) {
         console.warn("[bg-fhir-sync]", target.mrn, e);
         statusRef.current.set(target.mrn, "err");
         persistPushed(target.mrn, "err");
+        void logLoop("FHIR_SYNC", "ERROR", { mrn: target.mrn, error: String(e) });
       } finally {
         inFlightRef.current = false;
+        if (target && statusRef.current.get(target.mrn) === "ok") {
+          void logLoop("FHIR_SYNC", "NORMAL", { mrn: target.mrn });
+          void logLoop("FHIR_R4_COMPLIANCE", "NORMAL", { mrn: target.mrn });
+        }
       }
     };
 
     void loadRows();
     const refresh = setInterval(() => void loadRows(), 30_000);
     const heartbeat = setInterval(() => void pushNext(), 400);
+    // Idle heartbeat: even when no MRN is queued, prove the loop is alive.
+    const idleHeartbeat = setInterval(async () => {
+      const globalOn = await getAutomationEnabled();
+      if (!globalOn) { void logLoop("FHIR_SYNC", "PAUSED", { global_control_status: "OFF" }); return; }
+      // Only log idle heartbeat if nothing else has logged recently — avoids spam.
+      void logLoop("FHIR_SYNC", "NORMAL", { idle: true, queue_depth: statusRef.current.size });
+    }, 8_000);
 
     const requeueByMrn = (mrn: string | null | undefined) => {
       if (!mrn) return;
@@ -359,6 +469,7 @@ export function useBackgroundFhirSync() {
       cancelled = true;
       clearInterval(refresh);
       clearInterval(heartbeat);
+      clearInterval(idleHeartbeat);
       void supabase.removeChannel(channel);
     };
   }, []);

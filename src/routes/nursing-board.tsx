@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
-import { useEffect, useMemo, useState } from "react";
+import { ManualModeBanner } from "@/components/ManualModeBanner";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
 import {
@@ -19,7 +20,6 @@ import { type CodeStatus } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
-
 
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
@@ -351,6 +351,8 @@ function Dashboard() {
   const [query, setQuery] = useState("");
   const [patients, setPatients] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const initialLoadRef = useRef(true);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
@@ -429,8 +431,18 @@ function Dashboard() {
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
+    // Safety net: never let the "Loading floor census…" spinner stick
+    // around longer than 4s on first paint. If the bed/patient queries
+    // are slow or empty, fall through to the empty/error state instead
+    // of an indefinite spinner.
+    const loadingFailsafe = setTimeout(() => {
+      if (!cancelled) {
+        setLoading(false);
+        initialLoadRef.current = false;
+      }
+    }, 4000);
     const load = async () => {
-      setLoading(true);
+      if (initialLoadRef.current) setLoading(true);
       setFetchError(null);
       // Floor census is bed-driven. The authoritative list of patients
       // currently on the unit is "every Occupied bed in this facility".
@@ -446,6 +458,7 @@ function Dashboard() {
       if (bedErr) {
         setFetchError(bedErr.message);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const bedByMrn = new Map<string, { room: string }>();
@@ -457,8 +470,29 @@ function Dashboard() {
       }
       const mrns = Array.from(bedByMrn.keys());
       if (mrns.length === 0) {
-        setPatients([]);
+        // Fallback: bed_management has nothing assigned, but admitted
+        // patients may exist (orphaned admits). Show them so the floor
+        // census never appears empty when patients are truly on the unit,
+        // and kick reconcileOrphanedBeds() to repair the bed mapping.
+        const { data: orphanPts } = await supabase
+          .from("patients")
+          .select(
+            "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
+          )
+          .eq("facility_name", facility)
+          .eq("status", "Admitted")
+          .order("admission_time", { ascending: false })
+          .limit(40);
+        if (cancelled) return;
+        const fallbackRows = (orphanPts ?? []).map((p: any) => ({
+          ...toRow(p),
+          facility,
+        }));
+        setPatients(fallbackRows);
         setLoading(false);
+        initialLoadRef.current = false;
+        // Best-effort repair in the background.
+        void reconcileOrphanedBeds(facility).catch(() => {});
         return;
       }
       const { data, error } = await supabase
@@ -471,6 +505,7 @@ function Dashboard() {
       if (error) {
         setFetchError(error.message);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const patientByMrn = new Map<string, any>();
@@ -512,10 +547,26 @@ function Dashboard() {
         if (a.admittedAt && b.admittedAt) return b.admittedAt.localeCompare(a.admittedAt);
         return (a.room ?? "").localeCompare(b.room ?? "");
       });
-      setPatients(rows);
+      setPatients((prev) => {
+        // Patch in place when shape matches to avoid remount flicker.
+        if (prev.length === rows.length) {
+          const sameKeys = prev.every((p, i) => p.mrn === rows[i].mrn);
+          if (sameKeys) {
+            return prev.map((p, i) => ({ ...p, ...rows[i] }));
+          }
+        }
+        return rows;
+      });
       setLoading(false);
+      initialLoadRef.current = false;
     };
-    load();
+    const scheduleReload = () => {
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = setTimeout(() => {
+        if (!cancelled) void load();
+      }, 400);
+    };
+    void load();
     // Re-load whenever bed_management OR patients change for this facility
     // so the Floor Overview tally never drifts from the bed KPI.
     const ch = supabase
@@ -528,16 +579,26 @@ function Dashboard() {
           table: "bed_management",
           filter: `facility_name=eq.${facility}`,
         },
-        () => load(),
+        () => scheduleReload(),
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
-        () => load(),
+        // Only reload census on admit/discharge/delete — vitals UPDATEs are
+        // patched in place by the patients-live channel, so refetching here
+        // just causes the table to remount and flicker.
+        { event: "INSERT", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
+        () => scheduleReload(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
+        () => scheduleReload(),
       )
       .subscribe();
     return () => {
       cancelled = true;
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      clearTimeout(loadingFailsafe);
       supabase.removeChannel(ch);
     };
   }, [ready, facility]);
@@ -707,6 +768,7 @@ function Dashboard() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-6">
+        <ManualModeBanner />
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <StatCard
             icon={Users}
