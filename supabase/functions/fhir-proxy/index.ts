@@ -41,6 +41,24 @@ const corsHeaders = {
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
+// HAPI FHIR throws HTTP 409 "version constraint failure" when two concurrent
+// transactions touch the same resource. Retry transparently with jittered
+// backoff so the live 400ms sync loop self-heals instead of surfacing 502s.
+const MAX_RETRIES = 4;
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  let lastRes: Response | null = null;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const res = await fetch(url, init);
+    if (res.status !== 409) return res;
+    lastRes = res;
+    // drain body so the connection can be reused
+    try { await res.clone().text(); } catch { /* ignore */ }
+    const delay = 80 * Math.pow(2, attempt) + Math.floor(Math.random() * 120);
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  return lastRes!;
+}
+
 // Strip anything that could leak or override the secure credentials we attach
 // server-side. Clients never get to set Authorization / Apikey.
 const FORBIDDEN_FORWARD_HEADERS = new Set([
@@ -93,7 +111,7 @@ serve(async (req) => {
       if (!fhirBundle || fhirBundle.resourceType !== "Bundle") {
         throw new Error("Payload.bundle must be a FHIR Bundle resource");
       }
-      const upstream = await fetch(FHIR_SERVER_URL, {
+      const upstream = await fetchWithRetry(FHIR_SERVER_URL, {
         method: "POST",
         headers: withSecureHeaders(),
         body: JSON.stringify(fhirBundle),
@@ -125,7 +143,7 @@ serve(async (req) => {
     const upstreamUrl = buildUpstreamUrl(payload?.path, payload?.query);
     const hasBody = method !== "GET" && method !== "DELETE" && payload?.body !== undefined;
 
-    const upstream = await fetch(upstreamUrl, {
+    const upstream = await fetchWithRetry(upstreamUrl, {
       method,
       headers: withSecureHeaders(payload?.headers ?? {}),
       body: hasBody ? JSON.stringify(payload.body) : undefined,
