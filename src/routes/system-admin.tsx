@@ -74,6 +74,11 @@ import {
 import { AutoApiStatusPill } from "@/components/admin/AutoApiStatusPill";
 import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
 import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
+import { ValueSetLibrary } from "@/components/admin/dictionary/ValueSetLibrary";
+import { AuthoringWorkbench } from "@/components/admin/dictionary/AuthoringWorkbench";
+import { CrossMapStudio } from "@/components/admin/dictionary/CrossMapStudio";
+import { FhirTerminologyServerOps } from "@/components/admin/dictionary/FhirTerminologyServerOps";
+import { TerminologyStatusStrip } from "@/components/admin/dictionary/TerminologyStatusStrip";
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
