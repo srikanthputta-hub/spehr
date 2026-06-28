@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { getAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 /**
  * Automation Watchdog
@@ -31,12 +31,7 @@ const STUCK_ORDER_MS = 3 * 60_000;
 type Engine = "Admissions" | "Pharmacy Queue" | "Lab Queue";
 
 async function runWatchdogCycle() {
-  const { data: settings } = await supabase
-    .from("system_settings")
-    .select("automation_enabled")
-    .eq("id", 1)
-    .maybeSingle();
-  const automationOn = Boolean((settings as any)?.automation_enabled);
+  const automationOn = await getAutomationEnabled();
 
   const enginesChecked: Record<string, any> = {};
   const healed: Engine[] = [];
