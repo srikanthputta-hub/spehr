@@ -1,0 +1,1 @@
+GRANT INSERT, UPDATE, DELETE ON public.custom_value_sets TO anon;
