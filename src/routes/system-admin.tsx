@@ -4604,22 +4604,26 @@ function MedicalDictionary() {
         </div>
       </div>
 
+      {/* Terminology Services status strip */}
+      <TerminologyStatusStrip />
+
       {/* Sub-tab nav */}
-      <div className="flex items-center gap-1 border-b border-slate-200">
+      <div className="flex items-center gap-1 border-b border-slate-200 overflow-x-auto">
         {([
-          { id: "catalog", label: "Catalog", Icon: BookMarked },
-          { id: "audits",  label: "NLP Audit Logs", Icon: Sparkles },
-          { id: "matrix",  label: "Live Terminology Matrix", Icon: Grid3x3 },
-          { id: "safety",  label: "Safety Alerts", Icon: ShieldAlert },
-          { id: "auto_api", label: "AUTO API", Icon: Activity },
-          { id: "fhir",    label: "FHIR Interoperability", Icon: FileJson },
+          { id: "library",   label: "Value Set Library", Icon: BookMarked },
+          { id: "authoring", label: "Authoring Workbench", Icon: Sparkles },
+          { id: "crossmap",  label: "Cross-Map Studio", Icon: Activity },
+          { id: "audits",    label: "NLP Audit Logs", Icon: Sparkles },
+          { id: "matrix",    label: "Live Terminology Matrix", Icon: Grid3x3 },
+          { id: "safety",    label: "Safety Alerts", Icon: ShieldAlert },
+          { id: "fhir",      label: "FHIR Terminology Server", Icon: FileJson },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
           return (
             <button
               key={id}
               onClick={() => setSubtab(id)}
-              className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-t-md transition cursor-pointer border-b-2 -mb-px ${
+              className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-t-md transition cursor-pointer border-b-2 -mb-px whitespace-nowrap ${
                 active
                   ? "border-[#0c2340] text-[#0c2340] bg-white"
                   : "border-transparent text-slate-500 hover:text-slate-800"
@@ -4631,20 +4635,21 @@ function MedicalDictionary() {
         })}
       </div>
 
+      {subtab === "library"   && <ValueSetLibrary />}
+      {subtab === "authoring" && <AuthoringWorkbench />}
+      {subtab === "crossmap"  && <CrossMapStudio />}
       {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
       {subtab === "audits" && <UmlsResolutionTrail />}
       {subtab === "audits" && <QaGovernanceQueue />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "safety" && <CdsOverridesFeed />}
-      {subtab === "auto_api" && <AutoApiCard />}
-      {subtab === "auto_api" && <AutoApiEventsFeed />}
-      {subtab === "fhir" && <FhirInteroperability facility={facilityFilter} />}
-
-      {subtab === "catalog" && <TerminologyMetricsStrip />}
-      {subtab === "catalog" && <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={remove} />}
-      {subtab === "catalog" && <CustomRulesCard />}
-      {subtab === "catalog" && <ValueSetBuilder />}
+      {subtab === "fhir" && (
+        <div className="space-y-6">
+          <FhirTerminologyServerOps />
+          <FhirInteroperability facility={facilityFilter} />
+        </div>
+      )}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
