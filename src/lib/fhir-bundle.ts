@@ -288,6 +288,7 @@ export const stableIds = {
   composition: (mrn: string) => `summary-${mrn}`,
   appointment: (mrn: string) => `appt-followup-${mrn}`,
   docRef: (mrn: string) => `docref-${mrn}`,
+  careTeam: (mrn: string) => `careteam-${mrn}`,
 };
 
 /**
