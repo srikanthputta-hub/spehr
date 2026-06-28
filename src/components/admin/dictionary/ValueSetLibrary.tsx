@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 type ValueSet = {
@@ -46,6 +47,8 @@ export function ValueSetLibrary() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ValueSet | null>(null);
+  const [publishTarget, setPublishTarget] = useState<ValueSet | null>(null);
+  const [deprecateTarget, setDeprecateTarget] = useState<ValueSet | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -80,11 +83,11 @@ export function ValueSetLibrary() {
   const transitionStatus = async (
     row: ValueSet,
     next: ValueSet["status"],
-    confirmMsg: string,
+    confirmMsg: string | null,
     successMsg: string,
     extra: Record<string, unknown> = {},
   ) => {
-    if (!confirm(confirmMsg)) return;
+    if (confirmMsg && !confirm(confirmMsg)) return;
     const history = Array.isArray((row as any).change_history) ? (row as any).change_history : [];
     const { error } = await supabase
       .from("custom_value_sets")
@@ -176,14 +179,8 @@ export function ValueSetLibrary() {
                       row={r}
                       onSubmit={() => transitionStatus(r, "review",
                         `Submit "${r.name}" for review?`, "Submitted for review")}
-                      onApprove={() => transitionStatus(r, "published",
-                        `Approve & publish "${r.name}"?`, "Published",
-                        { experimental: false })}
-                      onRequestChanges={() => transitionStatus(r, "draft",
-                        `Send "${r.name}" back to draft?`, "Returned to draft")}
-                      onDeprecate={() => transitionStatus(r, "deprecated",
-                        `Deprecate "${r.name}"? It will be marked inactive in the registry.`,
-                        "Deprecated")}
+                      onOpenPublish={() => setPublishTarget(r)}
+                      onOpenDeprecate={() => setDeprecateTarget(r)}
                     />
                   </td>
                   <td className="px-3 py-2 text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
@@ -204,25 +201,66 @@ export function ValueSetLibrary() {
         onClose={() => setSelected(null)}
         onSubmitForReview={(r) => transitionStatus(r, "review",
           `Submit "${r.name}" for review?`, "Submitted for review")}
-        onApprove={(r) => transitionStatus(r, "published",
-          `Approve & publish "${r.name}"?`, "Published", { experimental: false })}
+        onApprove={(r) => setPublishTarget(r)}
         onRequestChanges={(r) => transitionStatus(r, "draft",
           `Send "${r.name}" back to draft?`, "Returned to draft")}
+        onDeprecate={(r) => setDeprecateTarget(r)}
       />
+
+      <Dialog open={!!publishTarget} onOpenChange={(o) => !o && setPublishTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Approve & Publish</DialogTitle>
+            <DialogDescription>
+              This will publish <span className="font-semibold">{publishTarget?.name}</span> and make it available for clinical use. Confirm?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={async () => {
+              const t = publishTarget; if (!t) return;
+              setPublishTarget(null);
+              await transitionStatus(t, "draft", null, "Returned to draft for changes");
+            }}>Request Changes</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
+              const t = publishTarget; if (!t) return;
+              setPublishTarget(null);
+              await transitionStatus(t, "published", null, "Published successfully", { experimental: false });
+            }}>Approve & Publish</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deprecateTarget} onOpenChange={(o) => !o && setDeprecateTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deprecate this value set?</DialogTitle>
+            <DialogDescription>
+              <span className="font-semibold">{deprecateTarget?.name}</span> will be marked inactive in the registry. Existing references remain but new bindings are discouraged.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeprecateTarget(null)}>Cancel</Button>
+            <Button className="bg-rose-600 hover:bg-rose-700 text-white" onClick={async () => {
+              const t = deprecateTarget; if (!t) return;
+              setDeprecateTarget(null);
+              await transitionStatus(t, "deprecated", null, "Deprecated");
+            }}>Confirm Deprecate</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function StatusBadge({
-  row, onSubmit, onApprove, onRequestChanges, onDeprecate,
+  row, onSubmit, onOpenPublish, onOpenDeprecate,
 }: {
   row: ValueSet;
   onSubmit: () => void;
-  onApprove: () => void;
-  onRequestChanges: () => void;
-  onDeprecate: () => void;
+  onOpenPublish: () => void;
+  onOpenDeprecate: () => void;
 }) {
-  const cls = `inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize ${STATUS_STYLES[row.status] ?? ""}`;
+  const cls = `inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize cursor-pointer ${STATUS_STYLES[row.status] ?? ""}`;
   if (row.status === "draft") {
     return (
       <button className={`${cls} hover:ring-2 hover:ring-slate-300`}
@@ -234,19 +272,17 @@ function StatusBadge({
   }
   if (row.status === "review") {
     return (
-      <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-        <span className={cls}>In Review</span>
-        <button className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-          onClick={onApprove}>Approve</button>
-        <button className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700"
-          onClick={onRequestChanges}>Changes</button>
-      </span>
+      <button className={`${cls} hover:ring-2 hover:ring-amber-300`}
+        onClick={(e) => { e.stopPropagation(); onOpenPublish(); }}
+        title="Approve & publish or request changes">
+        In Review ▸
+      </button>
     );
   }
   if (row.status === "published") {
     return (
       <button className={`${cls} hover:ring-2 hover:ring-rose-300`}
-        onClick={(e) => { e.stopPropagation(); onDeprecate(); }}
+        onClick={(e) => { e.stopPropagation(); onOpenDeprecate(); }}
         title="Deprecate this value set">
         published ▸
       </button>
@@ -318,13 +354,14 @@ function slug(s: string) {
 }
 
 function ValueSetDrawer({
-  vs, onClose, onSubmitForReview, onApprove, onRequestChanges,
+  vs, onClose, onSubmitForReview, onApprove, onRequestChanges, onDeprecate,
 }: {
   vs: ValueSet | null;
   onClose: () => void;
   onSubmitForReview: (r: ValueSet) => void;
   onApprove: (r: ValueSet) => void;
   onRequestChanges: (r: ValueSet) => void;
+  onDeprecate: (r: ValueSet) => void;
 }) {
   const [expanding, setExpanding] = useState(false);
   const [expansion, setExpansion] = useState<any>(null);
@@ -477,6 +514,13 @@ function ValueSetDrawer({
                 <button className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700"
                   onClick={() => onRequestChanges(vs)}>Request Changes</button>
               </span>
+            ) : vs.status === "published" ? (
+              <button
+                className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize cursor-pointer hover:ring-2 hover:ring-rose-300 ${STATUS_STYLES[vs.status]}`}
+                onClick={() => onDeprecate(vs)}
+                title="Deprecate this value set">
+                published ▸
+              </button>
             ) : (
               <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${STATUS_STYLES[vs.status] ?? ""}`}>
                 {vs.status}
