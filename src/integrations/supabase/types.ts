@@ -168,6 +168,33 @@ export type Database = {
           },
         ]
       }
+      api_health_pings: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          id: string
+          latency_ms: number | null
+          service: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          latency_ms?: number | null
+          service: string
+          status: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          latency_ms?: number | null
+          service?: string
+          status?: string
+        }
+        Relationships: []
+      }
       auto_api_events: {
         Row: {
           actor: string
@@ -283,29 +310,41 @@ export type Database = {
         Row: {
           actions_taken: string | null
           checker_timestamp: string | null
+          created_at: string | null
+          engine: string | null
           engines_checked: Json
           global_control_status: string | null
           healed_engines: string[] | null
           id: string
           issues_detected: boolean | null
+          payload: Json | null
+          status: string | null
         }
         Insert: {
           actions_taken?: string | null
           checker_timestamp?: string | null
+          created_at?: string | null
+          engine?: string | null
           engines_checked: Json
           global_control_status?: string | null
           healed_engines?: string[] | null
           id?: string
           issues_detected?: boolean | null
+          payload?: Json | null
+          status?: string | null
         }
         Update: {
           actions_taken?: string | null
           checker_timestamp?: string | null
+          created_at?: string | null
+          engine?: string | null
           engines_checked?: Json
           global_control_status?: string | null
           healed_engines?: string[] | null
           id?: string
           issues_detected?: boolean | null
+          payload?: Json | null
+          status?: string | null
         }
         Relationships: []
       }
@@ -438,6 +477,42 @@ export type Database = {
           umls_cui?: string | null
           updated_at?: string
           vocabulary?: string
+        }
+        Relationships: []
+      }
+      clinical_alerts: {
+        Row: {
+          acknowledged: boolean | null
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          created_at: string
+          detail: Json | null
+          id: string
+          mrn: string
+          severity: string
+          type: string
+        }
+        Insert: {
+          acknowledged?: boolean | null
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          created_at?: string
+          detail?: Json | null
+          id?: string
+          mrn: string
+          severity: string
+          type: string
+        }
+        Update: {
+          acknowledged?: boolean | null
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          created_at?: string
+          detail?: Json | null
+          id?: string
+          mrn?: string
+          severity?: string
+          type?: string
         }
         Relationships: []
       }
@@ -606,6 +681,7 @@ export type Database = {
           recorded_by: string | null
           snomed_code: string | null
           snomed_display: string | null
+          term_status: string | null
           umls_cui: string | null
           updated_at: string
           verification_status: string | null
@@ -627,6 +703,7 @@ export type Database = {
           recorded_by?: string | null
           snomed_code?: string | null
           snomed_display?: string | null
+          term_status?: string | null
           umls_cui?: string | null
           updated_at?: string
           verification_status?: string | null
@@ -648,6 +725,7 @@ export type Database = {
           recorded_by?: string | null
           snomed_code?: string | null
           snomed_display?: string | null
+          term_status?: string | null
           umls_cui?: string | null
           updated_at?: string
           verification_status?: string | null
@@ -1225,6 +1303,7 @@ export type Database = {
           resulted_at: string | null
           results_data: Json | null
           status: string | null
+          term_status: string | null
           test_type: string
           umls_cui: string | null
           updated_at: string
@@ -1249,6 +1328,7 @@ export type Database = {
           resulted_at?: string | null
           results_data?: Json | null
           status?: string | null
+          term_status?: string | null
           test_type: string
           umls_cui?: string | null
           updated_at?: string
@@ -1273,6 +1353,7 @@ export type Database = {
           resulted_at?: string | null
           results_data?: Json | null
           status?: string | null
+          term_status?: string | null
           test_type?: string
           umls_cui?: string | null
           updated_at?: string
@@ -1445,6 +1526,7 @@ export type Database = {
           rxnorm_display: string | null
           rxnorm_tty: string | null
           status: string | null
+          term_status: string | null
           umls_cui: string | null
           updated_at: string
         }
@@ -1478,6 +1560,7 @@ export type Database = {
           rxnorm_display?: string | null
           rxnorm_tty?: string | null
           status?: string | null
+          term_status?: string | null
           umls_cui?: string | null
           updated_at?: string
         }
@@ -1511,6 +1594,7 @@ export type Database = {
           rxnorm_display?: string | null
           rxnorm_tty?: string | null
           status?: string | null
+          term_status?: string | null
           umls_cui?: string | null
           updated_at?: string
         }
@@ -1836,6 +1920,57 @@ export type Database = {
           },
         ]
       }
+      patient_assignments: {
+        Row: {
+          assigned_at: string
+          facility: string | null
+          id: string
+          mrn: string
+          nurse_id: string | null
+          nurse_name: string | null
+          physician_id: string | null
+          physician_name: string | null
+          released_at: string | null
+        }
+        Insert: {
+          assigned_at?: string
+          facility?: string | null
+          id?: string
+          mrn: string
+          nurse_id?: string | null
+          nurse_name?: string | null
+          physician_id?: string | null
+          physician_name?: string | null
+          released_at?: string | null
+        }
+        Update: {
+          assigned_at?: string
+          facility?: string | null
+          id?: string
+          mrn?: string
+          nurse_id?: string | null
+          nurse_name?: string | null
+          physician_id?: string | null
+          physician_name?: string | null
+          released_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "patient_assignments_nurse_id_fkey"
+            columns: ["nurse_id"]
+            isOneToOne: false
+            referencedRelation: "staff_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "patient_assignments_physician_id_fkey"
+            columns: ["physician_id"]
+            isOneToOne: false
+            referencedRelation: "staff_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       patient_notes: {
         Row: {
           assessment: string | null
@@ -1957,6 +2092,7 @@ export type Database = {
           current_medications: string | null
           diagnosis: string | null
           discharge_summary: string | null
+          discharge_summary_generated: boolean | null
           discharge_time: string | null
           dob: string
           emergency_contact_name: string | null
@@ -1999,6 +2135,7 @@ export type Database = {
           spo2: number | null
           standardized_output: Json | null
           status: string
+          target_discharge_at: string | null
           temp: number | null
           unread_labs_alert: boolean | null
           updated_at: string
@@ -2021,6 +2158,7 @@ export type Database = {
           current_medications?: string | null
           diagnosis?: string | null
           discharge_summary?: string | null
+          discharge_summary_generated?: boolean | null
           discharge_time?: string | null
           dob?: string
           emergency_contact_name?: string | null
@@ -2063,6 +2201,7 @@ export type Database = {
           spo2?: number | null
           standardized_output?: Json | null
           status?: string
+          target_discharge_at?: string | null
           temp?: number | null
           unread_labs_alert?: boolean | null
           updated_at?: string
@@ -2085,6 +2224,7 @@ export type Database = {
           current_medications?: string | null
           diagnosis?: string | null
           discharge_summary?: string | null
+          discharge_summary_generated?: boolean | null
           discharge_time?: string | null
           dob?: string
           emergency_contact_name?: string | null
@@ -2127,6 +2267,7 @@ export type Database = {
           spo2?: number | null
           standardized_output?: Json | null
           status?: string
+          target_discharge_at?: string | null
           temp?: number | null
           unread_labs_alert?: boolean | null
           updated_at?: string
@@ -2349,6 +2490,51 @@ export type Database = {
         }
         Relationships: []
       }
+      safety_alerts: {
+        Row: {
+          alert_type: string
+          allergy_rxcui: string | null
+          allergy_substance: string | null
+          created_at: string
+          detail: Json | null
+          drug_name: string | null
+          drug_rxcui: string | null
+          id: string
+          mrn: string
+          resolved_at: string | null
+          severity: string
+          status: string
+        }
+        Insert: {
+          alert_type: string
+          allergy_rxcui?: string | null
+          allergy_substance?: string | null
+          created_at?: string
+          detail?: Json | null
+          drug_name?: string | null
+          drug_rxcui?: string | null
+          id?: string
+          mrn: string
+          resolved_at?: string | null
+          severity?: string
+          status?: string
+        }
+        Update: {
+          alert_type?: string
+          allergy_rxcui?: string | null
+          allergy_substance?: string | null
+          created_at?: string
+          detail?: Json | null
+          drug_name?: string | null
+          drug_rxcui?: string | null
+          id?: string
+          mrn?: string
+          resolved_at?: string | null
+          severity?: string
+          status?: string
+        }
+        Relationships: []
+      }
       shift_notes: {
         Row: {
           author_id: string | null
@@ -2415,6 +2601,42 @@ export type Database = {
           complaint_text?: string
           id?: number
           last_used_at?: string | null
+        }
+        Relationships: []
+      }
+      staff_roster: {
+        Row: {
+          active: boolean
+          assigned_patient_count: number
+          created_at: string
+          facility: string
+          id: string
+          name: string
+          role: string
+          shift_end: string | null
+          shift_start: string | null
+        }
+        Insert: {
+          active?: boolean
+          assigned_patient_count?: number
+          created_at?: string
+          facility: string
+          id?: string
+          name: string
+          role: string
+          shift_end?: string | null
+          shift_start?: string | null
+        }
+        Update: {
+          active?: boolean
+          assigned_patient_count?: number
+          created_at?: string
+          facility?: string
+          id?: string
+          name?: string
+          role?: string
+          shift_end?: string | null
+          shift_start?: string | null
         }
         Relationships: []
       }
@@ -2598,6 +2820,45 @@ export type Database = {
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      vitals: {
+        Row: {
+          bp_diastolic: number | null
+          bp_systolic: number | null
+          hr: number | null
+          id: string
+          mrn: string
+          recorded_at: string
+          rr: number | null
+          source: string | null
+          spo2: number | null
+          temp_c: number | null
+        }
+        Insert: {
+          bp_diastolic?: number | null
+          bp_systolic?: number | null
+          hr?: number | null
+          id?: string
+          mrn: string
+          recorded_at?: string
+          rr?: number | null
+          source?: string | null
+          spo2?: number | null
+          temp_c?: number | null
+        }
+        Update: {
+          bp_diastolic?: number | null
+          bp_systolic?: number | null
+          hr?: number | null
+          id?: string
+          mrn?: string
+          recorded_at?: string
+          rr?: number | null
+          source?: string | null
+          spo2?: number | null
+          temp_c?: number | null
         }
         Relationships: []
       }
