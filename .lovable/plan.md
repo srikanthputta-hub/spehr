@@ -1,55 +1,56 @@
+# Rebalance Patient Flow → 1,000 admits / 24 h
 
-## Goal
-Replace the Medical Dictionary's current 6 tabs with a 7-tab Clinical Terminologist Workbench backed by live UMLS + a new FHIR terminology Edge Function. Other Command Center tabs (UI & Feature Controls, Users, Audit Log, Network Analytics) and the Medical Dictionary's NLP Audit Logs / Live Terminology Matrix / Safety Alerts tabs are untouched.
+## The math
 
-## New tab structure
-```
-Value Set Library | Authoring Workbench | Cross-Map Studio |
-NLP Audit Logs | Live Terminology Matrix | Safety Alerts | FHIR Terminology Server
-```
+- Target: **1,000 admissions / 24 h** network-wide
+- Rate: 1000 / 1440 min = **0.694 admits per minute** ≈ one every **86 seconds**
+- Per facility (5 sites): **200 / day** ≈ 8.3 / hr
+- Bed capacity: 20 beds × 5 facilities = **100 beds**
+- Required average length of stay to hold steady: `100 beds × 24 h ÷ 1000 = 2.4 h` per patient
+- Discharge rate **must equal admit rate** = 1,000 / 24 h, otherwise beds saturate or empty
 
-## Build steps
+Cron granularity is 1 minute, so we drive the loop every 5 min and admit a small batch:
+- 288 ticks/day × **~3.47 admits/tick** = 1,000/day
+- Implement as `3 + (random() < 0.47 ? 1 : 0)` → averages 3.47
 
-### 1. Database migration
-Extend `custom_value_sets` with: `oid`, `type` (extensional|intensional), `intensional_rule jsonb`, `clinical_application`, `fhir_url`, `steward`, `peer_reviewer`, `version`, `change_history jsonb`. Keep existing `codes jsonb`, `status`, `vocabulary`.
+## Current state (measured)
 
-### 2. UMLS-resolved seed script
-One-shot Node script `scripts/seed-value-sets.ts` (run via `bun`) that:
-- For each of the 12 spec'd value sets, calls the existing `umls-proxy` edge function for every code to fetch CUI + canonical display.
-- Upserts the resolved rows into `custom_value_sets` with full FHIR OID, type, intensional rule (for the 5 intensional sets), and metadata.
-- Run once at build time; codes get stored permanently in `codes JSONB`.
+| Thing | Now | Result |
+|---|---|---|
+| `auto_admit_ghost_patient` loop | 4 patients/call | up to 1,152/day |
+| `ghost_triage_job` cron | every 5 min | 288 ticks/day |
+| `auto_discharge_ghost_patients` loop | up to 8 (only beyond top-5 recent/facility) | starves discharges |
+| `ghost_discharge_job` cron | every 10 min | 144 ticks/day |
+| Client watchdog `GHOST_ADMIT_INTERVAL_MS` | 90 s | extra +960/day fighting cron |
+| `set_target_discharge_at` interval | 5–21 min | LOS way too short |
 
-### 3. New `fhir-terminology` Edge Function
-`supabase/functions/fhir-terminology/index.ts` exposes 3 actions returning real FHIR R4 `Parameters` resources:
-- `$lookup` (CodeSystem) — proxies to UMLS for code details.
-- `$expand` (ValueSet) — reads `custom_value_sets`, for intensional rules calls UMLS descendants; returns expansion contains[].
-- `$translate` (ConceptMap) — calls `umls-proxy` crosswalk action, returns match[] with equivalence.
-Wired up via `verify_jwt = false` in config.toml.
+Net: admits and discharges are out of sync, and the client tick double-drives admissions.
 
-### 4. Header status strip
-Replace the dashed Terminology Intelligence cards with a thin strip:
-`UMLS API ● Live <ms> | Value Sets: X published · Y in review · Z draft | Cache hit rate | Last resolved <s>s ago`. Stats pulled from `terminology_audit` + `custom_value_sets`.
+## Changes
 
-### 5. Tab 1 — Value Set Library (`src/components/admin/dictionary/ValueSetLibrary.tsx`)
-Registry table + right-side `Sheet` drawer with 4 sub-tabs (Concept Members, Intensional Rule Editor, Metadata & Governance, FHIR Preview). Drawer's `$expand` button calls the new edge fn.
+### 1. SQL migration — three routines
 
-### 6. Tab 2 — Authoring Workbench (`AuthoringWorkbench.tsx`)
-Split panel: left side debounced UMLS concept search + hierarchy browser (calls `umls-proxy` for parents/descendants); right side active value-set editor with included/excluded lists, editorial notes, validation summary. Save → upsert to `custom_value_sets` as Draft.
+- **`auto_admit_ghost_patient()`** — replace `FOR i IN 1..4` with `FOR i IN 1..(3 + (random() < 0.47)::int)` so each 5-min tick averages 3.47 admits → 1,000/day.
+- **`auto_discharge_ghost_patients()`** — same batch size logic (`3 + (random() < 0.47)::int`); drop the `recency_rank > 5` gate; pick rows where `target_discharge_at <= now()` first, then fall back to oldest admissions. Keeps discharges paced with admits.
+- **`set_target_discharge_at()`** — change interval to `(120 + floor(random() * 61))` minutes (range 120–180, mean ≈ 150 min ≈ 2.5 h) so natural LOS matches the bed math.
 
-### 7. Tab 3 — Cross-Map Studio (`CrossMapStudio.tsx`)
-Single-code translator + batch crosswalk (textarea/CSV) + pre-populated 10-row reference table + `ConceptMap` JSON preview. All translations go through the new `$translate` action.
+### 2. Cron rebalance
 
-### 8. Tab 7 — FHIR Terminology Server (renamed from FHIR Interoperability)
-Section A: 3 interactive operation cards ($lookup, $expand, $translate) hitting the new edge function with real responses displayed.
-Section B: existing FHIR encounter bundle table + sync status preserved underneath.
+- Keep `ghost_triage_job` at `*/5 * * * *`.
+- Move `ghost_discharge_job` from `*/10` to **`*/5 * * * *`** so admit and discharge ticks are 1:1.
 
-### 9. Wire tabs into `system-admin.tsx`
-Update Tabs list and remove "Catalog" + "AUTO API" tabs (AUTO API stats fold into the header strip).
+### 3. Client watchdog (`src/hooks/useAutomationWatchdog.ts`)
 
-## Files
-- New: `supabase/functions/fhir-terminology/index.ts`, `scripts/seed-value-sets.ts`, `src/components/admin/dictionary/{ValueSetLibrary,AuthoringWorkbench,CrossMapStudio,FhirTerminologyServer,TerminologyStatusStrip}.tsx`, drawer sub-components.
-- Edit: `src/routes/system-admin.tsx` (tabs only), `supabase/config.toml` (function decl).
-- Migration: extend `custom_value_sets`.
+- Raise `GHOST_ADMIT_INTERVAL_MS` from `90_000` to `600_000` (10 min). Cron becomes the primary driver; the client tick remains only as a recovery beat.
+- Leave `ADMISSION_IDLE_MS` (6 min) recovery trigger and `forceSeedGhostPatients` (5-patient empty-census seed) alone.
 
-## Out of scope
-NLP Audit Logs, Live Terminology Matrix, Safety Alerts, all other Command Center tabs, the existing FHIR encounter bundle table (preserved as-is under Tab 7 Section B).
+### 4. No UI changes required
+
+Dashboards already render live counts; once the cadence shifts the per-day total will settle at ~1,000.
+
+## Expected steady state
+
+- ~1,000 admits + ~1,000 discharges per 24 h
+- ~100 beds occupied at any time, evenly spread across the 5 facilities
+- Mean LOS ≈ 2.5 h
+- Net duplicate-admission risk unchanged (same `ON CONFLICT (mrn) DO NOTHING` guard)
