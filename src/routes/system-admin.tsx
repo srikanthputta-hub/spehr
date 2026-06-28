@@ -4582,15 +4582,15 @@ function MedicalDictionary() {
             VSAC-aligned terminology library used across the EHR. Browse SNOMED CT, ICD-10,
             LOINC, RxNorm, and curated value sets; extend with site-specific codes.
           </p>
-          {subtab === "catalog" && (
+          {subtab === "library" && (
             <p className="text-[11px] mt-1 text-slate-500">
-              Showing only codes referenced by the latest {usageMeta.count} admission{usageMeta.count === 1 ? "" : "s"}
+              VSAC-aligned value set repository · {usageMeta.count} admissions referenced
               {facilityFilter !== "all" ? ` at ${facilityFilter}` : " across the network"}.
             </p>
           )}
         </div>
         <div className="flex items-center gap-2">
-          {subtab === "catalog" && (
+          {subtab === "library" && (
             <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
               <Download className="h-4 w-4" /> Export FHIR
             </Button>
