@@ -4180,6 +4180,24 @@ function TaxonomyTree({
 
 function MedicalDictionary() {
   const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "fhir">("library");
+
+  // Cross-tab navigation: Live Terminology Matrix pills can request a tab switch.
+  useEffect(() => {
+    const onSwitch = (e: Event) => {
+      const d = (e as CustomEvent).detail ?? {};
+      if (d.tab) setSubtab(d.tab);
+      // Re-dispatch the prefill event on the next tick so the freshly-mounted
+      // target component receives it after its useEffect listener attaches.
+      if (d.prefillEvent && d.prefillDetail) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent(d.prefillEvent, { detail: d.prefillDetail }));
+        }, 50);
+      }
+    };
+    window.addEventListener("spehr:dict-switch-tab", onSwitch as any);
+    return () => window.removeEventListener("spehr:dict-switch-tab", onSwitch as any);
+  }, []);
+
   const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
