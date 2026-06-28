@@ -217,14 +217,14 @@ async function opTranslate(p: {
   const srcSab = toSab(p.system);
   const tgtSab = toSab(p.targetSystem);
 
-  // 1) Resolve source code → CUI directly via /content/source/{sab}/{code}
+  // 1) Resolve source code → CUI via /content/source/{sab}/{code}/atoms
   let cui = "";
   try {
-    const srcAtom = await utsFetch(
-      `/content/current/source/${encodeURIComponent(srcSab)}/${encodeURIComponent(p.code)}`,
-      {},
+    const atoms = await utsFetch(
+      `/content/current/source/${encodeURIComponent(srcSab)}/${encodeURIComponent(p.code)}/atoms`,
+      { language: "ENG", pageSize: "1" },
     );
-    const conceptUri: string = srcAtom?.result?.concept ?? "";
+    const conceptUri: string = atoms?.result?.[0]?.concept ?? "";
     cui = conceptUri.split("/").pop() ?? "";
   } catch (_) { /* fall through */ }
   if (!cui) {
