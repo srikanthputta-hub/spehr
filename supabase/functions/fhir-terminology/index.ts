@@ -142,12 +142,18 @@ async function opLookup(p: { system: string; code: string }) {
 // ---- $expand ----------------------------------------------------------------
 async function opExpand(p: { valueSet: string; filter?: string; count?: number }) {
   if (!supabase) throw new Error("Supabase service role not configured");
-  const { data: vs, error } = await supabase
-    .from("custom_value_sets")
-    .select("id, name, vocabulary, type, codes, intensional_rule, fhir_url, oid")
-    .or(`name.eq.${p.valueSet},id.eq.${p.valueSet},fhir_url.eq.${p.valueSet}`)
-    .maybeSingle();
-  if (error || !vs) throw new Error(`ValueSet not found: ${p.valueSet}`);
+  // Try name first, then id, then fhir_url — avoids .or() escaping issues with spaces.
+  const cols = "id, name, vocabulary, type, codes, intensional_rule, fhir_url, oid";
+  let vs: any = null;
+  for (const col of ["name", "id", "fhir_url"] as const) {
+    const { data } = await supabase
+      .from("custom_value_sets")
+      .select(cols)
+      .eq(col, p.valueSet)
+      .maybeSingle();
+    if (data) { vs = data; break; }
+  }
+  if (!vs) throw new Error(`ValueSet not found: ${p.valueSet}`);
 
   let contains: Array<{ system: string; code: string; display: string }> = [];
   const baseCodes = Array.isArray(vs.codes) ? vs.codes : [];
