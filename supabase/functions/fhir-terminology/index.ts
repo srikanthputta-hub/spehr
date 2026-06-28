@@ -80,25 +80,42 @@ async function opLookup(p: { system: string; code: string }) {
   const sab = toSab(p.system);
   let display = p.code;
   let parent: string | undefined;
+  let active = true;
+  let cui = "";
 
   if (sab === "RXNORM") {
     const detail = await rxnavFetch(`/rxcui/${encodeURIComponent(p.code)}/properties.json`);
     display = detail?.properties?.name ?? p.code;
   } else {
-    // Resolve display + CUI via source/{sab}/{code}/atoms
-    let cui = "";
+    // Validate code → look up the CUI via /search (exact match by sourceUi)
     try {
-      const atoms = await utsFetch(
-        `/content/current/source/${encodeURIComponent(sab)}/${encodeURIComponent(p.code)}/atoms`,
-        { language: "ENG", pageSize: "5" },
-      );
-      const list = atoms?.result ?? [];
-      // Prefer PT termType, else first
-      const pref = list.find((a: any) => a.termType === "PT") ?? list[0];
-      if (pref?.name) display = pref.name;
-      const conceptUri: string = pref?.concept ?? "";
-      cui = conceptUri.split("/").pop() ?? "";
+      const validate = await utsFetch(`/search/current`, {
+        string: p.code,
+        sabs: sab,
+        inputType: "sourceUi",
+        searchType: "exact",
+        returnIdType: "concept",
+        pageSize: "1",
+      });
+      const first = validate?.result?.results?.[0];
+      if (first?.ui && first.ui !== "NONE") {
+        cui = first.ui;
+        if (first.name) display = first.name;
+      }
     } catch (_) { /* best-effort */ }
+
+    // Resolve display + parent via the CUI concept endpoint
+    if (cui) {
+      try {
+        const concept = await utsFetch(`/content/current/CUI/${cui}`, {});
+        const name = concept?.result?.name;
+        if (name) display = name;
+        if (concept?.result?.status && String(concept.result.status).toLowerCase() !== "r") {
+          // R = reviewed/active in UMLS; anything else flagged as inactive
+          active = false;
+        }
+      } catch (_) { /* best-effort */ }
+    }
 
     if (cui && sab === "SNOMEDCT_US") {
       try {
@@ -126,8 +143,12 @@ async function opLookup(p: { system: string; code: string }) {
         : []),
       { name: "property", part: [
         { name: "code", valueCode: "inactive" },
-        { name: "value", valueBoolean: false },
+        { name: "value", valueBoolean: !active },
       ] },
+      ...(cui ? [{ name: "property", part: [
+        { name: "code", valueCode: "cui" },
+        { name: "value", valueCode: cui },
+      ] }] : []),
     ],
   };
 }
@@ -210,43 +231,31 @@ async function opTranslate(p: {
   const srcSab = toSab(p.system);
   const tgtSab = toSab(p.targetSystem);
 
-  // 1) Resolve source code → CUI via /content/source/{sab}/{code}/atoms
-  let cui = "";
+  // Use the dedicated UMLS crosswalk endpoint:
+  // GET /crosswalk/current/source/{fromSab}/{fromCode}?targetSource={toSab}
+  let xwalk: any[] = [];
   try {
-    const atoms = await utsFetch(
-      `/content/current/source/${encodeURIComponent(srcSab)}/${encodeURIComponent(p.code)}/atoms`,
-      { language: "ENG", pageSize: "1" },
+    const qs = new URLSearchParams({ targetSource: tgtSab, apiKey: UMLS_API_KEY });
+    const res = await fetch(
+      `${UTS}/crosswalk/current/source/${encodeURIComponent(srcSab)}/${encodeURIComponent(p.code)}?${qs}`,
+      { headers: { Accept: "application/json" } },
     );
-    const conceptUri: string = atoms?.result?.[0]?.concept ?? "";
-    cui = conceptUri.split("/").pop() ?? "";
-  } catch (_) { /* fall through */ }
-  if (!cui) {
-    return {
-      resourceType: "Parameters",
-      parameter: [param("result", false), param("message", "No match found")],
-    };
-  }
-
-  // 2) crosswalk to target SAB. UMLS returns 404 when the CUI has no atoms
-  // in the requested SAB — treat as "no match" rather than an error.
-  let atomResult: any[] = [];
-  try {
-    const atoms = await utsFetch(
-      `/content/current/CUI/${cui}/atoms`,
-      { sabs: tgtSab, pageSize: "25", language: "ENG" },
-    );
-    atomResult = atoms?.result ?? [];
+    if (res.ok) {
+      const json = await res.json();
+      xwalk = json?.result ?? [];
+    }
   } catch (_) { /* leave empty */ }
-  const matches = atomResult.map((a: any, i: number) => ({
+
+  const matches = xwalk.map((a: any, i: number) => ({
     name: "match",
     part: [
       { name: "equivalence", valueCode: i === 0 ? "equivalent" : "wider" },
       { name: "concept", valueCoding: {
         system: p.targetSystem,
-        code: (String(a.code ?? "").split("/").pop() ?? "").trim(),
+        code: String(a.ui ?? a.code ?? "").split("/").pop().trim(),
         display: String(a.name ?? ""),
       } },
-      { name: "source", valueUri: `urn:uuid:${cui}` },
+      ...(a.rootSource ? [{ name: "source", valueUri: String(a.rootSource) }] : []),
     ],
   })).filter((m: any) => m.part[1].valueCoding.code);
 
