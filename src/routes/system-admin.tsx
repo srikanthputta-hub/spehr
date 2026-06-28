@@ -514,7 +514,7 @@ function SystemAdminPage() {
   const [selectedFacility, setSelectedFacility] = useState<Facility>("Memorial Hospital");
   const [automation, setAutomation] = useState<boolean | null>(true);
   const [automationSaving, setAutomationSaving] = useState(false);
-  const [seedingDemo, setSeedingDemo] = useState<number | null>(null);
+  const [discharging, setDischarging] = useState(false);
   const [isAdmin, setIsAdmin] = useState(true);
 
   useEffect(() => {
@@ -590,29 +590,32 @@ function SystemAdminPage() {
     }
   };
 
-  const seedDemoPatients = async () => {
-    if (seedingDemo !== null) return;
-    const total = 10;
-    setSeedingDemo(0);
-    toast.info("Seeding demo patients", {
-      description: `Admitting ${total} ghost patients across facilities…`,
-    });
-    let ok = 0;
-    for (let i = 0; i < total; i++) {
-      const { error } = await supabase.rpc("auto_admit_ghost_patient");
-      if (!error) ok++;
-      setSeedingDemo(i + 1);
-      if (i < total - 1) await new Promise((r) => setTimeout(r, 1_000));
+  const dischargeAllPatients = async () => {
+    if (discharging) return;
+    if (!window.confirm("Discharge ALL admitted patients across every facility? This will free all beds.")) {
+      return;
     }
-    setSeedingDemo(null);
-    if (ok > 0) {
-      toast.success("Demo patients seeded", {
-        description: `${ok}/${total} ghost admissions created. Dashboards will populate shortly.`,
+    setDischarging(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const { data: discharged, error: pErr } = await supabase
+        .from("patients")
+        .update({ status: "Discharged", discharge_time: nowIso })
+        .neq("status", "Discharged")
+        .select("mrn");
+      if (pErr) throw pErr;
+      const { error: bErr } = await supabase
+        .from("bed_management")
+        .update({ status: "Available", current_patient_mrn: null })
+        .neq("status", "Available");
+      if (bErr) throw bErr;
+      toast.success("All patients discharged", {
+        description: `${discharged?.length ?? 0} patients discharged · all beds freed.`,
       });
-    } else {
-      toast.error("Seed failed", {
-        description: "Ghost admission RPC returned no rows. Check permissions.",
-      });
+    } catch (e: any) {
+      toast.error("Discharge failed", { description: e?.message ?? "Unknown error" });
+    } finally {
+      setDischarging(false);
     }
   };
 
@@ -778,18 +781,18 @@ function SystemAdminPage() {
                 />
               </button>
               <button
-                onClick={seedDemoPatients}
-                disabled={seedingDemo !== null}
-                title="Manually admit 10 ghost patients across facilities"
-                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                onClick={dischargeAllPatients}
+                disabled={discharging}
+                title="Discharge every admitted patient across all facilities and free all beds"
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {seedingDemo !== null ? (
+                {discharging ? (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Seeding {seedingDemo}/10
+                    Discharging…
                   </>
                 ) : (
-                  <>⚡ Seed Demo Patients</>
+                  <>🏥 Discharge All Patients</>
                 )}
               </button>
             </div>
