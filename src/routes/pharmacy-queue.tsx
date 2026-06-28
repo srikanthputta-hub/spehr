@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 type Order = {
   id: string;
@@ -105,13 +106,17 @@ function PharmacyQueue() {
   useEffect(() => {
     let active = true;
     const loadBoard = async () => {
-      const { data } = await supabase
-        .from("patients")
-        .select("mrn, first_name, last_name, name, admission_time")
-        .eq("facility_name", facility)
-        .eq("status", "Admitted")
-        .order("admission_time", { ascending: false })
-        .limit(25);
+      const { data } = await fetchWithTimeout(
+        () =>
+          supabase
+            .from("patients")
+            .select("mrn, first_name, last_name, name, admission_time")
+            .eq("facility_name", facility)
+            .eq("status", "Admitted")
+            .order("admission_time", { ascending: false })
+            .limit(25),
+        { data: [], error: null } as any,
+      );
       if (!active) return;
       const rows = (data as Array<{
         mrn: string | null;
@@ -167,13 +172,17 @@ function PharmacyQueue() {
       "DISPENSED",
     ];
     (async () => {
-      const { data, error } = await supabase
-        .from("medication_orders")
-        .select("id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at")
-        .eq("facility_name", facility)
-        .in("status", PENDING_STATUSES)
-        .order("created_at", { ascending: false })
-        .limit(200);
+      const { data, error } = await fetchWithTimeout(
+        () =>
+          supabase
+            .from("medication_orders")
+            .select("id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at")
+            .eq("facility_name", facility)
+            .in("status", PENDING_STATUSES)
+            .order("created_at", { ascending: false })
+            .limit(200),
+        { data: [], error: null } as any,
+      );
       if (!active) return;
       if (error) setError(error.message);
       else {

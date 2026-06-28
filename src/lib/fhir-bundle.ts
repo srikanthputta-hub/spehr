@@ -183,6 +183,43 @@ export function slugify(input: string): string {
 }
 
 /**
+ * Fixes #3 / #4: distill a free-text chief complaint into a clinically
+ * search-worthy phrase before sending to UMLS. Strips duration, onset and
+ * timing fragments ("for 4 days", "since yesterday", "this morning",
+ * "x 3 days", "started 2 hours ago"), leaving the working-diagnosis core
+ * (e.g. "Productive cough and shortness of breath"). The result is used
+ * as BOTH the UMLS search string and Condition.code.text so the two
+ * always agree.
+ */
+export function distillClinicalText(raw: string | null | undefined): string {
+  const src = (raw ?? "").trim();
+  if (!src) return "";
+  let s = ` ${src} `;
+  const patterns: RegExp[] = [
+    /\bfor\s+(?:the\s+)?(?:past\s+)?\d+\s*(?:day|days|week|weeks|hour|hours|hr|hrs|month|months|year|years)\b/gi,
+    /\bsince\s+(?:yesterday|last\s+\w+|this\s+morning|this\s+afternoon|this\s+evening|last\s+night|\d+\s*(?:day|days|week|weeks|hour|hours|hr|hrs)\s+ago)\b/gi,
+    /\bthis\s+(?:morning|afternoon|evening)\b/gi,
+    /\blast\s+night\b/gi,
+    /\b(?:yesterday|today|tonight)\b/gi,
+    /\bx\s*\d+\s*(?:d|day|days|h|hr|hrs|hour|hours|w|wk|week|weeks)\b/gi,
+    /\bover\s+the\s+(?:past|last)\s+\w+\s+\w+\b/gi,
+    /\b(?:past|last)\s+\d+\s*(?:day|days|week|weeks|hour|hours|hr|hrs)\b/gi,
+    /\b\d+\s*(?:day|days|week|weeks|hour|hours|hr|hrs|month|months)\s+ago\b/gi,
+    /\b(?:onset|started|began|beginning|noticed)\s+\w+(?:\s+\w+){0,3}\b/gi,
+    /\bgradual(?:ly)?\s+(?:worsening|onset)\b/gi,
+    /\bsudden(?:ly)?\s+onset\b/gi,
+  ];
+  for (const re of patterns) s = s.replace(re, " ");
+  return s
+    .replace(/[,;]\s*(?:and|with)?\s*\./g, ".")
+    .replace(/\s+/g, " ")
+    .replace(/\s*([,.;:])\s*/g, "$1 ")
+    .replace(/^\s*[,.;:]+\s*/, "")
+    .replace(/\s*[,.;:]+\s*$/, "")
+    .trim();
+}
+
+/**
  * Defensive per-entry builder. If a single resource throws (malformed
  * manual order, missing required field, etc.) it is logged and skipped
  * so the rest of the bundle still ships. Bug-4 safety net.
@@ -811,17 +848,22 @@ function encounterConditions(
   );
   if (p.chief_complaint) {
     const codingArr: Array<{ system: string; code: string; display: string }> = [];
+    // Fix #3: distill the verbatim chief-complaint free text into a
+    // search-worthy working diagnosis before any UMLS lookup. The
+    // distilled string is also written to code.text so the resource's
+    // textual label and the UMLS search input are guaranteed identical.
+    const hpiText = distillClinicalText(p.chief_complaint) || p.chief_complaint;
     if (primaryCoded?.snomed_code)
       codingArr.push({
         system: FHIR_SYSTEM_URI["SNOMED CT"],
         code: primaryCoded.snomed_code,
-        display: primaryCoded.snomed_display ?? p.chief_complaint,
+        display: primaryCoded.snomed_display ?? hpiText,
       });
     if (primaryCoded?.icd10_code)
       codingArr.push({
         system: FHIR_SYSTEM_URI["ICD-10"],
         code: primaryCoded.icd10_code,
-        display: primaryCoded.icd10_display ?? p.chief_complaint,
+        display: primaryCoded.icd10_display ?? hpiText,
       });
     out.push({
       resourceType: "Condition",
@@ -831,14 +873,19 @@ function encounterConditions(
       category,
       code:
         codingArr.length > 0
-          ? { coding: codingArr, text: p.chief_complaint }
-          : { text: p.chief_complaint },
+          ? { coding: codingArr, text: hpiText }
+          : { text: hpiText },
       subject,
       encounter,
       recordedDate: p.admission_time ?? undefined,
     });
   }
   if (p.discharge_time && p.diagnosis) {
+    // Fix #4: discharge Condition.code.text MUST be the discharge
+    // diagnosis itself (e.g. "Community-Acquired Pneumonia"), never the
+    // chief complaint. The text below is exactly what the async builder
+    // will resend to UMLS for ICD-10 + SNOMED resolution.
+    const dxText = (p.diagnosis ?? "").trim();
     // Discharge diagnosis: prefer a coded condition that matches the
     // discharge text, otherwise reuse the primary coded one.
     const dischargeCoded =
@@ -853,13 +900,13 @@ function encounterConditions(
       codingArr.push({
         system: FHIR_SYSTEM_URI["SNOMED CT"],
         code: dischargeCoded.snomed_code,
-        display: dischargeCoded.snomed_display ?? p.diagnosis,
+        display: dischargeCoded.snomed_display ?? dxText,
       });
     if (dischargeCoded?.icd10_code)
       codingArr.push({
         system: FHIR_SYSTEM_URI["ICD-10"],
         code: dischargeCoded.icd10_code,
-        display: dischargeCoded.icd10_display ?? p.diagnosis,
+        display: dischargeCoded.icd10_display ?? dxText,
       });
     out.push({
       resourceType: "Condition",
@@ -869,8 +916,8 @@ function encounterConditions(
       category,
       code:
         codingArr.length > 0
-          ? { coding: codingArr, text: p.diagnosis }
-          : { text: p.diagnosis },
+          ? { coding: codingArr, text: dxText }
+          : { text: dxText },
       subject,
       encounter,
       recordedDate: p.discharge_time ?? undefined,
@@ -963,21 +1010,37 @@ export function buildEncounterBundle(opts: {
   const carePlan = carePlanFromDischarge(patient);
   const appt = followUpAppointment(patient);
 
+  // Fix #9: discharged encounters get the dedicated Discharge Summary
+  // Composition (LOINC 18842-5) under a stable id of
+  // `composition-{MRN}-discharge`. In-progress encounters keep the
+  // legacy `summary-{MRN}` id with LOINC 34133-9 so admission-time
+  // pushes remain backwards compatible with the rest of the pipeline.
+  const isDischarged =
+    (patient.status ?? "").toLowerCase() === "discharged" ||
+    !!patient.discharge_time;
+  const compositionId = isDischarged
+    ? `composition-${patient.mrn}-discharge`
+    : stableIds.composition(patient.mrn);
+  const compositionTypeCoding = isDischarged
+    ? { system: "http://loinc.org", code: "18842-5", display: "Discharge summary" }
+    : { system: "http://loinc.org", code: "34133-9", display: "Summary of episode note" };
+  const compositionTitle = isDischarged
+    ? `Discharge summary — ${patient.name ?? patient.mrn}`
+    : `Encounter summary — ${patient.name ?? patient.mrn}`;
+
   const composition = {
     resourceType: "Composition",
-    id: stableIds.composition(patient.mrn),
+    id: compositionId,
     status: "final",
     type: {
-      coding: [
-        { system: "http://loinc.org", code: "34133-9", display: "Summary of episode note" },
-      ],
-      text: "S.P.E.H.R Encounter Summary",
+      coding: [compositionTypeCoding],
+      text: isDischarged ? "Discharge Summary" : "S.P.E.H.R Encounter Summary",
     },
     subject: { reference: `Patient/${patient.mrn}` },
     encounter: { reference: `Encounter/enc-${patient.mrn}` },
     date: new Date().toISOString(),
     author: [{ display: "S.P.E.H.R AI Coding Engine" }],
-    title: `Encounter summary — ${patient.name ?? patient.mrn}`,
+    title: compositionTitle,
     section: [
       { title: "Encounter", entry: [{ reference: `Encounter/enc-${patient.mrn}` }] },
       { title: "Diagnoses", entry: conditions.map((c: any) => ({ reference: `Condition/${c.id}` })) },

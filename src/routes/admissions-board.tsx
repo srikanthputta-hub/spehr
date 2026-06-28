@@ -22,6 +22,7 @@ import { admitPatient, type AdmitInput } from "@/lib/admit-patient";
 import { AdmitPatientModal } from "@/components/admissions/AdmitPatientModal";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
 import spehrLogo from "@/assets/spehr-logo.png.asset.json";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 export const Route = createFileRoute("/admissions-board")({
   component: AdmissionsBoard,
@@ -38,10 +39,14 @@ function AdmissionsBoard() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const { data } = await supabase
-        .from("bed_management")
-        .select("status")
-        .eq("facility_name", facility);
+      const { data } = await fetchWithTimeout(
+        () =>
+          supabase
+            .from("bed_management")
+            .select("status")
+            .eq("facility_name", facility),
+        { data: [], error: null } as any,
+      );
       if (cancelled || !data) return;
       const available = data.filter(
         (b: any) => (b.status ?? "").toLowerCase() === "available",
@@ -181,12 +186,17 @@ function RosterTab({ facility }: { facility: string }) {
     // Source: `patients` (the local mirror of the FHIR Encounter resource).
     // status = 'Admitted' → FHIR Encounter.status = in-progress
     // status = 'Discharged' → FHIR Encounter.status = finished
-    const { data } = await supabase
-      .from("patients")
-      .select("mrn, first_name, last_name, dob, address, status, admission_time, discharge_time, room")
-      .eq("facility_name", facility)
-      .order("admission_time", { ascending: false })
-      .limit(50);
+    setLoading(true);
+    const { data } = await fetchWithTimeout(
+      () =>
+        supabase
+          .from("patients")
+          .select("mrn, first_name, last_name, dob, address, status, admission_time, discharge_time, room")
+          .eq("facility_name", facility)
+          .order("admission_time", { ascending: false })
+          .limit(50),
+      { data: [], error: null } as any,
+    );
     const mapped: EncounterRow[] = ((data ?? []) as any[]).map((p) => ({
       mrn: p.mrn,
       name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
@@ -347,12 +357,16 @@ function SchedulingTab({ facility }: { facility: string }) {
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await (supabase as any)
-      .from("fhir_appointments")
-      .select("*")
-      .eq("facility_name", facility)
-      .order("start_time", { ascending: true })
-      .limit(100);
+    const { data, error } = await fetchWithTimeout(
+      () =>
+        (supabase as any)
+          .from("fhir_appointments")
+          .select("*")
+          .eq("facility_name", facility)
+          .order("start_time", { ascending: true })
+          .limit(100),
+      { data: [], error: null } as any,
+    );
     if (error) toast.error("Could not load appointments", { description: error.message });
     setRows((data ?? []) as AppointmentRow[]);
     setLoading(false);
