@@ -39,6 +39,7 @@ import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplet
 import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
 import { OrderPanelPicker } from "@/components/physician/OrderPanelPicker";
 import { autoCodeMedication } from "@/lib/auto-code";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 const TRANSFER_DESTINATIONS = [
   "Memorial Hospital",
@@ -176,14 +177,18 @@ function PhysicianBoard() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const { data, error } = await supabase
-        .from("patients")
-        .select(
-          "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
-        )
-        .eq("status", "Admitted")
-        .eq("facility_name", facility ?? "Memorial Hospital")
-        .order("room", { ascending: true });
+      const { data, error } = await fetchWithTimeout(
+        () =>
+          supabase
+            .from("patients")
+            .select(
+              "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
+            )
+            .eq("status", "Admitted")
+            .eq("facility_name", facility ?? "Memorial Hospital")
+            .order("room", { ascending: true }),
+        { data: [], error: null } as any,
+      );
       if (!active) return;
       if (error) {
         setError(error.message);
