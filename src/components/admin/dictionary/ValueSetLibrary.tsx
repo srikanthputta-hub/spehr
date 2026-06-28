@@ -224,7 +224,7 @@ export function ValueSetLibrary() {
             <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
               const t = publishTarget; if (!t) return;
               setPublishTarget(null);
-              await transitionStatus(t, "published", null, "Published successfully", { experimental: false });
+              await transitionStatus(t, "published", null, "Published successfully", { published_at: new Date().toISOString() });
             }}>Approve & Publish</Button>
           </DialogFooter>
         </DialogContent>
