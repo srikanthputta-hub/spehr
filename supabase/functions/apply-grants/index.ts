@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import postgres from "https://esm.sh/postgres@3.4.5";
+import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,16 +69,16 @@ Deno.serve(async (req) => {
     if (!supabaseUrl || !serviceKey) throw new Error("Backend service credentials are missing");
 
     if (dbUrl) {
-      const sql = postgres(dbUrl, {
-        max: 1,
-        idle_timeout: 5,
-        connect_timeout: 8,
-        prepare: false,
-      });
+      const client = new Client(dbUrl);
       try {
-        await withTimeout(sql.unsafe(GRANT_SQL), 12_000);
+        await withTimeout(client.connect(), 8_000);
+        await withTimeout(client.queryArray(GRANT_SQL), 12_000);
       } finally {
-        await sql.end({ timeout: 5 });
+        try {
+          await client.end();
+        } catch {
+          /* ignore close errors */
+        }
       }
 
       return new Response(JSON.stringify({ ok: true, method: "direct-postgres" }), {
