@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import { logLoop } from "@/lib/loop-logger";
 
 /**
  * Automation Watchdog
@@ -169,16 +168,7 @@ async function runWatchdogCycle() {
         ? "All systems operating within normal parameters."
         : "Global automation OFF — passive heartbeat only, no auto-heal performed.",
     healed_engines: healed,
-    engine: "WATCHDOG_HEARTBEAT",
-    status: automationOn ? (issuesDetected ? "WARNING" : "NORMAL") : "PAUSED",
-    payload: { admissions: enginesChecked["Admissions"], pharmacy: enginesChecked["Pharmacy Queue"], lab: enginesChecked["Lab Queue"], healed },
   } as any);
-  // Also emit a dedicated heartbeat row keyed by engine='WATCHDOG_HEARTBEAT'
-  // so the new SLA-based getLoopHealth() pickup is reliable even when the
-  // legacy row above is filtered out by old admin views.
-  void logLoop("WATCHDOG_HEARTBEAT", automationOn ? "NORMAL" : "PAUSED", {
-    global_control_status: automationOn ? "ON" : "OFF",
-  });
 }
 
 // Singleton guard — only one tab should drive the watchdog so we don't

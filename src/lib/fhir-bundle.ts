@@ -288,7 +288,6 @@ export const stableIds = {
   composition: (mrn: string) => `summary-${mrn}`,
   appointment: (mrn: string) => `appt-followup-${mrn}`,
   docRef: (mrn: string) => `docref-${mrn}`,
-  careTeam: (mrn: string) => `careteam-${mrn}`,
 };
 
 /**
@@ -440,10 +439,6 @@ export type EncounterPatient = {
   temp?: number | null;
   allergies?: string | null;
   past_medical_history?: string | null;
-  /** Care team — sourced from `patient_assignments` + `staff_roster`. */
-  attending_physician?: string | null;
-  assigned_nurse?: string | null;
-  assignment_started_at?: string | null;
 };
 
 
@@ -524,39 +519,6 @@ function buildEncounterResource(p: EncounterPatient) {
     (p.status ?? "").toLowerCase() === "discharged" || p.discharge_time
       ? "finished"
       : "in-progress";
-  const participants: any[] = [];
-  if (p.attending_physician) {
-    participants.push({
-      type: [
-        {
-          coding: [
-            {
-              system: "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
-              code: "ATND",
-              display: "Attender",
-            },
-          ],
-        },
-      ],
-      individual: { display: p.attending_physician },
-    });
-  }
-  if (p.assigned_nurse) {
-    participants.push({
-      type: [
-        {
-          coding: [
-            {
-              system: "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
-              code: "PPRF",
-              display: "primary performer",
-            },
-          ],
-        },
-      ],
-      individual: { display: p.assigned_nurse },
-    });
-  }
   return {
     resourceType: "Encounter",
     id: `enc-${p.mrn}`,
@@ -578,58 +540,6 @@ function buildEncounterResource(p: EncounterPatient) {
       ? [{ text: p.chief_complaint }]
       : undefined,
     serviceProvider: p.facility_name ? { display: p.facility_name } : undefined,
-    participant: participants.length > 0 ? participants : undefined,
-  };
-}
-
-/**
- * Build a CareTeam R4 resource for a patient when staff assignments exist.
- * Returns null when neither a nurse nor a physician are known.
- */
-function buildCareTeam(p: EncounterPatient) {
-  if (!p.attending_physician && !p.assigned_nurse) return null;
-  const participant: any[] = [];
-  if (p.assigned_nurse) {
-    participant.push({
-      role: [
-        {
-          coding: [
-            {
-              system: "http://snomed.info/sct",
-              code: "224535009",
-              display: "Registered Nurse",
-            },
-          ],
-        },
-      ],
-      member: { display: p.assigned_nurse },
-      period: p.assignment_started_at ? { start: p.assignment_started_at } : undefined,
-    });
-  }
-  if (p.attending_physician) {
-    participant.push({
-      role: [
-        {
-          coding: [
-            {
-              system: "http://snomed.info/sct",
-              code: "309343006",
-              display: "Physician",
-            },
-          ],
-        },
-      ],
-      member: { display: p.attending_physician },
-      period: p.assignment_started_at ? { start: p.assignment_started_at } : undefined,
-    });
-  }
-  return {
-    resourceType: "CareTeam",
-    id: stableIds.careTeam(p.mrn),
-    status: "active",
-    subject: { reference: `Patient/${p.mrn}` },
-    encounter: { reference: `Encounter/enc-${p.mrn}` },
-    participant,
   };
 }
 
@@ -1099,7 +1009,6 @@ export function buildEncounterBundle(opts: {
   );
   const carePlan = carePlanFromDischarge(patient);
   const appt = followUpAppointment(patient);
-  const careTeam = buildCareTeam(patient);
 
   // Fix #9: discharged encounters get the dedicated Discharge Summary
   // Composition (LOINC 18842-5) under a stable id of
@@ -1142,7 +1051,6 @@ export function buildEncounterBundle(opts: {
       { title: "Clinical Notes", entry: docs.map((d) => ({ reference: `DocumentReference/${d.id}` })) },
       ...(carePlan ? [{ title: "Care Plan", entry: [{ reference: `CarePlan/${carePlan.id}` }] }] : []),
       ...(appt ? [{ title: "Follow-up", entry: [{ reference: `Appointment/${appt.id}` }] }] : []),
-      ...(careTeam ? [{ title: "Care Team", entry: [{ reference: `CareTeam/${careTeam.id}` }] }] : []),
     ],
   };
 
@@ -1166,7 +1074,6 @@ export function buildEncounterBundle(opts: {
     ...docs,
     ...(carePlan ? [carePlan] : []),
     ...(appt ? [appt] : []),
-    ...(careTeam ? [careTeam] : []),
   ];
 
   // Final safety net: deduplicate by stable id so a single transaction
