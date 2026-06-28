@@ -19,7 +19,6 @@ import { type CodeStatus } from "@/lib/patients";
 import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 
 export const Route = createFileRoute("/nursing-board")({
@@ -437,16 +436,12 @@ function Dashboard() {
       // currently on the unit is "every Occupied bed in this facility".
       // We then hydrate patient rows by MRN so the Floor Overview count
       // ALWAYS matches the occupied-bed KPI / Bed Allocation matrix.
-      const { data: occBeds, error: bedErr } = await fetchWithTimeout(
-        () =>
-          supabase
-            .from("bed_management")
-            .select("current_patient_mrn, room_number, bed_letter, status")
-            .eq("facility_name", facility)
-            .ilike("status", "Occupied%")
-            .not("current_patient_mrn", "is", null),
-        { data: [], error: null } as any,
-      );
+      const { data: occBeds, error: bedErr } = await supabase
+        .from("bed_management")
+        .select("current_patient_mrn, room_number, bed_letter, status")
+        .eq("facility_name", facility)
+        .ilike("status", "Occupied%")
+        .not("current_patient_mrn", "is", null);
       if (cancelled) return;
       if (bedErr) {
         setFetchError(bedErr.message);
@@ -466,16 +461,12 @@ function Dashboard() {
         setLoading(false);
         return;
       }
-      const { data, error } = await fetchWithTimeout(
-        () =>
-          supabase
-            .from("patients")
-            .select(
-              "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
-            )
-            .in("mrn", mrns),
-        { data: [], error: null } as any,
-      );
+      const { data, error } = await supabase
+        .from("patients")
+        .select(
+          "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
+        )
+        .in("mrn", mrns);
       if (cancelled) return;
       if (error) {
         setFetchError(error.message);

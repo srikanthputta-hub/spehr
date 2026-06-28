@@ -25,7 +25,6 @@ import { toast } from "sonner";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useServerFn } from "@tanstack/react-start";
 import { backfillInvoices, generateInvoiceForMrn } from "@/lib/auto-doc.functions";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 export const Route = createFileRoute("/finance-board")({
   component: FinanceBoard,
@@ -107,16 +106,12 @@ function FinanceBoard() {
 
   const refresh = async () => {
     if (initialLoadRef.current) setLoading(true);
-    const { data, error } = await fetchWithTimeout(
-      () =>
-        (supabase as any)
-          .from("fhir_invoices")
-          .select(
-            "id,invoice_no,mrn,patient_name,encounter_id,facility_name,status,subtotal,tax,total,currency,issued_at,paid_at",
-          )
-          .order("issued_at", { ascending: false }),
-      { data: [], error: null } as any,
-    );
+    const { data, error } = await (supabase as any)
+      .from("fhir_invoices")
+      .select(
+        "id,invoice_no,mrn,patient_name,encounter_id,facility_name,status,subtotal,tax,total,currency,issued_at,paid_at",
+      )
+      .order("issued_at", { ascending: false });
     if (error) toast.error(`Unable to load invoices: ${error.message}`);
     else setInvoices((data ?? []) as InvoiceRow[]);
     setLoading(false);
@@ -444,22 +439,18 @@ function BillModal({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [ciRes, pRes] = await fetchWithTimeout(
-        () =>
-          Promise.all([
-            (supabase as any)
-              .from("fhir_charge_items")
-              .select("id,invoice_id,charge_code,code_system,description,category,quantity,unit_price,amount,service_date")
-              .eq("invoice_id", invoice.id)
-              .order("created_at", { ascending: true }),
-            supabase
-              .from("patients")
-              .select("mrn,name,age,gender,room,chief_complaint,diagnosis,admission_time,discharge_time")
-              .eq("mrn", invoice.mrn)
-              .maybeSingle(),
-          ]),
-        [{ data: [], error: null }, { data: null, error: null }] as any,
-      );
+      const [ciRes, pRes] = await Promise.all([
+        (supabase as any)
+          .from("fhir_charge_items")
+          .select("id,invoice_id,charge_code,code_system,description,category,quantity,unit_price,amount,service_date")
+          .eq("invoice_id", invoice.id)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("patients")
+          .select("mrn,name,age,gender,room,chief_complaint,diagnosis,admission_time,discharge_time")
+          .eq("mrn", invoice.mrn)
+          .maybeSingle(),
+      ]);
       if (cancelled) return;
       setItems((ciRes.data ?? []) as ChargeItemRow[]);
       setPatient((pRes.data ?? null) as PatientLite | null);

@@ -13,7 +13,6 @@ import {
 } from "recharts";
 import { Activity, Users, LogOut as LogOutIcon, Loader2 } from "lucide-react";
 import { PopulationHealth } from "@/components/admin/PopulationHealth";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 export const Route = createFileRoute("/analytics")({
   component: AnalyticsPage,
@@ -65,16 +64,12 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
   const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
-    const { data, error } = await fetchWithTimeout(
-      () =>
-        supabase
-          .from("patients")
-          .select(
-            "id, mrn, name, first_name, last_name, status, facility_name, chief_complaint, admission_time",
-          )
-          .order("admission_time", { ascending: false }),
-      { data: [], error: null } as any,
-    );
+    const { data, error } = await supabase
+      .from("patients")
+      .select(
+        "id, mrn, name, first_name, last_name, status, facility_name, chief_complaint, admission_time",
+      )
+      .order("admission_time", { ascending: false });
     if (error) setError(error.message);
     else setPatients((data as Patient[]) ?? []);
     setLoading(false);
@@ -261,7 +256,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
                 {!loading && feed.length === 0 && !error && (
                   <tr>
                     <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                      No recent admissions.
+                      No records found.
                     </td>
                   </tr>
                 )}

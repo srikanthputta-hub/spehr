@@ -77,8 +77,6 @@ import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
-import { AUTOMATION_STORAGE_KEY, getAutomationEnabled, setLocalAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -86,8 +84,6 @@ export const Route = createFileRoute("/system-admin")({
 
 function WatchdogStatusWidget() {
   const latest = useLatestWatchdogLog();
-  const automationEnabled = useAutomationEnabled();
-  const globalControl = latest?.global_control_status ?? (automationEnabled ? "ON" : "OFF");
   const [open, setOpen] = useState(false);
   const ts = latest ? new Date(latest.checker_timestamp) : null;
   const ago = ts
@@ -235,12 +231,12 @@ function WatchdogStatusWidget() {
           </div>
           <div
             className={`text-xs font-bold ${
-              globalControl === "ON"
+              latest?.global_control_status === "ON"
                 ? "text-emerald-700"
                 : "text-slate-500"
             }`}
           >
-            {globalControl}
+            {latest?.global_control_status ?? "—"}
           </div>
         </div>
       </div>
@@ -509,7 +505,6 @@ function SystemAdminPage() {
   const [selectedFacility, setSelectedFacility] = useState<Facility>("Memorial Hospital");
   const [automation, setAutomation] = useState<boolean | null>(true);
   const [automationSaving, setAutomationSaving] = useState(false);
-  const [seedingDemo, setSeedingDemo] = useState<number | null>(null);
   const [isAdmin, setIsAdmin] = useState(true);
 
   useEffect(() => {
@@ -533,18 +528,23 @@ function SystemAdminPage() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const next = await getAutomationEnabled();
+      const { data, error } = await supabase
+        .from("system_settings")
+        .select("automation_enabled")
+        .eq("id", 1)
+        .maybeSingle();
       if (!active) return;
-      setAutomation(next);
+      if (error) {
+        toast.error("Failed to load automation state", { description: error.message });
+        setAutomation(true);
+      } else {
+        // Default ON unless explicitly set to false
+        const val = (data as any)?.automation_enabled;
+        setAutomation(val === false ? false : true);
+      }
     })();
-    const handler = (e: Event) => {
-      if (!active) return;
-      setAutomation(Boolean((e as CustomEvent<{ enabled: boolean }>).detail?.enabled));
-    };
-    window.addEventListener("automation-toggle", handler as EventListener);
     return () => {
       active = false;
-      window.removeEventListener("automation-toggle", handler as EventListener);
     };
   }, []);
 
@@ -552,26 +552,15 @@ function SystemAdminPage() {
     if (automation === null || automationSaving) return;
     const next = !automation;
     setAutomation(next);
-    setLocalAutomationEnabled(next);
     setAutomationSaving(true);
-    const { error } = await fetchWithTimeout(
-      () =>
-        supabase
-          .from("system_settings")
-          .upsert({ id: 1, automation_enabled: next } as any),
-      { data: null, error: new Error("system_settings write timeout") } as any,
-    );
+    const { error } = await supabase
+      .from("system_settings")
+      .update({ automation_enabled: next })
+      .eq("id", 1);
     setAutomationSaving(false);
     if (error) {
-      try {
-        window.localStorage.setItem(AUTOMATION_STORAGE_KEY, String(next));
-      } catch {
-        /* ignore */
-      }
-      supabase.functions.invoke("apply-grants", { body: { reason: "automation-write-failed" } }).catch(() => {});
-      toast.warning("Automation switched locally", {
-        description: "Database write is blocked; using local fallback while permissions repair runs.",
-      });
+      setAutomation(!next);
+      toast.error("Could not update automation", { description: error.message });
       return;
     }
     if (next) {
@@ -585,44 +574,14 @@ function SystemAdminPage() {
     }
   };
 
-  const seedDemoPatients = async () => {
-    if (seedingDemo !== null) return;
-    const total = 10;
-    setSeedingDemo(0);
-    toast.info("Seeding demo patients", {
-      description: `Admitting ${total} ghost patients across facilities…`,
-    });
-    let ok = 0;
-    for (let i = 0; i < total; i++) {
-      const { error } = await supabase.rpc("auto_admit_ghost_patient");
-      if (!error) ok++;
-      setSeedingDemo(i + 1);
-      if (i < total - 1) await new Promise((r) => setTimeout(r, 1_000));
-    }
-    setSeedingDemo(null);
-    if (ok > 0) {
-      toast.success("Demo patients seeded", {
-        description: `${ok}/${total} ghost admissions created. Dashboards will populate shortly.`,
-      });
-    } else {
-      toast.error("Seed failed", {
-        description: "Ghost admission RPC returned no rows. Check permissions.",
-      });
-    }
-  };
-
   const load = async () => {
     setLoading(true);
-    const { data, error } = await fetchWithTimeout(
-      () =>
-        supabase
-          .from("role_permissions")
-          .select("id, target_role, feature_key, feature_name, is_active")
-          .eq("facility_name", selectedFacility)
-          .order("target_role")
-          .order("feature_key"),
-      { data: [], error: null } as any,
-    );
+    const { data, error } = await supabase
+      .from("role_permissions")
+      .select("id, target_role, feature_key, feature_name, is_active")
+      .eq("facility_name", selectedFacility)
+      .order("target_role")
+      .order("feature_key");
     if (error) {
       toast.error("Failed to load permissions", { description: error.message });
     } else {
@@ -771,21 +730,6 @@ function SystemAdminPage() {
                     automation ? "translate-x-8" : "translate-x-1"
                   }`}
                 />
-              </button>
-              <button
-                onClick={seedDemoPatients}
-                disabled={seedingDemo !== null}
-                title="Manually admit 10 ghost patients across facilities"
-                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {seedingDemo !== null ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Seeding {seedingDemo}/10
-                  </>
-                ) : (
-                  <>⚡ Seed Demo Patients</>
-                )}
               </button>
             </div>
           </div>
@@ -2614,53 +2558,42 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       if (facility && facility !== "all") {
         pq = pq.eq("facility_name", facility);
       }
-      const { data: patients, error } = await fetchWithTimeout(
-        () => pq,
-        { data: [], error: null } as any,
-      );
+      const { data: patients, error } = await pq;
       if (error) {
         toast.error("Could not load patient matrix", { description: error.message });
         setLoading(false);
         return;
       }
       const mrns = (patients ?? []).map((p: any) => p.mrn).filter(Boolean);
-      const [labsRes, medsRes, condsRes] = await fetchWithTimeout(
-        () =>
-          Promise.all([
-            supabase.from("lab_orders").select("patient_mrn, test_type").in("patient_mrn", mrns),
-            supabase
-              .from("medication_orders")
-              .select("patient_mrn, medication_name, drug_name")
-              .in("patient_mrn", mrns),
-            supabase
-              .from("conditions")
-              .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
-              .in("mrn", mrns),
-          ]),
-        [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }] as any,
-      );
+      const [labsRes, medsRes, condsRes] = await Promise.all([
+        supabase.from("lab_orders").select("patient_mrn, test_type").in("patient_mrn", mrns),
+        supabase
+          .from("medication_orders")
+          .select("patient_mrn, medication_name, drug_name")
+          .in("patient_mrn", mrns),
+        supabase
+          .from("conditions")
+          .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
+          .in("mrn", mrns),
+      ]);
       // Pull coded columns from step-8 schema (auto-coded by `auto-code.ts`).
-      const [labsCoded, medsCoded, procsRes] = await fetchWithTimeout(
-        () =>
-          Promise.all([
-            supabase
-              .from("lab_orders")
-              .select("patient_mrn, loinc_code, loinc_display")
-              .in("patient_mrn", mrns)
-              .not("loinc_code", "is", null),
-            supabase
-              .from("medication_orders")
-              .select("patient_mrn, rxnorm_code, rxnorm_display")
-              .in("patient_mrn", mrns)
-              .not("rxnorm_code", "is", null),
-            supabase
-              .from("procedures")
-              .select("mrn, cpt_code, cpt_display, display_text")
-              .in("mrn", mrns)
-              .not("cpt_code", "is", null),
-          ]),
-        [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }] as any,
-      );
+      const [labsCoded, medsCoded] = await Promise.all([
+        supabase
+          .from("lab_orders")
+          .select("patient_mrn, loinc_code, loinc_display")
+          .in("patient_mrn", mrns)
+          .not("loinc_code", "is", null),
+        supabase
+          .from("medication_orders")
+          .select("patient_mrn, rxnorm_code, rxnorm_display")
+          .in("patient_mrn", mrns)
+          .not("rxnorm_code", "is", null),
+      ]);
+      const procsRes = await supabase
+        .from("procedures")
+        .select("mrn, cpt_code, cpt_display, display_text")
+        .in("mrn", mrns)
+        .not("cpt_code", "is", null);
       const labMap = new Map<string, Set<string>>();
       for (const r of (labsRes.data ?? []) as any[]) {
         if (!r.patient_mrn || !r.test_type) continue;
@@ -3093,10 +3026,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
         .order("admission_time", { ascending: false })
         .limit(50);
       if (facility !== "all") q = q.eq("facility_name", facility);
-      const { data } = await fetchWithTimeout(
-        () => q,
-        { data: [], error: null } as any,
-      );
+      const { data } = await q;
       if (cancelled) return;
       const out: FhirEncounterRow[] = ((data ?? []) as any[])
         .filter((p) => !!p.mrn)
@@ -3731,39 +3661,29 @@ function AuditLog() {
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
-    const [patientsRes, labsRes, medsRes, permsRes, settingsRes] = await fetchWithTimeout(
-      () =>
-        Promise.all([
-          supabase
-            .from("patients")
-            .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint")
-            .order("admission_time", { ascending: false })
-            .limit(60),
-          supabase
-            .from("lab_orders")
-            .select("id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at")
-            .order("created_at", { ascending: false })
-            .limit(60),
-          supabase
-            .from("medication_orders")
-            .select("id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at")
-            .order("created_at", { ascending: false })
-            .limit(60),
-          supabase
-            .from("role_permissions")
-            .select("id, facility_name, target_role, feature_key, feature_name, is_active, updated_at")
-            .order("updated_at", { ascending: false })
-            .limit(30),
-          supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
-        ]),
-      [
-        { data: [], error: null },
-        { data: [], error: null },
-        { data: [], error: null },
-        { data: [], error: null },
-        { data: null, error: null },
-      ] as any,
-    );
+    const [patientsRes, labsRes, medsRes, permsRes, settingsRes] = await Promise.all([
+      supabase
+        .from("patients")
+        .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint")
+        .order("admission_time", { ascending: false })
+        .limit(60),
+      supabase
+        .from("lab_orders")
+        .select("id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at")
+        .order("created_at", { ascending: false })
+        .limit(60),
+      supabase
+        .from("medication_orders")
+        .select("id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at")
+        .order("created_at", { ascending: false })
+        .limit(60),
+      supabase
+        .from("role_permissions")
+        .select("id, facility_name, target_role, feature_key, feature_name, is_active, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(30),
+      supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
+    ]);
 
     const out: AuditEvent[] = [];
 
@@ -4318,15 +4238,11 @@ function MedicalDictionary() {
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await fetchWithTimeout(
-      () =>
-        supabase
-          .from("medical_terminology")
-          .select("id, code_system, code, display, category, description, status")
-          .order("code_system")
-          .order("code"),
-      { data: [], error: null } as any,
-    );
+    const { data, error } = await supabase
+      .from("medical_terminology")
+      .select("id, code_system, code, display, category, description, status")
+      .order("code_system")
+      .order("code");
     if (error) toast.error("Failed to load dictionary", { description: error.message });
     else setRows((data as any) ?? []);
     setLoading(false);

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { getAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import { fetchWithTimeout } from "@/lib/async-timeout";
+import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 
 /**
  * Automation Watchdog
@@ -23,8 +22,6 @@ import { fetchWithTimeout } from "@/lib/async-timeout";
 
 // Accelerated for preview: real 15-min cycle is `15 * 60_000`.
 const WATCHDOG_INTERVAL_MS = 60_000;
-// Ghost admission randomizer cadence when engines are active.
-const GHOST_ADMIT_INTERVAL_MS = 90_000;
 // Activity windows used to flag a stalled engine.
 const ADMISSION_IDLE_MS = 6 * 60_000;
 const QUEUE_IDLE_MS = 6 * 60_000;
@@ -33,36 +30,13 @@ const STUCK_ORDER_MS = 3 * 60_000;
 
 type Engine = "Admissions" | "Pharmacy Queue" | "Lab Queue";
 
-/**
- * Force-seed the network with ghost patients when the census is empty.
- * Called once on the first watchdog cycle after engines come online so
- * dashboards don't sit empty waiting for the 90s randomizer tick.
- */
-export async function forceSeedGhostPatients(target = 5, gapMs = 2_000) {
-  for (let i = 0; i < target; i++) {
-    try {
-      await supabase.rpc("auto_admit_ghost_patient");
-    } catch (e) {
-      console.warn("[watchdog] force-seed RPC failed", e);
-    }
-    if (i < target - 1) await new Promise((r) => setTimeout(r, gapMs));
-  }
-}
-
 async function runWatchdogCycle() {
-  const automationOn = await getAutomationEnabled();
-
-  // First-cycle seed: if engines are on but the active census is < 3,
-  // fire the randomizer 5x with 2s gaps to populate facilities.
-  if (automationOn) {
-    const { count: admittedNow } = await supabase
-      .from("patients")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "Admitted");
-    if ((admittedNow ?? 0) < 3) {
-      await forceSeedGhostPatients(5, 2_000);
-    }
-  }
+  const { data: settings } = await supabase
+    .from("system_settings")
+    .select("automation_enabled")
+    .eq("id", 1)
+    .maybeSingle();
+  const automationOn = Boolean((settings as any)?.automation_enabled);
 
   const enginesChecked: Record<string, any> = {};
   const healed: Engine[] = [];
@@ -239,24 +213,9 @@ export function useAutomationWatchdog() {
     // Stagger the first tick by 8s so other boot-time queries settle.
     const boot = setTimeout(tick, 8_000);
     const id = setInterval(tick, WATCHDOG_INTERVAL_MS);
-    // Independent Ghost Admission Randomizer — fires every 90s when
-    // engines are active so the census keeps churning even without
-    // a stalled-engine trigger.
-    const ghostTick = async () => {
-      if (!tryAcquireLeader()) return;
-      const on = await getAutomationEnabled();
-      if (!on) return;
-      try {
-        await supabase.rpc("auto_admit_ghost_patient");
-      } catch (e) {
-        console.warn("[ghost-admit] RPC failed", e);
-      }
-    };
-    const ghostId = setInterval(ghostTick, GHOST_ADMIT_INTERVAL_MS);
     return () => {
       clearTimeout(boot);
       clearInterval(id);
-      clearInterval(ghostId);
     };
   }, []);
 }
@@ -276,15 +235,11 @@ export function useLatestWatchdogLog(): WatchdogLogRow | null {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const { data } = await fetchWithTimeout(
-        () =>
-          supabase
-            .from("automation_watchdog_logs")
-            .select("id, checker_timestamp, global_control_status, issues_detected, actions_taken, healed_engines")
-            .order("checker_timestamp", { ascending: false })
-            .limit(1),
-        { data: [], error: null } as any,
-      );
+      const { data } = await supabase
+        .from("automation_watchdog_logs")
+        .select("id, checker_timestamp, global_control_status, issues_detected, actions_taken, healed_engines")
+        .order("checker_timestamp", { ascending: false })
+        .limit(1);
       if (!cancelled && data && data[0]) setRow(data[0] as any);
     };
     load();

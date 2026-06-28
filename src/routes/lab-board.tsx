@@ -8,7 +8,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 export const Route = createFileRoute("/lab-board")({
   component: LabBoard,
@@ -142,34 +141,30 @@ function LabBoard() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: labData }, { data: completedData }, { data: patientData }] = await fetchWithTimeout(
-      () =>
-        Promise.all([
-          supabase
-            .from("lab_orders")
-            .select("*")
-            .eq("facility_name", facility)
-            .in("status", ["Ordered", "ORDERED", "Pending", "PENDING", "Pending Collection", "Processing", "PROCESSING", "Reported", "Resulted", "Completed"])
-            .order("created_at", { ascending: false })
-            .limit(250),
-          supabase
-            .from("lab_orders")
-            .select("*")
-            .eq("facility_name", facility)
-            .in("status", ["Reported", "Resulted", "Completed"])
-            .order("resulted_at", { ascending: false, nullsFirst: false })
-            .order("created_at", { ascending: false, nullsFirst: false })
-            .limit(15),
-          supabase
-            .from("patients")
-            .select("mrn, first_name, last_name, name, admission_time")
-            .eq("facility_name", facility)
-            .eq("status", "Admitted")
-            .order("admission_time", { ascending: false })
-            .limit(25),
-        ]),
-      [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }] as any,
-    );
+    const [{ data: labData }, { data: completedData }, { data: patientData }] = await Promise.all([
+      supabase
+        .from("lab_orders")
+        .select("*")
+        .eq("facility_name", facility)
+        .in("status", ["Ordered", "ORDERED", "Pending", "PENDING", "Pending Collection", "Processing", "PROCESSING", "Reported", "Resulted", "Completed"])
+        .order("created_at", { ascending: false })
+        .limit(250),
+      supabase
+        .from("lab_orders")
+        .select("*")
+        .eq("facility_name", facility)
+        .in("status", ["Reported", "Resulted", "Completed"])
+        .order("resulted_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .limit(15),
+      supabase
+        .from("patients")
+        .select("mrn, first_name, last_name, name, admission_time")
+        .eq("facility_name", facility)
+        .eq("status", "Admitted")
+        .order("admission_time", { ascending: false })
+        .limit(25),
+    ]);
     setOrders((labData as LabOrderRow[]) ?? []);
     setCompletedOrders((completedData as LabOrderRow[]) ?? []);
     const rows = (patientData as Array<{

@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useMemo, type MouseEvent } from "reac
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, type Facility, type StaffRole } from "@/lib/facility-context";
 import { toast } from "sonner";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 /**
  * Realtime-aware role-based access for action buttons.
@@ -27,15 +26,11 @@ export function useRolePermissions(roleOverride?: StaffRole, facilityOverride?: 
     let cancelled = false;
     setLoading(true);
     (async () => {
-      const { data } = await fetchWithTimeout(
-        () =>
-          supabase
-            .from("role_permissions")
-            .select("feature_key, is_active")
-            .eq("target_role", role)
-            .eq("facility_name", facility),
-        { data: [], error: null } as any,
-      );
+      const { data } = await supabase
+        .from("role_permissions")
+        .select("feature_key, is_active")
+        .eq("target_role", role)
+        .eq("facility_name", facility);
       if (cancelled) return;
       const map: PermMap = {};
       for (const row of (data ?? []) as any[]) map[row.feature_key] = !!row.is_active;

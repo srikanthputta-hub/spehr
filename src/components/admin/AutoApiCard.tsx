@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { getAutoApiLoopStatus, flushQaQueue } from "@/lib/auto-api.functions";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 type LoopStatus = "NORMAL" | "WARNING" | "ERROR";
 type Loop = {
@@ -56,15 +55,11 @@ export function AutoApiCard() {
   }, []);
 
   const loadEnabled = async () => {
-    const { data } = await fetchWithTimeout(
-      () =>
-        supabase
-          .from("system_settings")
-          .select("auto_api_enabled")
-          .eq("id", 1)
-          .maybeSingle(),
-      { data: { auto_api_enabled: true }, error: null } as any,
-    );
+    const { data } = await supabase
+      .from("system_settings")
+      .select("auto_api_enabled")
+      .eq("id", 1)
+      .maybeSingle();
     setEnabled(Boolean((data as any)?.auto_api_enabled ?? true));
   };
   const loadLoops = async () => {
@@ -85,14 +80,10 @@ export function AutoApiCard() {
 
   const toggle = async (next: boolean) => {
     setEnabled(next);
-    const { error } = await fetchWithTimeout(
-      () =>
-        supabase
-          .from("system_settings")
-          .upsert({ id: 1, auto_api_enabled: next } as any),
-      { data: null, error: new Error("system_settings write timeout") } as any,
-    );
-    if (error) supabase.functions.invoke("apply-grants", { body: { reason: "auto-api-write-failed" } }).catch(() => {});
+    await supabase
+      .from("system_settings")
+      .update({ auto_api_enabled: next } as any)
+      .eq("id", 1);
   };
 
   const forceSync = async () => {
