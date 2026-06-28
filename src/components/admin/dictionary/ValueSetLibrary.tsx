@@ -514,6 +514,13 @@ function ValueSetDrawer({
                 <button className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700"
                   onClick={() => onRequestChanges(vs)}>Request Changes</button>
               </span>
+            ) : vs.status === "published" ? (
+              <button
+                className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize cursor-pointer hover:ring-2 hover:ring-rose-300 ${STATUS_STYLES[vs.status]}`}
+                onClick={() => onDeprecate(vs)}
+                title="Deprecate this value set">
+                published ▸
+              </button>
             ) : (
               <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${STATUS_STYLES[vs.status] ?? ""}`}>
                 {vs.status}
