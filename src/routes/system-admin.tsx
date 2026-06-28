@@ -772,6 +772,21 @@ function SystemAdminPage() {
                   }`}
                 />
               </button>
+              <button
+                onClick={seedDemoPatients}
+                disabled={seedingDemo !== null}
+                title="Manually admit 10 ghost patients across facilities"
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {seedingDemo !== null ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Seeding {seedingDemo}/10
+                  </>
+                ) : (
+                  <>⚡ Seed Demo Patients</>
+                )}
+              </button>
             </div>
           </div>
         </div>
