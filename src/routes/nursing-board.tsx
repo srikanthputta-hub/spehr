@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
+import { ManualModeBanner } from "@/components/ManualModeBanner";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
