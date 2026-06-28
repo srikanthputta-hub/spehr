@@ -217,23 +217,22 @@ async function opTranslate(p: {
   const srcSab = toSab(p.system);
   const tgtSab = toSab(p.targetSystem);
 
-  // 1) find CUI from source code (treat input as a source UI, not free text)
-  const cuiSearch = await utsFetch("/search/current", {
-    string: p.code,
-    sabs: srcSab,
-    inputType: "sourceUi",
-    returnIdType: "concept",
-    searchType: "exact",
-    pageSize: "1",
-  });
-  const top = cuiSearch?.result?.results?.[0];
-  if (!top?.ui || top.ui === "NONE") {
+  // 1) Resolve source code → CUI directly via /content/source/{sab}/{code}
+  let cui = "";
+  try {
+    const srcAtom = await utsFetch(
+      `/content/current/source/${encodeURIComponent(srcSab)}/${encodeURIComponent(p.code)}`,
+      {},
+    );
+    const conceptUri: string = srcAtom?.result?.concept ?? "";
+    cui = conceptUri.split("/").pop() ?? "";
+  } catch (_) { /* fall through */ }
+  if (!cui) {
     return {
       resourceType: "Parameters",
       parameter: [param("result", false), param("message", "No match found")],
     };
   }
-  const cui = top.ui;
 
   // 2) crosswalk to target SAB
   const atoms = await utsFetch(
