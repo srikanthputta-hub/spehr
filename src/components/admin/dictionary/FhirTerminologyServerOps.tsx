@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Play, Download } from "lucide-react";
+import { Loader2, Play, Download, Copy, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,31 +35,60 @@ export function FhirTerminologyServerOps() {
   );
 }
 
-function ResponseBox({ data }: { data: any }) {
+function ResponseBox({ data, latencyMs }: { data: any; latencyMs?: number | null }) {
+  const [copied, setCopied] = useState(false);
   if (!data) return null;
+  const json = JSON.stringify(data, null, 2);
+  const copy = async () => {
+    await navigator.clipboard.writeText(json);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
   return (
-    <pre className="rounded border border-slate-200 bg-slate-900 text-emerald-300 p-3 text-[10px] overflow-x-auto max-h-72 mt-3">
-      {JSON.stringify(data, null, 2)}
-    </pre>
+    <div className="mt-3 space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-slate-500">
+          {latencyMs != null ? `Response in ${latencyMs}ms · Powered by UMLS API` : "Powered by UMLS API"}
+        </span>
+        <button
+          type="button"
+          onClick={copy}
+          className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] hover:bg-slate-50"
+        >
+          {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+          {copied ? "Copied!" : "Copy JSON"}
+        </button>
+      </div>
+      <pre className="rounded border border-slate-200 bg-slate-900 text-emerald-300 p-3 text-[10px] overflow-x-auto max-h-72">
+        {json}
+      </pre>
+    </div>
   );
 }
+
+const NEG_RESULT = { resourceType: "Parameters", parameter: [{ name: "result", valueBoolean: false }] };
 
 function LookupCard() {
   const [sys, setSys] = useState(CODE_SYSTEMS[0]);
   const [code, setCode] = useState("22298006");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [latency, setLatency] = useState<number | null>(null);
 
   const run = async () => {
     setLoading(true);
+    const t0 = performance.now();
     try {
       const { data, error } = await supabase.functions.invoke("fhir-terminology", {
         body: { operation: "lookup", params: { system: sys.uri, code } },
       });
       if (error) throw error;
-      setData(data);
+      setData(data && (data.parameter || data.resourceType) ? data : NEG_RESULT);
     } catch (e: any) { toast.error(e.message); }
-    finally { setLoading(false); }
+    finally {
+      setLatency(Math.round(performance.now() - t0));
+      setLoading(false);
+    }
   };
 
   return (
@@ -80,7 +109,7 @@ function LookupCard() {
       <Button size="sm" className="w-full bg-[#0c2340] hover:bg-[#0c2340]/90 mt-2" onClick={run} disabled={loading}>
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Execute $lookup
       </Button>
-      <ResponseBox data={data} />
+      <ResponseBox data={data} latencyMs={latency} />
     </div>
   );
 }
@@ -92,6 +121,7 @@ function ExpandCard() {
   const [count, setCount] = useState(20);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [latency, setLatency] = useState<number | null>(null);
 
   useEffect(() => {
     supabase.from("custom_value_sets").select("name").order("name").then(({ data }) => {
@@ -103,14 +133,18 @@ function ExpandCard() {
 
   const run = async () => {
     setLoading(true);
+    const t0 = performance.now();
     try {
       const { data, error } = await supabase.functions.invoke("fhir-terminology", {
         body: { operation: "expand", params: { valueSet: vs, filter: filter || undefined, count } },
       });
       if (error) throw error;
-      setData(data);
+      setData(data && data.expansion ? data : NEG_RESULT);
     } catch (e: any) { toast.error(e.message); }
-    finally { setLoading(false); }
+    finally {
+      setLatency(Math.round(performance.now() - t0));
+      setLoading(false);
+    }
   };
 
   const exportCsv = () => {
@@ -150,7 +184,7 @@ function ExpandCard() {
           <Button size="sm" variant="outline" onClick={exportCsv}><Download className="h-3 w-3" /> CSV</Button>
         </div>
       )}
-      <ResponseBox data={data} />
+      <ResponseBox data={data} latencyMs={latency} />
     </div>
   );
 }
@@ -161,17 +195,22 @@ function TranslateCard() {
   const [code, setCode] = useState("422504002");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [latency, setLatency] = useState<number | null>(null);
 
   const run = async () => {
     setLoading(true);
+    const t0 = performance.now();
     try {
       const { data, error } = await supabase.functions.invoke("fhir-terminology", {
         body: { operation: "translate", params: { system: src.uri, code, targetSystem: tgt.uri } },
       });
       if (error) throw error;
-      setData(data);
+      setData(data && data.parameter ? data : NEG_RESULT);
     } catch (e: any) { toast.error(e.message); }
-    finally { setLoading(false); }
+    finally {
+      setLatency(Math.round(performance.now() - t0));
+      setLoading(false);
+    }
   };
 
   return (
@@ -201,7 +240,7 @@ function TranslateCard() {
       <Button size="sm" className="w-full bg-[#0c2340] hover:bg-[#0c2340]/90 mt-2" onClick={run} disabled={loading}>
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Execute $translate
       </Button>
-      <ResponseBox data={data} />
+      <ResponseBox data={data} latencyMs={latency} />
     </div>
   );
 }

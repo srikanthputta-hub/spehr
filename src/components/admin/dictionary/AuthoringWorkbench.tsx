@@ -34,6 +34,20 @@ export function AuthoringWorkbench() {
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Listen for cross-tab prefill events from Live Terminology Matrix pills
+  useEffect(() => {
+    const onPrefill = (e: Event) => {
+      const d = (e as CustomEvent).detail ?? {};
+      if (d.vocabulary) {
+        const match = VOCABS.find(v => v.label === d.vocabulary);
+        if (match) setVocab(match);
+      }
+      if (d.code || d.query) setQuery(String(d.code ?? d.query));
+    };
+    window.addEventListener("spehr:authoring-prefill", onPrefill as any);
+    return () => window.removeEventListener("spehr:authoring-prefill", onPrefill as any);
+  }, []);
+
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
     if (!query || query.length < 2) { setResults([]); return; }

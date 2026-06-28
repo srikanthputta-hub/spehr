@@ -2900,6 +2900,40 @@ function PillRow({ entries, system }: { entries: DictEntry[]; system: string }) 
                 <div><span className="text-slate-500">code:</span> {e.code}</div>
                 <div className="truncate"><span className="text-slate-500">display:</span> {e.display}</div>
               </div>
+              <div className="flex items-center gap-1.5 pt-1">
+                <button
+                  type="button"
+                  className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent("spehr:dict-switch-tab", {
+                      detail: {
+                        tab: "authoring",
+                        prefillEvent: "spehr:authoring-prefill",
+                        prefillDetail: { code: e.code, vocabulary: system },
+                      },
+                    }));
+                  }}
+                >
+                  View in Authoring
+                </button>
+                {system !== "ICD-10" && (
+                  <button
+                    type="button"
+                    className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent("spehr:dict-switch-tab", {
+                        detail: {
+                          tab: "crossmap",
+                          prefillEvent: "spehr:crossmap-prefill",
+                          prefillDetail: { code: e.code, sourceVocab: system, targetVocab: "ICD-10-CM" },
+                        },
+                      }));
+                    }}
+                  >
+                    Translate to ICD-10
+                  </button>
+                )}
+              </div>
             </div>
           </PopoverContent>
         </Popover>
@@ -4180,6 +4214,24 @@ function TaxonomyTree({
 
 function MedicalDictionary() {
   const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "fhir">("library");
+
+  // Cross-tab navigation: Live Terminology Matrix pills can request a tab switch.
+  useEffect(() => {
+    const onSwitch = (e: Event) => {
+      const d = (e as CustomEvent).detail ?? {};
+      if (d.tab) setSubtab(d.tab);
+      // Re-dispatch the prefill event on the next tick so the freshly-mounted
+      // target component receives it after its useEffect listener attaches.
+      if (d.prefillEvent && d.prefillDetail) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent(d.prefillEvent, { detail: d.prefillDetail }));
+        }, 50);
+      }
+    };
+    window.addEventListener("spehr:dict-switch-tab", onSwitch as any);
+    return () => window.removeEventListener("spehr:dict-switch-tab", onSwitch as any);
+  }, []);
+
   const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
