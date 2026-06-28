@@ -524,6 +524,39 @@ function buildEncounterResource(p: EncounterPatient) {
     (p.status ?? "").toLowerCase() === "discharged" || p.discharge_time
       ? "finished"
       : "in-progress";
+  const participants: any[] = [];
+  if (p.attending_physician) {
+    participants.push({
+      type: [
+        {
+          coding: [
+            {
+              system: "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+              code: "ATND",
+              display: "Attender",
+            },
+          ],
+        },
+      ],
+      individual: { display: p.attending_physician },
+    });
+  }
+  if (p.assigned_nurse) {
+    participants.push({
+      type: [
+        {
+          coding: [
+            {
+              system: "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+              code: "PPRF",
+              display: "primary performer",
+            },
+          ],
+        },
+      ],
+      individual: { display: p.assigned_nurse },
+    });
+  }
   return {
     resourceType: "Encounter",
     id: `enc-${p.mrn}`,
@@ -545,6 +578,58 @@ function buildEncounterResource(p: EncounterPatient) {
       ? [{ text: p.chief_complaint }]
       : undefined,
     serviceProvider: p.facility_name ? { display: p.facility_name } : undefined,
+    participant: participants.length > 0 ? participants : undefined,
+  };
+}
+
+/**
+ * Build a CareTeam R4 resource for a patient when staff assignments exist.
+ * Returns null when neither a nurse nor a physician are known.
+ */
+function buildCareTeam(p: EncounterPatient) {
+  if (!p.attending_physician && !p.assigned_nurse) return null;
+  const participant: any[] = [];
+  if (p.assigned_nurse) {
+    participant.push({
+      role: [
+        {
+          coding: [
+            {
+              system: "http://snomed.info/sct",
+              code: "224535009",
+              display: "Registered Nurse",
+            },
+          ],
+        },
+      ],
+      member: { display: p.assigned_nurse },
+      period: p.assignment_started_at ? { start: p.assignment_started_at } : undefined,
+    });
+  }
+  if (p.attending_physician) {
+    participant.push({
+      role: [
+        {
+          coding: [
+            {
+              system: "http://snomed.info/sct",
+              code: "309343006",
+              display: "Physician",
+            },
+          ],
+        },
+      ],
+      member: { display: p.attending_physician },
+      period: p.assignment_started_at ? { start: p.assignment_started_at } : undefined,
+    });
+  }
+  return {
+    resourceType: "CareTeam",
+    id: stableIds.careTeam(p.mrn),
+    status: "active",
+    subject: { reference: `Patient/${p.mrn}` },
+    encounter: { reference: `Encounter/enc-${p.mrn}` },
+    participant,
   };
 }
 
