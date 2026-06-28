@@ -350,7 +350,6 @@ function Dashboard() {
   const [now, setNow] = useState(new Date());
   const [query, setQuery] = useState("");
   const [patients, setPatients] = useState<PatientRow[]>([]);
-  const assignments = useAssignmentsMap();
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
