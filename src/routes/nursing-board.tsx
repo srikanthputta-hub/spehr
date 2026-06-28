@@ -578,6 +578,7 @@ function Dashboard() {
     return () => {
       cancelled = true;
       if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      clearTimeout(loadingFailsafe);
       supabase.removeChannel(ch);
     };
   }, [ready, facility]);
