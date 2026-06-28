@@ -7,6 +7,7 @@ import { assignStaffToPatient, releaseStaffForPatient } from "@/lib/staff-assign
 import { resolveIcd10, resolveSnomed, resolveRxNorm, resolveLoinc } from "@/lib/umls-client";
 import { backfillInvoices } from "@/lib/auto-doc.functions";
 import { runAutoDoc } from "@/lib/auto-doc.functions";
+import { checkNameMatch } from "@/lib/drug-allergy-check";
 
 /**
  * Root-mounted background loops — Parts 1-7 of the Automation Engine spec.
