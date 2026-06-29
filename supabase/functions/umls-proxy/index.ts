@@ -17,6 +17,44 @@ const corsHeaders = {
 const UTS = "https://uts-ws.nlm.nih.gov/rest";
 const RXNAV = "https://rxnav.nlm.nih.gov/REST";
 
+async function crosswalkCuiFallback(
+  p: Record<string, unknown>,
+): Promise<{ matches: Array<{ code: string; name: string; rootSource: string }> }> {
+  try {
+    const fromSab = String(p.fromSab ?? p.sourceSab ?? "");
+    const fromCode = String(p.fromCode ?? p.code ?? "");
+    const toSab = String(p.toSab ?? p.targetSab ?? "");
+    if (!fromSab || !fromCode || !toSab) return { matches: [] };
+    const srcUrl = `${UTS}/content/current/source/${encodeURIComponent(fromSab)}/${encodeURIComponent(fromCode)}?apiKey=${UMLS_API_KEY}`;
+    const srcRes = await fetch(srcUrl, { headers: { Accept: "application/json" } });
+    if (!srcRes.ok) return { matches: [] };
+    const srcJson = await srcRes.json();
+    const conceptUrl: string | undefined = srcJson?.result?.concept;
+    if (!conceptUrl) return { matches: [] };
+    const cuiMatch = conceptUrl.match(/CUI\/([A-Z0-9]+)/i);
+    const cui = cuiMatch?.[1];
+    if (!cui) return { matches: [] };
+    const atomsUrl = `${UTS}/content/current/CUI/${encodeURIComponent(cui)}/atoms?sabs=${encodeURIComponent(toSab)}&apiKey=${UMLS_API_KEY}`;
+    const atomsRes = await fetch(atomsUrl, { headers: { Accept: "application/json" } });
+    if (!atomsRes.ok) return { matches: [] };
+    const atomsJson = await atomsRes.json();
+    const arr = Array.isArray(atomsJson?.result) ? atomsJson.result : [];
+    const seen = new Set<string>();
+    const matches: Array<{ code: string; name: string; rootSource: string }> = [];
+    for (const a of arr) {
+      const code: string | undefined = a?.code ? String(a.code).split("/").pop() : undefined;
+      if (!code || code === "NONE" || seen.has(code)) continue;
+      seen.add(code);
+      matches.push({ code, name: String(a.name ?? ""), rootSource: String(a.rootSource ?? toSab) });
+      if (matches.length >= 10) break;
+    }
+    return { matches };
+  } catch (e) {
+    console.log("[umls-proxy] crosswalk fallback error:", (e as Error).message);
+    return { matches: [] };
+  }
+}
+
 type Action =
   | "search"
   | "crosswalk"
@@ -250,6 +288,9 @@ Deno.serve(async (req) => {
     }
 
     const started = Date.now();
+    if (action === "crosswalk") {
+      console.log("[umls-proxy] crosswalk upstream URL:", url);
+    }
     const upstream = await fetch(url, {
       headers: { Accept: "application/json" },
     });
@@ -258,10 +299,11 @@ Deno.serve(async (req) => {
     if (!upstream.ok) {
       // UMLS crosswalk returns 404 when no equivalents exist — normalize to empty.
       if (action === "crosswalk" && upstream.status === 404) {
-        const empty = { result: null, matches: [], elapsed_ms };
-        cacheSet(cacheKey, vocab, empty).catch(() => {});
+        const fb = await crosswalkCuiFallback(params ?? {});
+        const out = { result: fb.matches[0] ?? null, matches: fb.matches, elapsed_ms, fallback: "cui-atoms" };
+        cacheSet(cacheKey, vocab, out).catch(() => {});
         return new Response(
-          JSON.stringify({ cached: false, vocabulary: vocab, ...empty }),
+          JSON.stringify({ cached: false, vocabulary: vocab, ...out }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
@@ -283,11 +325,15 @@ Deno.serve(async (req) => {
     if (action === "crosswalk") {
       const raw = Array.isArray((json as any).result) ? (json as any).result : [];
       const filtered = raw.filter((r: any) => r && r.ui && r.ui !== "NONE");
-      const matches = filtered.map((r: any) => ({
+      let matches = filtered.map((r: any) => ({
         code: r.ui,
         name: r.name,
         rootSource: r.rootSource,
       }));
+      if (matches.length === 0) {
+        const fb = await crosswalkCuiFallback(params ?? {});
+        matches = fb.matches;
+      }
       shaped = {
         elapsed_ms,
         result: matches[0] ?? null,

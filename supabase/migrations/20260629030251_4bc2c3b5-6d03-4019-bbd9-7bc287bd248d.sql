@@ -1,0 +1,1 @@
+DELETE FROM public.umls_cache WHERE cache_key IN (SELECT cache_key FROM public.umls_cache WHERE vocabulary IN ('ICD10CM','SNOMEDCT_US','LNC','MDR','RXNORM') AND (response->>'result' IS NULL OR response->'matches' = '[]'::jsonb));
