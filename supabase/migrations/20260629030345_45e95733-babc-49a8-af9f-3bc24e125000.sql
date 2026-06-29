@@ -1,0 +1,1 @@
+DELETE FROM public.umls_cache WHERE vocabulary = 'ICD10CM';
