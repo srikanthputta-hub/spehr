@@ -15,6 +15,15 @@ const VOCABS = [
   { label: "CPT", uri: "http://www.ama-assn.org/go/cpt" },
 ];
 
+const VOCAB_TO_SAB: Record<string, string> = {
+  "SNOMED CT": "SNOMEDCT_US",
+  "ICD-10-CM": "ICD10CM",
+  "LOINC": "LNC",
+  "RxNorm": "RXNORM",
+  "CPT": "CPT",
+};
+const vocabToSab = (v: string) => VOCAB_TO_SAB[v] ?? v;
+
 const REFERENCE_CROSSWALKS = [
   { src: "22298006", srcName: "Myocardial infarction", srcVocab: "SNOMED CT", cui: "C0027051", tgt: "I21.9", tgtName: "Acute MI, unspecified", tgtVocab: "ICD-10-CM", map: "Equivalent" },
   { src: "233604007", srcName: "Pneumonia", srcVocab: "SNOMED CT", cui: "C0032285", tgt: "J18.9", tgtName: "Pneumonia, unspecified", tgtVocab: "ICD-10-CM", map: "Equivalent" },
@@ -68,18 +77,24 @@ export function CrossMapStudio() {
     if (!code.trim()) return toast.error("Enter a source code");
     setRunning(true);
     try {
-      const { data, error } = await supabase.functions.invoke("fhir-terminology", {
-        body: { operation: "translate", params: { system: src.uri, code: code.trim(), targetSystem: tgt.uri } },
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: {
+          action: "crosswalk",
+          params: {
+            fromSab: vocabToSab(src.label),
+            fromCode: code.trim(),
+            toSab: vocabToSab(tgt.label),
+          },
+        },
       });
       if (error) throw error;
-      const params = data?.parameter ?? [];
-      const matches: MapMatch[] = params
-        .filter((p: any) => p.name === "match")
-        .map((p: any) => {
-          const eq = p.part?.find((x: any) => x.name === "equivalence")?.valueCode ?? "?";
-          const cd = p.part?.find((x: any) => x.name === "concept")?.valueCoding ?? {};
-          return { equivalence: eq, code: cd.code, display: cd.display, system: cd.system };
-        });
+      const raw = Array.isArray(data?.matches) ? data.matches : (data?.result ? [data.result] : []);
+      const matches: MapMatch[] = raw.map((m: any) => ({
+        equivalence: "equivalent",
+        code: m.code,
+        display: m.name,
+        system: tgt.uri,
+      }));
       const conceptMap = {
         resourceType: "ConceptMap",
         id: `${src.label.toLowerCase()}-to-${tgt.label.toLowerCase()}-${code}`,
@@ -108,15 +123,15 @@ export function CrossMapStudio() {
       const rows: any[] = [];
       for (const c of codes) {
         try {
-          const { data } = await supabase.functions.invoke("fhir-terminology", {
-            body: { operation: "translate", params: { system: src.uri, code: c, targetSystem: tgt.uri } },
+          const { data } = await supabase.functions.invoke("umls-proxy", {
+            body: {
+              action: "crosswalk",
+              params: { fromSab: vocabToSab(src.label), fromCode: c, toSab: vocabToSab(tgt.label) },
+            },
           });
-          const params = data?.parameter ?? [];
-          const first = params.find((p: any) => p.name === "match");
+          const first = data?.result ?? (Array.isArray(data?.matches) ? data.matches[0] : null);
           if (first) {
-            const eq = first.part?.find((x: any) => x.name === "equivalence")?.valueCode ?? "?";
-            const cd = first.part?.find((x: any) => x.name === "concept")?.valueCoding ?? {};
-            rows.push({ sourceCode: c, targetCode: cd.code, targetDisplay: cd.display, equivalence: eq });
+            rows.push({ sourceCode: c, targetCode: first.code, targetDisplay: first.name, equivalence: "equivalent" });
           } else {
             rows.push({ sourceCode: c, targetCode: "—", targetDisplay: "No match", equivalence: "unmatched" });
           }
