@@ -412,12 +412,35 @@ function ValueSetDrawer({
   const runExpand = async () => {
     setExpanding(true);
     try {
-      const { data, error } = await supabase.functions.invoke("fhir-terminology", {
-        body: { operation: "expand", params: { valueSet: vs.name, count: 100 } },
-      });
+      const { data: row, error } = await supabase
+        .from("custom_value_sets")
+        .select("codes, status, name")
+        .eq("name", vs.name)
+        .maybeSingle();
       if (error) throw error;
-      setExpansion(data);
-      toast.success(`Expanded to ${data?.expansion?.total ?? 0} concepts`);
+      const codes = Array.isArray((row as any)?.codes) ? (row as any).codes : [];
+      const sysFor = (v: string) =>
+        v === "ICD-10-CM" ? "http://hl7.org/fhir/sid/icd-10-cm"
+        : v === "SNOMED CT" ? "http://snomed.info/sct"
+        : v === "LOINC" ? "http://loinc.org"
+        : v === "RxNorm" ? "http://www.nlm.nih.gov/research/umls/rxnorm"
+        : v === "CPT" ? "http://www.ama-assn.org/go/cpt"
+        : "unknown";
+      const expanded = {
+        resourceType: "ValueSet",
+        status: (row as any)?.status ?? "unknown",
+        expansion: {
+          timestamp: new Date().toISOString(),
+          total: codes.length,
+          contains: codes.map((c: any) => ({
+            system: sysFor(c.vocabulary ?? vs.vocabulary),
+            code: c.code,
+            display: c.display,
+          })),
+        },
+      };
+      setExpansion(expanded);
+      toast.success(`Expanded to ${codes.length} concepts`);
     } catch (e: any) {
       toast.error(`$expand failed: ${e.message}`);
     } finally { setExpanding(false); }

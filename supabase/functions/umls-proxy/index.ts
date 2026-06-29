@@ -256,6 +256,15 @@ Deno.serve(async (req) => {
     const elapsed_ms = Date.now() - started;
 
     if (!upstream.ok) {
+      // UMLS crosswalk returns 404 when no equivalents exist — normalize to empty.
+      if (action === "crosswalk" && upstream.status === 404) {
+        const empty = { result: null, matches: [], elapsed_ms };
+        cacheSet(cacheKey, vocab, empty).catch(() => {});
+        return new Response(
+          JSON.stringify({ cached: false, vocabulary: vocab, ...empty }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
       const text = await upstream.text();
       return new Response(
         JSON.stringify({
@@ -270,9 +279,24 @@ Deno.serve(async (req) => {
     }
 
     const json = await upstream.json();
-    const payload = { cached: false, vocabulary: vocab, elapsed_ms, ...json };
+    let shaped: Record<string, unknown> = { elapsed_ms, ...json };
+    if (action === "crosswalk") {
+      const raw = Array.isArray((json as any).result) ? (json as any).result : [];
+      const filtered = raw.filter((r: any) => r && r.ui && r.ui !== "NONE");
+      const matches = filtered.map((r: any) => ({
+        code: r.ui,
+        name: r.name,
+        rootSource: r.rootSource,
+      }));
+      shaped = {
+        elapsed_ms,
+        result: matches[0] ?? null,
+        matches,
+      };
+    }
+    const payload = { cached: false, vocabulary: vocab, ...shaped };
     // fire-and-forget cache write
-    cacheSet(cacheKey, vocab, { elapsed_ms, ...json }).catch(() => {});
+    cacheSet(cacheKey, vocab, shaped).catch(() => {});
 
     return new Response(JSON.stringify(payload), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

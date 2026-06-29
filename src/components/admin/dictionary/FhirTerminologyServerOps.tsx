@@ -13,6 +13,15 @@ const CODE_SYSTEMS = [
   { label: "RxNorm", uri: "http://www.nlm.nih.gov/research/umls/rxnorm" },
 ];
 
+const SAB_MAP: Record<string, string> = {
+  "SNOMED CT": "SNOMEDCT_US",
+  "ICD-10-CM": "ICD10CM",
+  "LOINC": "LNC",
+  "RxNorm": "RXNORM",
+  "CPT": "CPT",
+};
+const toSab = (label: string) => SAB_MAP[label] ?? label;
+
 export function FhirTerminologyServerOps() {
   return (
     <div className="space-y-4">
@@ -79,11 +88,23 @@ function LookupCard() {
     setLoading(true);
     const t0 = performance.now();
     try {
-      const { data, error } = await supabase.functions.invoke("fhir-terminology", {
-        body: { operation: "lookup", params: { system: sys.uri, code } },
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: { action: "validate", params: { code, sab: toSab(sys.label) } },
       });
       if (error) throw error;
-      setData(data && (data.parameter || data.resourceType) ? data : NEG_RESULT);
+      const first = data?.result?.results?.[0];
+      if (first && first.ui && first.ui !== "NONE") {
+        setData({
+          resourceType: "Parameters",
+          parameter: [
+            { name: "result", valueBoolean: true },
+            { name: "display", valueString: first.name },
+            { name: "active", valueBoolean: true },
+          ],
+        });
+      } else {
+        setData(NEG_RESULT);
+      }
     } catch (e: any) { toast.error(e.message); }
     finally {
       setLatency(Math.round(performance.now() - t0));
@@ -135,11 +156,41 @@ function ExpandCard() {
     setLoading(true);
     const t0 = performance.now();
     try {
-      const { data, error } = await supabase.functions.invoke("fhir-terminology", {
-        body: { operation: "expand", params: { valueSet: vs, filter: filter || undefined, count } },
-      });
+      const { data: row, error } = await supabase
+        .from("custom_value_sets")
+        .select("codes, status, name")
+        .eq("name", vs)
+        .maybeSingle();
       if (error) throw error;
-      setData(data && data.expansion ? data : NEG_RESULT);
+      let codes: any[] = Array.isArray((row as any)?.codes) ? (row as any).codes : [];
+      if (filter) {
+        const f = filter.toLowerCase();
+        codes = codes.filter((c) =>
+          String(c.code ?? "").toLowerCase().includes(f) ||
+          String(c.display ?? "").toLowerCase().includes(f),
+        );
+      }
+      codes = codes.slice(0, count);
+      const sysFor = (v: string) =>
+        v === "ICD-10-CM" ? "http://hl7.org/fhir/sid/icd-10-cm"
+        : v === "SNOMED CT" ? "http://snomed.info/sct"
+        : v === "LOINC" ? "http://loinc.org"
+        : v === "RxNorm" ? "http://www.nlm.nih.gov/research/umls/rxnorm"
+        : v === "CPT" ? "http://www.ama-assn.org/go/cpt"
+        : "unknown";
+      setData({
+        resourceType: "ValueSet",
+        status: (row as any)?.status ?? "unknown",
+        expansion: {
+          timestamp: new Date().toISOString(),
+          total: codes.length,
+          contains: codes.map((c: any) => ({
+            system: sysFor(c.vocabulary),
+            code: c.code,
+            display: c.display,
+          })),
+        },
+      });
     } catch (e: any) { toast.error(e.message); }
     finally {
       setLatency(Math.round(performance.now() - t0));
@@ -201,11 +252,31 @@ function TranslateCard() {
     setLoading(true);
     const t0 = performance.now();
     try {
-      const { data, error } = await supabase.functions.invoke("fhir-terminology", {
-        body: { operation: "translate", params: { system: src.uri, code, targetSystem: tgt.uri } },
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: {
+          action: "crosswalk",
+          params: { fromSab: toSab(src.label), fromCode: code, toSab: toSab(tgt.label) },
+        },
       });
       if (error) throw error;
-      setData(data && data.parameter ? data : NEG_RESULT);
+      const first = data?.result ?? (Array.isArray(data?.matches) ? data.matches[0] : null);
+      if (first) {
+        setData({
+          resourceType: "Parameters",
+          parameter: [
+            { name: "result", valueBoolean: true },
+            {
+              name: "match",
+              part: [
+                { name: "equivalence", valueCode: "equivalent" },
+                { name: "concept", valueCoding: { system: tgt.uri, code: first.code, display: first.name } },
+              ],
+            },
+          ],
+        });
+      } else {
+        setData(NEG_RESULT);
+      }
     } catch (e: any) { toast.error(e.message); }
     finally {
       setLatency(Math.round(performance.now() - t0));
