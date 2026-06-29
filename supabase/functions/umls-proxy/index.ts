@@ -250,6 +250,9 @@ Deno.serve(async (req) => {
     }
 
     const started = Date.now();
+    if (action === "crosswalk") {
+      console.log("[umls-proxy] crosswalk upstream URL:", url);
+    }
     const upstream = await fetch(url, {
       headers: { Accept: "application/json" },
     });
@@ -258,10 +261,11 @@ Deno.serve(async (req) => {
     if (!upstream.ok) {
       // UMLS crosswalk returns 404 when no equivalents exist — normalize to empty.
       if (action === "crosswalk" && upstream.status === 404) {
-        const empty = { result: null, matches: [], elapsed_ms };
-        cacheSet(cacheKey, vocab, empty).catch(() => {});
+        const fb = await crosswalkCuiFallback(params ?? {});
+        const out = { result: fb.matches[0] ?? null, matches: fb.matches, elapsed_ms, fallback: "cui-atoms" };
+        cacheSet(cacheKey, vocab, out).catch(() => {});
         return new Response(
-          JSON.stringify({ cached: false, vocabulary: vocab, ...empty }),
+          JSON.stringify({ cached: false, vocabulary: vocab, ...out }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
@@ -283,11 +287,15 @@ Deno.serve(async (req) => {
     if (action === "crosswalk") {
       const raw = Array.isArray((json as any).result) ? (json as any).result : [];
       const filtered = raw.filter((r: any) => r && r.ui && r.ui !== "NONE");
-      const matches = filtered.map((r: any) => ({
+      let matches = filtered.map((r: any) => ({
         code: r.ui,
         name: r.name,
         rootSource: r.rootSource,
       }));
+      if (matches.length === 0) {
+        const fb = await crosswalkCuiFallback(params ?? {});
+        matches = fb.matches;
+      }
       shaped = {
         elapsed_ms,
         result: matches[0] ?? null,
