@@ -214,6 +214,7 @@ function buildUrl(action: Action, p: Record<string, unknown>): {
       const qs = new URLSearchParams({
         string: String(p.code ?? ""),
         sabs: String(p.sab ?? ""),
+        inputType: "sourceUi",
         searchType: "exact",
         returnIdType: "sourceUi",
         apiKey: UMLS_API_KEY,
