@@ -348,6 +348,13 @@ export const getAutoApiLoopStatus = createServerFn({ method: "GET" }).handler(
           | "WARNING",
         last_run: new Date().toISOString(),
       },
+      {
+        key: "AUTO_TERMINOLOGIST",
+        label: "Auto Terminologist (10 min coverage scan)",
+        group: "Terminology",
+        status: "NORMAL" as const,
+        last_run: new Date().toISOString(),
+      },
     ];
 
     return {
