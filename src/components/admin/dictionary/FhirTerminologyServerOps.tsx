@@ -88,18 +88,21 @@ function LookupCard() {
     setLoading(true);
     const t0 = performance.now();
     try {
+      console.log("[$lookup] firing, code:", code, "system:", sys.label, "sab:", toSab(sys.label));
       const { data, error } = await supabase.functions.invoke("umls-proxy", {
         body: { action: "validate", params: { code, sab: toSab(sys.label) } },
       });
+      console.log("[$lookup] proxy returned:", JSON.stringify(data), "error:", error);
       if (error) throw error;
-      const first = data?.result?.results?.[0];
-      if (first && first.ui && first.ui !== "NONE") {
+      const r = data?.result;
+      if (r && r.name) {
         setData({
           resourceType: "Parameters",
           parameter: [
             { name: "result", valueBoolean: true },
-            { name: "display", valueString: first.name },
-            { name: "active", valueBoolean: true },
+            { name: "display", valueString: r.name },
+            { name: "active", valueBoolean: r.status === "active" },
+            { name: "property", part: [{ name: "code", valueCode: code }] },
           ],
         });
       } else {
