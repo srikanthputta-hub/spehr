@@ -67,7 +67,7 @@ export function AutoApiStatusPill() {
           className="z-50 w-80 rounded-lg border border-slate-200 bg-white p-3 shadow-lg"
         >
           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
-            AUTO API · 6 monitored loops
+            AUTO API · 7 monitored loops
           </div>
           <div className="space-y-1.5">
             {loops.map((l) => (
