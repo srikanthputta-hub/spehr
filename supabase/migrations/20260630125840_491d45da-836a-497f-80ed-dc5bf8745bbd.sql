@@ -1,0 +1,1 @@
+DELETE FROM public.umls_cache WHERE vocabulary IN ('SNOMEDCT_US','ICD10CM','LNC','RXNORM','CPT');
