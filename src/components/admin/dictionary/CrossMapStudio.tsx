@@ -95,15 +95,30 @@ export function CrossMapStudio() {
         display: m.name,
         system: tgt.uri,
       }));
+      // Resolve source display name (validate against source vocab)
+      let sourceDisplayName = code.trim();
+      try {
+        const { data: vd } = await supabase.functions.invoke("umls-proxy", {
+          body: {
+            action: "validate",
+            params: { code: code.trim(), sab: vocabToSab(src.label) },
+          },
+        });
+        if (vd?.result?.name) sourceDisplayName = vd.result.name;
+      } catch { /* fall back to code */ }
+
+      const conceptMapId = `${src.label}-to-${tgt.label}-${code.trim()}`
+        .toLowerCase()
+        .replace(/\s+/g, "-");
       const conceptMap = {
         resourceType: "ConceptMap",
-        id: `${src.label.toLowerCase()}-to-${tgt.label.toLowerCase()}-${code}`,
+        id: conceptMapId,
         sourceUri: src.uri,
         targetUri: tgt.uri,
         group: [{
           source: src.uri, target: tgt.uri,
           element: [{
-            code, display: code,
+            code: code.trim(), display: sourceDisplayName,
             target: matches.map(m => ({ code: m.code, display: m.display, equivalence: m.equivalence })),
           }],
         }],
