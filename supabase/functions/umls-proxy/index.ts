@@ -341,6 +341,23 @@ Deno.serve(async (req) => {
         matches,
       };
     }
+    if (action === "validate") {
+      const results = Array.isArray((json as any)?.result?.results)
+        ? (json as any).result.results
+        : [];
+      const top = results.find((r: any) => r && r.ui && r.ui !== "NONE") ?? null;
+      shaped = {
+        elapsed_ms,
+        result: top
+          ? {
+              cui: top.ui,
+              name: top.name,
+              rootSource: top.rootSource,
+              status: "active",
+            }
+          : null,
+      };
+    }
     const payload = { cached: false, vocabulary: vocab, ...shaped };
     // fire-and-forget cache write
     cacheSet(cacheKey, vocab, shaped).catch(() => {});
