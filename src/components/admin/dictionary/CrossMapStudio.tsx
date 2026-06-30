@@ -104,12 +104,19 @@ export function CrossMapStudio() {
             params: { code: code.trim(), sab: vocabToSab(src.label) },
           },
         });
-        if (vd?.result?.name) sourceDisplayName = vd.result.name;
+        const resolvedName =
+          vd?.result?.name ||
+          vd?.result?.display ||
+          (Array.isArray(vd?.matches) ? vd.matches[0]?.name : null) ||
+          null;
+        if (resolvedName) sourceDisplayName = resolvedName;
+        console.log("[CrossMap] validate →", { code: code.trim(), sab: vocabToSab(src.label), resolvedName, raw: vd });
       } catch { /* fall back to code */ }
 
       const conceptMapId = `${src.label}-to-${tgt.label}-${code.trim()}`
         .toLowerCase()
-        .replace(/\s+/g, "-");
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
       const conceptMap = {
         resourceType: "ConceptMap",
         id: conceptMapId,
@@ -118,7 +125,8 @@ export function CrossMapStudio() {
         group: [{
           source: src.uri, target: tgt.uri,
           element: [{
-            code: code.trim(), display: sourceDisplayName,
+            code: code.trim(),
+            display: sourceDisplayName || code.trim(),
             target: matches.map(m => ({ code: m.code, display: m.display, equivalence: m.equivalence })),
           }],
         }],
