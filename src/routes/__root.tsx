@@ -126,6 +126,7 @@ function RootComponent() {
   useAutomationWatchdog();
   useBackgroundFhirSync();
   useStartupRecovery();
+  useAutoTerminologist();
   useEffect(() => { startLocalGcSweeper(); }, []);
 
   return (
