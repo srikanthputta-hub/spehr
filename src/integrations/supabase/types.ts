@@ -306,6 +306,50 @@ export type Database = {
         }
         Relationships: []
       }
+      auto_terminologist_log: {
+        Row: {
+          action: string | null
+          codes_count: number | null
+          confidence: number | null
+          created_at: string
+          id: string
+          message: string
+          run_at: string
+          theme: string | null
+          value_set_id: string | null
+        }
+        Insert: {
+          action?: string | null
+          codes_count?: number | null
+          confidence?: number | null
+          created_at?: string
+          id?: string
+          message: string
+          run_at?: string
+          theme?: string | null
+          value_set_id?: string | null
+        }
+        Update: {
+          action?: string | null
+          codes_count?: number | null
+          confidence?: number | null
+          created_at?: string
+          id?: string
+          message?: string
+          run_at?: string
+          theme?: string | null
+          value_set_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_terminologist_log_value_set_id_fkey"
+            columns: ["value_set_id"]
+            isOneToOne: false
+            referencedRelation: "custom_value_sets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       automation_watchdog_logs: {
         Row: {
           actions_taken: string | null
