@@ -79,6 +79,7 @@ import { AuthoringWorkbench } from "@/components/admin/dictionary/AuthoringWorkb
 import { CrossMapStudio } from "@/components/admin/dictionary/CrossMapStudio";
 import { FhirTerminologyServerOps } from "@/components/admin/dictionary/FhirTerminologyServerOps";
 import { TerminologyStatusStrip } from "@/components/admin/dictionary/TerminologyStatusStrip";
+import { AutoTerminologistActivity } from "@/components/admin/dictionary/AutoTerminologistActivity";
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
@@ -4678,7 +4679,7 @@ function MedicalDictionary() {
       <TerminologyStatusStrip />
 
       {/* Sub-tab nav — responsive pill grid (no horizontal scroll) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-1.5 rounded-xl bg-slate-100/70 p-1.5 border border-slate-200">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-1.5 rounded-xl bg-slate-100/70 p-1.5 border border-slate-200">
         {([
           { id: "library",   label: "Value Set Library", Icon: BookMarked },
           { id: "authoring", label: "Authoring Workbench", Icon: Sparkles },
@@ -4687,6 +4688,7 @@ function MedicalDictionary() {
           { id: "matrix",    label: "Live Terminology Matrix", Icon: Grid3x3 },
           { id: "safety",    label: "Safety Alerts", Icon: ShieldAlert },
           { id: "fhir",      label: "FHIR Terminology Server", Icon: FileJson },
+          { id: "autoterm",  label: "Auto Terminologist", Icon: Sparkles },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
           return (
@@ -4722,6 +4724,7 @@ function MedicalDictionary() {
           <FhirInteroperability facility={facilityFilter} />
         </div>
       )}
+      {subtab === "autoterm" && <AutoTerminologistActivity />}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
