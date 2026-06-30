@@ -4227,7 +4227,7 @@ function TaxonomyTree({
 }
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "fhir">("library");
+  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "fhir" | "autoterm">("library");
 
   // Cross-tab navigation: Live Terminology Matrix pills can request a tab switch.
   useEffect(() => {
