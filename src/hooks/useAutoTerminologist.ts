@@ -126,26 +126,26 @@ async function collectRecentCodes(): Promise<{ hits: CodeHit[]; admissions: numb
   for (const p of patients) themeByMrn.set(p.mrn, themeFromText(p.chief_complaint));
 
   const [conds, meds, labs] = await Promise.all([
-    supabase.from("conditions").select("mrn, icd10_code, snomed_code, condition_text").in("mrn", mrns).limit(2000),
-    supabase.from("medication_orders").select("mrn, rxnorm_code, drug_name").in("mrn", mrns).limit(2000),
-    supabase.from("lab_orders").select("mrn, loinc_code, test_name").in("mrn", mrns).limit(2000),
+    supabase.from("conditions").select("mrn, icd10_code, snomed_code, display_text").in("mrn", mrns).limit(2000),
+    supabase.from("medication_orders").select("patient_mrn, rxnorm_code, drug_name").in("patient_mrn", mrns).limit(2000),
+    supabase.from("lab_orders").select("patient_mrn, loinc_code, test_type").in("patient_mrn", mrns).limit(2000),
   ]);
 
   const hits: CodeHit[] = [];
   for (const c of (conds.data ?? []) as any[]) {
-    const theme = themeByMrn.get(c.mrn) ?? themeFromText(c.condition_text);
-    if (c.snomed_code) hits.push({ code: String(c.snomed_code), vocab: "SNOMED CT", display: c.condition_text, theme });
-    if (c.icd10_code) hits.push({ code: String(c.icd10_code), vocab: "ICD-10", display: c.condition_text, theme });
+    const theme = themeByMrn.get(c.mrn) ?? themeFromText(c.display_text);
+    if (c.snomed_code) hits.push({ code: String(c.snomed_code), vocab: "SNOMED CT", display: c.display_text, theme });
+    if (c.icd10_code) hits.push({ code: String(c.icd10_code), vocab: "ICD-10", display: c.display_text, theme });
   }
   for (const m of (meds.data ?? []) as any[]) {
     if (!m.rxnorm_code) continue;
-    const theme = themeByMrn.get(m.mrn) ?? themeFromText(m.drug_name);
+    const theme = themeByMrn.get(m.patient_mrn) ?? themeFromText(m.drug_name);
     hits.push({ code: String(m.rxnorm_code), vocab: "RxNorm", display: m.drug_name, theme });
   }
   for (const l of (labs.data ?? []) as any[]) {
     if (!l.loinc_code) continue;
-    const theme = themeByMrn.get(l.mrn) ?? themeFromText(l.test_name);
-    hits.push({ code: String(l.loinc_code), vocab: "LOINC", display: l.test_name, theme });
+    const theme = themeByMrn.get(l.patient_mrn) ?? themeFromText(l.test_type);
+    hits.push({ code: String(l.loinc_code), vocab: "LOINC", display: l.test_type, theme });
   }
   return { hits, admissions: patients.length };
 }
