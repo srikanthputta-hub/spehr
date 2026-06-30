@@ -14,6 +14,7 @@ import { useAIAutomation } from "@/hooks/useAIAutomation";
 import { useAutomationWatchdog } from "@/hooks/useAutomationWatchdog";
 import { useBackgroundFhirSync } from "@/hooks/useBackgroundFhirSync";
 import { useStartupRecovery } from "@/hooks/useStartupRecovery";
+import { useAutoTerminologist } from "@/hooks/useAutoTerminologist";
 import { startLocalGcSweeper } from "@/lib/local-gc";
 import { useEffect } from "react";
 
