@@ -4678,8 +4678,8 @@ function MedicalDictionary() {
       {/* Terminology Services status strip */}
       <TerminologyStatusStrip />
 
-      {/* Sub-tab nav — responsive pill grid (no horizontal scroll) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-1.5 rounded-xl bg-slate-100/70 p-1.5 border border-slate-200">
+      {/* Sub-tab nav — 2 rows of 4, full names visible (no truncation) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 rounded-xl bg-slate-100/70 p-1.5 border border-slate-200">
         {([
           { id: "library",   label: "Value Set Library", Icon: BookMarked },
           { id: "authoring", label: "Authoring Workbench", Icon: Sparkles },
@@ -4696,14 +4696,14 @@ function MedicalDictionary() {
               key={id}
               onClick={() => setSubtab(id)}
               title={label}
-              className={`inline-flex min-w-0 items-center justify-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition cursor-pointer ${
+              className={`flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition cursor-pointer text-center ${
                 active
                   ? "bg-white text-[#0c2340] shadow-sm ring-1 ring-slate-200"
                   : "text-slate-600 hover:bg-white/60 hover:text-slate-900"
               }`}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{label}</span>
+              <span className="leading-tight">{label}</span>
             </button>
           );
         })}
