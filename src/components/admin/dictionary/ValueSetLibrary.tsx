@@ -262,6 +262,25 @@ export function ValueSetLibrary() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete value set?</DialogTitle>
+            <DialogDescription>
+              <span className="font-semibold">{deleteTarget?.name}</span> will be permanently removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button className="bg-rose-600 hover:bg-rose-700 text-white" onClick={async () => {
+              const t = deleteTarget; if (!t) return;
+              setDeleteTarget(null);
+              await handleDelete(t);
+            }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
