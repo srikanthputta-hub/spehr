@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Upload, Loader2, FileJson, Copy, Play, Save, Check } from "lucide-react";
+import { Plus, Download, Upload, Loader2, FileJson, Copy, Play, Save, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +49,7 @@ export function ValueSetLibrary() {
   const [selected, setSelected] = useState<ValueSet | null>(null);
   const [publishTarget, setPublishTarget] = useState<ValueSet | null>(null);
   const [deprecateTarget, setDeprecateTarget] = useState<ValueSet | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ValueSet | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -106,6 +107,14 @@ export function ValueSetLibrary() {
     toast.success(successMsg);
     setRows(rs => rs.map(r => r.id === row.id ? { ...r, status: next, ...(extra as any) } : r));
     setSelected(s => s && s.id === row.id ? { ...s, status: next, ...(extra as any) } : s);
+  };
+
+  const handleDelete = async (row: ValueSet) => {
+    const { error } = await supabase.from("custom_value_sets").delete().eq("id", row.id);
+    if (error) return toast.error(error.message);
+    toast.success(`Deleted "${row.name}"`);
+    setRows(rs => rs.filter(r => r.id !== row.id));
+    setSelected(s => s && s.id === row.id ? null : s);
   };
 
   return (
@@ -185,9 +194,14 @@ export function ValueSetLibrary() {
                   </td>
                   <td className="px-3 py-2 text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
                   <td className="px-3 py-2 text-right">
-                    <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelected(r); }}>
-                      Open
-                    </Button>
+                    <div className="inline-flex items-center gap-1">
+                      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelected(r); }}>
+                        Open
+                      </Button>
+                      <Button size="sm" variant="ghost" className="text-rose-600 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); setDeleteTarget(r); }}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -245,6 +259,25 @@ export function ValueSetLibrary() {
               setDeprecateTarget(null);
               await transitionStatus(t, "deprecated", null, "Deprecated");
             }}>Confirm Deprecate</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete value set?</DialogTitle>
+            <DialogDescription>
+              <span className="font-semibold">{deleteTarget?.name}</span> will be permanently removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button className="bg-rose-600 hover:bg-rose-700 text-white" onClick={async () => {
+              const t = deleteTarget; if (!t) return;
+              setDeleteTarget(null);
+              await handleDelete(t);
+            }}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
