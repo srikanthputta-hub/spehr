@@ -66,9 +66,56 @@ function themeFromText(s?: string | null): string {
   if (/(antibio|infection|cellulitis|uti)/.test(t)) return "Infection Management";
   if (/(pain|analges)/.test(t)) return "Pain Management";
   if (/(renal|kidney|dialys)/.test(t)) return "Renal Care";
-  // fall back to first 4 words capitalised
-  const words = s.split(/\s+/).slice(0, 4).join(" ").trim();
-  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : "General Clinical";
+  return cleanComplaintName(s);
+}
+
+const STOP_TAIL = new Set([
+  "since", "for", "and", "or", "with", "of", "to", "the", "a", "an",
+  "on", "in", "at", "by", "from", "productive", "started", "started.",
+  "began", "ongoing", "worsening", "improving", "about", "over",
+]);
+
+function titleCase(s: string): string {
+  return s.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+function cleanComplaintName(raw: string): string {
+  let words = raw.replace(/[^a-zA-Z0-9\s\/-]/g, " ").split(/\s+/).filter(Boolean);
+  // Trim trailing stop / preposition / conjunction fragments
+  while (words.length > 1 && STOP_TAIL.has(words[words.length - 1].toLowerCase())) {
+    words.pop();
+  }
+  if (words.length === 0) return "General Clinical";
+  let name = titleCase(words.slice(0, 5).join(" "));
+  if (name.length > 36) name = name.slice(0, 36).trimEnd();
+  return name;
+}
+
+/** Derive a clean clinical theme label from the dominant validated concept. */
+function deriveThemeName(
+  fallbackTheme: string,
+  validated: Array<{ code: string; display: string; vocabulary: string }>,
+  occurrences: Map<string, number>,
+): string {
+  // Rank concepts (SNOMED/ICD preferred) by frequency
+  const clinical = validated.filter((v) => v.vocabulary === "SNOMED CT" || v.vocabulary === "ICD-10");
+  const pool = clinical.length > 0 ? clinical : validated;
+  const ranked = [...pool].sort((a, b) => {
+    const na = occurrences.get(`${a.vocabulary}|${a.code}`) ?? 0;
+    const nb = occurrences.get(`${b.vocabulary}|${b.code}`) ?? 0;
+    return nb - na;
+  });
+  const top = ranked[0]?.display?.trim();
+  let base: string;
+  if (top && top.length > 2 && !/^\d+$/.test(top)) {
+    base = cleanComplaintName(top);
+  } else {
+    base = cleanComplaintName(fallbackTheme);
+  }
+  const suffix = " (Auto)";
+  const maxBase = 40 - suffix.length;
+  if (base.length > maxBase) base = base.slice(0, maxBase).trimEnd();
+  return `${base}${suffix}`;
 }
 
 async function logActivity(opts: {
@@ -230,22 +277,42 @@ async function runAutoTerminologistCycle() {
       });
     }
 
-    const activeFrac = validated.filter((c) => c.active).length / validated.length;
+    // --- Confidence (weighted blend) ---
+    const totalCodes = validated.length;
+    const validCount = validated.filter((c) => c.active).length;
+    const validFraction = totalCodes === 0 ? 0 : validCount / totalCodes;
+
     const vocabCount: Record<string, number> = {};
     for (const c of validated) vocabCount[c.vocabulary] = (vocabCount[c.vocabulary] ?? 0) + 1;
     const dominantVocab = Object.entries(vocabCount).sort((a, b) => b[1] - a[1])[0][0];
-    const tightness = (vocabCount[dominantVocab] ?? 0) / validated.length;
+    const allSameVocabulary = (vocabCount[dominantVocab] ?? 0) === totalCodes;
+    const themeCohesion = allSameVocabulary ? 1.0 : 0.6;
+
+    const volumeScore = Math.min(totalCodes / 5, 1.0);
+
     const totalFreq = group.reduce((s, g) => s + g.n, 0);
-    const freqBoost = Math.min(1, totalFreq / (group.length * 6));
-    const confidence = Math.min(1, activeFrac * 0.55 + tightness * 0.3 + freqBoost * 0.15);
+    const avgOccurrences = totalFreq / Math.max(1, group.length);
+    const frequencyScore = Math.min(avgOccurrences / 5, 1.0);
+
+    const confidence = Number((
+      validFraction * 0.4 +
+      themeCohesion * 0.2 +
+      volumeScore * 0.2 +
+      frequencyScore * 0.2
+    ).toFixed(2));
+
+    // --- Theme naming (derive from dominant validated concept) ---
+    const occMap = new Map<string, number>();
+    for (const g of group) occMap.set(`${g.hit.vocab}|${g.hit.code}`, g.n);
+    const themeName = deriveThemeName(theme, validated, occMap);
 
     if (confidence < 0.5) {
       heldCount += 1;
       await logActivity({
-        message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — ${group.length} uncovered ${theme.toLowerCase()} concept(s) found but confidence ${confidence.toFixed(2)} — held, not drafted.`,
+        message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — ${group.length} uncovered ${themeName.toLowerCase()} concept(s) found but confidence ${confidence.toFixed(2)} — held, not drafted.`,
         action: "skipped",
         confidence,
-        theme,
+        theme: themeName,
         codes_count: group.length,
       });
       continue;
@@ -259,7 +326,7 @@ async function runAutoTerminologistCycle() {
       .from("custom_value_sets")
       .select("id, name, codes, change_history")
       .eq("steward", "Auto Terminologist")
-      .ilike("name", `Auto · ${theme}%`);
+      .ilike("name", `Auto · ${themeName}%`);
 
     let prior: any = null;
     for (const ps of (priorSets ?? []) as any[]) {
@@ -279,10 +346,10 @@ async function runAutoTerminologistCycle() {
         .eq("id", prior.id);
       touchedCount += 1;
       await logActivity({
-        message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Recurring gap '${theme}' (${group.length} codes) — refreshed last-seen on existing draft (${prior.name}).`,
+        message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Recurring gap '${themeName}' (${group.length} codes) — refreshed last-seen on existing draft (${prior.name}).`,
         action: "touched",
         confidence,
-        theme,
+        theme: themeName,
         codes_count: group.length,
         value_set_id: prior.id,
       });
@@ -290,7 +357,7 @@ async function runAutoTerminologistCycle() {
     }
 
     const ts = Date.now();
-    const name = `Auto · ${theme} (${ts.toString(36)})`;
+    const name = `Auto · ${themeName} (${ts.toString(36)})`;
     const oid = `2.16.840.1.113883.3.spehr.auto.${ts}`;
     const insert = {
       name,
@@ -302,8 +369,8 @@ async function runAutoTerminologistCycle() {
       author: "Auto Terminologist",
       steward: "Auto Terminologist",
       oid,
-      description: `Auto-detected coverage gap on ${new Date().toLocaleDateString()}. Theme: ${theme}. Drafted by the autonomous terminologist agent from ${totalFreq} occurrences in last 24h.`,
-      clinical_application: theme,
+      description: `Auto-detected coverage gap on ${new Date().toLocaleDateString()}. Theme: ${themeName}. Drafted by the autonomous terminologist agent from ${totalFreq} occurrences in last 24h.`,
+      clinical_application: themeName,
       change_history: [
         {
           at: new Date().toISOString(),
@@ -327,10 +394,10 @@ async function runAutoTerminologistCycle() {
     }
     draftedCount += 1;
     await logActivity({
-      message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Scanned ${admissions} admissions (last 24h). Detected ${group.length} uncovered ${theme.toLowerCase()} concepts. Drafted '${theme}' (${validated.length} codes, ${dominantVocab}) → submitted for ${status} · confidence ${confidence.toFixed(2)}.`,
+      message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Scanned ${admissions} admissions (last 24h). Detected ${group.length} uncovered ${themeName.toLowerCase()} concepts. Drafted '${themeName}' (${validated.length} codes, ${dominantVocab}) → submitted for ${status} · confidence ${confidence.toFixed(2)}.`,
       action: status === "review" ? "drafted_for_review" : "drafted",
       confidence,
-      theme,
+      theme: themeName,
       codes_count: validated.length,
       value_set_id: created?.id ?? null,
     });
