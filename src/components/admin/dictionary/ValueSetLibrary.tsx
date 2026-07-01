@@ -109,6 +109,14 @@ export function ValueSetLibrary() {
     setSelected(s => s && s.id === row.id ? { ...s, status: next, ...(extra as any) } : s);
   };
 
+  const handleDelete = async (row: ValueSet) => {
+    const { error } = await supabase.from("custom_value_sets").delete().eq("id", row.id);
+    if (error) return toast.error(error.message);
+    toast.success(`Deleted "${row.name}"`);
+    setRows(rs => rs.filter(r => r.id !== row.id));
+    setSelected(s => s && s.id === row.id ? null : s);
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-slate-200 bg-white p-5">
