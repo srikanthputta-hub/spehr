@@ -194,9 +194,14 @@ export function ValueSetLibrary() {
                   </td>
                   <td className="px-3 py-2 text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
                   <td className="px-3 py-2 text-right">
-                    <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelected(r); }}>
-                      Open
-                    </Button>
+                    <div className="inline-flex items-center gap-1">
+                      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelected(r); }}>
+                        Open
+                      </Button>
+                      <Button size="sm" variant="ghost" className="text-rose-600 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); setDeleteTarget(r); }}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
