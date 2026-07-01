@@ -49,6 +49,7 @@ export function ValueSetLibrary() {
   const [selected, setSelected] = useState<ValueSet | null>(null);
   const [publishTarget, setPublishTarget] = useState<ValueSet | null>(null);
   const [deprecateTarget, setDeprecateTarget] = useState<ValueSet | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ValueSet | null>(null);
 
   useEffect(() => {
     let alive = true;
