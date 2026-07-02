@@ -28,6 +28,7 @@ import { matchPmh, type PmhCode } from "@/lib/pmh-map";
 import { lookupAllergenSnomed } from "@/lib/allergen-map";
 import { VITALS_LOINC } from "@/lib/vitals-loinc-map";
 import { lookupLabLoinc } from "@/lib/lab-loinc-map";
+import { lookupDrugRxnorm, leadingDrugToken } from "@/lib/drug-rxnorm-map";
 
 // ─── Locking: prevent overlap between Re-code + sweep ────────────────────
 const inFlight = new Set<string>();
@@ -131,18 +132,33 @@ export async function runSixStreamPipeline(
     const streamA: StreamResult = { status: "coded", count: 0, items: [] };
     let aConfidence = 0;
     if (cc) {
+      // Ladder: CHV → resolveAndValidate → (retry with first 3 words) → crosswalk
       const chv = await resolveChv(cc);
-      const resolvedTerm = chv?.display?.trim() || cc.split(/\s+/).slice(0, 4).join(" ");
-      const sr = await resolveAndValidateSnomed(resolvedTerm);
+      if (!chv) console.error("[stream-a] chv miss", { cc });
+      const term1 = chv?.display?.trim() || cc;
+      let sr = await resolveAndValidateSnomed(term1);
+      if (!sr || (sr.confidence ?? 0) < 0.5) {
+        const shortTerm = cc.split(/\s+/).slice(0, 3).join(" ");
+        console.error("[stream-a] low confidence, retrying with 3-word head", {
+          cc, term1, first: sr, shortTerm,
+        });
+        if (shortTerm && shortTerm.toLowerCase() !== term1.toLowerCase()) {
+          const sr2 = await resolveAndValidateSnomed(shortTerm);
+          if (sr2 && (sr2.confidence ?? 0) > (sr?.confidence ?? 0)) sr = sr2;
+        }
+      }
       const snomed = sr?.code ?? null;
-      const snomedDisplay = sr?.display ?? resolvedTerm;
+      const snomedDisplay = sr?.display ?? term1;
       aConfidence = sr?.confidence ?? 0;
       let icd10Code: string | null = null;
       let icd10Display: string | null = null;
       if (snomed) {
         const cw = await crosswalkSnomedToIcd10(snomed);
+        if (!cw) console.error("[stream-a] crosswalk miss", { snomed });
         icd10Code = cw?.code ?? null;
         icd10Display = cw?.display ?? null;
+      } else {
+        console.error("[stream-a] no SNOMED resolved", { cc, term1, sr });
       }
       if (snomed) {
         await upsertCondition({
