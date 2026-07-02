@@ -221,7 +221,7 @@ export async function runSixStreamPipeline(
       for (const m of formMeds) {
         const drugName = String(m.name ?? "").trim();
         if (!drugName) continue;
-        const rx = await resolveRxNorm(drugName);
+        const rx = await resolveDrugSafe(drugName);
         if (!rx) continue;
         // Idempotent: skip if a row already exists for this mrn+drug
         const { data: existing } = await supabase
@@ -262,7 +262,7 @@ export async function runSixStreamPipeline(
           streamC.items.push({ id: m.id, name: drugName, rxnorm_code: m.rxnorm_code });
           continue;
         }
-        const rx = await resolveRxNorm(drugName);
+        const rx = await resolveDrugSafe(drugName);
         if (!rx) continue;
         await supabase
           .from("medication_orders")
