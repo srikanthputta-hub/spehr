@@ -24,7 +24,9 @@ type Action =
   | "rxnorm"
   | "rxnormDetail"
   | "meddra"
-  | "crosswalk";
+  | "crosswalk"
+  | "chv"
+  | "resolveAndValidate";
 
 const memo = new Map<string, Promise<ResolvedCode | null>>();
 
@@ -170,4 +172,60 @@ export function resolveLoinc(text: string): Promise<ResolvedCode | null> {
     memo.set(key, p);
   }
   return p;
+}
+
+/** CHV lay-language → clinical term resolver. */
+export async function resolveChv(text: string): Promise<ResolvedCode | null> {
+  const term = (text ?? "").trim();
+  if (!term) return null;
+  try {
+    const payload: any = await invokeProxy("chv", { string: term });
+    return topUmlsHit(payload);
+  } catch (e) {
+    console.warn("[umls] chv resolve failed:", term, e);
+    return null;
+  }
+}
+
+/** Text → SNOMED with proxy's confidence + status routing. */
+export async function resolveAndValidateSnomed(text: string): Promise<{
+  code: string | null;
+  display: string | null;
+  confidence: number;
+} | null> {
+  const term = (text ?? "").trim();
+  if (!term) return null;
+  try {
+    const payload: any = await invokeProxy("resolveAndValidate", {
+      string: term,
+      sab: "SNOMEDCT_US",
+    });
+    return {
+      code: payload?.resolvedCode ?? null,
+      display: payload?.resolvedName ?? null,
+      confidence: typeof payload?.confidence === "number" ? payload.confidence : 0,
+    };
+  } catch (e) {
+    console.warn("[umls] resolveAndValidate failed:", term, e);
+    return null;
+  }
+}
+
+/** SNOMED → ICD-10 crosswalk via umls-proxy. */
+export async function crosswalkSnomedToIcd10(snomed: string): Promise<ResolvedCode | null> {
+  const code = (snomed ?? "").trim();
+  if (!code) return null;
+  try {
+    const payload: any = await invokeProxy("crosswalk", {
+      fromSab: "SNOMEDCT_US",
+      fromCode: code,
+      toSab: "ICD10CM",
+    });
+    const match = payload?.result ?? payload?.matches?.[0] ?? null;
+    if (!match?.code) return null;
+    return { code: String(match.code), display: String(match.name ?? match.code) };
+  } catch (e) {
+    console.warn("[umls] crosswalk failed:", code, e);
+    return null;
+  }
 }
