@@ -30,6 +30,26 @@ import { VITALS_LOINC } from "@/lib/vitals-loinc-map";
 import { lookupLabLoinc } from "@/lib/lab-loinc-map";
 import { lookupDrugRxnorm, leadingDrugToken } from "@/lib/drug-rxnorm-map";
 
+/**
+ * Stream C helper: hardcoded map first, then live RxNorm with an exact
+ * leading-token check to reject fuzzy hits (e.g. Omeprazole → esomeprazole).
+ */
+async function resolveDrugSafe(drugName: string) {
+  const local = lookupDrugRxnorm(drugName);
+  if (local) return local;
+  const rx = await resolveRxNorm(drugName);
+  if (!rx) return null;
+  const inputHead = leadingDrugToken(drugName);
+  const resolvedHead = leadingDrugToken(rx.display);
+  if (!inputHead || !resolvedHead || inputHead !== resolvedHead) {
+    console.warn("[stream-c] rejected fuzzy RxNorm match", {
+      input: drugName, inputHead, resolved: rx, resolvedHead,
+    });
+    return null;
+  }
+  return rx;
+}
+
 // ─── Locking: prevent overlap between Re-code + sweep ────────────────────
 const inFlight = new Set<string>();
 
