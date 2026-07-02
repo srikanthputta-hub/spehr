@@ -128,6 +128,7 @@ function RootComponent() {
   useBackgroundFhirSync();
   useStartupRecovery();
   useAutoTerminologist();
+  useCodingPipelineSweep();
   useEffect(() => { startLocalGcSweeper(); }, []);
 
   return (
