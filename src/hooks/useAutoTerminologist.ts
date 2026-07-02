@@ -23,9 +23,28 @@ import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
  */
 
 const RUN_INTERVAL_MS = 10 * 60_000;
+// Tick frequently and gate on DB-recorded last_run_at so cycles fire on time
+// even when a background tab throttles setInterval or a leader tab is closed.
+const TICK_MS = 60_000;
 const LEADER_KEY = "spehr.autoterm.leader";
-const LEADER_LEASE_MS = 12 * 60_000;
+const LEADER_LEASE_MS = 3 * 60_000;
 const TAB_ID = Math.random().toString(36).slice(2);
+
+/** Read the last-run timestamp from the activity log (max run_at). */
+async function getLastRunAt(): Promise<number | null> {
+  try {
+    const { data } = await supabase
+      .from("auto_terminologist_log" as any)
+      .select("run_at")
+      .order("run_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const ts = (data as any)?.run_at;
+    return ts ? new Date(ts).getTime() : null;
+  } catch {
+    return null;
+  }
+}
 
 function tryAcquireLeader(): boolean {
   if (typeof window === "undefined") return false;
@@ -86,9 +105,9 @@ function cleanComplaintName(raw: string): string {
     words.pop();
   }
   if (words.length === 0) return "General Clinical";
-  let name = titleCase(words.slice(0, 5).join(" "));
-  if (name.length > 36) name = name.slice(0, 36).trimEnd();
-  return name;
+  // No character/word cap — preserve full clinical concept so downstream
+  // UMLS lookups don't get mid-word truncation (e.g. "Chest Pressur").
+  return titleCase(words.join(" "));
 }
 
 /** Derive a clean clinical theme label from the dominant validated concept. */
@@ -112,10 +131,8 @@ function deriveThemeName(
   } else {
     base = cleanComplaintName(fallbackTheme);
   }
-  const suffix = " (Auto)";
-  const maxBase = 40 - suffix.length;
-  if (base.length > maxBase) base = base.slice(0, maxBase).trimEnd();
-  return `${base}${suffix}`;
+  // Preserve the full concept name — no character truncation.
+  return `${base} (Auto)`;
 }
 
 async function logActivity(opts: {
@@ -140,19 +157,28 @@ async function logActivity(opts: {
   }
 }
 
-async function validateCode(code: string, vocab: CodeHit["vocab"]): Promise<{ active: boolean; display?: string }> {
+async function validateCode(
+  text: string,
+  vocab: CodeHit["vocab"],
+): Promise<{ active: boolean; display?: string; confidence?: number; resolvedCode?: string }> {
   const sab =
     vocab === "SNOMED CT" ? "SNOMEDCT_US" :
     vocab === "ICD-10" ? "ICD10CM" :
     vocab === "LOINC" ? "LNC" : "RXNORM";
   try {
     const { data, error } = await supabase.functions.invoke("umls-proxy", {
-      body: { action: "validate", params: { code, sab } },
+      // Resolve raw clinical text → SNOMED code (no truncation).
+      body: { action: "resolveAndValidate", params: { string: text, sab } },
     });
     if (error) return { active: false };
-    const r = (data as any)?.result;
-    if (!r || !r.name) return { active: false };
-    return { active: r.status !== "obsolete", display: r.name };
+    const d = data as any;
+    if (!d?.valid) return { active: false, confidence: d?.confidence ?? 0 };
+    return {
+      active: true,
+      display: d.resolvedName ?? undefined,
+      resolvedCode: d.resolvedCode ?? undefined,
+      confidence: d.confidence ?? undefined,
+    };
   } catch {
     return { active: false };
   }
@@ -267,9 +293,11 @@ async function runAutoTerminologistCycle() {
     // Validate each code via umls-proxy
     const validated: Array<{ code: string; display: string; vocabulary: string; status: string; active: boolean }> = [];
     for (const g of group) {
-      const v = await validateCode(g.hit.code, g.hit.vocab);
+      // Prefer human display text; fall back to the code if display missing.
+      const probe = (g.hit.display ?? "").trim() || g.hit.code;
+      const v = await validateCode(probe, g.hit.vocab);
       validated.push({
-        code: g.hit.code,
+        code: v.resolvedCode ?? g.hit.code,
         display: v.display ?? g.hit.display ?? g.hit.code,
         vocabulary: g.hit.vocab,
         status: v.active ? "active" : "unknown",
@@ -437,15 +465,23 @@ export function useAutoTerminologist() {
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
-    const tick = () => {
+    const tick = async () => {
       if (!tryAcquireLeader()) return;
+      const last = await getLastRunAt();
+      if (last && Date.now() - last < RUN_INTERVAL_MS) return;
+      // Insert a heartbeat FIRST so last_run_at advances even if the cycle
+      // errors mid-flight — prevents multi-hour drift.
+      await supabase.from("auto_terminologist_log" as any).insert({
+        message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Cycle started.`,
+        action: "heartbeat",
+      } as any).then(() => {}, () => {});
       runAutoTerminologistCycle().catch((e) =>
         console.warn("[auto-term] cycle failed", e),
       );
     };
     // Stagger first run by 25s so it doesn't race other boot tasks.
     const boot = setTimeout(tick, 25_000);
-    const id = setInterval(tick, RUN_INTERVAL_MS);
+    const id = setInterval(tick, TICK_MS);
     return () => {
       clearTimeout(boot);
       clearInterval(id);
