@@ -725,6 +725,7 @@ export type Database = {
           recorded_by: string | null
           snomed_code: string | null
           snomed_display: string | null
+          source_section: string | null
           term_status: string | null
           umls_cui: string | null
           updated_at: string
@@ -747,6 +748,7 @@ export type Database = {
           recorded_by?: string | null
           snomed_code?: string | null
           snomed_display?: string | null
+          source_section?: string | null
           term_status?: string | null
           umls_cui?: string | null
           updated_at?: string
@@ -769,6 +771,7 @@ export type Database = {
           recorded_by?: string | null
           snomed_code?: string | null
           snomed_display?: string | null
+          source_section?: string | null
           term_status?: string | null
           umls_cui?: string | null
           updated_at?: string
@@ -1444,6 +1447,8 @@ export type Database = {
           created_by_type: Database["public"]["Enums"]["provenance_origin"]
           flag: string | null
           id: string
+          loinc_code: string | null
+          loinc_display: string | null
           mrn: string | null
           panel_name: string | null
           reference_range: string | null
@@ -1459,6 +1464,8 @@ export type Database = {
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           flag?: string | null
           id?: string
+          loinc_code?: string | null
+          loinc_display?: string | null
           mrn?: string | null
           panel_name?: string | null
           reference_range?: string | null
@@ -1474,6 +1481,8 @@ export type Database = {
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           flag?: string | null
           id?: string
+          loinc_code?: string | null
+          loinc_display?: string | null
           mrn?: string | null
           panel_name?: string | null
           reference_range?: string | null
@@ -2906,6 +2915,9 @@ export type Database = {
           bp_systolic: number | null
           hr: number | null
           id: string
+          loinc_code: string | null
+          loinc_display: string | null
+          loinc_map: Json | null
           mrn: string
           recorded_at: string
           rr: number | null
@@ -2918,6 +2930,9 @@ export type Database = {
           bp_systolic?: number | null
           hr?: number | null
           id?: string
+          loinc_code?: string | null
+          loinc_display?: string | null
+          loinc_map?: Json | null
           mrn: string
           recorded_at?: string
           rr?: number | null
@@ -2930,6 +2945,9 @@ export type Database = {
           bp_systolic?: number | null
           hr?: number | null
           id?: string
+          loinc_code?: string | null
+          loinc_display?: string | null
+          loinc_map?: Json | null
           mrn?: string
           recorded_at?: string
           rr?: number | null
