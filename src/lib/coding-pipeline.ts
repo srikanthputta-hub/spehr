@@ -353,19 +353,58 @@ export async function runSixStreamPipeline(
 
     // -------- Stream E: Vitals (LOINC static map) ---------------------
     const streamE: StreamResult = { status: "coded", count: 0, items: [] };
-    const vRow: any = useForm
+    let vRow: any = useForm
       ? (admissionData?.vitals ?? null)
       : (vitalsRes.data ?? [])[0];
+    // Fallback for automated/ghost admissions: form data absent AND no vitals
+    // row yet → reconstruct from up to 5 recent observations.
+    if (!useForm && !vRow) {
+      const { data: obs } = await supabase
+        .from("observations")
+        .select("loinc_code, display_name, value_numeric, value")
+        .eq("patient_mrn", mrn)
+        .order("recorded_at", { ascending: false })
+        .limit(5);
+      const merged: Record<string, number | null> = {};
+      const codeToKey: Record<string, string> = {
+        "8867-4": "hr",
+        "8480-6": "bp_systolic",
+        "8462-4": "bp_diastolic",
+        "59408-5": "spo2",
+        "9279-1": "rr",
+        "8310-5": "temp_c",
+      };
+      for (const o of (obs ?? []) as any[]) {
+        const raw = String(o.loinc_code ?? "").trim();
+        const name = String(o.display_name ?? "").toLowerCase();
+        let key = codeToKey[raw];
+        if (!key) {
+          if (/heart\s*rate|pulse/.test(name)) key = "hr";
+          else if (/systolic/.test(name)) key = "bp_systolic";
+          else if (/diastolic/.test(name)) key = "bp_diastolic";
+          else if (/oxygen|spo2|sat/.test(name)) key = "spo2";
+          else if (/resp/.test(name)) key = "rr";
+          else if (/temp/.test(name)) key = "temp_c";
+        }
+        if (!key || merged[key] != null) continue;
+        const v = o.value_numeric != null ? Number(o.value_numeric) : Number(o.value);
+        merged[key] = Number.isFinite(v) ? v : null;
+      }
+      if (Object.keys(merged).length) vRow = merged;
+    }
     if (vRow) {
       const codes: string[] = [];
       const displays: string[] = [];
       const loincMap: Record<string, string> = {};
+      const seenCodes = new Set<string>();
       for (const key of Object.keys(VITALS_LOINC)) {
-        if (vRow[key] != null) {
-          codes.push(VITALS_LOINC[key].code);
-          displays.push(VITALS_LOINC[key].display);
-          loincMap[key] = VITALS_LOINC[key].code;
-        }
+        if (vRow[key] == null) continue;
+        const { code, display } = VITALS_LOINC[key];
+        if (seenCodes.has(code)) continue;
+        seenCodes.add(code);
+        codes.push(code);
+        displays.push(display);
+        loincMap[key] = code;
       }
       if (codes.length) {
         if (useForm) {
