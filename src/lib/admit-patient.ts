@@ -174,7 +174,40 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   }
 
   // Fire-and-forget six-stream coding pipeline. Never blocks admission.
-  void runSixStreamPipeline(mrn).catch((e) =>
+  // Pass form-time snapshot so Streams C/D/E/F don't depend on empty tables.
+  const it2 = input.intake;
+  const tempC =
+    typeof payload.temp === "number" ? +(((payload.temp as number) - 32) * (5 / 9)).toFixed(1) : null;
+  const admissionData = {
+    medications: (it2?.currentMeds ?? [])
+      .map((m) => ({
+        name: (m.name ?? "").trim(),
+        dose: (m.dose ?? "").trim() || undefined,
+        frequency: (m.freq ?? "").trim() || undefined,
+      }))
+      .filter((m) => m.name),
+    vitals: {
+      bp_systolic: payload.bp_systolic ?? null,
+      bp_diastolic: payload.bp_diastolic ?? null,
+      hr: payload.hr ?? null,
+      spo2: payload.spo2 ?? null,
+      temp_c: tempC,
+    },
+    labs: [] as Array<{ test_name: string }>,
+    allergies: [
+      ...(it2?.drugAllergies ?? [])
+        .map((a) => ({
+          substance: (a.name ?? "").trim(),
+          reaction: (a.reaction ?? "").trim() || null,
+          type: "drug",
+        }))
+        .filter((a) => a.substance),
+      ...(it2?.envAllergies ?? [])
+        .map((s) => ({ substance: String(s ?? "").trim(), reaction: null, type: "environmental" }))
+        .filter((a) => a.substance),
+    ],
+  };
+  void runSixStreamPipeline(mrn, admissionData).catch((e) =>
     console.warn("[admit] coding pipeline failed", e),
   );
 
