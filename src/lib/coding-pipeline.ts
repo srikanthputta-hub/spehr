@@ -512,7 +512,9 @@ export async function runSixStreamPipeline(
       },
     };
 
-    await supabase.from("nlp_audit_logs" as any).insert({
+    // Idempotent: update the existing pending row for this MRN if present,
+    // otherwise insert a fresh one. Re-code always updates in place.
+    const auditPayload = {
       patient_mrn: mrn,
       raw_text: rawParts.join(" | "),
       extraction_mapping: extractionMapping,
@@ -520,7 +522,24 @@ export async function runSixStreamPipeline(
       confidence_score: confidence,
       status: "pending",
       resolution_method: "auto-6-stream",
-    } as any);
+      updated_at: new Date().toISOString(),
+    } as any;
+    const { data: existingAudit } = await supabase
+      .from("nlp_audit_logs" as any)
+      .select("id")
+      .eq("patient_mrn", mrn)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if ((existingAudit as any)?.id) {
+      await supabase
+        .from("nlp_audit_logs" as any)
+        .update(auditPayload)
+        .eq("id", (existingAudit as any).id);
+    } else {
+      await supabase.from("nlp_audit_logs" as any).insert(auditPayload);
+    }
 
     return {
       mrn,
