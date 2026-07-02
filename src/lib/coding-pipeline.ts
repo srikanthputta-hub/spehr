@@ -155,7 +155,7 @@ export async function runSixStreamPipeline(
       // Ladder: CHV → resolveAndValidate → (retry with first 3 words) → crosswalk
       const chv = await resolveChv(cc);
       if (!chv) console.error("[stream-a] chv miss", { cc });
-      const term1 = chv?.display?.trim() || cc;
+      const term1 = (chv?.name ?? chv?.display)?.trim() || cc;
       let sr = await resolveAndValidateSnomed(term1);
       if (!sr || (sr.confidence ?? 0) < 0.5) {
         const shortTerm = cc.split(/\s+/).slice(0, 3).join(" ");
@@ -541,7 +541,35 @@ export async function runSixStreamPipeline(
       streamF.items.push({ id: lab.id, test_name: name, loinc_code: code, loinc_display: display });
     }
     }
-    streamF.status = statusFor(streamF.count, labsExpected);
+    // Always sweep lab_results table for this MRN — labs arrive from
+    // Auto Doc Pipeline after admission, so useForm path misses them.
+    const { data: pendingLabs } = await supabase
+      .from("lab_results")
+      .select("id, test_name, loinc_code")
+      .eq("mrn", mrn);
+    for (const lab of (pendingLabs ?? []) as any[]) {
+      if (lab.loinc_code) continue; // already coded
+      const name = String(lab.test_name ?? "").trim();
+      if (!name) continue;
+      const pre = lookupLabLoinc(name);
+      let code: string | null = pre?.code ?? null;
+      let display: string | null = pre?.display ?? null;
+      if (!code) {
+        const hit = await resolveLoinc(name);
+        if (hit) { code = hit.code; display = hit.display; }
+      }
+      if (!code) continue;
+      await supabase
+        .from("lab_results")
+        .update({ loinc_code: code, loinc_display: display } as any)
+        .eq("id", lab.id);
+      // avoid double-counting items already added by the useForm pass
+      if (!streamF.items.find((i: any) => i.test_name === name)) {
+        streamF.count++;
+        streamF.items.push({ id: lab.id, test_name: name, loinc_code: code, loinc_display: display });
+      }
+    }
+    streamF.status = statusFor(streamF.count, Math.max(labsExpected, streamF.count));
 
     // -------- Overall confidence --------------------------------------
     // Stream A confidence is 0-1 from proxy. Direct-mapped streams add 1.0

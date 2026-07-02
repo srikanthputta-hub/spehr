@@ -15,7 +15,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 
-export type ResolvedCode = { code: string; display: string };
+export type ResolvedCode = { code: string; display: string; name?: string };
 
 type Action =
   | "icd10"
