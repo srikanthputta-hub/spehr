@@ -4712,9 +4712,10 @@ function MedicalDictionary() {
       {subtab === "library"   && <ValueSetLibrary />}
       {subtab === "authoring" && <AuthoringWorkbench />}
       {subtab === "crossmap"  && <CrossMapStudio />}
-      {subtab === "audits" && <NlpAuditLogs facility={facilityFilter} />}
+      {subtab === "audits" && <NlpAuditLogsPanel />}
       {subtab === "audits" && <UmlsResolutionTrail />}
       {subtab === "audits" && <QaGovernanceQueue />}
+      {subtab === "matrix" && <LiveTerminologyMatrixPanel />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "safety" && <CdsOverridesFeed />}
