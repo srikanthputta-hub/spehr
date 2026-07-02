@@ -52,6 +52,24 @@ export type PipelineResult = {
   };
 };
 
+/**
+ * Raw form fields captured at admission time. Streams C–F prefer these
+ * over Supabase reads because tables are empty at first save.
+ */
+export interface AdmissionData {
+  medications?: Array<{ name: string; dose?: string; route?: string; frequency?: string }>;
+  vitals?: {
+    bp_systolic?: number | null;
+    bp_diastolic?: number | null;
+    hr?: number | null;
+    spo2?: number | null;
+    rr?: number | null;
+    temp_c?: number | null;
+  } | null;
+  labs?: Array<{ test_name: string; result_value?: string | number | null; unit?: string | null; flag?: string | null; loinc_code?: string | null }>;
+  allergies?: Array<{ substance: string; reaction?: string | null; type?: string | null }>;
+}
+
 function statusFor(count: number, expected: number): StreamStatus {
   if (expected === 0) return "coded"; // nothing to code = fine
   if (count === 0) return "failed";
@@ -60,7 +78,10 @@ function statusFor(count: number, expected: number): StreamStatus {
 }
 
 /** Run every coding stream for one MRN. Safe to call repeatedly. */
-export async function runSixStreamPipeline(mrn: string): Promise<PipelineResult | null> {
+export async function runSixStreamPipeline(
+  mrn: string,
+  admissionData?: AdmissionData,
+): Promise<PipelineResult | null> {
   if (!mrn) return null;
   if (inFlight.has(mrn)) return null;
   inFlight.add(mrn);
@@ -79,26 +100,31 @@ export async function runSixStreamPipeline(mrn: string): Promise<PipelineResult 
       `${(patient as any).first_name ?? ""} ${(patient as any).last_name ?? ""}`.trim() ||
       null;
 
-    const [medsRes, allergiesRes, vitalsRes, labsRes] = await Promise.all([
-      supabase
-        .from("medication_orders")
-        .select("id, medication_name, drug_name, medication, drug, name, rxnorm_code")
-        .eq("patient_mrn", mrn),
-      supabase
-        .from("allergies")
-        .select("id, substance, reaction, substance_rxcui, reaction_snomed")
-        .eq("mrn", mrn),
-      supabase
-        .from("vitals")
-        .select("id, hr, bp_systolic, bp_diastolic, spo2, rr, temp_c, loinc_code")
-        .eq("mrn", mrn)
-        .order("recorded_at", { ascending: false })
-        .limit(1),
-      supabase
-        .from("lab_results")
-        .select("id, test_name, loinc_code")
-        .eq("mrn", mrn),
-    ]);
+    // Streams C-F prefer admissionData (form-time snapshot). When the
+    // sweep re-runs after tables are populated, fall back to reading.
+    const useForm = !!admissionData;
+    const [medsRes, allergiesRes, vitalsRes, labsRes] = useForm
+      ? [{ data: [] as any[] }, { data: [] as any[] }, { data: [] as any[] }, { data: [] as any[] }]
+      : await Promise.all([
+          supabase
+            .from("medication_orders")
+            .select("id, medication_name, drug_name, medication, drug, name, rxnorm_code")
+            .eq("patient_mrn", mrn),
+          supabase
+            .from("allergies")
+            .select("id, substance, reaction, substance_rxcui, reaction_snomed")
+            .eq("mrn", mrn),
+          supabase
+            .from("vitals")
+            .select("id, hr, bp_systolic, bp_diastolic, spo2, rr, temp_c, loinc_code")
+            .eq("mrn", mrn)
+            .order("recorded_at", { ascending: false })
+            .limit(1),
+          supabase
+            .from("lab_results")
+            .select("id, test_name, loinc_code")
+            .eq("mrn", mrn),
+        ]);
 
     // -------- Stream A: Chief Complaint --------------------------------
     const cc = String((patient as any).chief_complaint ?? "").trim();
@@ -171,39 +197,118 @@ export async function runSixStreamPipeline(mrn: string): Promise<PipelineResult 
     streamB.status = statusFor(streamB.count, pmhHits.length);
 
     // -------- Stream C: Medications -----------------------------------
-    const meds = (medsRes.data ?? []) as any[];
     const streamC: StreamResult = { status: "coded", count: 0, items: [] };
-    for (const m of meds) {
-      const drugName = String(
-        m.medication_name || m.drug_name || m.medication || m.drug || m.name || "",
-      ).trim();
-      if (!drugName) continue;
-      if (m.rxnorm_code) {
-        streamC.count++;
-        streamC.items.push({ id: m.id, name: drugName, rxnorm_code: m.rxnorm_code });
-        continue;
-      }
-      const rx = await resolveRxNorm(drugName);
-      if (!rx) continue;
-      await supabase
-        .from("medication_orders")
-        .update({
+    const formMeds = admissionData?.medications ?? [];
+    const dbMeds = (medsRes.data ?? []) as any[];
+    const medsExpected = useForm ? formMeds.length : dbMeds.length;
+    if (useForm) {
+      for (const m of formMeds) {
+        const drugName = String(m.name ?? "").trim();
+        if (!drugName) continue;
+        const rx = await resolveRxNorm(drugName);
+        if (!rx) continue;
+        // Idempotent: skip if a row already exists for this mrn+drug
+        const { data: existing } = await supabase
+          .from("medication_orders")
+          .select("id")
+          .eq("patient_mrn", mrn)
+          .eq("medication_name", drugName)
+          .maybeSingle();
+        const row = {
+          patient_mrn: mrn,
+          medication_name: drugName,
+          dose: m.dose ?? null,
+          route: m.route ?? null,
+          frequency: m.frequency ?? null,
           rxnorm_code: rx.code,
           rxnorm_display: rx.display,
           coding_source: "nlp-stream-c",
           coded_at: new Date().toISOString(),
           term_status: "pending",
-        } as any)
-        .eq("id", m.id);
-      streamC.count++;
-      streamC.items.push({ id: m.id, name: drugName, rxnorm_code: rx.code, rxnorm_display: rx.display });
+          status: "pending",
+        } as any;
+        if ((existing as any)?.id) {
+          await supabase.from("medication_orders").update(row).eq("id", (existing as any).id);
+        } else {
+          await supabase.from("medication_orders").insert(row);
+        }
+        streamC.count++;
+        streamC.items.push({ name: drugName, rxnorm_code: rx.code, rxnorm_display: rx.display });
+      }
+    } else {
+      for (const m of dbMeds) {
+        const drugName = String(
+          m.medication_name || m.drug_name || m.medication || m.drug || m.name || "",
+        ).trim();
+        if (!drugName) continue;
+        if (m.rxnorm_code) {
+          streamC.count++;
+          streamC.items.push({ id: m.id, name: drugName, rxnorm_code: m.rxnorm_code });
+          continue;
+        }
+        const rx = await resolveRxNorm(drugName);
+        if (!rx) continue;
+        await supabase
+          .from("medication_orders")
+          .update({
+            rxnorm_code: rx.code,
+            rxnorm_display: rx.display,
+            coding_source: "nlp-stream-c",
+            coded_at: new Date().toISOString(),
+            term_status: "pending",
+          } as any)
+          .eq("id", m.id);
+        streamC.count++;
+        streamC.items.push({ id: m.id, name: drugName, rxnorm_code: rx.code, rxnorm_display: rx.display });
+      }
     }
-    streamC.status = statusFor(streamC.count, meds.length);
+    streamC.status = statusFor(streamC.count, medsExpected);
 
     // -------- Stream D: Allergies -------------------------------------
-    const allergies = (allergiesRes.data ?? []) as any[];
     const streamD: StreamResult = { status: "coded", count: 0, items: [] };
-    for (const a of allergies) {
+    const formAllergies = admissionData?.allergies ?? [];
+    const dbAllergies = (allergiesRes.data ?? []) as any[];
+    const allergiesExpected = useForm ? formAllergies.length : dbAllergies.length;
+    if (useForm) {
+      for (const a of formAllergies) {
+        const substance = String(a.substance ?? "").trim();
+        if (!substance) continue;
+        const patch: Record<string, unknown> = {
+          mrn,
+          substance,
+          reaction: a.reaction ?? null,
+          allergy_type: a.type ?? null,
+          coding_source: "nlp-stream-d",
+          coded_at: new Date().toISOString(),
+        };
+        const envHit = lookupAllergenSnomed(substance);
+        if (envHit) {
+          patch.substance_snomed = envHit.snomed;
+        } else {
+          const rx = await resolveRxNorm(substance);
+          if (rx) patch.substance_rxcui = rx.code;
+        }
+        const reaction = String(a.reaction ?? "").trim();
+        if (reaction) {
+          const rSnomed = await resolveAndValidateSnomed(reaction);
+          if (rSnomed?.code) patch.reaction_snomed = rSnomed.code;
+        }
+        const { data: existing } = await supabase
+          .from("allergies")
+          .select("id")
+          .eq("mrn", mrn)
+          .eq("substance", substance)
+          .maybeSingle();
+        if ((existing as any)?.id) {
+          await supabase.from("allergies").update(patch as any).eq("id", (existing as any).id);
+        } else {
+          await supabase.from("allergies").insert(patch as any);
+        }
+        streamD.count++;
+        streamD.items.push({ substance, ...patch });
+      }
+    } else {
+    for (const a of dbAllergies) {
       const substance = String(a.substance ?? "").trim();
       if (!substance) continue;
       const patch: Record<string, unknown> = {};
@@ -227,11 +332,14 @@ export async function runSixStreamPipeline(mrn: string): Promise<PipelineResult 
         streamD.items.push({ id: a.id, substance, ...patch });
       }
     }
-    streamD.status = statusFor(streamD.count, allergies.length);
+    }
+    streamD.status = statusFor(streamD.count, allergiesExpected);
 
     // -------- Stream E: Vitals (LOINC static map) ---------------------
     const streamE: StreamResult = { status: "coded", count: 0, items: [] };
-    const vRow = (vitalsRes.data ?? [])[0] as any;
+    const vRow: any = useForm
+      ? (admissionData?.vitals ?? null)
+      : (vitalsRes.data ?? [])[0];
     if (vRow) {
       const codes: string[] = [];
       const displays: string[] = [];
@@ -244,23 +352,94 @@ export async function runSixStreamPipeline(mrn: string): Promise<PipelineResult 
         }
       }
       if (codes.length) {
-        await supabase
-          .from("vitals")
-          .update({
+        if (useForm) {
+          // Insert one vitals row for this admission if none exists
+          const { data: existing } = await supabase
+            .from("vitals")
+            .select("id")
+            .eq("mrn", mrn)
+            .order("recorded_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const row = {
+            mrn,
+            hr: vRow.hr ?? null,
+            bp_systolic: vRow.bp_systolic ?? null,
+            bp_diastolic: vRow.bp_diastolic ?? null,
+            spo2: vRow.spo2 ?? null,
+            rr: vRow.rr ?? null,
+            temp_c: vRow.temp_c ?? null,
             loinc_code: codes.join(","),
             loinc_display: displays.join(","),
             loinc_map: loincMap,
-          } as any)
-          .eq("id", vRow.id);
+            recorded_at: new Date().toISOString(),
+          } as any;
+          if ((existing as any)?.id) {
+            await supabase.from("vitals").update(row).eq("id", (existing as any).id);
+          } else {
+            await supabase.from("vitals").insert(row);
+          }
+        } else {
+          await supabase
+            .from("vitals")
+            .update({
+              loinc_code: codes.join(","),
+              loinc_display: displays.join(","),
+              loinc_map: loincMap,
+            } as any)
+            .eq("id", vRow.id);
+        }
         streamE.count = codes.length;
-        streamE.items.push({ id: vRow.id, loinc_map: loincMap });
+        streamE.items.push({ loinc_map: loincMap });
       }
     }
 
     // -------- Stream F: Lab Results (LOINC) ---------------------------
-    const labs = (labsRes.data ?? []) as any[];
     const streamF: StreamResult = { status: "coded", count: 0, items: [] };
-    for (const lab of labs) {
+    const formLabs = admissionData?.labs ?? [];
+    const dbLabs = (labsRes.data ?? []) as any[];
+    const labsExpected = useForm ? formLabs.length : dbLabs.length;
+    if (useForm) {
+      for (const lab of formLabs) {
+        const name = String(lab.test_name ?? "").trim();
+        if (!name) continue;
+        let code: string | null = lab.loinc_code ?? null;
+        let display: string | null = null;
+        if (!code) {
+          const pre = lookupLabLoinc(name);
+          code = pre?.code ?? null;
+          display = pre?.display ?? null;
+        }
+        if (!code) {
+          const hit = await resolveLoinc(name);
+          if (hit) { code = hit.code; display = hit.display; }
+        }
+        if (!code) continue;
+        const { data: existing } = await supabase
+          .from("lab_results")
+          .select("id")
+          .eq("mrn", mrn)
+          .eq("test_name", name)
+          .maybeSingle();
+        const row = {
+          mrn,
+          test_name: name,
+          result_value: lab.result_value ?? null,
+          unit: lab.unit ?? null,
+          flag: lab.flag ?? null,
+          loinc_code: code,
+          loinc_display: display,
+        } as any;
+        if ((existing as any)?.id) {
+          await supabase.from("lab_results").update(row).eq("id", (existing as any).id);
+        } else {
+          await supabase.from("lab_results").insert(row);
+        }
+        streamF.count++;
+        streamF.items.push({ test_name: name, loinc_code: code, loinc_display: display });
+      }
+    } else {
+    for (const lab of dbLabs) {
       const name = String(lab.test_name ?? "").trim();
       if (!name) continue;
       if (lab.loinc_code) {
@@ -286,7 +465,8 @@ export async function runSixStreamPipeline(mrn: string): Promise<PipelineResult 
       streamF.count++;
       streamF.items.push({ id: lab.id, test_name: name, loinc_code: code, loinc_display: display });
     }
-    streamF.status = statusFor(streamF.count, labs.length);
+    }
+    streamF.status = statusFor(streamF.count, labsExpected);
 
     // -------- Overall confidence --------------------------------------
     // Stream A confidence is 0-1 from proxy. Direct-mapped streams add 1.0
@@ -304,9 +484,11 @@ export async function runSixStreamPipeline(mrn: string): Promise<PipelineResult 
     const rawParts: string[] = [];
     if (cc) rawParts.push(`CC: ${cc}`);
     if (pmhHits.length) rawParts.push(`PMH: ${pmhHits.map((p) => p.label).join(", ")}`);
-    const medNames = meds
-      .map((m) => m.medication_name || m.drug_name || m.medication || m.drug || m.name)
-      .filter(Boolean);
+    const medNames = useForm
+      ? formMeds.map((m) => m.name).filter(Boolean)
+      : dbMeds
+          .map((m) => m.medication_name || m.drug_name || m.medication || m.drug || m.name)
+          .filter(Boolean);
     if (medNames.length) rawParts.push(`MEDS: ${medNames.join(", ")}`);
 
     const standardized = {
