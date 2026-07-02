@@ -3,6 +3,7 @@ import { seedAdmission } from "@/hooks/useAIAutomation";
 import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
 import type { CodeStatus } from "@/lib/patients";
+import { runSixStreamPipeline } from "@/lib/coding-pipeline";
 
 export interface AdmitInput {
   name: string;
@@ -171,6 +172,11 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   if (!bedCheck) {
     return { ok: false, error: "No empty beds — admission was rolled back." };
   }
+
+  // Fire-and-forget six-stream coding pipeline. Never blocks admission.
+  void runSixStreamPipeline(mrn).catch((e) =>
+    console.warn("[admit] coding pipeline failed", e),
+  );
 
   return { ok: true, patient: data };
 }
