@@ -1,5 +1,14 @@
-// UMLS proxy edge function — single gateway for all terminology calls.
+// UMLS proxy edge function — v2
+// Single gateway for all terminology calls.
 // Reads UMLS_API_KEY from env; caches responses in public.umls_cache for 7 days.
+//
+// Changes from v1:
+//   P1-A: Added "resolveAndValidate" action — resolves raw clinical text to a
+//         SNOMED code via UMLS search, then validates it. Fixes Auto Terminologist
+//         confidence collapse (was 0.40–0.48 because "chest pain" was passed as
+//         a sourceUi code to an exact-match search that always returned null).
+//   P1-B: Added "subsumes" action — checks SNOMED subsumption between two codes
+//         by traversing UMLS source ancestors. Enables $subsumes in the workbench.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -16,6 +25,8 @@ const corsHeaders = {
 
 const UTS = "https://uts-ws.nlm.nih.gov/rest";
 const RXNAV = "https://rxnav.nlm.nih.gov/REST";
+
+// ─── Existing helper: crosswalk CUI fallback ─────────────────────────────────
 
 async function crosswalkCuiFallback(
   p: Record<string, unknown>,
@@ -55,6 +66,138 @@ async function crosswalkCuiFallback(
   }
 }
 
+// ─── P1-A: Resolve text → SNOMED code, validate, return confidence ───────────
+
+async function resolveAndValidate(p: Record<string, unknown>): Promise<{
+  resolvedCode: string | null;
+  resolvedName: string | null;
+  confidence: number;
+  valid: boolean;
+  statusRouting: "review" | "draft" | "held";
+  elapsed_ms: number;
+}> {
+  const started = Date.now();
+  const input = String(p.string ?? p.code ?? "").trim();
+  const sab = String(p.sab ?? "SNOMEDCT_US");
+
+  if (!input) {
+    return { resolvedCode: null, resolvedName: null, confidence: 0, valid: false, statusRouting: "held", elapsed_ms: 0 };
+  }
+
+  const isCodeLike = /^\d{6,18}$/.test(input);
+
+  if (isCodeLike) {
+    const url = `${UTS}/search/current?string=${encodeURIComponent(input)}&sabs=${encodeURIComponent(sab)}&inputType=sourceUi&searchType=exact&returnIdType=sourceUi&pageSize=1&apiKey=${UMLS_API_KEY}`;
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const elapsed_ms = Date.now() - started;
+    if (!res.ok) {
+      return { resolvedCode: input, resolvedName: null, confidence: 0.35, valid: false, statusRouting: "held", elapsed_ms };
+    }
+    const json = await res.json();
+    const results = Array.isArray(json?.result?.results) ? json.result.results : [];
+    const top = results.find((r: any) => r?.ui && r.ui !== "NONE");
+    if (top) {
+      return { resolvedCode: top.ui, resolvedName: top.name, confidence: 0.95, valid: true, statusRouting: "review", elapsed_ms };
+    }
+    return { resolvedCode: input, resolvedName: null, confidence: 0.30, valid: false, statusRouting: "held", elapsed_ms };
+  }
+
+  const searchUrl = `${UTS}/search/current?string=${encodeURIComponent(input)}&sabs=${encodeURIComponent(sab)}&returnIdType=sourceUi&searchType=words&pageSize=5&apiKey=${UMLS_API_KEY}`;
+  const res = await fetch(searchUrl, { headers: { Accept: "application/json" } });
+  const elapsed_ms = Date.now() - started;
+
+  if (!res.ok) {
+    return { resolvedCode: null, resolvedName: null, confidence: 0.20, valid: false, statusRouting: "held", elapsed_ms };
+  }
+
+  const json = await res.json();
+  const results = Array.isArray(json?.result?.results) ? json.result.results : [];
+  const top = results.find((r: any) => r?.ui && r.ui !== "NONE");
+
+  if (!top) {
+    return { resolvedCode: null, resolvedName: null, confidence: 0.25, valid: false, statusRouting: "held", elapsed_ms };
+  }
+
+  const resolvedName = String(top.name ?? "").toLowerCase().trim();
+  const inputLower = input.toLowerCase().trim();
+
+  let confidence: number;
+  if (resolvedName === inputLower) {
+    confidence = 0.93;
+  } else if (resolvedName.includes(inputLower) || inputLower.includes(resolvedName)) {
+    confidence = 0.85;
+  } else {
+    const inputWords = new Set(inputLower.split(/\s+/).filter(Boolean));
+    const nameWords = new Set(resolvedName.split(/\s+/).filter(Boolean));
+    const overlap = [...inputWords].filter(w => nameWords.has(w)).length;
+    const maxWords = Math.max(inputWords.size, nameWords.size, 1);
+    const ratio = overlap / maxWords;
+    confidence = 0.50 + Math.min(ratio, 1) * 0.28;
+  }
+
+  const statusRouting: "review" | "draft" | "held" =
+    confidence >= 0.80 ? "review" : confidence >= 0.50 ? "draft" : "held";
+
+  return { resolvedCode: top.ui, resolvedName: top.name, confidence, valid: true, statusRouting, elapsed_ms };
+}
+
+// ─── P1-B: Subsumption check via UMLS source ancestors ───────────────────────
+
+async function checkSubsumes(p: Record<string, unknown>): Promise<{
+  outcome: "equivalent" | "subsumes" | "subsumed-by" | "not-subsumed";
+  codeA: string;
+  codeB: string;
+  elapsed_ms: number;
+}> {
+  const started = Date.now();
+  const sab = String(p.sab ?? "SNOMEDCT_US");
+  const codeA = String(p.codeA ?? "");
+  const codeB = String(p.codeB ?? "");
+
+  if (!codeA || !codeB) {
+    return { outcome: "not-subsumed", codeA, codeB, elapsed_ms: 0 };
+  }
+  if (codeA === codeB) {
+    return { outcome: "equivalent", codeA, codeB, elapsed_ms: Date.now() - started };
+  }
+
+  const getAncestorCodes = async (code: string): Promise<Set<string>> => {
+    const codes = new Set<string>();
+    for (let page = 1; page <= 10; page++) {
+      const url = `${UTS}/content/current/source/${encodeURIComponent(sab)}/${encodeURIComponent(code)}/ancestors?pageNumber=${page}&pageSize=50&apiKey=${UMLS_API_KEY}`;
+      let res: Response;
+      try {
+        res = await fetch(url, { headers: { Accept: "application/json" } });
+      } catch {
+        break;
+      }
+      if (!res.ok) break;
+      const json = await res.json();
+      const ancestors = Array.isArray(json?.result) ? json.result : [];
+      if (ancestors.length === 0) break;
+      for (const a of ancestors) {
+        const codeUrl = String(a?.code ?? "");
+        const extracted = codeUrl.split("/").pop() ?? "";
+        if (extracted && extracted !== "NONE") codes.add(extracted);
+      }
+      if (ancestors.length < 50) break;
+    }
+    return codes;
+  };
+
+  const ancestorsOfA = await getAncestorCodes(codeA);
+  if (ancestorsOfA.has(codeB)) {
+    return { outcome: "subsumed-by", codeA, codeB, elapsed_ms: Date.now() - started };
+  }
+
+  const ancestorsOfB = await getAncestorCodes(codeB);
+  if (ancestorsOfB.has(codeA)) {
+    return { outcome: "subsumes", codeA, codeB, elapsed_ms: Date.now() - started };
+  }
+
+  return { outcome: "not-subsumed", codeA, codeB, elapsed_ms: Date.now() - started };
+}
+
 type Action =
   | "search"
   | "crosswalk"
@@ -67,7 +210,9 @@ type Action =
   | "meddra"
   | "icd10"
   | "snomed"
-  | "loinc";
+  | "loinc"
+  | "resolveAndValidate"
+  | "subsumes";
 
 interface Body {
   action: Action;
@@ -168,9 +313,6 @@ function buildUrl(action: Action, p: Record<string, unknown>): {
       return { url: `${UTS}/search/current?${qs}`, vocab: "LNC" };
     }
     case "crosswalk": {
-      // Use the dedicated UMLS crosswalk endpoint, which is the only reliable
-      // way to map a source code to its equivalents in another vocabulary.
-      // GET /crosswalk/current/source/{fromSab}/{fromCode}?targetSource={toSab}
       const fromSab = String(p.fromSab ?? p.sourceSab ?? "");
       const fromCode = String(p.fromCode ?? p.code ?? "");
       const toSab = String(p.toSab ?? p.targetSab ?? "");
@@ -241,6 +383,9 @@ function buildUrl(action: Action, p: Record<string, unknown>): {
         vocab: "RXNORM",
       };
     }
+    case "resolveAndValidate":
+    case "subsumes":
+      throw new Error(`Action "${action}" must be handled before buildUrl`);
   }
 }
 
@@ -265,15 +410,58 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "resolveAndValidate") {
+      if (!UMLS_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: "UMLS_API_KEY not configured" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const cacheKey = await hashKey(`resolveAndValidate:${JSON.stringify(params ?? {})}`);
+      const cached = await cacheGet(cacheKey);
+      if (cached) {
+        return new Response(
+          JSON.stringify({ cached: true, vocabulary: "SNOMEDCT_US", ...(cached as object) }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const result = await resolveAndValidate(params ?? {});
+      cacheSet(cacheKey, "SNOMEDCT_US", result).catch(() => {});
+      return new Response(
+        JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...result }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    if (action === "subsumes") {
+      if (!UMLS_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: "UMLS_API_KEY not configured" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const cacheKey = await hashKey(`subsumes:${JSON.stringify(params ?? {})}`);
+      const cached = await cacheGet(cacheKey);
+      if (cached) {
+        return new Response(
+          JSON.stringify({ cached: true, vocabulary: "SNOMEDCT_US", ...(cached as object) }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const result = await checkSubsumes(params ?? {});
+      cacheSet(cacheKey, "SNOMEDCT_US", result).catch(() => {});
+      return new Response(
+        JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...result }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const needsUmls = action !== "rxnorm" && action !== "rxnormDetail" &&
       action !== "rxnormRelated";
     if (needsUmls && !UMLS_API_KEY) {
       return new Response(
         JSON.stringify({ error: "UMLS_API_KEY not configured" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        },
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -298,7 +486,6 @@ Deno.serve(async (req) => {
     const elapsed_ms = Date.now() - started;
 
     if (!upstream.ok) {
-      // UMLS crosswalk returns 404 when no equivalents exist — normalize to empty.
       if (action === "crosswalk" && upstream.status === 404) {
         const fb = await crosswalkCuiFallback(params ?? {});
         const out = { result: fb.matches[0] ?? null, matches: fb.matches, elapsed_ms, fallback: "cui-atoms" };
@@ -323,6 +510,7 @@ Deno.serve(async (req) => {
 
     const json = await upstream.json();
     let shaped: Record<string, unknown> = { elapsed_ms, ...json };
+
     if (action === "crosswalk") {
       const raw = Array.isArray((json as any).result) ? (json as any).result : [];
       const filtered = raw.filter((r: any) => r && r.ui && r.ui !== "NONE");
@@ -341,6 +529,7 @@ Deno.serve(async (req) => {
         matches,
       };
     }
+
     if (action === "validate") {
       const results = Array.isArray((json as any)?.result?.results)
         ? (json as any).result.results
@@ -358,8 +547,8 @@ Deno.serve(async (req) => {
           : null,
       };
     }
+
     const payload = { cached: false, vocabulary: vocab, ...shaped };
-    // fire-and-forget cache write
     cacheSet(cacheKey, vocab, shaped).catch(() => {});
 
     return new Response(JSON.stringify(payload), {

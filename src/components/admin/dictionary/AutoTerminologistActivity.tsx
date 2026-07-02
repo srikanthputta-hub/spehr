@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Bot, RefreshCw, CheckCircle2, AlertTriangle, Pause } from "lucide-react";
 
@@ -25,14 +25,36 @@ function actionTone(action: string | null) {
       return { Icon: Pause, cls: "text-amber-700 bg-amber-50 border-amber-200" };
     case "no_gaps":
       return { Icon: CheckCircle2, cls: "text-slate-600 bg-slate-50 border-slate-200" };
+    case "heartbeat":
+      return { Icon: RefreshCw, cls: "text-slate-500 bg-slate-50 border-slate-200" };
     default:
       return { Icon: AlertTriangle, cls: "text-slate-600 bg-slate-50 border-slate-200" };
   }
 }
 
+function formatAgo(ts: string | undefined): string {
+  if (!ts) return "never";
+  const diffMs = Date.now() - new Date(ts).getTime();
+  const mins = Math.max(0, Math.floor(diffMs / 60_000));
+  if (mins < 1) return "just now";
+  if (mins === 1) return "1 minute ago";
+  if (mins < 60) return `${mins} minutes ago`;
+  const hrs = Math.floor(mins / 60);
+  return hrs === 1 ? "1 hour ago" : `${hrs} hours ago`;
+}
+
 export function AutoTerminologistActivity() {
   const [rows, setRows] = useState<LogRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [nowTick, setNowTick] = useState(0);
+
+  const lastRunAt = useMemo(() => rows[0]?.run_at, [rows]);
+  // Recompute "X minutes ago" every 30s
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  void nowTick;
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +99,9 @@ export function AutoTerminologistActivity() {
             10 minutes, detects clinical concepts not yet covered by any value
             set, validates them against UMLS, and drafts new value sets for
             human review. Never auto-publishes.
+          </p>
+          <p className="text-xs text-slate-500 mt-2">
+            Last run: <span className="font-medium text-slate-700">{formatAgo(lastRunAt)}</span>
           </p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
