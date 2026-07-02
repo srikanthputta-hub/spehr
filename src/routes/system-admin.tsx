@@ -80,6 +80,8 @@ import { CrossMapStudio } from "@/components/admin/dictionary/CrossMapStudio";
 import { FhirTerminologyServerOps } from "@/components/admin/dictionary/FhirTerminologyServerOps";
 import { TerminologyStatusStrip } from "@/components/admin/dictionary/TerminologyStatusStrip";
 import { AutoTerminologistActivity } from "@/components/admin/dictionary/AutoTerminologistActivity";
+import NlpAuditLogsPanel from "@/components/admin/dictionary/NlpAuditLogsPanel";
+import LiveTerminologyMatrixPanel from "@/components/admin/dictionary/LiveTerminologyMatrixPanel";
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
