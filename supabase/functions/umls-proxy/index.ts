@@ -1,5 +1,14 @@
-// UMLS proxy edge function — single gateway for all terminology calls.
+// UMLS proxy edge function — v2
+// Single gateway for all terminology calls.
 // Reads UMLS_API_KEY from env; caches responses in public.umls_cache for 7 days.
+//
+// Changes from v1:
+//   P1-A: Added "resolveAndValidate" action — resolves raw clinical text to a
+//         SNOMED code via UMLS search, then validates it. Fixes Auto Terminologist
+//         confidence collapse (was 0.40–0.48 because "chest pain" was passed as
+//         a sourceUi code to an exact-match search that always returned null).
+//   P1-B: Added "subsumes" action — checks SNOMED subsumption between two codes
+//         by traversing UMLS source ancestors. Enables $subsumes in the workbench.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
