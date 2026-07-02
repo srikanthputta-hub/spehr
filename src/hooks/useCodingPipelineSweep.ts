@@ -39,7 +39,8 @@ export function useCodingPipelineSweep() {
 
     const tick = async () => {
       if (stopped || busy.current) return;
-      if (!getAutomationEnabled()) return;
+      const enabled = await getAutomationEnabled();
+      if (!enabled) return;
       if (!tryAcquireLeader()) return;
       busy.current = true;
       try {
