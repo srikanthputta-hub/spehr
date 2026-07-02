@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sparkles, RefreshCw, CheckCircle2, PencilLine } from "lucide-react";
@@ -76,7 +76,7 @@ function StreamCard({
 
 function renderStreamPills(key: string, payload: any) {
   if (!payload) return <span className="text-[11px] text-slate-400">No coded items.</span>;
-  const pills: JSX.Element[] = [];
+  const pills: ReactElement[] = [];
   if (key === "a") {
     const p = Array.isArray(payload) ? payload[0] : payload;
     if (p?.snomed_code) pills.push(<CodePill key="asn" system="SNOMED" code={p.snomed_code} display={p.snomed_display} />);
