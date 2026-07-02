@@ -15,6 +15,9 @@ export const LAB_LOINC: Array<{ pattern: RegExp; code: string; display: string }
   { pattern: /sodium|\bna\b/i,      code: "2951-2",  display: "Sodium" },
   { pattern: /potassium|\bk\b/i,    code: "2823-3",  display: "Potassium" },
   { pattern: /\binr\b/i,            code: "34714-6", display: "INR" },
+  { pattern: /d[-\s]?dimer/i,       code: "48066-5", display: "D-dimer" },
+  { pattern: /lactate|lactic\s*acid/i, code: "2519-9",  display: "Lactate" },
+  { pattern: /lipase/i,             code: "3040-3",  display: "Lipase" },
 ];
 
 export function lookupLabLoinc(name: string): { code: string; display: string } | null {

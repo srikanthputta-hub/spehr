@@ -28,6 +28,27 @@ import { matchPmh, type PmhCode } from "@/lib/pmh-map";
 import { lookupAllergenSnomed } from "@/lib/allergen-map";
 import { VITALS_LOINC } from "@/lib/vitals-loinc-map";
 import { lookupLabLoinc } from "@/lib/lab-loinc-map";
+import { lookupDrugRxnorm, leadingDrugToken } from "@/lib/drug-rxnorm-map";
+
+/**
+ * Stream C helper: hardcoded map first, then live RxNorm with an exact
+ * leading-token check to reject fuzzy hits (e.g. Omeprazole → esomeprazole).
+ */
+async function resolveDrugSafe(drugName: string) {
+  const local = lookupDrugRxnorm(drugName);
+  if (local) return local;
+  const rx = await resolveRxNorm(drugName);
+  if (!rx) return null;
+  const inputHead = leadingDrugToken(drugName);
+  const resolvedHead = leadingDrugToken(rx.display);
+  if (!inputHead || !resolvedHead || inputHead !== resolvedHead) {
+    console.warn("[stream-c] rejected fuzzy RxNorm match", {
+      input: drugName, inputHead, resolved: rx, resolvedHead,
+    });
+    return null;
+  }
+  return rx;
+}
 
 // ─── Locking: prevent overlap between Re-code + sweep ────────────────────
 const inFlight = new Set<string>();
@@ -131,18 +152,33 @@ export async function runSixStreamPipeline(
     const streamA: StreamResult = { status: "coded", count: 0, items: [] };
     let aConfidence = 0;
     if (cc) {
+      // Ladder: CHV → resolveAndValidate → (retry with first 3 words) → crosswalk
       const chv = await resolveChv(cc);
-      const resolvedTerm = chv?.display?.trim() || cc.split(/\s+/).slice(0, 4).join(" ");
-      const sr = await resolveAndValidateSnomed(resolvedTerm);
+      if (!chv) console.error("[stream-a] chv miss", { cc });
+      const term1 = chv?.display?.trim() || cc;
+      let sr = await resolveAndValidateSnomed(term1);
+      if (!sr || (sr.confidence ?? 0) < 0.5) {
+        const shortTerm = cc.split(/\s+/).slice(0, 3).join(" ");
+        console.error("[stream-a] low confidence, retrying with 3-word head", {
+          cc, term1, first: sr, shortTerm,
+        });
+        if (shortTerm && shortTerm.toLowerCase() !== term1.toLowerCase()) {
+          const sr2 = await resolveAndValidateSnomed(shortTerm);
+          if (sr2 && (sr2.confidence ?? 0) > (sr?.confidence ?? 0)) sr = sr2;
+        }
+      }
       const snomed = sr?.code ?? null;
-      const snomedDisplay = sr?.display ?? resolvedTerm;
+      const snomedDisplay = sr?.display ?? term1;
       aConfidence = sr?.confidence ?? 0;
       let icd10Code: string | null = null;
       let icd10Display: string | null = null;
       if (snomed) {
         const cw = await crosswalkSnomedToIcd10(snomed);
+        if (!cw) console.error("[stream-a] crosswalk miss", { snomed });
         icd10Code = cw?.code ?? null;
         icd10Display = cw?.display ?? null;
+      } else {
+        console.error("[stream-a] no SNOMED resolved", { cc, term1, sr });
       }
       if (snomed) {
         await upsertCondition({
@@ -205,7 +241,7 @@ export async function runSixStreamPipeline(
       for (const m of formMeds) {
         const drugName = String(m.name ?? "").trim();
         if (!drugName) continue;
-        const rx = await resolveRxNorm(drugName);
+        const rx = await resolveDrugSafe(drugName);
         if (!rx) continue;
         // Idempotent: skip if a row already exists for this mrn+drug
         const { data: existing } = await supabase
@@ -246,7 +282,7 @@ export async function runSixStreamPipeline(
           streamC.items.push({ id: m.id, name: drugName, rxnorm_code: m.rxnorm_code });
           continue;
         }
-        const rx = await resolveRxNorm(drugName);
+        const rx = await resolveDrugSafe(drugName);
         if (!rx) continue;
         await supabase
           .from("medication_orders")
@@ -337,19 +373,58 @@ export async function runSixStreamPipeline(
 
     // -------- Stream E: Vitals (LOINC static map) ---------------------
     const streamE: StreamResult = { status: "coded", count: 0, items: [] };
-    const vRow: any = useForm
+    let vRow: any = useForm
       ? (admissionData?.vitals ?? null)
       : (vitalsRes.data ?? [])[0];
+    // Fallback for automated/ghost admissions: form data absent AND no vitals
+    // row yet → reconstruct from up to 5 recent observations.
+    if (!useForm && !vRow) {
+      const { data: obs } = await supabase
+        .from("observations")
+        .select("loinc_code, display_name, value_numeric, value")
+        .eq("patient_mrn", mrn)
+        .order("recorded_at", { ascending: false })
+        .limit(5);
+      const merged: Record<string, number | null> = {};
+      const codeToKey: Record<string, string> = {
+        "8867-4": "hr",
+        "8480-6": "bp_systolic",
+        "8462-4": "bp_diastolic",
+        "59408-5": "spo2",
+        "9279-1": "rr",
+        "8310-5": "temp_c",
+      };
+      for (const o of (obs ?? []) as any[]) {
+        const raw = String(o.loinc_code ?? "").trim();
+        const name = String(o.display_name ?? "").toLowerCase();
+        let key = codeToKey[raw];
+        if (!key) {
+          if (/heart\s*rate|pulse/.test(name)) key = "hr";
+          else if (/systolic/.test(name)) key = "bp_systolic";
+          else if (/diastolic/.test(name)) key = "bp_diastolic";
+          else if (/oxygen|spo2|sat/.test(name)) key = "spo2";
+          else if (/resp/.test(name)) key = "rr";
+          else if (/temp/.test(name)) key = "temp_c";
+        }
+        if (!key || merged[key] != null) continue;
+        const v = o.value_numeric != null ? Number(o.value_numeric) : Number(o.value);
+        merged[key] = Number.isFinite(v) ? v : null;
+      }
+      if (Object.keys(merged).length) vRow = merged;
+    }
     if (vRow) {
       const codes: string[] = [];
       const displays: string[] = [];
       const loincMap: Record<string, string> = {};
+      const seenCodes = new Set<string>();
       for (const key of Object.keys(VITALS_LOINC)) {
-        if (vRow[key] != null) {
-          codes.push(VITALS_LOINC[key].code);
-          displays.push(VITALS_LOINC[key].display);
-          loincMap[key] = VITALS_LOINC[key].code;
-        }
+        if (vRow[key] == null) continue;
+        const { code, display } = VITALS_LOINC[key];
+        if (seenCodes.has(code)) continue;
+        seenCodes.add(code);
+        codes.push(code);
+        displays.push(display);
+        loincMap[key] = code;
       }
       if (codes.length) {
         if (useForm) {
