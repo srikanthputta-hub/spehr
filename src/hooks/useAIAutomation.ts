@@ -57,6 +57,37 @@ const MED_ORDER_GAP_MS = 15_000;
 const LAB_FIRST_ORDER_DELAY_MS = 20_000;
 const LAB_ORDER_GAP_MS = 15_000;
 const TRANSITION_GAP_MS = 3_000;
+const AI_LEADER_KEY = "spehr.ai-automation.leader";
+const AI_LEADER_LEASE_MS = 20_000;
+const AI_TAB_ID = Math.random().toString(36).slice(2);
+
+function tryAcquireAiLeader(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = window.localStorage.getItem(AI_LEADER_KEY);
+    const now = Date.now();
+    if (raw) {
+      const { id, ts } = JSON.parse(raw) as { id?: string; ts?: number };
+      if (id !== AI_TAB_ID && typeof ts === "number" && now - ts < AI_LEADER_LEASE_MS) return false;
+    }
+    window.localStorage.setItem(AI_LEADER_KEY, JSON.stringify({ id: AI_TAB_ID, ts: now }));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function releaseAiLeader() {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(AI_LEADER_KEY);
+    if (!raw) return;
+    const { id } = JSON.parse(raw) as { id?: string };
+    if (id === AI_TAB_ID) window.localStorage.removeItem(AI_LEADER_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Lab specimen / methodology / interpretation reference data.        */
