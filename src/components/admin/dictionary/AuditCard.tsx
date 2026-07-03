@@ -32,7 +32,7 @@ const STREAM_META: Record<string, { title: string; blurb: string }> = {
   f: { title: "Stream F · Lab Results", blurb: "LOINC (pre-map + UMLS)" },
 };
 
-const AUTO_APPROVE_MS = 120_000;
+const AUTO_APPROVE_MS = 180_000;
 
 function StatusPill({ s }: { s: string | undefined }) {
   const cls =
