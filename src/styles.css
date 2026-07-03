@@ -93,3 +93,15 @@
   80% { transform: translateX(6px); }
 }
 
+@keyframes drain {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+.timer-bar {
+  width: 100%;
+  animation-name: drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}
+
