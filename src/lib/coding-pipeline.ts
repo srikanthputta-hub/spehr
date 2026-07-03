@@ -797,7 +797,10 @@ async function upsertCondition(row: {
  * on conditions + updates the latest nlp_audit_log row. Also feeds
  * uncovered SNOMED codes into the Auto Terminologist queue.
  */
-export async function approveMrnCoding(mrn: string): Promise<void> {
+export async function approveMrnCoding(
+  mrn: string,
+  approvedBy: "human" | "ai" = "human",
+): Promise<void> {
   const nowIso = new Date().toISOString();
   await Promise.all([
     supabase
@@ -821,7 +824,7 @@ export async function approveMrnCoding(mrn: string): Promise<void> {
   if ((latest as any)?.id) {
     await supabase
       .from("nlp_audit_logs" as any)
-      .update({ status: "approved", updated_at: nowIso } as any)
+      .update({ status: "approved", updated_at: nowIso, approved_by: approvedBy } as any)
       .eq("id", (latest as any).id);
   }
 
