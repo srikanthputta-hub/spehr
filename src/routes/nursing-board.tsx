@@ -348,10 +348,10 @@ function Dashboard() {
   const nurse = useActiveNurse();
   const [email, setEmail] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [now, setNow] = useState(new Date());
   const [query, setQuery] = useState("");
   const [patients, setPatients] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const initialLoadRef = useRef(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
@@ -372,11 +372,6 @@ function Dashboard() {
       setEmail(data.session?.user.email ?? "demo@sgroup.health");
       setReady(true);
     });
-  }, []);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -419,7 +414,7 @@ function Dashboard() {
         () => load(),
       )
       .subscribe();
-    const interval = setInterval(load, 5000);
+    const interval = setInterval(load, 30000);
     return () => {
       cancelled = true;
       supabase.removeChannel(ch);
@@ -431,7 +426,7 @@ function Dashboard() {
     if (!ready) return;
     let cancelled = false;
     const load = async () => {
-      setLoading(true);
+      if (initialLoadRef.current) setLoading(true);
       setFetchError(null);
       // Floor census is bed-driven. The authoritative list of patients
       // currently on the unit is "every Occupied bed in this facility".
@@ -451,6 +446,7 @@ function Dashboard() {
       if (bedErr) {
         setFetchError(bedErr.message);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const bedByMrn = new Map<string, { room: string }>();
@@ -464,6 +460,7 @@ function Dashboard() {
       if (mrns.length === 0) {
         setPatients([]);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const { data, error } = await fetchWithTimeout(
@@ -480,6 +477,7 @@ function Dashboard() {
       if (error) {
         setFetchError(error.message);
         setLoading(false);
+        initialLoadRef.current = false;
         return;
       }
       const patientByMrn = new Map<string, any>();
@@ -523,6 +521,15 @@ function Dashboard() {
       });
       setPatients(rows);
       setLoading(false);
+      initialLoadRef.current = false;
+    };
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleLoad = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void load();
+      }, 250);
     };
     load();
     // Re-load whenever bed_management OR patients change for this facility
@@ -537,16 +544,17 @@ function Dashboard() {
           table: "bed_management",
           filter: `facility_name=eq.${facility}`,
         },
-        () => load(),
+        scheduleLoad,
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
-        () => load(),
+        scheduleLoad,
       )
       .subscribe();
     return () => {
       cancelled = true;
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(ch);
     };
   }, [ready, facility]);
@@ -663,18 +671,6 @@ function Dashboard() {
       </div>
     );
   }
-
-  const clock = now.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-  const dateStr = now.toLocaleDateString([], {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
 
   const handleDischarge = async (p: PatientRow) => {
     const prev = patients;
