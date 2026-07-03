@@ -341,7 +341,44 @@ export async function runSixStreamPipeline(
         streamC.items.push({ id: m.id, name: drugName, rxnorm_code: rx.code, rxnorm_display: rx.display });
       }
     }
-    streamC.status = statusFor(streamC.count, medsExpected);
+    // Always sweep medication_orders for this MRN — meds may arrive via
+    // Auto Doc / CPOE after admission, so the useForm path can miss them.
+    const { data: pendingMeds } = await supabase
+      .from("medication_orders")
+      .select("id, medication_name, rxnorm_code, rxnorm_display")
+      .eq("patient_mrn", mrn);
+    for (const m of (pendingMeds ?? []) as any[]) {
+      const drugName = String(m.medication_name ?? "").trim();
+      if (!drugName) continue;
+      if (m.rxnorm_code) {
+        if (!streamC.items.find((i: any) => i.name === drugName)) {
+          streamC.count++;
+          streamC.items.push({
+            id: m.id, name: drugName,
+            rxnorm_code: m.rxnorm_code, rxnorm_display: m.rxnorm_display,
+          });
+        }
+        continue;
+      }
+      const rx = await resolveDrugSafe(drugName);
+      if (!rx) continue;
+      await supabase
+        .from("medication_orders")
+        .update({
+          rxnorm_code: rx.code, rxnorm_display: rx.display,
+          coding_source: "nlp-stream-c", coded_at: new Date().toISOString(),
+          term_status: "pending",
+        } as any)
+        .eq("id", m.id);
+      if (!streamC.items.find((i: any) => i.name === drugName)) {
+        streamC.count++;
+        streamC.items.push({
+          id: m.id, name: drugName,
+          rxnorm_code: rx.code, rxnorm_display: rx.display,
+        });
+      }
+    }
+    streamC.status = statusFor(streamC.count, Math.max(medsExpected, streamC.count));
 
     // -------- Stream D: Allergies -------------------------------------
     const streamD: StreamResult = { status: "coded", count: 0, items: [] };
