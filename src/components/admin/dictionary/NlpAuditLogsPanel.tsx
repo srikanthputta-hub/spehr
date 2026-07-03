@@ -91,7 +91,7 @@ export default function NlpAuditLogsPanel() {
           No pipeline runs yet. Admit a patient (or wait for the background sweep) to populate this log.
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 overflow-y-auto max-h-[70vh] pr-1">
           {rows.map((r) => (
             <AuditCard
               key={r.id}
