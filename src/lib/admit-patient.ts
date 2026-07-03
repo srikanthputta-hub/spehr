@@ -237,7 +237,7 @@ export async function reconcileOrphanedBeds(facility: string): Promise<void> {
     (b: any) => b.current_patient_mrn && (b.status ?? "").toLowerCase().startsWith("occupied"),
   );
   if (occupied.length === 0) return;
-  const mrns = Array.from(new Set(occupied.map((b: any) => b.current_patient_mrn as string)));
+  const mrns = Array.from(new Set<string>(occupied.map((b: any) => b.current_patient_mrn as string)));
   const { data: active } = await fetchWithTimeout(
     () => supabase.from("patients").select("mrn, status").in("mrn", mrns),
     { data: [], error: null } as any,
