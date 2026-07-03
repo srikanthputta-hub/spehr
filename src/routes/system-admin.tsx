@@ -67,10 +67,10 @@ import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
 import { AutoApiCard } from "@/components/admin/AutoApiCard";
 import {
   TerminologyMetricsStrip,
-  UmlsResolutionTrail,
   CdsOverridesFeed,
   AutoApiEventsFeed,
 } from "@/components/admin/Step8Surfacing";
+import NlpApprovalTrail from "@/components/admin/dictionary/NlpApprovalTrail";
 import { AutoApiStatusPill } from "@/components/admin/AutoApiStatusPill";
 import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
 import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
@@ -4715,7 +4715,7 @@ function MedicalDictionary() {
       {subtab === "authoring" && <AuthoringWorkbench />}
       {subtab === "crossmap"  && <CrossMapStudio />}
       {subtab === "audits" && <NlpAuditLogsPanel />}
-      {subtab === "audits" && <UmlsResolutionTrail />}
+      {subtab === "audits" && <NlpApprovalTrail />}
       {subtab === "audits" && <QaGovernanceQueue />}
       {subtab === "matrix" && <LiveTerminologyMatrixPanel />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
