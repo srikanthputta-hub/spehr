@@ -102,7 +102,7 @@ export default function NlpAuditLogsPanel() {
           </h2>
           <p className="text-sm text-slate-600 mt-1 max-w-3xl">
             Every admission fans out through 6 terminology streams (CC + HPI, PMH, Meds,
-            Allergies, Vitals, Labs). Pending cards auto-approve after 2 minutes if a
+            Allergies, Vitals, Labs). Pending cards auto-approve after 3 minutes if a
             human doesn't act first.
           </p>
         </div>
