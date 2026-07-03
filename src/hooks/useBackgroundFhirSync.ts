@@ -394,17 +394,35 @@ export function useBackgroundFhirSync() {
 
     void loadRows();
     const refresh = setInterval(() => void loadRows(), 30_000);
-    const heartbeat = setInterval(() => void pushNext(), 400);
+
+    // Event-driven drain: whenever realtime enqueues an MRN (or loadRows
+    // discovers a changed row), keep pushing until the queue is empty.
+    // No polling — each call is triggered by an actual data change.
+    const drain = async () => {
+      if (cancelled) return;
+      // Serialize: pushNext short-circuits when inFlight, so loop until
+      // no queued row remains.
+      // Guard against runaway loops with a hard cap per drain invocation.
+      for (let i = 0; i < 500; i++) {
+        if (cancelled || inFlightRef.current) return;
+        const hasQueued = Array.from(statusRef.current.values()).some(
+          (s) => s === "queued",
+        );
+        if (!hasQueued) return;
+        await pushNext();
+      }
+    };
 
     const requeueByMrn = (mrn: string | null | undefined) => {
       if (!mrn) return;
       const row = rowsRef.current.get(mrn);
       if (!row) {
         // Unknown MRN — refresh the discharged set so we pick it up.
-        void loadRows();
+        void loadRows().then(() => void drain());
         return;
       }
       enqueue(mrn);
+      void drain();
     };
 
     const channel = supabase
@@ -416,7 +434,7 @@ export function useBackgroundFhirSync() {
           const mrn = p?.new?.mrn ?? p?.old?.mrn;
           // Refresh row map on any patient change so newly admitted /
           // updated patients enter the live sync queue immediately.
-          void loadRows();
+          void loadRows().then(() => void drain());
           requeueByMrn(mrn);
         },
       )
@@ -427,8 +445,18 @@ export function useBackgroundFhirSync() {
       )
       .on(
         "postgres_changes",
+        { event: "*", schema: "public", table: "lab_results" },
+        (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn ?? p?.new?.mrn ?? p?.old?.mrn),
+      )
+      .on(
+        "postgres_changes",
         { event: "*", schema: "public", table: "medication_orders" },
         (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "vitals" },
+        (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn ?? p?.new?.mrn ?? p?.old?.mrn),
       )
       .on(
         "postgres_changes",
@@ -437,10 +465,17 @@ export function useBackgroundFhirSync() {
       )
       .subscribe();
 
+    // Initial drain after the first loadRows completes so anything
+    // enqueued on boot gets pushed once, without polling.
+    void (async () => {
+      // small delay to let loadRows finish (it was kicked off above)
+      await new Promise((r) => setTimeout(r, 500));
+      void drain();
+    })();
+
     return () => {
       cancelled = true;
       clearInterval(refresh);
-      clearInterval(heartbeat);
       void supabase.removeChannel(channel);
     };
   }, []);

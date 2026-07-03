@@ -787,12 +787,12 @@ export function useAIAutomation() {
       )
       .subscribe();
 
-    // Bed cleaning state machine sweeper — every 5s the active client
+    // Bed cleaning state machine sweeper — every 30s the active client
     // advances any bed that has crossed its 60s / 120s threshold.
     sweepBedCleaningCycles().catch(() => {});
     const bedSweep = setInterval(() => {
       sweepBedCleaningCycles().catch(() => {});
-    }, 5_000);
+    }, 30_000);
 
     return () => {
       supabase.removeChannel(channel);
