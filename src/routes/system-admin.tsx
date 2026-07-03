@@ -4720,7 +4720,6 @@ function MedicalDictionary() {
       {subtab === "crossmap"  && <CrossMapStudio />}
       {subtab === "audits" && <NlpAuditLogsPanel />}
       {subtab === "audits" && <NlpApprovalTrail />}
-      {subtab === "audits" && <QaGovernanceQueue />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "safety" && <CdsOverridesFeed />}
