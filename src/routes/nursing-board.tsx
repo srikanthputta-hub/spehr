@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { LiveClock } from "@/components/common/LiveClock";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
 import {
   Loader2,
@@ -705,8 +706,10 @@ function Dashboard() {
             </div>
           </div>
           <div className="hidden sm:flex flex-col items-end leading-tight tabular-nums">
-            <div className="text-sm font-semibold tracking-tight">{clock}</div>
-            <div className="text-[10px] uppercase tracking-wider text-white/55">{dateStr}</div>
+            <LiveClock
+              className="text-sm font-semibold tracking-tight"
+              dateClassName="text-[10px] uppercase tracking-wider text-white/55"
+            />
           </div>
         </div>
       </div>
