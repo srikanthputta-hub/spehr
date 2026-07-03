@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, FlaskConical, Sparkles, CheckCircle2 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
@@ -139,9 +139,10 @@ function LabBoard() {
   const [draft, setDraft] = useState<Record<string, LabValue[]>>({});
   const [processing, setProcessing] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
+  const initialLoadRef = useRef(true);
 
   const load = async () => {
-    setLoading(true);
+    if (initialLoadRef.current) setLoading(true);
     const [{ data: labData }, { data: completedData }, { data: patientData }] = await fetchWithTimeout(
       () =>
         Promise.all([
@@ -191,10 +192,19 @@ function LabBoard() {
         })),
     );
     setLoading(false);
+    initialLoadRef.current = false;
   };
 
   useEffect(() => {
     load();
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleLoad = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void load();
+      }, 300);
+    };
     // Subscribe to live changes so the board re-renders the moment a lab is
     // ordered, collected, or resulted from anywhere in the system.
     const channel = supabase
@@ -217,15 +227,16 @@ function LabBoard() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "lab_orders" },
-        () => load(),
+        scheduleLoad,
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "patients" },
-        () => load(),
+        scheduleLoad,
       )
       .subscribe();
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [facility]);

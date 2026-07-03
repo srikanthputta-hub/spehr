@@ -1764,6 +1764,7 @@ export type Database = {
       }
       nlp_audit_logs: {
         Row: {
+          approved_by: string | null
           author_id: string | null
           auto_resolve_at: string | null
           confidence_score: number | null
@@ -1779,6 +1780,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          approved_by?: string | null
           author_id?: string | null
           auto_resolve_at?: string | null
           confidence_score?: number | null
@@ -1794,6 +1796,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          approved_by?: string | null
           author_id?: string | null
           auto_resolve_at?: string | null
           confidence_score?: number | null
