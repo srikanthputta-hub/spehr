@@ -3453,34 +3453,6 @@ function FhirInteroperability({ facility }: { facility: string }) {
       </div>
 
 
-      {/* Live Streaming Mode controller */}
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className={`h-2.5 w-2.5 rounded-full ${autoOn ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
-          <div>
-            <div className="text-sm font-semibold text-slate-900">
-              Enable Live Automation Loop
-            </div>
-            <div className="text-[11px] text-slate-600">
-              Full live sync mode. The loop ticks every <span className="font-semibold">400&nbsp;ms</span>
-              {" "}and fires on every clinical event — vitals, labs, medications, and discharge —
-              for <span className="font-semibold">all patients regardless of admission status</span>.
-              All writes use <span className="font-mono">PUT</span> with deterministic stable IDs
-              (FHIR UPSERT), so the same clinical fact always maps to the same resource ID. No
-              duplicates can be created. Re-syncing a patient is always safe.
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {autoOn && (
-            <div className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider text-right leading-tight">
-              <div>LIVE</div>
-              <div>REALTIME</div>
-            </div>
-          )}
-          <Switch checked={autoOn} onCheckedChange={setAutoOn} />
-        </div>
-      </div>
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
