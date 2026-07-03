@@ -78,9 +78,11 @@ function renderStreamPills(key: string, payload: any) {
   if (!payload) return <span className="text-[11px] text-slate-400">No coded items.</span>;
   const pills: ReactElement[] = [];
   if (key === "a") {
-    const p = Array.isArray(payload) ? payload[0] : payload;
-    if (p?.snomed_code) pills.push(<CodePill key="asn" system="SNOMED" code={p.snomed_code} display={p.snomed_display} />);
-    if (p?.icd10_code) pills.push(<CodePill key="ai" system="ICD-10" code={p.icd10_code} display={p.icd10_display} />);
+    const arr = Array.isArray(payload) ? payload : payload ? [payload] : [];
+    arr.forEach((p: any, i: number) => {
+      if (p?.snomed_code) pills.push(<CodePill key={`asn${i}`} system="SNOMED" code={p.snomed_code} display={p.snomed_display} />);
+      if (p?.icd10_code) pills.push(<CodePill key={`ai${i}`} system="ICD-10" code={p.icd10_code} display={p.icd10_display} />);
+    });
   } else if (key === "b") {
     const arr = Array.isArray(payload) ? payload : [];
     arr.forEach((p: any, i: number) => {
