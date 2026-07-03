@@ -1,52 +1,46 @@
-## Goal
+## Root causes
 
-Make the NLP Coding Audit Trail collapsible with an auto-approval countdown, and repurpose the "UMLS Resolution Trail" tab as an "NLP Approval Trail" that lists recently approved audits (human vs AI).
+After scanning every dashboard (`admissions-board`, `nursing-board`, `physician-board`, `pharmacy-queue`, `lab-board`, `finance-board`, `analytics`, `admin-dashboard`, `system-admin`, `patient.$mrn`, `chart.$mrn`) three patterns are producing the "long load + flicker" behavior:
 
-## Changes
+1. **Loading skeleton resets on every realtime event.** Each board defines `load()` that starts with `setLoading(true)`, then subscribes to `postgres_changes` on high-churn tables (`patients`, `lab_orders`, `medication_orders`, `vitals`, `clinical_notes`) and calls `load()` on every event. A single admission burst fires 5–20 events per second, so the whole board flashes to "Loading…" and back repeatedly. Finance was already fixed with `initialLoadRef` + debounce — the same pattern needs to be applied everywhere.
+2. **Uncoalesced refresh storms.** Multiple `.on("postgres_changes", …)` handlers in the same channel all call the same `load()` synchronously. During ghost-admit / auto-doc sweeps this triggers dozens of parallel Supabase queries which then all `setState` in the same tick, causing long paints and dropped frames.
+3. **Second-by-second (and 400ms) clock ticks re-render the entire dashboard.** `nursing-board`, `patient.$mrn`, and `system-admin` keep `now` in the top-level component and update it every 1s (and every 400ms in one place), forcing 1000+ children to reconcile. That is the "glitch" the user sees on otherwise idle screens.
 
-### 1. Schema — add `approved_by`
-Migration on `nlp_audit_logs`:
-```sql
-ALTER TABLE nlp_audit_logs ADD COLUMN IF NOT EXISTS approved_by text;
-```
-No RLS/GRANT changes (table already exposed).
+## Fix
 
-### 2. `src/lib/coding-pipeline.ts` — extend `approveMrnCoding`
-- Add optional 2nd arg `approvedBy: 'human' | 'ai' = 'human'`.
-- When flipping the latest audit-log row to `approved`, also set `approved_by: approvedBy`.
-- Everything else unchanged so existing callers keep working.
+### 1. Non-flickering data refresh (shared pattern)
 
-### 3. `src/components/admin/dictionary/NlpAuditLogsPanel.tsx` — collapsible cards + timer
+For every dashboard listed above:
 
-Refactor `AuditCard`:
-- New `expanded` state, default `false`. Header row remains visible (MRN, timestamp, CC snippet, confidence badge, status badge) plus a chevron button (`ChevronDown`/`ChevronUp` from lucide) that toggles expansion.
-- Streams A–F grid + action footer (Edit/Re-code/Approve) render only when `expanded`.
-- Click anywhere on header (or chevron) toggles.
+- Add `const initialLoadRef = useRef(true)` and only call `setLoading(true)` on the very first load. Subsequent refreshes update state in place — the UI keeps rendering the last data until the new data arrives.
+- Wrap `load()` in a `debouncedRefresh` (250 ms trailing) so a burst of realtime events collapses into one query.
+- Consolidate the three-to-five separate `.on("postgres_changes", …)` handlers on the same channel to all call the same `debouncedRefresh`, not separate load functions.
 
-Auto-approval timer (only when `row.status !== 'approved'`):
-- Show a thin horizontal progress bar directly under the header. Bar drains from 100% → 0% over **120s** starting from `row.created_at` (so refreshes don't reset the timer).
-- Color interpolated by remaining %: `>66%` emerald, `33–66%` amber, `<33%` red.
-- `useEffect` with `setInterval(250ms)` recomputes `remaining = max(0, 120000 - (now - createdAt))`.
-- When `remaining` hits 0 and status still pending, call `approveMrnCoding(mrn, 'ai')` exactly once (guarded by a `firedRef`), toast "Auto-approved by AI", refresh.
-- Manual `Approve` button now calls `approveMrnCoding(mrn, 'human')` and cancels the timer via the same `firedRef` guard.
-- Bar hidden entirely for approved rows.
+Files touched: `nursing-board.tsx`, `pharmacy-queue.tsx`, `lab-board.tsx`, `admissions-board.tsx` (both `AdmissionsPage` and the appointments panel), `physician-board.tsx`, `admin-dashboard.tsx`, `analytics.tsx`, `patient.$mrn.tsx`, `chart.$mrn.tsx`, and the ~6 realtime-driven panels inside `system-admin.tsx`.
 
-### 4. Rename tab + component to "NLP Approval Trail"
-- `src/components/admin/Step8Surfacing.tsx`: rename export `UmlsResolutionTrail` → `NlpApprovalTrail` (keep a re-export alias so no other file breaks) and replace its body per §5.
-- `src/routes/system-admin.tsx`: update import + JSX usage + any nav label showing "UMLS Resolution Trail" → "NLP Approval Trail".
+### 2. Isolate the clocks
 
-### 5. New `NlpApprovalTrail` content
-Replace resolver-activity body with:
-- Query: `nlp_audit_logs` where `status = 'approved'`, order by `updated_at desc`, limit 50. Realtime subscription like the audit panel.
-- Render each row as a collapsible card using the **same** `AuditCard` visuals from NlpAuditLogsPanel. To avoid duplication, extract `AuditCard` into its own file (`src/components/admin/dictionary/AuditCard.tsx`) and import it in both panels. Add prop `readOnly?: boolean` — hides Approve/Re-code/Edit footer when true (approval trail is read-only).
-- Extra pill in the header: green "Human" badge if `approved_by === 'human'`, blue "AI" badge if `approved_by === 'ai'` (fallback "—" if null on legacy rows).
-- Default collapsed; expand shows the same 6 stream cards.
-- No auto-approval bar (already approved).
+Extract a tiny `<LiveClock />` component (its own `useState(now)` + `setInterval`) and use it wherever the dashboards render "now". This keeps the 1-second tick from re-rendering the patient list / bed board / audit panels.
 
-### 6. No other files touched
-Auto Terminologist, coding pipeline sweep, Live Terminology Matrix, and Cross-Map Studio remain unchanged.
+- `nursing-board.tsx` line 378 clock → `<LiveClock />`
+- `patient.$mrn.tsx` line 232 clock → `<LiveClock />`
+- `system-admin.tsx` lines 1421, 2208 clocks → `<LiveClock />`
+- Delete the `setInterval(() => setAutoTick(t => t + 1), 400)` on line 3389 — the same panel already refreshes via realtime + the 5-second refresh interval, so the 400 ms forced re-render is pure jank.
 
-## Verification
-- Load `/system-admin` → NLP Audit Logs: all pending cards start collapsed with a draining color bar; clicking chevron expands; leaving one alone for 2 min auto-approves and shifts it to the Approval Trail tagged **AI**.
-- Click Approve on another pending card → immediate approval tagged **Human**, bar disappears.
-- Switch to the renamed "NLP Approval Trail" tab → shows up to 50 approved rows, newest first, each collapsible, correct Human/AI badge.
+### 3. Trim redundant polling that overlaps realtime
+
+- `nursing-board` has `setInterval(load, 5000)` AND five realtime subscribers on the same tables → keep realtime + drop the 5 s poll (or raise it to 30 s as a safety net).
+- `analytics.tsx` reloads every 10 s and hard-resets state; switch to the debounced pattern above and raise interval to 30 s.
+- `system-admin.tsx` line 3389 auto-tick removed (see above).
+
+### 4. Verification
+
+- Open each dashboard, admit a ghost patient, and confirm no "Loading…" flash on updates.
+- Check console for the existing "flicker" symptoms (no repeated "loaded N rows" spam).
+- Confirm `useBackgroundFhirSync` 400 ms heartbeat still ticks (it lives in a hook, not the render tree, so it is unaffected).
+
+### Out of scope
+
+- No schema, RLS, edge-function, or business-logic changes.
+- No visual redesign — only the loading/refresh mechanics and clock isolation.
+- `useAIAutomation`, `useAutoTerminologist`, `useBackgroundFhirSync`, and other background hooks stay as-is; they already run outside the render tree.
