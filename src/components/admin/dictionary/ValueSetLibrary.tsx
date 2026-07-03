@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 type ValueSet = {
   id: string;
@@ -54,14 +55,21 @@ export function ValueSetLibrary() {
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const { data, error } = await supabase
-        .from("custom_value_sets")
-        .select("*")
-        .order("status", { ascending: true })
-        .order("name", { ascending: true });
-      if (!alive) return;
-      if (!error && data) setRows(data as any);
-      setLoading(false);
+      try {
+        const { data, error } = await fetchWithTimeout(
+          () =>
+            supabase
+              .from("custom_value_sets")
+              .select("*")
+              .order("status", { ascending: true })
+              .order("name", { ascending: true }),
+          { data: [], error: null } as any,
+        );
+        if (!alive) return;
+        if (!error && data) setRows(data as any);
+      } finally {
+        if (alive) setLoading(false);
+      }
     };
     load();
     const ch = supabase
