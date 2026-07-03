@@ -813,20 +813,12 @@ export async function approveMrnCoding(
       .eq("patient_mrn", mrn),
   ]);
 
-  // Flip the latest audit log row for this MRN → approved
-  const { data: latest } = await supabase
+  // Flip ALL pending audit rows for this MRN → approved (older backlog too).
+  await supabase
     .from("nlp_audit_logs" as any)
-    .select("id")
+    .update({ status: "approved", updated_at: nowIso, approved_by: approvedBy } as any)
     .eq("patient_mrn", mrn)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if ((latest as any)?.id) {
-    await supabase
-      .from("nlp_audit_logs" as any)
-      .update({ status: "approved", updated_at: nowIso, approved_by: approvedBy } as any)
-      .eq("id", (latest as any).id);
-  }
+    .eq("status", "pending");
 
   // Feed uncovered SNOMED codes into Auto Terminologist queue
   const { data: conds } = await supabase
