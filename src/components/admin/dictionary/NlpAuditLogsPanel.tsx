@@ -16,6 +16,7 @@ export default function NlpAuditLogsPanel() {
     const { data } = await supabase
       .from("nlp_audit_logs" as any)
       .select("id, patient_mrn, raw_text, extraction_mapping, standardized_output, confidence_score, status, created_at, updated_at, approved_by")
+      .neq("status", "approved")
       .order("created_at", { ascending: false })
       .limit(25);
     setRows((data ?? []) as any[]);
