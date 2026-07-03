@@ -20,6 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   resolveChv,
   resolveAndValidateSnomed,
+  resolveSnomed,
   crosswalkSnomedToIcd10,
   resolveRxNorm,
   resolveLoinc,
