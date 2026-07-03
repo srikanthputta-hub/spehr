@@ -176,56 +176,75 @@ export async function runSixStreamPipeline(
 
     // -------- Stream A: Chief Complaint --------------------------------
     const cc = String((patient as any).chief_complaint ?? "").trim();
+    const hpiLoc = String((patient as any).hpi_location ?? "").trim();
+    const hpiChar = String((patient as any).hpi_character ?? "").trim();
+    const hpiCombined = [hpiLoc, hpiChar].filter(Boolean).join(" · ");
     const streamA: StreamResult = { status: "coded", count: 0, items: [] };
     let aConfidence = 0;
     if (cc) {
-      // Ladder: CHV → resolveAndValidate → (retry with first 3 words) → crosswalk
-      const chv = await resolveChv(cc);
-      if (!chv) console.error("[stream-a] chv miss", { cc });
-      const term1 = (chv?.name ?? chv?.display)?.trim() || cc;
-      let snomedHit = await resolveSnomed(term1);
-      if (!snomedHit) {
+      // 1. AI extractor: split CC + HPI into atomic clinical concepts.
+      const aiConcepts = await extractCcConcepts(cc, hpiCombined);
+
+      // 2. Fallback ladder if AI is empty/unavailable: CHV → SNOMED → 3-word retry.
+      const fallbackTerms: string[] = [];
+      if (aiConcepts.length === 0) {
+        const chv = await resolveChv(cc);
+        const term1 = (chv?.name ?? chv?.display)?.trim() || cc;
+        fallbackTerms.push(term1);
         const shortTerm = cc.split(/\s+/).slice(0, 3).join(" ");
         if (shortTerm && shortTerm.toLowerCase() !== term1.toLowerCase()) {
-          snomedHit = await resolveSnomed(shortTerm);
+          fallbackTerms.push(shortTerm);
         }
       }
-      const snomed = snomedHit?.code ?? null;
-      const snomedDisplay = snomedHit?.display ?? term1;
-      aConfidence = snomed ? 0.85 : 0;
-      let icd10Code: string | null = null;
-      let icd10Display: string | null = null;
-      if (snomed) {
-        const cw = await crosswalkSnomedToIcd10(snomed);
-        if (!cw) console.error("[stream-a] crosswalk miss", { snomed });
-        icd10Code = cw?.code ?? null;
-        icd10Display = cw?.display ?? null;
-      } else {
-        console.error("[stream-a] no SNOMED resolved", { cc, term1, snomedHit });
+
+      const terms: string[] =
+        aiConcepts.length > 0
+          ? aiConcepts.map((c) => c.term)
+          : fallbackTerms;
+
+      // 3. Resolve each concept in parallel → SNOMED + ICD-10 crosswalk.
+      const resolved = await Promise.all(
+        terms.map(async (term) => {
+          const snomedHit = await resolveSnomed(term);
+          if (!snomedHit) return null;
+          const cw = await crosswalkSnomedToIcd10(snomedHit.code);
+          return {
+            term,
+            snomed_code: snomedHit.code,
+            snomed_display: snomedHit.display,
+            icd10_code: cw?.code ?? null,
+            icd10_display: cw?.display ?? null,
+          };
+        }),
+      );
+
+      const dedup = new Map<string, any>();
+      for (const r of resolved) {
+        if (!r) continue;
+        if (!dedup.has(r.snomed_code)) dedup.set(r.snomed_code, r);
       }
-      if (snomed) {
+      const items = Array.from(dedup.values());
+
+      for (const it of items) {
         await upsertCondition({
           mrn,
           patient_name: patientName,
-          display_text: cc,
-          snomed_code: snomed,
-          snomed_display: snomedDisplay,
-          icd10_code: icd10Code,
-          icd10_display: icd10Display,
+          display_text: it.term,
+          snomed_code: it.snomed_code,
+          snomed_display: it.snomed_display,
+          icd10_code: it.icd10_code,
+          icd10_display: it.icd10_display,
           category: "encounter-diagnosis",
           source_section: "chief_complaint",
           coding_source: "nlp-stream-a",
         });
-        streamA.count = 1;
-        streamA.items.push({
-          snomed_code: snomed,
-          snomed_display: snomedDisplay,
-          icd10_code: icd10Code,
-          icd10_display: icd10Display,
-          confidence: aConfidence,
-        });
-      } else {
+        streamA.items.push({ ...it, confidence: 0.85 });
+      }
+      streamA.count = items.length;
+      aConfidence = items.length > 0 ? 0.85 : 0;
+      if (items.length === 0) {
         streamA.status = "failed";
+        console.error("[stream-a] no SNOMED resolved", { cc, aiConcepts, fallbackTerms });
       }
     }
 
