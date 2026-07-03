@@ -102,7 +102,7 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
     return { resolvedCode: input, resolvedName: null, confidence: 0.30, valid: false, statusRouting: "held", elapsed_ms };
   }
 
-  const searchUrl = `${UTS}/search/current?string=${encodeURIComponent(input)}&sabs=${encodeURIComponent(sab)}&returnIdType=sourceUi&searchType=words&pageSize=5&apiKey=${UMLS_API_KEY}`;
+  const searchUrl = `${UTS}/search/current?string=${encodeURIComponent(input)}&returnIdType=concept&searchType=words&pageSize=5&apiKey=${UMLS_API_KEY}`;
   const res = await fetch(searchUrl, { headers: { Accept: "application/json" } });
   const elapsed_ms = Date.now() - started;
 
@@ -118,7 +118,35 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
     return { resolvedCode: null, resolvedName: null, confidence: 0.25, valid: false, statusRouting: "held", elapsed_ms };
   }
 
-  const resolvedName = String(top.name ?? "").toLowerCase().trim();
+  const cui = String(top.ui);
+  const cuiDisplayName = String(top.name ?? "");
+
+  let resolvedSourceCode: string | null = null;
+  let resolvedSourceName: string = cuiDisplayName;
+  try {
+    const atomsUrl = `${UTS}/content/current/CUI/${encodeURIComponent(cui)}/atoms?sabs=${encodeURIComponent(sab)}&apiKey=${UMLS_API_KEY}`;
+    const atomsRes = await fetch(atomsUrl, { headers: { Accept: "application/json" } });
+    if (atomsRes.ok) {
+      const atomsJson = await atomsRes.json();
+      const atoms = Array.isArray(atomsJson?.result) ? atomsJson.result : [];
+      for (const a of atoms) {
+        const rawCode: string = String(a?.code ?? "");
+        const code = rawCode.includes("/") ? rawCode.split("/").pop()! : rawCode;
+        if (!code || code === "NONE") continue;
+        resolvedSourceCode = code;
+        resolvedSourceName = String(a.name ?? cuiDisplayName);
+        break;
+      }
+    }
+  } catch (e) {
+    console.log("[umls-proxy] atoms lookup error for CUI", cui, (e as Error).message);
+  }
+
+  if (!resolvedSourceCode) {
+    return { resolvedCode: null, resolvedName: cuiDisplayName, confidence: 0.30, valid: false, statusRouting: "held", elapsed_ms };
+  }
+
+  const resolvedName = resolvedSourceName.toLowerCase().trim();
   const inputLower = input.toLowerCase().trim();
 
   let confidence: number;
@@ -138,7 +166,7 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
   const statusRouting: "review" | "draft" | "held" =
     confidence >= 0.80 ? "review" : confidence >= 0.50 ? "draft" : "held";
 
-  return { resolvedCode: top.ui, resolvedName: top.name, confidence, valid: true, statusRouting, elapsed_ms };
+  return { resolvedCode: resolvedSourceCode, resolvedName: resolvedSourceName, confidence, valid: true, statusRouting, elapsed_ms };
 }
 
 // ─── P1-B: Subsumption check via UMLS source ancestors ───────────────────────
@@ -197,6 +225,8 @@ async function checkSubsumes(p: Record<string, unknown>): Promise<{
 
   return { outcome: "not-subsumed", codeA, codeB, elapsed_ms: Date.now() - started };
 }
+
+// ─── Action type ─────────────────────────────────────────────────────────────
 
 type Action =
   | "search"
