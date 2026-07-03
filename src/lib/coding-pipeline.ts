@@ -20,6 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   resolveChv,
   resolveAndValidateSnomed,
+  resolveSnomed,
   crosswalkSnomedToIcd10,
   resolveRxNorm,
   resolveLoinc,
@@ -156,20 +157,16 @@ export async function runSixStreamPipeline(
       const chv = await resolveChv(cc);
       if (!chv) console.error("[stream-a] chv miss", { cc });
       const term1 = (chv?.name ?? chv?.display)?.trim() || cc;
-      let sr = await resolveAndValidateSnomed(term1);
-      if (!sr || (sr.confidence ?? 0) < 0.5) {
+      let snomedHit = await resolveSnomed(term1);
+      if (!snomedHit) {
         const shortTerm = cc.split(/\s+/).slice(0, 3).join(" ");
-        console.error("[stream-a] low confidence, retrying with 3-word head", {
-          cc, term1, first: sr, shortTerm,
-        });
         if (shortTerm && shortTerm.toLowerCase() !== term1.toLowerCase()) {
-          const sr2 = await resolveAndValidateSnomed(shortTerm);
-          if (sr2 && (sr2.confidence ?? 0) > (sr?.confidence ?? 0)) sr = sr2;
+          snomedHit = await resolveSnomed(shortTerm);
         }
       }
-      const snomed = sr?.code ?? null;
-      const snomedDisplay = sr?.display ?? term1;
-      aConfidence = sr?.confidence ?? 0;
+      const snomed = snomedHit?.code ?? null;
+      const snomedDisplay = snomedHit?.display ?? term1;
+      aConfidence = snomed ? 0.85 : 0;
       let icd10Code: string | null = null;
       let icd10Display: string | null = null;
       if (snomed) {
@@ -178,7 +175,7 @@ export async function runSixStreamPipeline(
         icd10Code = cw?.code ?? null;
         icd10Display = cw?.display ?? null;
       } else {
-        console.error("[stream-a] no SNOMED resolved", { cc, term1, sr });
+        console.error("[stream-a] no SNOMED resolved", { cc, term1, snomedHit });
       }
       if (snomed) {
         await upsertCondition({
