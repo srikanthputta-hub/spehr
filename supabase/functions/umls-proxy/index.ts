@@ -67,6 +67,21 @@ async function crosswalkCuiFallback(
 }
 
 // ─── P1-A: Resolve text → SNOMED code, validate, return confidence ───────────
+//
+// The Auto Terminologist was calling "validate" with raw clinical text (e.g.
+// "chest pain") as the code parameter. Because "validate" uses inputType=sourceUi
+// + searchType=exact, UMLS found no match → result=null → confidence 0.40–0.48.
+//
+// This action fixes that by:
+//   1. Detecting whether input is already a code (6-18 digits) or free text.
+//   2. If text: searching UMLS with searchType=words to find the best SNOMED match.
+//   3. Computing a confidence score based on name similarity.
+//   4. Returning resolvedCode, resolvedName, confidence, and a statusRouting hint.
+//
+// Confidence thresholds (mirrors Auto Terminologist routing):
+//   ≥ 0.80 → "review"  (In Review)
+//   0.50–0.79 → "draft"
+//   < 0.50 → "held"
 
 async function resolveAndValidate(p: Record<string, unknown>): Promise<{
   resolvedCode: string | null;
@@ -84,6 +99,8 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
     return { resolvedCode: null, resolvedName: null, confidence: 0, valid: false, statusRouting: "held", elapsed_ms: 0 };
   }
 
+  // If input looks like an existing SNOMED code (purely numeric, 6-18 digits),
+  // validate it directly with exact sourceUi match — skip the text search.
   const isCodeLike = /^\d{6,18}$/.test(input);
 
   if (isCodeLike) {
@@ -102,7 +119,13 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
     return { resolvedCode: input, resolvedName: null, confidence: 0.30, valid: false, statusRouting: "held", elapsed_ms };
   }
 
-  const searchUrl = `${UTS}/search/current?string=${encodeURIComponent(input)}&returnIdType=concept&searchType=words&pageSize=5&apiKey=${UMLS_API_KEY}`;
+  // Free text: two-step CUI lookup.
+  //
+  // Step 1: search with returnIdType=concept (gets CUI + display name).
+  // returnIdType=sourceUi with searchType=words frequently returns ui="NONE"
+  // for multi-word clinical phrases because UMLS can locate the concept but
+  // cannot resolve it to a single source code in one pass.
+  const searchUrl = `${UTS}/search/current?string=${encodeURIComponent(input)}&sabs=${encodeURIComponent(sab)}&returnIdType=concept&searchType=words&pageSize=5&apiKey=${UMLS_API_KEY}`;
   const res = await fetch(searchUrl, { headers: { Accept: "application/json" } });
   const elapsed_ms = Date.now() - started;
 
@@ -118,9 +141,10 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
     return { resolvedCode: null, resolvedName: null, confidence: 0.25, valid: false, statusRouting: "held", elapsed_ms };
   }
 
-  const cui = String(top.ui);
-  const cuiDisplayName = String(top.name ?? "");
+  const cui = String(top.ui);          // e.g. "C0008031"
+  const cuiDisplayName = String(top.name ?? ""); // e.g. "Chest Pain"
 
+  // Step 2: resolve CUI → source code in the requested vocabulary.
   let resolvedSourceCode: string | null = null;
   let resolvedSourceName: string = cuiDisplayName;
   try {
@@ -131,6 +155,7 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
       const atoms = Array.isArray(atomsJson?.result) ? atomsJson.result : [];
       for (const a of atoms) {
         const rawCode: string = String(a?.code ?? "");
+        // UMLS returns full URLs like ".../sourceUi/29857009" — extract the tail
         const code = rawCode.includes("/") ? rawCode.split("/").pop()! : rawCode;
         if (!code || code === "NONE") continue;
         resolvedSourceCode = code;
@@ -143,9 +168,11 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
   }
 
   if (!resolvedSourceCode) {
+    // CUI found but no atom in requested vocabulary — return held with low confidence
     return { resolvedCode: null, resolvedName: cuiDisplayName, confidence: 0.30, valid: false, statusRouting: "held", elapsed_ms };
   }
 
+  // Compute confidence from name similarity between the resolved display name and input.
   const resolvedName = resolvedSourceName.toLowerCase().trim();
   const inputLower = input.toLowerCase().trim();
 
@@ -153,8 +180,10 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
   if (resolvedName === inputLower) {
     confidence = 0.93;
   } else if (resolvedName.includes(inputLower) || inputLower.includes(resolvedName)) {
+    // One contains the other (e.g. "chest pain" vs "Chest pain (finding)")
     confidence = 0.85;
   } else {
+    // Word-overlap ratio — partial match
     const inputWords = new Set(inputLower.split(/\s+/).filter(Boolean));
     const nameWords = new Set(resolvedName.split(/\s+/).filter(Boolean));
     const overlap = [...inputWords].filter(w => nameWords.has(w)).length;
@@ -170,6 +199,17 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
 }
 
 // ─── P1-B: Subsumption check via UMLS source ancestors ───────────────────────
+//
+// Implements FHIR $subsumes semantics using the UMLS source ancestors endpoint:
+//   GET /content/current/source/{SAB}/{code}/ancestors
+//
+// Logic:
+//   codeA === codeB               → "equivalent"
+//   codeB in ancestors(codeA)     → "subsumed-by" (codeA is more specific)
+//   codeA in ancestors(codeB)     → "subsumes"    (codeA is more general)
+//   otherwise                     → "not-subsumed"
+//
+// Paginates up to 10 pages × 50 = 500 ancestors (covers all SNOMED depths).
 
 async function checkSubsumes(p: Record<string, unknown>): Promise<{
   outcome: "equivalent" | "subsumes" | "subsumed-by" | "not-subsumed";
@@ -189,6 +229,7 @@ async function checkSubsumes(p: Record<string, unknown>): Promise<{
     return { outcome: "equivalent", codeA, codeB, elapsed_ms: Date.now() - started };
   }
 
+  // Fetch all ancestor source codes for a given concept via UMLS pagination.
   const getAncestorCodes = async (code: string): Promise<Set<string>> => {
     const codes = new Set<string>();
     for (let page = 1; page <= 10; page++) {
@@ -199,25 +240,29 @@ async function checkSubsumes(p: Record<string, unknown>): Promise<{
       } catch {
         break;
       }
-      if (!res.ok) break;
+      if (!res.ok) break; // 404 = no ancestors (root concept) or unknown code
       const json = await res.json();
       const ancestors = Array.isArray(json?.result) ? json.result : [];
       if (ancestors.length === 0) break;
       for (const a of ancestors) {
+        // Each ancestor atom has a "code" field which is a URL ending in the
+        // source code, e.g. ".../source/SNOMEDCT_US/73211009"
         const codeUrl = String(a?.code ?? "");
         const extracted = codeUrl.split("/").pop() ?? "";
         if (extracted && extracted !== "NONE") codes.add(extracted);
       }
-      if (ancestors.length < 50) break;
+      if (ancestors.length < 50) break; // Last page — no more results
     }
     return codes;
   };
 
+  // Is codeA subsumed-by codeB? (codeB is an ancestor of codeA)
   const ancestorsOfA = await getAncestorCodes(codeA);
   if (ancestorsOfA.has(codeB)) {
     return { outcome: "subsumed-by", codeA, codeB, elapsed_ms: Date.now() - started };
   }
 
+  // Does codeA subsume codeB? (codeA is an ancestor of codeB)
   const ancestorsOfB = await getAncestorCodes(codeB);
   if (ancestorsOfB.has(codeA)) {
     return { outcome: "subsumes", codeA, codeB, elapsed_ms: Date.now() - started };
@@ -241,13 +286,15 @@ type Action =
   | "icd10"
   | "snomed"
   | "loinc"
-  | "resolveAndValidate"
-  | "subsumes";
+  | "resolveAndValidate"   // P1-A: replaces "validate" for Auto Terminologist
+  | "subsumes";            // P1-B: FHIR $subsumes via UMLS ancestors
 
 interface Body {
   action: Action;
   params: Record<string, unknown>;
 }
+
+// ─── Supabase client + cache helpers ─────────────────────────────────────────
 
 const supabase = SUPABASE_URL && SERVICE_ROLE_KEY
   ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
@@ -292,6 +339,8 @@ async function cacheSet(
     { onConflict: "cache_key" },
   );
 }
+
+// ─── Simple single-URL action builder ────────────────────────────────────────
 
 function buildUrl(action: Action, p: Record<string, unknown>): {
   url: string;
@@ -383,6 +432,8 @@ function buildUrl(action: Action, p: Record<string, unknown>): {
       return { url: `${UTS}/search/current?${qs}`, vocab: "MDR" };
     }
     case "validate": {
+      // NOTE: "validate" expects an actual source code (e.g. SNOMED concept ID
+      // "29857009"), NOT free text. For free-text input, use "resolveAndValidate".
       const qs = new URLSearchParams({
         string: String(p.code ?? ""),
         sabs: String(p.sab ?? ""),
@@ -413,11 +464,14 @@ function buildUrl(action: Action, p: Record<string, unknown>): {
         vocab: "RXNORM",
       };
     }
+    // Multi-step actions handled before buildUrl in Deno.serve — should never reach here
     case "resolveAndValidate":
     case "subsumes":
       throw new Error(`Action "${action}" must be handled before buildUrl`);
   }
 }
+
+// ─── Main handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -440,6 +494,7 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── P1-A: resolveAndValidate (multi-step, bypasses buildUrl) ─────────────
     if (action === "resolveAndValidate") {
       if (!UMLS_API_KEY) {
         return new Response(
@@ -463,6 +518,7 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ── P1-B: subsumes (multi-step, bypasses buildUrl) ────────────────────────
     if (action === "subsumes") {
       if (!UMLS_API_KEY) {
         return new Response(
@@ -486,6 +542,7 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ── All other actions: single-URL via buildUrl ───────────────────────────
     const needsUmls = action !== "rxnorm" && action !== "rxnormDetail" &&
       action !== "rxnormRelated";
     if (needsUmls && !UMLS_API_KEY) {
@@ -516,6 +573,7 @@ Deno.serve(async (req) => {
     const elapsed_ms = Date.now() - started;
 
     if (!upstream.ok) {
+      // UMLS crosswalk returns 404 when no equivalents exist — normalize to empty.
       if (action === "crosswalk" && upstream.status === 404) {
         const fb = await crosswalkCuiFallback(params ?? {});
         const out = { result: fb.matches[0] ?? null, matches: fb.matches, elapsed_ms, fallback: "cui-atoms" };
