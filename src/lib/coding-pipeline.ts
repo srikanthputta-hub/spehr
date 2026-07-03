@@ -686,9 +686,7 @@ export async function runSixStreamPipeline(
     if (medNames.length) rawParts.push(`MEDS: ${medNames.join(", ")}`);
 
     const standardized = {
-      stream_a: streamA.items[0]
-        ? { ...streamA.items[0] }
-        : null,
+      stream_a: streamA.items,
       stream_b: streamB.items,
       stream_c: streamC.items,
       stream_d: streamD.items,
