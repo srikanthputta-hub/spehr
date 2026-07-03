@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sparkles, RefreshCw } from "lucide-react";
@@ -10,9 +10,13 @@ export default function NlpAuditLogsPanel() {
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const initialLoadRef = useRef(true);
+  const firedIdsRef = useRef<Set<string>>(new Set());
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = async () => {
-    setLoading(true);
+    if (initialLoadRef.current) setLoading(true);
     try {
       const query = supabase
         .from("nlp_audit_logs" as any)
@@ -29,7 +33,16 @@ export default function NlpAuditLogsPanel() {
       setRows([]);
     } finally {
       setLoading(false);
+      initialLoadRef.current = false;
     }
+  };
+
+  const scheduleRefresh = () => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      refresh();
+    }, 1200);
   };
 
   useEffect(() => {
@@ -39,19 +52,25 @@ export default function NlpAuditLogsPanel() {
   }, []);
 
   const handleApprove = async (r: AuditRow, approvedBy: "human" | "ai") => {
-    setBusy(r.id);
+    // Dedup: don't approve the same row twice, even across remounts.
+    if (inFlightRef.current.has(r.id) || firedIdsRef.current.has(r.id)) return;
+    inFlightRef.current.add(r.id);
+    firedIdsRef.current.add(r.id);
+    if (approvedBy === "human") setBusy(r.id);
     try {
       await approveMrnCoding(r.patient_mrn, approvedBy);
-      if (approvedBy === "ai") {
-        toast.success("Auto-approved by AI");
-      } else {
+      if (approvedBy === "human") {
         toast.success("Approved — codes published to Live Terminology Matrix");
       }
-      refresh();
+      // Optimistically remove from local list so auto-approve doesn't refire.
+      setRows((prev) => prev.filter((x) => x.patient_mrn !== r.patient_mrn));
+      scheduleRefresh();
     } catch (e: any) {
-      toast.error("Approve failed", { description: e?.message });
+      firedIdsRef.current.delete(r.id);
+      if (approvedBy === "human") toast.error("Approve failed", { description: e?.message });
     } finally {
-      setBusy(null);
+      inFlightRef.current.delete(r.id);
+      if (approvedBy === "human") setBusy(null);
     }
   };
 
