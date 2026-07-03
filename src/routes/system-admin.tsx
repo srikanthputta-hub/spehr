@@ -3383,14 +3383,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
     });
   }, [autoOn, rows, pushedMrns]);
 
-  // Live streaming heartbeat that drains the queued MRNs. Realtime events
-  // already re-queue MRNs the moment their clinical rows change, so this
-  // tick only exists to pull the next queued row when nothing else has
-  // fired. 1.5s keeps drain latency low while eliminating the 400ms
-  // re-render jank the whole panel used to suffer under load.
+  // 400ms live streaming heartbeat. Cleaned up on toggle-off / unmount.
   useEffect(() => {
     if (!autoOn) return;
-    const id = setInterval(() => setAutoTick((t) => t + 1), 1500);
+    const id = setInterval(() => setAutoTick((t) => t + 1), 400);
     return () => clearInterval(id);
   }, [autoOn]);
 
