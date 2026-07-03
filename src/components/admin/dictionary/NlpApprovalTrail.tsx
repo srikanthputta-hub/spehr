@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Sparkles, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,10 @@ import { AuditCard, type AuditRow } from "./AuditCard";
 export default function NlpApprovalTrail() {
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const initialLoadRef = useRef(true);
 
   const refresh = async () => {
-    setLoading(true);
+    if (initialLoadRef.current) setLoading(true);
     try {
       const query = supabase
         .from("nlp_audit_logs" as any)
@@ -26,12 +27,19 @@ export default function NlpApprovalTrail() {
       setRows([]);
     } finally {
       setLoading(false);
+      initialLoadRef.current = false;
     }
   };
 
   useEffect(() => {
     refresh();
-    // One-shot fetch on mount; use the Refresh button for updates.
+    const onApproved = () => refresh();
+    window.addEventListener("nlp:approved", onApproved);
+    const poll = setInterval(refresh, 20_000);
+    return () => {
+      window.removeEventListener("nlp:approved", onApproved);
+      clearInterval(poll);
+    };
   }, []);
 
   return (
