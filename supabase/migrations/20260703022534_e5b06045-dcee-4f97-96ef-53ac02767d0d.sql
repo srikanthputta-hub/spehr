@@ -1,1 +1,0 @@
-ALTER TABLE public.nlp_audit_logs ADD COLUMN IF NOT EXISTS approved_by text;

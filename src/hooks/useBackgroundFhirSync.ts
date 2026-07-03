@@ -9,7 +9,6 @@ import {
   type FhirQuality,
 } from "@/lib/fhir-bundle";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 /**
  * Background FHIR live-sync. Runs at the app root so discharged-patient
@@ -32,27 +31,6 @@ import { fetchWithTimeout } from "@/lib/async-timeout";
  */
 
 type Status = "queued" | "syncing" | "ok" | "err";
-
-const LEADER_KEY = "spehr.fhir-sync.leader";
-const LEADER_LEASE_MS = 20_000;
-const TAB_ID = Math.random().toString(36).slice(2);
-const HEARTBEAT_MS = 1_500;
-
-function tryAcquireLeader(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const raw = window.localStorage.getItem(LEADER_KEY);
-    const now = Date.now();
-    if (raw) {
-      const { id, ts } = JSON.parse(raw);
-      if (id !== TAB_ID && now - ts < LEADER_LEASE_MS) return false;
-    }
-    window.localStorage.setItem(LEADER_KEY, JSON.stringify({ id: TAB_ID, ts: now }));
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 type Row = {
   mrn: string;
@@ -84,22 +62,6 @@ function persistPushed(mrn: string, outcome: "ok" | "err") {
   } catch {
     /* ignore */
   }
-}
-
-function readPushedOutcome(mrn: string): "ok" | "err" | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const raw = window.localStorage.getItem("fhir.pushedMrns");
-    const obj = raw ? JSON.parse(raw) : {};
-    const v = obj?.[mrn];
-    return v === "ok" || v === "err" ? v : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function isDischargedRow(row: Pick<Row, "status" | "discharge_time">): boolean {
-  return (row.status ?? "").toLowerCase() === "discharged" || !!row.discharge_time;
 }
 
 /**
@@ -217,59 +179,47 @@ async function flagSafetyAlert(mrn: string, quality: FhirQuality) {
 }
 
 async function buildBundleForMrn(r: Row) {
-  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes] = await fetchWithTimeout(
-    () =>
-      Promise.all([
-        supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
-        supabase
-          .from("lab_orders")
-          .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
-          .eq("patient_mrn", r.mrn)
-          .order("created_at", { ascending: false })
-          .limit(40),
-        supabase
-          .from("medication_orders")
-          .select(
-            "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
-          )
-          .eq("patient_mrn", r.mrn)
-          .order("created_at", { ascending: false })
-          .limit(40),
-        supabase
-          .from("clinical_notes")
-          .select("id, note_type, author, content, created_at")
-          .eq("mrn", r.mrn)
-          .order("created_at", { ascending: false })
-          .limit(20),
-        supabase
-          .from("conditions")
-          .select(
-            "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at",
-          )
-          .eq("mrn", r.mrn)
-          .order("coded_at", { ascending: false })
-          .limit(20),
-        supabase
-          .from("allergies")
-          .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
-          .eq("mrn", r.mrn)
-          .limit(40),
-        supabase
-          .from("allergy_reactions")
-          .select("allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display")
-          .eq("mrn", r.mrn)
-          .limit(80),
-      ]),
-    [
-      { data: null, error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-    ] as any,
-  );
+  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes] = await Promise.all([
+    supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
+    supabase
+      .from("lab_orders")
+      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
+      .eq("patient_mrn", r.mrn)
+      .order("created_at", { ascending: false })
+      .limit(40),
+    supabase
+      .from("medication_orders")
+      .select(
+        "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
+      )
+      .eq("patient_mrn", r.mrn)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    supabase
+      .from("clinical_notes")
+      .select("id, note_type, author, content, created_at")
+      .eq("mrn", r.mrn)
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("conditions")
+      .select(
+        "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at",
+      )
+      .eq("mrn", r.mrn)
+      .order("coded_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("allergies")
+      .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
+      .eq("mrn", r.mrn)
+      .limit(40),
+    supabase
+      .from("allergy_reactions")
+      .select("allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display")
+      .eq("mrn", r.mrn)
+      .limit(80),
+  ]);
   const p = (patientRes.data ?? {}) as any;
   const reactionsByAllergy = new Map<string, any[]>();
   for (const rx of ((reactionsRes as any)?.data ?? []) as any[]) {
@@ -338,21 +288,14 @@ export function useBackgroundFhirSync() {
     };
 
     const loadRows = async () => {
-      if (!tryAcquireLeader()) return;
-      const { data } = await fetchWithTimeout(
-        () =>
-          supabase
-            .from("patients")
-            .select(
-              "mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint",
-            )
-            .not("mrn", "is", null)
-            .or("status.eq.Discharged,discharge_time.not.is.null")
-            .order("discharge_time", { ascending: false, nullsFirst: false })
-            .order("admission_time", { ascending: false })
-            .limit(80),
-        { data: [], error: null } as any,
-      );
+      const { data } = await supabase
+        .from("patients")
+        .select(
+          "mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint",
+        )
+        .not("mrn", "is", null)
+        .order("admission_time", { ascending: false })
+        .limit(200);
       if (cancelled) return;
       for (const p of (data ?? []) as any[]) {
         const r: Row = {
@@ -364,10 +307,12 @@ export function useBackgroundFhirSync() {
           status: p.status ?? null,
           chief_complaint: p.chief_complaint ?? null,
         };
-        if (!isDischargedRow(r)) continue;
-        // Discharge-only live sync. PUT-with-stable-id bundles are
-        // idempotent, but we do not churn active-admission rows in the
-        // background because it starves the operational dashboards.
+        // Full live sync mode: every patient is eligible regardless of
+        // admission status. PUT-with-stable-id bundles are idempotent.
+        // Re-enqueue whenever an existing patient's discharge_time or
+        // status changes (e.g. admitted → discharged) so a previously
+        // ✓ Successful badge does NOT freeze us out of syncing the
+        // discharge encounter, late labs, manual med orders, etc.
         const prev = rowsRef.current.get(r.mrn);
         const changed =
           !prev ||
@@ -376,19 +321,12 @@ export function useBackgroundFhirSync() {
           prev.admission_time !== r.admission_time ||
           prev.chief_complaint !== r.chief_complaint;
         rowsRef.current.set(r.mrn, r);
-        if (!statusRef.current.has(r.mrn)) {
-          const persisted = readPushedOutcome(r.mrn);
-          if (persisted === "ok") statusRef.current.set(r.mrn, "ok");
-          else enqueue(r.mrn);
-        } else if (changed) {
-          enqueue(r.mrn);
-        }
+        if (!statusRef.current.has(r.mrn) || changed) enqueue(r.mrn);
       }
     };
 
     const pushNext = async () => {
       if (cancelled || inFlightRef.current) return;
-      if (!tryAcquireLeader()) return;
       if (!readEnabled()) return;
       if (!enabledRef.current) return;
       let target: Row | null = null;
@@ -408,29 +346,37 @@ export function useBackgroundFhirSync() {
         const quality = assessBundleQuality(bundle);
         persistQuality(target.mrn, quality);
         if (!quality.ok) void flagSafetyAlert(target.mrn, quality);
-        if (!isDischargedRow(target)) {
-          statusRef.current.set(target.mrn, "ok");
-          return;
-        }
-        // Two-phase discharge push: persist Encounter (status=finished +
-        // period.end), confirmed discharge Condition, all MedicationRequests
-        // / MedicationAdministrations, labs and notes FIRST. Then re-PUT
-        // the Composition so its lab / medication sections reference
-        // resources that are already live on the FHIR server.
-        const { primary, composition } = splitEncounterBundle(bundle);
-        const first = await supabase.functions.invoke("fhir-proxy", {
-          body: { mrn: target.mrn, bundle: primary },
-        });
-        if (first.error) throw first.error;
-        if (first.data?.success === false)
-          throw new Error(first.data?.error ?? "Sync failed");
-        if (composition) {
-          const second = await supabase.functions.invoke("fhir-proxy", {
-            body: { mrn: target.mrn, bundle: composition },
+        const isDischarged =
+          (target.status ?? "").toLowerCase() === "discharged" ||
+          !!target.discharge_time;
+        if (isDischarged) {
+          // Two-phase discharge push: persist Encounter (status=finished +
+          // period.end), confirmed discharge Condition, all MedicationRequests
+          // / MedicationAdministrations, labs and notes FIRST. Then re-PUT
+          // the Composition so its lab / medication sections reference
+          // resources that are already live on the FHIR server.
+          const { primary, composition } = splitEncounterBundle(bundle);
+          const first = await supabase.functions.invoke("fhir-proxy", {
+            body: { mrn: target.mrn, bundle: primary },
           });
-          if (second.error) throw second.error;
-          if (second.data?.success === false)
-            throw new Error(second.data?.error ?? "Composition sync failed");
+          if (first.error) throw first.error;
+          if (first.data?.success === false)
+            throw new Error(first.data?.error ?? "Sync failed");
+          if (composition) {
+            const second = await supabase.functions.invoke("fhir-proxy", {
+              body: { mrn: target.mrn, bundle: composition },
+            });
+            if (second.error) throw second.error;
+            if (second.data?.success === false)
+              throw new Error(second.data?.error ?? "Composition sync failed");
+          }
+        } else {
+          const { data, error } = await supabase.functions.invoke("fhir-proxy", {
+            body: { mrn: target.mrn, bundle },
+          });
+          if (error) throw error;
+          if (data?.success === false)
+            throw new Error(data?.error ?? "Sync failed");
         }
         statusRef.current.set(target.mrn, "ok");
         persistPushed(target.mrn, "ok");
@@ -448,12 +394,11 @@ export function useBackgroundFhirSync() {
 
     void loadRows();
     const refresh = setInterval(() => void loadRows(), 30_000);
-    const heartbeat = setInterval(() => void pushNext(), HEARTBEAT_MS);
+    const heartbeat = setInterval(() => void pushNext(), 400);
 
     const requeueByMrn = (mrn: string | null | undefined) => {
       if (!mrn) return;
       const row = rowsRef.current.get(mrn);
-      if (row && !isDischargedRow(row)) return;
       if (!row) {
         // Unknown MRN — refresh the discharged set so we pick it up.
         void loadRows();

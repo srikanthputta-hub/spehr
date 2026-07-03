@@ -67,10 +67,10 @@ import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
 import { AutoApiCard } from "@/components/admin/AutoApiCard";
 import {
   TerminologyMetricsStrip,
+  UmlsResolutionTrail,
   CdsOverridesFeed,
   AutoApiEventsFeed,
 } from "@/components/admin/Step8Surfacing";
-import NlpApprovalTrail from "@/components/admin/dictionary/NlpApprovalTrail";
 import { AutoApiStatusPill } from "@/components/admin/AutoApiStatusPill";
 import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
 import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
@@ -3383,14 +3383,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
     });
   }, [autoOn, rows, pushedMrns]);
 
-  // Live streaming heartbeat that drains the queued MRNs. Realtime events
-  // already re-queue MRNs the moment their clinical rows change, so this
-  // tick only exists to pull the next queued row when nothing else has
-  // fired. 1.5s keeps drain latency low while eliminating the 400ms
-  // re-render jank the whole panel used to suffer under load.
+  // 400ms live streaming heartbeat. Cleaned up on toggle-off / unmount.
   useEffect(() => {
     if (!autoOn) return;
-    const id = setInterval(() => setAutoTick((t) => t + 1), 1500);
+    const id = setInterval(() => setAutoTick((t) => t + 1), 400);
     return () => clearInterval(id);
   }, [autoOn]);
 
@@ -4719,7 +4715,7 @@ function MedicalDictionary() {
       {subtab === "authoring" && <AuthoringWorkbench />}
       {subtab === "crossmap"  && <CrossMapStudio />}
       {subtab === "audits" && <NlpAuditLogsPanel />}
-      {subtab === "audits" && <NlpApprovalTrail />}
+      {subtab === "audits" && <UmlsResolutionTrail />}
       {subtab === "audits" && <QaGovernanceQueue />}
       {subtab === "matrix" && <LiveTerminologyMatrixPanel />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}

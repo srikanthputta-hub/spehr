@@ -138,25 +138,16 @@ function PharmacyQueue() {
       );
     };
     loadBoard();
-    let boardTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleBoard = () => {
-      if (boardTimer) clearTimeout(boardTimer);
-      boardTimer = setTimeout(() => {
-        boardTimer = null;
-        void loadBoard();
-      }, 300);
-    };
     const channel = supabase
       .channel(`pharmacy-board-${facility}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "patients" },
-        scheduleBoard,
+        () => loadBoard(),
       )
       .subscribe();
     return () => {
       active = false;
-      if (boardTimer) clearTimeout(boardTimer);
       supabase.removeChannel(channel);
     };
   }, [facility]);
@@ -261,14 +252,6 @@ function PharmacyQueue() {
       setDispensed((data ?? []) as any);
     };
     loadDispensed();
-    let dispensedTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleDispensed = () => {
-      if (dispensedTimer) clearTimeout(dispensedTimer);
-      dispensedTimer = setTimeout(() => {
-        dispensedTimer = null;
-        void loadDispensed();
-      }, 300);
-    };
     const channel = supabase
       .channel(`pharmacy-dispensed-${facility}`)
       .on(
@@ -289,12 +272,11 @@ function PharmacyQueue() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "medication_orders" },
-        scheduleDispensed,
+        () => loadDispensed(),
       )
       .subscribe();
     return () => {
       active = false;
-      if (dispensedTimer) clearTimeout(dispensedTimer);
       supabase.removeChannel(channel);
     };
   }, [facility]);

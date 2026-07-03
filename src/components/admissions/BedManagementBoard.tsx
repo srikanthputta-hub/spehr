@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { reconcileOrphanedBeds } from "@/lib/admit-patient";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 interface BedRow {
   id: string;
@@ -62,80 +61,51 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
   const [beds, setBeds] = useState<BedRow[]>([]);
   const [names, setNames] = useState<PatientNameMap>({});
   const [loading, setLoading] = useState(true);
-  const busyRef = useRef(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      if (busyRef.current) return;
-      busyRef.current = true;
-      try {
-        const { data } = await fetchWithTimeout(
-          () =>
-            supabase
-              .from("bed_management")
-              .select("id, facility_name, room_number, bed_letter, status, current_patient_mrn, status_updated_at")
-              .eq("facility_name", facility)
-              .order("room_number", { ascending: true })
-              .order("bed_letter", { ascending: true })
-              .limit(20),
-          { data: [], error: null } as any,
-        );
+      await reconcileOrphanedBeds(facility).catch(() => {});
+      const { data } = await supabase
+        .from("bed_management")
+        .select("id, facility_name, room_number, bed_letter, status, current_patient_mrn, status_updated_at")
+        .eq("facility_name", facility)
+        .order("room_number", { ascending: true })
+        .order("bed_letter", { ascending: true })
+        .limit(20);
+      if (cancelled) return;
+      setBeds((data ?? []) as BedRow[]);
+      setLoading(false);
+      const mrns = (data ?? [])
+        .map((b) => b.current_patient_mrn)
+        .filter((m): m is string => !!m);
+      if (mrns.length) {
+        const { data: pts } = await supabase
+          .from("patients")
+          .select("mrn, first_name, last_name")
+          .in("mrn", mrns);
         if (cancelled) return;
-        setBeds((data ?? []) as BedRow[]);
-        const bedRows = (data ?? []) as BedRow[];
-        const mrns = bedRows
-          .map((b: BedRow) => b.current_patient_mrn)
-          .filter((m: string | null): m is string => !!m);
-        if (mrns.length) {
-          const { data: pts } = await fetchWithTimeout(
-            () =>
-              supabase
-                .from("patients")
-                .select("mrn, first_name, last_name")
-                .in("mrn", mrns),
-            { data: [], error: null } as any,
-          );
-          if (cancelled) return;
-          const map: PatientNameMap = {};
-          for (const p of pts ?? []) {
-            map[p.mrn as string] = `${(p as any).first_name ?? ""} ${(p as any).last_name ?? ""}`.trim();
-          }
-          setNames(map);
-        } else {
-          setNames({});
+        const map: PatientNameMap = {};
+        for (const p of pts ?? []) {
+          map[p.mrn as string] = `${(p as any).first_name ?? ""} ${(p as any).last_name ?? ""}`.trim();
         }
-      } finally {
-        busyRef.current = false;
-        if (!cancelled) setLoading(false);
+        setNames(map);
+      } else {
+        setNames({});
       }
     };
-    void reconcileOrphanedBeds(facility).catch(() => {});
     load();
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleLoad = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null;
-        void load();
-      }, 300);
-    };
     const ch = supabase
       .channel(`bed-board-${facility}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` }, scheduleLoad)
-      .on("postgres_changes", { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` }, () => load())
       .subscribe();
-    const poll = setInterval(load, 10000);
-    const reconcilePoll = setInterval(() => {
-      void reconcileOrphanedBeds(facility).catch(() => {});
-    }, 30000);
+    const poll = setInterval(load, 4000);
     return () => {
       cancelled = true;
-      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(ch);
       clearInterval(poll);
-      clearInterval(reconcilePoll);
     };
   }, [facility]);
 

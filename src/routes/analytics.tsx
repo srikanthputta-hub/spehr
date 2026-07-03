@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
 import {
@@ -63,41 +63,26 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const patientsRef = useRef<Patient[]>([]);
-  const busyRef = useRef(false);
 
   const load = async () => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    try {
-      const { data, error } = await fetchWithTimeout(
-        () =>
-          supabase
-            .from("patients")
-            .select(
-              "id, mrn, name, first_name, last_name, status, facility_name, chief_complaint, admission_time",
-            )
-            .order("admission_time", { ascending: false })
-            .limit(2500),
-        { data: patientsRef.current, error: null } as any,
-      );
-      if (error) {
-        setError(error.message);
-      } else {
-        const next = ((data as Patient[]) ?? patientsRef.current);
-        patientsRef.current = next;
-        setPatients(next);
-        setError(null);
-      }
-    } finally {
-      busyRef.current = false;
-      setLoading(false);
-    }
+    const { data, error } = await fetchWithTimeout(
+      () =>
+        supabase
+          .from("patients")
+          .select(
+            "id, mrn, name, first_name, last_name, status, facility_name, chief_complaint, admission_time",
+          )
+          .order("admission_time", { ascending: false }),
+      { data: [], error: null } as any,
+    );
+    if (error) setError(error.message);
+    else setPatients((data as Patient[]) ?? []);
+    setLoading(false);
   };
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 30000);
+    const t = setInterval(load, 10000);
     return () => clearInterval(t);
   }, []);
 

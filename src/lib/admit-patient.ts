@@ -4,7 +4,6 @@ import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
 import type { CodeStatus } from "@/lib/patients";
 import { runSixStreamPipeline } from "@/lib/coding-pipeline";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 export interface AdmitInput {
   name: string;
@@ -221,27 +220,17 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
  */
 export async function reconcileOrphanedBeds(facility: string): Promise<void> {
   if (!facility) return;
-  const { data: beds } = await fetchWithTimeout(
-    () =>
-      supabase
-        .from("bed_management")
-        .select("id, current_patient_mrn, status")
-        .eq("facility_name", facility)
-        .ilike("status", "Occupied%")
-        .not("current_patient_mrn", "is", null)
-        .limit(200),
-    { data: [], error: null } as any,
-  );
+  const { data: beds } = await supabase
+    .from("bed_management")
+    .select("id, current_patient_mrn, status")
+    .eq("facility_name", facility);
   if (!beds || beds.length === 0) return;
   const occupied = beds.filter(
     (b: any) => b.current_patient_mrn && (b.status ?? "").toLowerCase().startsWith("occupied"),
   );
   if (occupied.length === 0) return;
-  const mrns = Array.from(new Set<string>(occupied.map((b: any) => b.current_patient_mrn as string)));
-  const { data: active } = await fetchWithTimeout(
-    () => supabase.from("patients").select("mrn, status").in("mrn", mrns),
-    { data: [], error: null } as any,
-  );
+  const mrns = Array.from(new Set(occupied.map((b: any) => b.current_patient_mrn as string)));
+  const { data: active } = await supabase.from("patients").select("mrn, status").in("mrn", mrns);
   const activeSet = new Set(
     (active ?? [])
       .filter((p: any) => (p.status ?? "").toLowerCase() === "admitted")

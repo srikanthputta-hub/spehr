@@ -12,7 +12,6 @@ import {
 import { routeDepartment } from "@/lib/chief-complaints";
 import { templateForDepartment } from "@/lib/auto-doc-catalog";
 import { runAutoDoc } from "@/lib/auto-doc.functions";
-import { fetchWithTimeout } from "@/lib/async-timeout";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -58,37 +57,6 @@ const MED_ORDER_GAP_MS = 15_000;
 const LAB_FIRST_ORDER_DELAY_MS = 20_000;
 const LAB_ORDER_GAP_MS = 15_000;
 const TRANSITION_GAP_MS = 3_000;
-const AI_LEADER_KEY = "spehr.ai-automation.leader";
-const AI_LEADER_LEASE_MS = 20_000;
-const AI_TAB_ID = Math.random().toString(36).slice(2);
-
-function tryAcquireAiLeader(): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    const raw = window.localStorage.getItem(AI_LEADER_KEY);
-    const now = Date.now();
-    if (raw) {
-      const { id, ts } = JSON.parse(raw) as { id?: string; ts?: number };
-      if (id !== AI_TAB_ID && typeof ts === "number" && now - ts < AI_LEADER_LEASE_MS) return false;
-    }
-    window.localStorage.setItem(AI_LEADER_KEY, JSON.stringify({ id: AI_TAB_ID, ts: now }));
-    return true;
-  } catch {
-    return true;
-  }
-}
-
-function releaseAiLeader() {
-  if (typeof window === "undefined") return;
-  try {
-    const raw = window.localStorage.getItem(AI_LEADER_KEY);
-    if (!raw) return;
-    const { id } = JSON.parse(raw) as { id?: string };
-    if (id === AI_TAB_ID) window.localStorage.removeItem(AI_LEADER_KEY);
-  } catch {
-    /* ignore */
-  }
-}
 
 /* ------------------------------------------------------------------ */
 /* Lab specimen / methodology / interpretation reference data.        */
@@ -287,49 +255,26 @@ async function startBedCleaningCycle(mrn: string) {
 async function sweepBedCleaningCycles() {
   const now = Date.now();
   const cutoff60 = new Date(now - 60_000).toISOString();
+  const cutoff120 = new Date(now - 120_000).toISOString();
   // Cleaning → Disinfecting (60s elapsed)
-  const { data: cleaningRows } = await fetchWithTimeout(
-    () =>
-      supabase
-        .from("bed_management")
-        .select("id")
-        .in("status", ["Cleaning", "Discharged - Deep Cleaning In Progress", "Discharged"])
-        .lt("status_updated_at", cutoff60)
-        .limit(100),
-    { data: [], error: null } as any,
-  );
-  const cleaningIds = ((cleaningRows ?? []) as any[]).map((r) => r.id).filter(Boolean);
-  if (cleaningIds.length) {
-    await supabase
-      .from("bed_management")
-      .update({
-        status: "Disinfecting",
-        status_updated_at: new Date().toISOString(),
-      } as any)
-      .in("id", cleaningIds);
-  }
-  // Disinfecting → Available (another 60s elapsed)
-  const { data: disinfectingRows } = await fetchWithTimeout(
-    () =>
-      supabase
-        .from("bed_management")
-        .select("id")
-        .eq("status", "Disinfecting")
-        .lt("status_updated_at", cutoff60)
-        .limit(100),
-    { data: [], error: null } as any,
-  );
-  const disinfectingIds = ((disinfectingRows ?? []) as any[]).map((r) => r.id).filter(Boolean);
-  if (disinfectingIds.length) {
-    await supabase
-      .from("bed_management")
-      .update({
-        status: "Available",
-        current_patient_mrn: null,
-        status_updated_at: new Date().toISOString(),
-      } as any)
-      .in("id", disinfectingIds);
-  }
+  await supabase
+    .from("bed_management")
+    .update({
+      status: "Disinfecting",
+      status_updated_at: new Date().toISOString(),
+    } as any)
+    .in("status", ["Cleaning", "Discharged - Deep Cleaning In Progress", "Discharged"])
+    .lt("status_updated_at", cutoff60);
+  // Disinfecting → Available (another 60s elapsed = 120s total since discharge)
+  await supabase
+    .from("bed_management")
+    .update({
+      status: "Available",
+      current_patient_mrn: null,
+      status_updated_at: new Date().toISOString(),
+    } as any)
+    .eq("status", "Disinfecting")
+    .lt("status_updated_at", cutoff120);
 }
 
 
@@ -691,11 +636,7 @@ export function useAIAutomation() {
   const automationEnabled = useAutomationEnabled();
 
   useEffect(() => {
-    if (!automationEnabled) {
-      releaseAiLeader();
-      return;
-    }
-    const isLeader = () => tryAcquireAiLeader();
+    if (!automationEnabled) return;
     // Hydrate NLP custom rules / banned tokens from Supabase on boot so the
     // synchronous detectBanned() cache reflects facility-specific overrides.
     ensureNlpRulesHydrated().catch(() => {});
@@ -719,65 +660,47 @@ export function useAIAutomation() {
         .lt("created_at", cutoff)
         .in("status", ["Ordered", "Processing", "ORDERED", "PROCESSING"]);
     };
-    if (isLeader()) sweepOrphans().catch(() => {});
+    sweepOrphans().catch(() => {});
     const sweepInterval = setInterval(() => {
-      if (isLeader()) sweepOrphans().catch(() => {});
+      sweepOrphans().catch(() => {});
     }, 5 * 60_000);
 
     // Backfill any admitted patient that has NO orders yet (e.g. admitted
     // while the tab was closed). Patients that already have orders are
     // skipped — the cascade for them is owned by whatever tab seeded them.
     const reconcileActiveAdmissions = async () => {
-      const { data } = await fetchWithTimeout(
-        () =>
-          supabase
-            .from("patients")
-            .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob, snomed_codes, icd10_codes")
-            .eq("status", "Admitted")
-            .not("mrn", "is", null)
-            .order("admission_time", { ascending: false })
-            .limit(25),
-        { data: [], error: null } as any,
-      );
-      let codeBackfills = 0;
-      let admissionSeeds = 0;
+      const { data } = await supabase
+        .from("patients")
+        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob, snomed_codes, icd10_codes")
+        .eq("status", "Admitted")
+        .not("mrn", "is", null)
+        .order("admission_time", { ascending: false })
+        .limit(100);
       for (const p of ((data as Array<NewPatient & { snomed_codes?: string[] | null; icd10_codes?: string[] | null }> | null) ?? [])) {
         if (!p.mrn) continue;
-        const mrn = p.mrn;
         // Backfill Auto Doc codes for any admission missing SNOMED-CT or
         // ICD-10 (Auto Doc is idempotent — completed runs short-circuit).
         const needsCodes =
           !(p.snomed_codes && p.snomed_codes.length) ||
           !(p.icd10_codes && p.icd10_codes.length);
-        if (needsCodes && codeBackfills < 3) {
-          codeBackfills += 1;
-          runAutoDoc({ data: { mrn } }).catch((e) =>
+        if (needsCodes) {
+          runAutoDoc({ data: { mrn: p.mrn } }).catch((e) =>
             console.warn("[admission-reconcile] runAutoDoc failed", e),
           );
         }
-        if (admissionSeeds >= 5) continue;
         const [{ count: medCount }, { count: labCount }] = await Promise.all([
-          fetchWithTimeout(
-            () => supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", mrn),
-            { count: 1, data: null, error: null } as any,
-          ),
-          fetchWithTimeout(
-            () => supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", mrn),
-            { count: 1, data: null, error: null } as any,
-          ),
+          supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
+          supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
         ]);
         if ((medCount ?? 0) > 0 || (labCount ?? 0) > 0) continue;
-        admissionSeeds += 1;
         await seedAdmission(p).catch((e) =>
           console.warn("[admission-reconcile] seed failed", e),
         );
       }
     };
-    if (isLeader()) {
-      reconcileActiveAdmissions().catch((e) =>
-        console.warn("[admission-reconcile] failed", e),
-      );
-    }
+    reconcileActiveAdmissions().catch((e) =>
+      console.warn("[admission-reconcile] failed", e),
+    );
 
     const channel = supabase
       .channel("admission-randomizer")
@@ -785,7 +708,6 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "patients" },
         (payload) => {
-          if (!isLeader()) return;
           const p = payload.new as NewPatient;
           if (!p?.id || seeded.current.has(p.id)) return;
           seeded.current.add(p.id);
@@ -798,7 +720,6 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "patients" },
         (payload) => {
-          if (!isLeader()) return;
           const mrn = (payload.old as any)?.mrn;
           if (!mrn) return;
           startBedCleaningCycle(mrn).catch((e) =>
@@ -810,7 +731,6 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "patients" },
         (payload) => {
-          if (!isLeader()) return;
           const newRow = payload.new as any;
           const oldRow = payload.old as any;
           if (
@@ -828,7 +748,6 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "medication_orders" },
         (payload) => {
-          if (!isLeader()) return;
           const o = payload.new as InsertedOrder;
           const mrn = o.patient_mrn ?? o.mrn;
           const source = (o.ordered_by ?? "").toLowerCase();
@@ -850,7 +769,6 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "lab_orders" },
         (payload) => {
-          if (!isLeader()) return;
           const o = payload.new as InsertedOrder;
           const mrn = o.patient_mrn ?? o.mrn;
           const source = (o.ordered_by ?? "").toLowerCase();
@@ -871,9 +789,9 @@ export function useAIAutomation() {
 
     // Bed cleaning state machine sweeper — every 5s the active client
     // advances any bed that has crossed its 60s / 120s threshold.
-    if (isLeader()) sweepBedCleaningCycles().catch(() => {});
+    sweepBedCleaningCycles().catch(() => {});
     const bedSweep = setInterval(() => {
-      if (isLeader()) sweepBedCleaningCycles().catch(() => {});
+      sweepBedCleaningCycles().catch(() => {});
     }, 5_000);
 
     return () => {
@@ -881,7 +799,6 @@ export function useAIAutomation() {
       clearAllTimers();
       clearInterval(sweepInterval);
       clearInterval(bedSweep);
-      releaseAiLeader();
     };
   }, [automationEnabled]);
 }

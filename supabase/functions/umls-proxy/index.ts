@@ -543,63 +543,6 @@ Deno.serve(async (req) => {
     }
 
     // ── All other actions: single-URL via buildUrl ───────────────────────────
-    // ── snomed: 2-step CUI → SNOMEDCT_US atom lookup (free-text safe) ────────
-    if (action === "snomed") {
-      const input = String((params as any)?.string ?? "").trim();
-      if (!input || !UMLS_API_KEY) {
-        return new Response(
-          JSON.stringify({ result: { results: [] } }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      const cacheKey = await hashKey(`snomed2:${input}`);
-      const cached = await cacheGet(cacheKey);
-      if (cached) {
-        return new Response(
-          JSON.stringify({ cached: true, vocabulary: "SNOMEDCT_US", ...(cached as object) }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-
-      const s1 = await fetch(
-        `${UTS}/search/current?string=${encodeURIComponent(input)}&returnIdType=concept&searchType=words&pageSize=10&apiKey=${UMLS_API_KEY}`,
-        { headers: { Accept: "application/json" } },
-      );
-      const s1json = s1.ok ? await s1.json() : {};
-      const candidates = (Array.isArray((s1json as any)?.result?.results)
-        ? (s1json as any).result.results
-        : []).filter((r: any) => r?.ui && r.ui !== "NONE");
-
-      let code: string | null = null;
-      let name: string | null = null;
-      for (const c of candidates) {
-        const a = await fetch(
-          `${UTS}/content/current/CUI/${encodeURIComponent(c.ui)}/atoms?sabs=SNOMEDCT_US&apiKey=${UMLS_API_KEY}`,
-          { headers: { Accept: "application/json" } },
-        );
-        if (!a.ok) continue;
-        const aj = await a.json();
-        const atoms = Array.isArray((aj as any)?.result) ? (aj as any).result : [];
-        for (const atom of atoms) {
-          const raw = String(atom?.code ?? "");
-          const extracted = raw.includes("/") ? raw.split("/").pop()! : raw;
-          if (extracted && extracted !== "NONE") {
-            code = extracted;
-            name = String(atom.name ?? c.name);
-            break;
-          }
-        }
-        if (code) break;
-      }
-
-      const out = { result: { results: code ? [{ ui: code, name }] : [] } };
-      cacheSet(cacheKey, "SNOMEDCT_US", out).catch(() => {});
-      return new Response(
-        JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...out }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
     const needsUmls = action !== "rxnorm" && action !== "rxnormDetail" &&
       action !== "rxnormRelated";
     if (needsUmls && !UMLS_API_KEY) {
