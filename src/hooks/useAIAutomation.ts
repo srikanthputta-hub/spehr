@@ -12,6 +12,7 @@ import {
 import { routeDepartment } from "@/lib/chief-complaints";
 import { templateForDepartment } from "@/lib/auto-doc-catalog";
 import { runAutoDoc } from "@/lib/auto-doc.functions";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -286,26 +287,49 @@ async function startBedCleaningCycle(mrn: string) {
 async function sweepBedCleaningCycles() {
   const now = Date.now();
   const cutoff60 = new Date(now - 60_000).toISOString();
-  const cutoff120 = new Date(now - 120_000).toISOString();
   // Cleaning → Disinfecting (60s elapsed)
-  await supabase
-    .from("bed_management")
-    .update({
-      status: "Disinfecting",
-      status_updated_at: new Date().toISOString(),
-    } as any)
-    .in("status", ["Cleaning", "Discharged - Deep Cleaning In Progress", "Discharged"])
-    .lt("status_updated_at", cutoff60);
-  // Disinfecting → Available (another 60s elapsed = 120s total since discharge)
-  await supabase
-    .from("bed_management")
-    .update({
-      status: "Available",
-      current_patient_mrn: null,
-      status_updated_at: new Date().toISOString(),
-    } as any)
-    .eq("status", "Disinfecting")
-    .lt("status_updated_at", cutoff120);
+  const { data: cleaningRows } = await fetchWithTimeout(
+    () =>
+      supabase
+        .from("bed_management")
+        .select("id")
+        .in("status", ["Cleaning", "Discharged - Deep Cleaning In Progress", "Discharged"])
+        .lt("status_updated_at", cutoff60)
+        .limit(100),
+    { data: [], error: null } as any,
+  );
+  const cleaningIds = ((cleaningRows ?? []) as any[]).map((r) => r.id).filter(Boolean);
+  if (cleaningIds.length) {
+    await supabase
+      .from("bed_management")
+      .update({
+        status: "Disinfecting",
+        status_updated_at: new Date().toISOString(),
+      } as any)
+      .in("id", cleaningIds);
+  }
+  // Disinfecting → Available (another 60s elapsed)
+  const { data: disinfectingRows } = await fetchWithTimeout(
+    () =>
+      supabase
+        .from("bed_management")
+        .select("id")
+        .eq("status", "Disinfecting")
+        .lt("status_updated_at", cutoff60)
+        .limit(100),
+    { data: [], error: null } as any,
+  );
+  const disinfectingIds = ((disinfectingRows ?? []) as any[]).map((r) => r.id).filter(Boolean);
+  if (disinfectingIds.length) {
+    await supabase
+      .from("bed_management")
+      .update({
+        status: "Available",
+        current_patient_mrn: null,
+        status_updated_at: new Date().toISOString(),
+      } as any)
+      .in("id", disinfectingIds);
+  }
 }
 
 
