@@ -667,7 +667,11 @@ export function useAIAutomation() {
   const automationEnabled = useAutomationEnabled();
 
   useEffect(() => {
-    if (!automationEnabled) return;
+    if (!automationEnabled) {
+      releaseAiLeader();
+      return;
+    }
+    const isLeader = () => tryAcquireAiLeader();
     // Hydrate NLP custom rules / banned tokens from Supabase on boot so the
     // synchronous detectBanned() cache reflects facility-specific overrides.
     ensureNlpRulesHydrated().catch(() => {});
@@ -691,9 +695,9 @@ export function useAIAutomation() {
         .lt("created_at", cutoff)
         .in("status", ["Ordered", "Processing", "ORDERED", "PROCESSING"]);
     };
-    sweepOrphans().catch(() => {});
+    if (isLeader()) sweepOrphans().catch(() => {});
     const sweepInterval = setInterval(() => {
-      sweepOrphans().catch(() => {});
+      if (isLeader()) sweepOrphans().catch(() => {});
     }, 5 * 60_000);
 
     // Backfill any admitted patient that has NO orders yet (e.g. admitted
@@ -729,9 +733,11 @@ export function useAIAutomation() {
         );
       }
     };
-    reconcileActiveAdmissions().catch((e) =>
-      console.warn("[admission-reconcile] failed", e),
-    );
+    if (isLeader()) {
+      reconcileActiveAdmissions().catch((e) =>
+        console.warn("[admission-reconcile] failed", e),
+      );
+    }
 
     const channel = supabase
       .channel("admission-randomizer")
@@ -739,6 +745,7 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "patients" },
         (payload) => {
+          if (!isLeader()) return;
           const p = payload.new as NewPatient;
           if (!p?.id || seeded.current.has(p.id)) return;
           seeded.current.add(p.id);
@@ -751,6 +758,7 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "patients" },
         (payload) => {
+          if (!isLeader()) return;
           const mrn = (payload.old as any)?.mrn;
           if (!mrn) return;
           startBedCleaningCycle(mrn).catch((e) =>
@@ -762,6 +770,7 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "patients" },
         (payload) => {
+          if (!isLeader()) return;
           const newRow = payload.new as any;
           const oldRow = payload.old as any;
           if (
@@ -779,6 +788,7 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "medication_orders" },
         (payload) => {
+          if (!isLeader()) return;
           const o = payload.new as InsertedOrder;
           const mrn = o.patient_mrn ?? o.mrn;
           const source = (o.ordered_by ?? "").toLowerCase();
@@ -800,6 +810,7 @@ export function useAIAutomation() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "lab_orders" },
         (payload) => {
+          if (!isLeader()) return;
           const o = payload.new as InsertedOrder;
           const mrn = o.patient_mrn ?? o.mrn;
           const source = (o.ordered_by ?? "").toLowerCase();
@@ -820,9 +831,9 @@ export function useAIAutomation() {
 
     // Bed cleaning state machine sweeper — every 5s the active client
     // advances any bed that has crossed its 60s / 120s threshold.
-    sweepBedCleaningCycles().catch(() => {});
+    if (isLeader()) sweepBedCleaningCycles().catch(() => {});
     const bedSweep = setInterval(() => {
-      sweepBedCleaningCycles().catch(() => {});
+      if (isLeader()) sweepBedCleaningCycles().catch(() => {});
     }, 5_000);
 
     return () => {
@@ -830,6 +841,7 @@ export function useAIAutomation() {
       clearAllTimers();
       clearInterval(sweepInterval);
       clearInterval(bedSweep);
+      releaseAiLeader();
     };
   }, [automationEnabled]);
 }
