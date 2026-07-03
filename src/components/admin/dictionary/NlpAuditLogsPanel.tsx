@@ -64,6 +64,8 @@ export default function NlpAuditLogsPanel() {
       }
       // Optimistically remove from local list so auto-approve doesn't refire.
       setRows((prev) => prev.filter((x) => x.patient_mrn !== r.patient_mrn));
+      // Notify the Approval Trail to refresh immediately.
+      try { window.dispatchEvent(new CustomEvent("nlp:approved", { detail: { mrn: r.patient_mrn } })); } catch {}
       scheduleRefresh();
     } catch (e: any) {
       firedIdsRef.current.delete(r.id);
