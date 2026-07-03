@@ -84,9 +84,10 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
         );
         if (cancelled) return;
         setBeds((data ?? []) as BedRow[]);
-        const mrns = (data ?? [])
-          .map((b) => b.current_patient_mrn)
-          .filter((m): m is string => !!m);
+        const bedRows = (data ?? []) as BedRow[];
+        const mrns = bedRows
+          .map((b: BedRow) => b.current_patient_mrn)
+          .filter((m: string | null): m is string => !!m);
         if (mrns.length) {
           const { data: pts } = await fetchWithTimeout(
             () =>
