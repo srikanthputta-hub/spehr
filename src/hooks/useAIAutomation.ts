@@ -728,13 +728,19 @@ export function useAIAutomation() {
     // while the tab was closed). Patients that already have orders are
     // skipped — the cascade for them is owned by whatever tab seeded them.
     const reconcileActiveAdmissions = async () => {
-      const { data } = await supabase
-        .from("patients")
-        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob, snomed_codes, icd10_codes")
-        .eq("status", "Admitted")
-        .not("mrn", "is", null)
-        .order("admission_time", { ascending: false })
-        .limit(100);
+      const { data } = await fetchWithTimeout(
+        () =>
+          supabase
+            .from("patients")
+            .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob, snomed_codes, icd10_codes")
+            .eq("status", "Admitted")
+            .not("mrn", "is", null)
+            .order("admission_time", { ascending: false })
+            .limit(25),
+        { data: [], error: null } as any,
+      );
+      let codeBackfills = 0;
+      let admissionSeeds = 0;
       for (const p of ((data as Array<NewPatient & { snomed_codes?: string[] | null; icd10_codes?: string[] | null }> | null) ?? [])) {
         if (!p.mrn) continue;
         // Backfill Auto Doc codes for any admission missing SNOMED-CT or
@@ -742,16 +748,25 @@ export function useAIAutomation() {
         const needsCodes =
           !(p.snomed_codes && p.snomed_codes.length) ||
           !(p.icd10_codes && p.icd10_codes.length);
-        if (needsCodes) {
+        if (needsCodes && codeBackfills < 3) {
+          codeBackfills += 1;
           runAutoDoc({ data: { mrn: p.mrn } }).catch((e) =>
             console.warn("[admission-reconcile] runAutoDoc failed", e),
           );
         }
+        if (admissionSeeds >= 5) continue;
         const [{ count: medCount }, { count: labCount }] = await Promise.all([
-          supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
-          supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
+          fetchWithTimeout(
+            () => supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
+            { count: 1, data: null, error: null } as any,
+          ),
+          fetchWithTimeout(
+            () => supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
+            { count: 1, data: null, error: null } as any,
+          ),
         ]);
         if ((medCount ?? 0) > 0 || (labCount ?? 0) > 0) continue;
+        admissionSeeds += 1;
         await seedAdmission(p).catch((e) =>
           console.warn("[admission-reconcile] seed failed", e),
         );
