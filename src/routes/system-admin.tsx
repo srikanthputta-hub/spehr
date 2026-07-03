@@ -3006,16 +3006,6 @@ const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
         </span>
       </td>
       <td className="px-3 py-2.5 whitespace-nowrap">
-        {ts ? (
-          <span
-            className="text-[13px]"
-            style={{ color: failed ? "var(--color-text-danger, #b91c1c)" : "var(--color-text-secondary, #64748b)" }}
-          >
-            {failed ? "Failed" : "Synced"} {ts}
-          </span>
-        ) : (
-          <span className="text-[13px] text-slate-400">—</span>
-        )}
         <button
           type="button"
           onClick={() => onOpen(row)}
@@ -3452,75 +3442,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
         <div className="text-xs text-slate-500">{rows.length} encounters</div>
       </div>
 
-      {/* Sync Health banner — surfaces current loop state at a glance */}
-      {(() => {
-        const syncing = Object.values(autoStatus).filter((v) => v === "syncing").length;
-        const pending = Object.values(autoStatus).filter((v) => v === "queued").length;
-        const errors = Object.values(autoStatus).filter((v) => v === "err").length;
-        const ok = Object.values(autoStatus).filter((v) => v === "ok").length;
-        // Read FHIR Data-Quality verdicts persisted by the background sync
-        // hook. Any encounter missing primary diagnosis SNOMED/ICD-10 or
-        // missing RxNorm on its meds counts as "degraded / incomplete".
-        let degraded = 0;
-        try {
-          const raw = typeof window !== "undefined" ? window.localStorage.getItem("fhir.quality") : null;
-          const obj = raw ? JSON.parse(raw) : {};
-          for (const k of Object.keys(obj)) if (obj[k]?.ok === false) degraded++;
-        } catch { /* ignore */ }
-        const tone =
-          !autoOn
-            ? { bg: "bg-rose-50", border: "border-rose-200", text: "text-rose-700", dot: "bg-rose-500", icon: "✗", label: "FHIR Sync Error" }
-            : errors > 0
-              ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800", dot: "bg-amber-500", icon: "⚠", label: "FHIR Sync Degraded" }
-              : degraded > 0
-                ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800", dot: "bg-amber-500", icon: "⚠", label: "FHIR Sync Degraded / Incomplete" }
-              : { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-800", dot: "bg-emerald-500", icon: "✓", label: "FHIR Sync Active" };
-        return (
-          <div className={`rounded-xl border ${tone.border} ${tone.bg} px-4 py-2.5 flex items-center justify-between gap-3`}>
-            <div className="flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${tone.dot} ${autoOn ? "animate-pulse" : ""}`} />
-              <span className={`text-sm font-semibold ${tone.text}`}>{tone.icon} {tone.label}</span>
-              <span className={`text-[11px] ${tone.text} opacity-80`}>
-                {autoOn ? "Live sync active" : "loop paused — toggle on above"} ·
-                {" "}{ok} synced · {syncing} in flight · {pending} queued · {errors} errors
-                {degraded > 0 ? ` · ${degraded} incomplete (missing AUTO API codes)` : ""}
-              </span>
-            </div>
-            <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-              PUT · stable IDs · zero-duplicate
-            </span>
-          </div>
-        );
-      })()}
 
-      {/* Live Streaming Mode controller */}
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className={`h-2.5 w-2.5 rounded-full ${autoOn ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
-          <div>
-            <div className="text-sm font-semibold text-slate-900">
-              Enable Live Automation Loop
-            </div>
-            <div className="text-[11px] text-slate-600">
-              Full live sync mode. The loop ticks every <span className="font-semibold">400&nbsp;ms</span>
-              {" "}and fires on every clinical event — vitals, labs, medications, and discharge —
-              for <span className="font-semibold">all patients regardless of admission status</span>.
-              All writes use <span className="font-mono">PUT</span> with deterministic stable IDs
-              (FHIR UPSERT), so the same clinical fact always maps to the same resource ID. No
-              duplicates can be created. Re-syncing a patient is always safe.
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {autoOn && (
-            <div className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider text-right leading-tight">
-              <div>LIVE</div>
-              <div>REALTIME</div>
-            </div>
-          )}
-          <Switch checked={autoOn} onCheckedChange={setAutoOn} />
-        </div>
-      </div>
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
