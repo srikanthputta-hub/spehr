@@ -138,7 +138,7 @@ export async function runSixStreamPipeline(
     const { data: patient } = await supabase
       .from("patients")
       .select(
-        "mrn, name, first_name, last_name, chief_complaint, hpi_location, hpi_character, past_medical_history",
+        "mrn, name, first_name, last_name, chief_complaint, hpi_location, hpi_character, past_medical_history, status",
       )
       .eq("mrn", mrn)
       .maybeSingle();
