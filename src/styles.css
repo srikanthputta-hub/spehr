@@ -93,3 +93,17 @@
   80% { transform: translateX(6px); }
 }
 
+@keyframes audit-drain {
+  from { width: var(--audit-start, 100%); }
+  to { width: 0%; }
+}
+
+@keyframes audit-drain-color {
+  0%   { background-color: #10b981; }
+  66%  { background-color: #10b981; }
+  67%  { background-color: #f59e0b; }
+  90%  { background-color: #f59e0b; }
+  91%  { background-color: #ef4444; }
+  100% { background-color: #ef4444; }
+}
+
