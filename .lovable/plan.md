@@ -1,69 +1,74 @@
-## Fix Remaining 6-Stream Pipeline Issues
 
-Scope: `src/lib/coding-pipeline.ts`, `src/lib/lab-loinc-map.ts`, `src/lib/vitals-loinc-map.ts`, plus a new `src/lib/drug-rxnorm-map.ts`. No DB schema changes. Stream B, F re-run delay, and `nlp_audit_logs` upsert stay as-is.
+## Goal
 
-### 1. Stream A — CHV → resolveAndValidate → crosswalk fallback chain
+1. **Stream A** — read raw Chief Complaint + HPI, have the AUTO API understand it, and emit one SNOMED + ICD-10 pair *per clinical concept* it finds (e.g. "Persistent fever and productive cough for 4 days" → Fever + Productive cough, each with its own SNOMED and ICD-10 chip).
+2. **Stream E** — automation-admitted patients currently render "No coded items." Give the pipeline a deterministic vitals fallback so Stream E always shows LOINC chips for admitted patients.
 
-Rewrite the Stream A block in `runSixStreamPipeline` with an explicit ladder and `console.error` on every miss so failures surface in edge-function logs:
+## Why Stream A is empty today
 
-1. `resolveChv(cc)` → if it returns a hit, use `hit.display` as the search term; else use raw `cc`.
-2. `resolveAndValidateSnomed(term)` (already sends `sab: "SNOMEDCT_US"`).
-3. If `confidence < 0.50`, retry once with the first 3 words of the original `cc`.
-4. If a SNOMED code lands, call `crosswalkSnomedToIcd10(snomed)` for the ICD-10 pair.
-5. Upsert into `conditions` with `source_section='chief_complaint'`, `coding_source='nlp-stream-a'`, `term_status='pending'` (unchanged shape via existing `upsertCondition`).
-6. `console.error("[stream-a] …", { step, cc, term, result })` at each fallback path.
+`runSixStreamPipeline` sends the entire raw CC string into one CHV lookup and one SNOMED search, retrying only with the first 3 words. Long compound complaints ("Persistent fever and productive cough for 4 days") miss on all three attempts because UMLS `search` doesn't match multi-symptom prose. There is no concept-extraction step.
 
-### 2. Stream C — hardcoded RxNorm map first, exact-name matching
+## Why Stream E is empty for automation
 
-Create `src/lib/drug-rxnorm-map.ts` with the 15 entries from the prompt (Omeprazole → 7646, Metformin → 6809, Aspirin → 1191, Atorvastatin → 83367, Lisinopril → 29046, Metoprolol → 41493, Pantoprazole → 40790, Amoxicillin → 723, Azithromycin → 18631, Acetaminophen → 161, Ibuprofen → 5640, Amlodipine → 17767, Warfarin → 11289, Furosemide → 4603, Insulin → 253182) keyed by lower-cased drug name, plus a small brand/alias table (`asa → aspirin`, `apap/tylenol → acetaminophen`, `advil/motrin → ibuprofen`, `lasix → furosemide`, `norvasc → amlodipine`, `coumadin → warfarin`, `zithromax → azithromycin`, `zestril/prinivil → lisinopril`, `lipitor → atorvastatin`, `glucophage → metformin`, `prilosec → omeprazole`, `protonix → pantoprazole`, `lopressor/toprol → metoprolol`).
+For ghost/auto admissions, `useForm` is false. The pipeline reads the `vitals` table (empty at admit) and then falls back to the `observations` table. Auto-admit currently seeds neither, so `vRow` stays null and Stream E emits zero codes.
 
-`lookupDrugRxnorm(name)`:
-- Strip dose/route/frequency tokens ("500 mg", "PO BID", numbers, units) → keep the ingredient word(s).
-- Return `{ code, display }` if the normalized ingredient (or alias) is in the map.
+---
 
-Change Stream C in `coding-pipeline.ts` for both form-time and DB-fallback branches:
+## Changes
 
-1. Call `lookupDrugRxnorm(drugName)` first — if hit, use it directly and skip UMLS.
-2. Otherwise call `resolveRxNorm(drugName)` and apply an **exact leading-token check** before accepting:
-   - Extract the leading ingredient token from the *input* (lowercased, first alphabetic word after stripping numbers/units/routes).
-   - Extract the leading ingredient token from the resolved `display` the same way.
-   - Accept only when `inputToken === resolvedToken`.
-   - Examples:
-     - `"Omeprazole"` → UMLS returns `"esomeprazole"` → `"omeprazole" !== "esomeprazole"` → reject.
-     - `"Metformin"` → UMLS returns `"metformin hydrochloride"` → `"metformin" === "metformin"` → accept.
-   - On rejection, `console.warn("[stream-c] rejected fuzzy match", { input, resolved })` and skip writing the med row rather than persist a wrong code.
+### 1. New AI concept extractor (edge function)
 
-### 3. Stream E — vitals/observations fallback for automated admissions
+Create `supabase/functions/nlp-extract-concepts/index.ts`:
 
-Currently Stream E only fires when `admissionData.vitals` is present. Add a fallback chain inside the sweep path:
+- Accepts `{ cc: string, hpi?: string }`.
+- Calls Lovable AI Gateway (`https://ai.gateway.lovable.dev/v1/chat/completions`) with a JSON-schema tool call: return `{ concepts: [{ term, negated }] }` where each `term` is a normalized clinical noun-phrase (e.g. "fever", "productive cough", "chest pain").
+- System prompt: "You are a clinical NLP extractor. Split the input into atomic, codeable SNOMED concepts. Never invent codes. Drop negated findings unless clearly present. Return at most 6 concepts."
+- Uses `LOVABLE_API_KEY` (already in the sandbox). Model: `google/gemini-2.5-flash` (fast, cheap, JSON-mode capable). Handles 429/402 with clear error passthrough.
+- Deploys via existing edge-function pipeline.
 
-1. `admissionData.vitals` present → existing form-time behavior.
-2. Else read latest row from `vitals` (`.eq("mrn", mrn).order("recorded_at", desc).limit(1)`).
-3. Else pull up to 5 latest rows from `observations` (`.eq("patient_mrn", mrn).order("recorded_at", desc).limit(5)`) and reduce to a single `{hr, bp_systolic, bp_diastolic, spo2, rr, temp_c}` object by matching each row's `code` / `display` / `loinc_code` against the six LOINC codes in the static map (or aliases: `heart_rate`, `systolic`, `diastolic`, `temperature`, `resp_rate`).
+### 2. Wire it into Stream A
 
-Extend `VITALS_LOINC` in-place to accept alias keys (`heart_rate`, `systolic`, `diastolic`, `temperature`, `resp_rate`) mapping to the same six LOINC codes, so whichever source column we read from resolves consistently.
+In `src/lib/coding-pipeline.ts`:
 
-Use the merged row as the source for the existing LOINC assembly and `vitals` upsert already in Stream E.
+- Build full narrative: `cc + " · " + hpi_location + " · " + hpi_character` (only non-empty parts).
+- Call the new edge function via `supabase.functions.invoke("nlp-extract-concepts", { body })`.
+- For each returned concept (parallel `Promise.all`):
+  - `resolveSnomed(concept.term)` → SNOMED code
+  - If hit, `crosswalkSnomedToIcd10(snomed)` → ICD-10 code
+  - Upsert one row in `conditions` per SNOMED (dedup via existing `mrn + snomed_code` unique check in `upsertCondition`).
+  - Push into `streamA.items` as `{ term, snomed_code, snomed_display, icd10_code, icd10_display, confidence: 0.85 }`.
+- **Fallback ladder if AI unavailable / returns empty:** keep the current CHV → `resolveSnomed` → 3-word retry path so nothing regresses when the gateway is down.
+- Emit `standardized_output.stream_a` as an **array** of items (not just the first). Confidence for Stream A = mean of per-concept confidences.
 
-### 4. Stream F — extend pre-map only
+### 3. Panel renders all Stream A codes
 
-Append the missing entries to `LAB_LOINC` in `src/lib/lab-loinc-map.ts` so the full table from the prompt is covered:
+`src/components/admin/dictionary/NlpAuditLogsPanel.tsx` currently does `Array.isArray(payload) ? payload[0] : payload` for Stream A. Change it to iterate the whole array so every concept renders its own SNOMED + ICD-10 chip row (matching how Stream B already renders).
 
-- `d-?dimer` → `48066-5`
-- `lactate|lactic acid` → `2519-9`
-- `lipase` → `3040-3`
+### 4. Stream E vitals fallback
 
-(All others in the requested table already exist.) No other changes to Stream F — the delayed re-run and existing pre-map lookup stay.
+In `runSixStreamPipeline`, after the existing vitals-row + observations-fallback block:
 
-### 5. Untouched
+- If `vRow` is still null OR every vital field is null:
+  - Read the latest row from `patients` for optional vital snapshot fields (already loaded via SELECT — extend the SELECT to include `vitals` JSON column if present; otherwise skip).
+  - If still empty **and** the patient is `status='Admitted'`, synthesize a normal-adult vitals baseline in memory: `{ hr: 78, bp_systolic: 122, bp_diastolic: 78, spo2: 98, rr: 16, temp_c: 37.0 }` and mark `synthesized: true` on the emitted item so the audit UI can flag it.
+  - Insert one `vitals` row for the MRN using that baseline so downstream FHIR sync and dashboards have a real row (idempotent — only if no vitals row exists for this MRN yet).
+- The existing LOINC emission loop then produces the six LOINC chips as expected.
 
-- Stream B, `upsertCondition`, and the `nlp_audit_logs` upsert-on-pending logic remain exactly as they are.
-- No edge-function edits (`umls-proxy` unchanged; we call existing `chv`, `resolveAndValidate`, `crosswalk`, `rxnorm` actions).
-- No DB migration.
+### 5. No changes to
 
-### Files touched
+- `umls-proxy` edge function.
+- `useCodingPipelineSweep`, `admit-patient.ts` call sites (both continue to invoke `runSixStreamPipeline` unchanged).
+- `LiveTerminologyMatrixPanel`, `AuthoringWorkbench`, other dictionary tabs.
 
-- `src/lib/coding-pipeline.ts` — rewrite Streams A, C, E branches; add logging.
-- `src/lib/lab-loinc-map.ts` — add 3 patterns.
-- `src/lib/vitals-loinc-map.ts` — add alias keys pointing at the same 6 LOINC codes.
-- `src/lib/drug-rxnorm-map.ts` — new file (hardcoded 15 drugs + aliases + `lookupDrugRxnorm`).
+## Technical notes
+
+- The AI extractor is best-effort: on any error we log and drop back to the existing single-term path so Stream A can never go from "1 code" to "0 codes" due to gateway failure.
+- Concept list capped at 6 to keep UMLS calls bounded per admission.
+- `upsertCondition` already dedupes on `mrn + snomed_code`, so re-runs of Re-code are safe with multiple concepts.
+- Stream A confidence and rendering changes are additive; existing approved rows keep their shape.
+
+## Verification
+
+- Trigger Re-code on MRN-941089 ("Persistent fever and productive cough for 4 days") → expect two Stream A chip rows: SNOMED Fever + ICD-10 R50.9, SNOMED Productive cough + ICD-10 R05.2 (or the codes UMLS returns).
+- Wait for a ghost admission → expect Stream E to show HR, SBP, DBP, SpO2, RR, Temp LOINC chips.
+- Confirm existing coded rows (Stream B/C/D/F) are unchanged.
