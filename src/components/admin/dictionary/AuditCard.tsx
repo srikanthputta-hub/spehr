@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import {
   CheckCircle2,
@@ -140,42 +140,47 @@ export function AuditCard({
   autoApprove?: boolean;
   onAutoApprove?: (r: AuditRow) => void | Promise<void>;
 }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
   const std = row.standardized_output ?? {};
   const mapping = row.extraction_mapping?.streams ?? {};
   const conf = Math.round(((row.confidence_score ?? 0) as number) * 100);
   const approved = row.status === "approved";
   const created = new Date(row.created_at).toLocaleString();
   const approvedBy = (row.approved_by ?? "").toLowerCase();
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
-  // Auto-approve countdown
+  // CSS-only auto-approve countdown — no interval / no per-tick state.
   const firedRef = useRef(false);
-  const createdMs = useMemo(() => new Date(row.created_at).getTime(), [row.created_at]);
-  const [remainingMs, setRemainingMs] = useState<number>(() =>
-    Math.max(0, AUTO_APPROVE_MS - (Date.now() - createdMs)),
-  );
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const createdMs = new Date(row.created_at).getTime();
+  const elapsedMs = Date.now() - createdMs;
+  const remainingMs = Math.max(0, AUTO_APPROVE_MS - elapsedMs);
+  const startPct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
 
   useEffect(() => {
-    if (!autoApprove || approved) return;
-    const tick = () => {
-      const rem = Math.max(0, AUTO_APPROVE_MS - (Date.now() - createdMs));
-      setRemainingMs(rem);
-      if (rem <= 0 && !firedRef.current) {
-        firedRef.current = true;
-        onAutoApprove?.(row);
-      }
+    if (!autoApprove || approved || firedRef.current) return;
+    const fire = () => {
+      if (firedRef.current) return;
+      firedRef.current = true;
+      onAutoApprove?.(row);
     };
-    tick();
-    const iv = window.setInterval(tick, 250);
-    return () => window.clearInterval(iv);
-  }, [autoApprove, approved, createdMs, onAutoApprove, row]);
-
-  const pct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
-  const barColor =
-    pct > 66 ? "bg-emerald-500" : pct > 33 ? "bg-amber-500" : "bg-red-500";
+    if (remainingMs <= 0) {
+      fire();
+      return;
+    }
+    timeoutRef.current = setTimeout(fire, remainingMs);
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoApprove, approved, row.id]);
 
   const handleApproveClick = () => {
-    firedRef.current = true; // cancel timer
+    firedRef.current = true;
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     onApprove?.(row, "human");
   };
 
@@ -222,11 +227,16 @@ export function AuditCard({
         </div>
       </button>
 
-      {autoApprove && !approved && (
+      {autoApprove && !approved && remainingMs > 0 && (
         <div className="h-1.5 w-full bg-slate-100">
           <div
-            className={`h-full transition-all duration-200 ${barColor}`}
-            style={{ width: `${pct}%` }}
+            className="h-full"
+            style={{
+              width: `${startPct}%`,
+              animation: `audit-drain ${remainingMs}ms linear forwards, audit-drain-color ${remainingMs}ms linear forwards`,
+              ["--audit-start" as any]: `${startPct}%`,
+              backgroundColor: "#10b981",
+            }}
             title={`Auto-approves in ${Math.ceil(remainingMs / 1000)}s`}
           />
         </div>

@@ -13,23 +13,29 @@ export default function NlpAuditLogsPanel() {
 
   const refresh = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("nlp_audit_logs" as any)
-      .select("id, patient_mrn, raw_text, extraction_mapping, standardized_output, confidence_score, status, created_at, updated_at, approved_by")
-      .neq("status", "approved")
-      .order("created_at", { ascending: false })
-      .limit(25);
-    setRows((data ?? []) as any[]);
-    setLoading(false);
+    try {
+      const query = supabase
+        .from("nlp_audit_logs" as any)
+        .select("id, patient_mrn, raw_text, extraction_mapping, standardized_output, confidence_score, status, created_at, updated_at, approved_by")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      const timeout = new Promise<{ data: any[] }>((resolve) =>
+        setTimeout(() => resolve({ data: [] }), 10_000),
+      );
+      const { data } = (await Promise.race([query, timeout])) as { data: any[] | null };
+      setRows((data ?? []) as any[]);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     refresh();
-    const ch = supabase
-      .channel("nlp-audit-logs-panel")
-      .on("postgres_changes", { event: "*", schema: "public", table: "nlp_audit_logs" }, () => refresh())
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    // Intentional: one-shot fetch on mount + manual Refresh button.
+    // Realtime subscription removed to prevent re-render flicker.
   }, []);
 
   const handleApprove = async (r: AuditRow, approvedBy: "human" | "ai") => {
@@ -88,7 +94,7 @@ export default function NlpAuditLogsPanel() {
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading…</div>
       ) : rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-          No pipeline runs yet. Admit a patient (or wait for the background sweep) to populate this log.
+          No pending items. Admit a patient (or click Refresh) to populate this log.
         </div>
       ) : (
         <div className="space-y-3">
