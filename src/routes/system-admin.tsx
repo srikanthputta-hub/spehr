@@ -3006,16 +3006,6 @@ const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
         </span>
       </td>
       <td className="px-3 py-2.5 whitespace-nowrap">
-        {ts ? (
-          <span
-            className="text-[13px]"
-            style={{ color: failed ? "var(--color-text-danger, #b91c1c)" : "var(--color-text-secondary, #64748b)" }}
-          >
-            {failed ? "Failed" : "Synced"} {ts}
-          </span>
-        ) : (
-          <span className="text-[13px] text-slate-400">—</span>
-        )}
         <button
           type="button"
           onClick={() => onOpen(row)}
