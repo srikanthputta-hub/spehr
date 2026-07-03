@@ -175,7 +175,7 @@ export async function runSixStreamPipeline(
         icd10Code = cw?.code ?? null;
         icd10Display = cw?.display ?? null;
       } else {
-        console.error("[stream-a] no SNOMED resolved", { cc, term1, sr });
+        console.error("[stream-a] no SNOMED resolved", { cc, term1, snomedHit });
       }
       if (snomed) {
         await upsertCondition({
