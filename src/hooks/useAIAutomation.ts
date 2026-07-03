@@ -743,6 +743,7 @@ export function useAIAutomation() {
       let admissionSeeds = 0;
       for (const p of ((data as Array<NewPatient & { snomed_codes?: string[] | null; icd10_codes?: string[] | null }> | null) ?? [])) {
         if (!p.mrn) continue;
+        const mrn = p.mrn;
         // Backfill Auto Doc codes for any admission missing SNOMED-CT or
         // ICD-10 (Auto Doc is idempotent — completed runs short-circuit).
         const needsCodes =
@@ -750,18 +751,18 @@ export function useAIAutomation() {
           !(p.icd10_codes && p.icd10_codes.length);
         if (needsCodes && codeBackfills < 3) {
           codeBackfills += 1;
-          runAutoDoc({ data: { mrn: p.mrn } }).catch((e) =>
+          runAutoDoc({ data: { mrn } }).catch((e) =>
             console.warn("[admission-reconcile] runAutoDoc failed", e),
           );
         }
         if (admissionSeeds >= 5) continue;
         const [{ count: medCount }, { count: labCount }] = await Promise.all([
           fetchWithTimeout(
-            () => supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
+            () => supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", mrn),
             { count: 1, data: null, error: null } as any,
           ),
           fetchWithTimeout(
-            () => supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
+            () => supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", mrn),
             { count: 1, data: null, error: null } as any,
           ),
         ]);
