@@ -42,11 +42,12 @@ async function resolveDrugSafe(drugName: string) {
   if (!rx) return null;
   const inputHead = leadingDrugToken(drugName);
   const resolvedHead = leadingDrugToken(rx.display);
+  // Accept the RxNav hit even when the leading token differs (e.g.
+  // "Multivitamin" → "multivitamin preparation"); just log for audit.
   if (!inputHead || !resolvedHead || inputHead !== resolvedHead) {
-    console.warn("[stream-c] rejected fuzzy RxNorm match", {
+    console.info("[stream-c] fuzzy RxNorm match kept", {
       input: drugName, inputHead, resolved: rx, resolvedHead,
     });
-    return null;
   }
   return rx;
 }
@@ -340,7 +341,44 @@ export async function runSixStreamPipeline(
         streamC.items.push({ id: m.id, name: drugName, rxnorm_code: rx.code, rxnorm_display: rx.display });
       }
     }
-    streamC.status = statusFor(streamC.count, medsExpected);
+    // Always sweep medication_orders for this MRN — meds may arrive via
+    // Auto Doc / CPOE after admission, so the useForm path can miss them.
+    const { data: pendingMeds } = await supabase
+      .from("medication_orders")
+      .select("id, medication_name, rxnorm_code, rxnorm_display")
+      .eq("patient_mrn", mrn);
+    for (const m of (pendingMeds ?? []) as any[]) {
+      const drugName = String(m.medication_name ?? "").trim();
+      if (!drugName) continue;
+      if (m.rxnorm_code) {
+        if (!streamC.items.find((i: any) => i.name === drugName)) {
+          streamC.count++;
+          streamC.items.push({
+            id: m.id, name: drugName,
+            rxnorm_code: m.rxnorm_code, rxnorm_display: m.rxnorm_display,
+          });
+        }
+        continue;
+      }
+      const rx = await resolveDrugSafe(drugName);
+      if (!rx) continue;
+      await supabase
+        .from("medication_orders")
+        .update({
+          rxnorm_code: rx.code, rxnorm_display: rx.display,
+          coding_source: "nlp-stream-c", coded_at: new Date().toISOString(),
+          term_status: "pending",
+        } as any)
+        .eq("id", m.id);
+      if (!streamC.items.find((i: any) => i.name === drugName)) {
+        streamC.count++;
+        streamC.items.push({
+          id: m.id, name: drugName,
+          rxnorm_code: rx.code, rxnorm_display: rx.display,
+        });
+      }
+    }
+    streamC.status = statusFor(streamC.count, Math.max(medsExpected, streamC.count));
 
     // -------- Stream D: Allergies -------------------------------------
     const streamD: StreamResult = { status: "coded", count: 0, items: [] };
@@ -658,6 +696,30 @@ export async function runSixStreamPipeline(
       if (!streamF.items.find((i: any) => i.test_name === name)) {
         streamF.count++;
         streamF.items.push({ id: lab.id, test_name: name, loinc_code: code, loinc_display: display });
+      }
+    }
+    // Fallback: if still empty, surface ordered labs from lab_orders so the
+    // audit trail reflects what was requested even before results post.
+    if (streamF.items.length === 0) {
+      const { data: orders } = await supabase
+        .from("lab_orders")
+        .select("id, test_name")
+        .eq("patient_mrn", mrn);
+      for (const o of (orders ?? []) as any[]) {
+        const name = String(o.test_name ?? "").trim();
+        if (!name) continue;
+        const pre = lookupLabLoinc(name);
+        let code: string | null = pre?.code ?? null;
+        let display: string | null = pre?.display ?? null;
+        if (!code) {
+          const hit = await resolveLoinc(name);
+          if (hit) { code = hit.code; display = hit.display; }
+        }
+        if (!code) continue;
+        if (!streamF.items.find((i: any) => i.test_name === name)) {
+          streamF.count++;
+          streamF.items.push({ id: o.id, test_name: name, loinc_code: code, loinc_display: display });
+        }
       }
     }
     streamF.status = statusFor(streamF.count, Math.max(labsExpected, streamF.count));
