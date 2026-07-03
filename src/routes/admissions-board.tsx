@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   BedDouble,
@@ -181,12 +181,13 @@ function RosterTab({ facility }: { facility: string }) {
   const [rows, setRows] = useState<EncounterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const initialLoadRef = useRef(true);
 
   const load = async () => {
     // Source: `patients` (the local mirror of the FHIR Encounter resource).
     // status = 'Admitted' → FHIR Encounter.status = in-progress
     // status = 'Discharged' → FHIR Encounter.status = finished
-    setLoading(true);
+    if (initialLoadRef.current) setLoading(true);
     const { data } = await fetchWithTimeout(
       () =>
         supabase
@@ -209,19 +210,29 @@ function RosterTab({ facility }: { facility: string }) {
     }));
     setRows(mapped);
     setLoading(false);
+    initialLoadRef.current = false;
   };
 
   useEffect(() => {
     load();
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleLoad = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void load();
+      }, 300);
+    };
     const ch = supabase
       .channel(`reception-roster-${facility}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` },
-        () => load(),
+        scheduleLoad,
       )
       .subscribe();
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(ch);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -354,9 +365,10 @@ function SchedulingTab({ facility }: { facility: string }) {
   const [rows, setRows] = useState<AppointmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const initialLoadRef = useRef(true);
 
   const load = async () => {
-    setLoading(true);
+    if (initialLoadRef.current) setLoading(true);
     const { data, error } = await fetchWithTimeout(
       () =>
         (supabase as any)
@@ -370,19 +382,29 @@ function SchedulingTab({ facility }: { facility: string }) {
     if (error) toast.error("Could not load appointments", { description: error.message });
     setRows((data ?? []) as AppointmentRow[]);
     setLoading(false);
+    initialLoadRef.current = false;
   };
 
   useEffect(() => {
     load();
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleLoad = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void load();
+      }, 300);
+    };
     const ch = supabase
       .channel(`reception-appts-${facility}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "fhir_appointments", filter: `facility_name=eq.${facility}` },
-        () => load(),
+        scheduleLoad,
       )
       .subscribe();
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(ch);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
