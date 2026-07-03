@@ -871,7 +871,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   }
 
   // Insert ChargeItems
-  const chargeRows = charges.map((c, idx) => {
+  const chargeRows = charges.map((c: any, idx: number) => {
     const ciId = `${invoiceId.slice(0, 8)}-${idx + 1}`;
     return {
       id: ciId,
@@ -894,7 +894,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     };
   });
   if (chargeRows.length > 0) {
-    await sb.from("fhir_charge_items").insert(chargeRows.map((r) => r.row) as never);
+    await sb.from("fhir_charge_items").insert(chargeRows.map((r: any) => r.row) as never);
   }
 
   // Build + persist the master Invoice resource
@@ -904,7 +904,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     mrn,
     encounterId: `enc-${mrn}`,
     patientName: safeFullName(p),
-    chargeItems: chargeRows.map((r) => ({ id: r.id, c: charges[chargeRows.indexOf(r)] })),
+    chargeItems: chargeRows.map((r: any) => ({ id: r.id, c: charges[chargeRows.indexOf(r)] })),
     subtotal,
     tax,
     total,
