@@ -54,6 +54,32 @@ async function resolveDrugSafe(drugName: string) {
 // ─── Locking: prevent overlap between Re-code + sweep ────────────────────
 const inFlight = new Set<string>();
 
+// ─── Stream A helper: AI-driven concept extraction from CC + HPI ─────────
+type ExtractedConcept = { term: string; negated?: boolean };
+
+async function extractCcConcepts(cc: string, hpi: string): Promise<ExtractedConcept[]> {
+  const ccText = (cc ?? "").trim();
+  const hpiText = (hpi ?? "").trim();
+  if (!ccText && !hpiText) return [];
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      "nlp-extract-concepts",
+      { body: { cc: ccText, hpi: hpiText } },
+    );
+    if (error) {
+      console.warn("[stream-a] extractor invoke error", error);
+      return [];
+    }
+    const concepts = Array.isArray((data as any)?.concepts)
+      ? ((data as any).concepts as ExtractedConcept[])
+      : [];
+    return concepts.filter((c) => c?.term && !c.negated);
+  } catch (e) {
+    console.warn("[stream-a] extractor failed", e);
+    return [];
+  }
+}
+
 export type StreamStatus = "coded" | "partial" | "failed";
 export type StreamResult = {
   status: StreamStatus;
