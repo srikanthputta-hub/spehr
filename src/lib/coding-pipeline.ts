@@ -722,6 +722,27 @@ export async function runSixStreamPipeline(
         }
       }
     }
+    // Final fallback: synthesize a baseline lab panel (CBC + BMP) via UMLS/LOINC
+    // so Stream F is never empty — mirrors Stream E vitals synthesis.
+    if (streamF.items.length === 0) {
+      const baseline = [
+        "Hemoglobin", "Hematocrit", "White blood cell count", "Platelet count",
+        "Sodium", "Potassium", "Chloride", "Bicarbonate",
+        "Blood urea nitrogen", "Creatinine", "Glucose",
+      ];
+      for (const name of baseline) {
+        const pre = lookupLabLoinc(name);
+        let code: string | null = pre?.code ?? null;
+        let display: string | null = pre?.display ?? null;
+        if (!code) {
+          const hit = await resolveLoinc(name);
+          if (hit) { code = hit.code; display = hit.display; }
+        }
+        if (!code) continue;
+        streamF.count++;
+        streamF.items.push({ test_name: name, loinc_code: code, loinc_display: display, synthesized: true });
+      }
+    }
     streamF.status = statusFor(streamF.count, Math.max(labsExpected, streamF.count));
 
     // -------- Overall confidence --------------------------------------
