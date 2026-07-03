@@ -4721,7 +4721,6 @@ function MedicalDictionary() {
       {subtab === "audits" && <NlpAuditLogsPanel />}
       {subtab === "audits" && <NlpApprovalTrail />}
       {subtab === "audits" && <QaGovernanceQueue />}
-      {subtab === "matrix" && <LiveTerminologyMatrixPanel />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "safety" && <CdsOverridesFeed />}
