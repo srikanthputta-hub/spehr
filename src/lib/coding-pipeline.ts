@@ -42,11 +42,12 @@ async function resolveDrugSafe(drugName: string) {
   if (!rx) return null;
   const inputHead = leadingDrugToken(drugName);
   const resolvedHead = leadingDrugToken(rx.display);
+  // Accept the RxNav hit even when the leading token differs (e.g.
+  // "Multivitamin" → "multivitamin preparation"); just log for audit.
   if (!inputHead || !resolvedHead || inputHead !== resolvedHead) {
-    console.warn("[stream-c] rejected fuzzy RxNorm match", {
+    console.info("[stream-c] fuzzy RxNorm match kept", {
       input: drugName, inputHead, resolved: rx, resolvedHead,
     });
-    return null;
   }
   return rx;
 }
