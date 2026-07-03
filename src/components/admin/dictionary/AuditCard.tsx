@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import {
   CheckCircle2,
@@ -148,39 +148,59 @@ export function AuditCard({
   const created = new Date(row.created_at).toLocaleString();
   const approvedBy = (row.approved_by ?? "").toLowerCase();
 
-  // Auto-approve countdown
+  // Auto-approve: single setTimeout per card, no per-tick React state.
+  // Visual countdown is a pure CSS animation (see .timer-bar in styles.css).
   const firedRef = useRef(false);
-  const createdMs = useMemo(() => new Date(row.created_at).getTime(), [row.created_at]);
-  const [remainingMs, setRemainingMs] = useState<number>(() =>
-    Math.max(0, AUTO_APPROVE_MS - (Date.now() - createdMs)),
-  );
+  const timeoutRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+  const createdMs = new Date(row.created_at).getTime();
+  const elapsed = Math.max(0, Date.now() - createdMs);
+  const remainingMs = Math.max(0, AUTO_APPROVE_MS - elapsed);
 
   useEffect(() => {
-    if (!autoApprove || approved) return;
-    const tick = () => {
-      const rem = Math.max(0, AUTO_APPROVE_MS - (Date.now() - createdMs));
-      setRemainingMs(rem);
-      if (rem <= 0 && !firedRef.current) {
-        firedRef.current = true;
-        onAutoApprove?.(row);
+    if (!containerRef.current) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting) setVisible(true);
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(containerRef.current);
+    return () => io.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!autoApprove || approved || !visible || firedRef.current) return;
+    if (remainingMs <= 0) {
+      firedRef.current = true;
+      onAutoApprove?.(row);
+      return;
+    }
+    timeoutRef.current = window.setTimeout(() => {
+      if (firedRef.current) return;
+      firedRef.current = true;
+      onAutoApprove?.(row);
+    }, remainingMs);
+    return () => {
+      if (timeoutRef.current != null) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
     };
-    tick();
-    const iv = window.setInterval(tick, 250);
-    return () => window.clearInterval(iv);
-  }, [autoApprove, approved, createdMs, onAutoApprove, row]);
-
-  const pct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
-  const barColor =
-    pct > 66 ? "bg-emerald-500" : pct > 33 ? "bg-amber-500" : "bg-red-500";
+  }, [autoApprove, approved, visible, remainingMs, onAutoApprove, row]);
 
   const handleApproveClick = () => {
-    firedRef.current = true; // cancel timer
+    firedRef.current = true;
+    if (timeoutRef.current != null) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     onApprove?.(row, "human");
   };
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+    <div ref={containerRef} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -223,11 +243,14 @@ export function AuditCard({
       </button>
 
       {autoApprove && !approved && (
-        <div className="h-1.5 w-full bg-slate-100">
+        <div className="h-1.5 w-full bg-slate-100 overflow-hidden">
           <div
-            className={`h-full transition-all duration-200 ${barColor}`}
-            style={{ width: `${pct}%` }}
-            title={`Auto-approves in ${Math.ceil(remainingMs / 1000)}s`}
+            className="timer-bar h-full bg-gradient-to-r from-emerald-500 via-amber-500 to-red-500"
+            style={{
+              animationDuration: `${AUTO_APPROVE_MS}ms`,
+              animationDelay: `-${elapsed}ms`,
+            }}
+            title="Auto-approves in ~2 minutes"
           />
         </div>
       )}
