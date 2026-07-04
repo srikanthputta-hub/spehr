@@ -14,6 +14,7 @@ import {
 import { Activity, Users, LogOut as LogOutIcon, Loader2 } from "lucide-react";
 import { PopulationHealth } from "@/components/admin/PopulationHealth";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 
 export const Route = createFileRoute("/analytics")({
   component: AnalyticsPage,

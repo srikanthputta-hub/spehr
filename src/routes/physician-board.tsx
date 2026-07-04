@@ -40,6 +40,7 @@ import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
 import { OrderPanelPicker } from "@/components/physician/OrderPanelPicker";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 
 const TRANSFER_DESTINATIONS = [
   "Memorial Hospital",

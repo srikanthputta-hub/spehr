@@ -21,6 +21,7 @@ import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 
 
 export const Route = createFileRoute("/nursing-board")({
