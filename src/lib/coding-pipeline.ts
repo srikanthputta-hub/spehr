@@ -945,7 +945,7 @@ export async function approveMrnCoding(
     .from("nlp_audit_logs" as any)
     .update({ status: "approved", updated_at: nowIso, approved_by: approvedBy } as any)
     .eq("patient_mrn", mrn)
-    .eq("status", "pending");
+    .in("status", ["pending", "needs_review"]);
 
   // Feed uncovered SNOMED codes into Auto Terminologist queue
   const { data: conds } = await supabase
