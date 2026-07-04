@@ -22,7 +22,7 @@ export default function NlpAuditLogsPanel() {
       const query = supabase
         .from("nlp_audit_logs" as any)
         .select("id, patient_mrn, raw_text, extraction_mapping, standardized_output, confidence_score, status, created_at, updated_at, approved_by")
-        .eq("status", "pending")
+        .in("status", ["pending", "needs_review"])
         .order("created_at", { ascending: false })
         .limit(20);
       const timeout = new Promise<{ data: any[] }>((resolve) =>

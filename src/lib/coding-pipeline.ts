@@ -30,6 +30,7 @@ import { lookupAllergenSnomed } from "@/lib/allergen-map";
 import { VITALS_LOINC } from "@/lib/vitals-loinc-map";
 import { lookupLabLoinc } from "@/lib/lab-loinc-map";
 import { lookupDrugRxnorm, leadingDrugToken } from "@/lib/drug-rxnorm-map";
+import { validateStreamCodes, type StreamKey, type CodeInput } from "@/lib/nlp-validate";
 
 /**
  * Stream C helper: hardcoded map first, then live RxNorm with an exact
@@ -776,6 +777,48 @@ export async function runSixStreamPipeline(
       stream_e: streamE.items[0]?.loinc_map ?? {},
       stream_f: streamF.items,
     };
+
+    // -------- Stream $validate-code gate ------------------------------
+    // Validate each stream's coded concepts against its published value set.
+    // Invalid concepts flip the audit row to `needs_review` and are shown
+    // with a yellow warning in the UI. Fail-open on proxy errors.
+    const streamCodes: Record<StreamKey, CodeInput[]> = {
+      a: (streamA.items as any[]).map((i) => i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null).filter(Boolean) as CodeInput[],
+      b: (streamB.items as any[]).map((i) => i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null).filter(Boolean) as CodeInput[],
+      c: (streamC.items as any[]).map((i) => i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null).filter(Boolean) as CodeInput[],
+      d: (streamD.items as any[]).map((i) => i?.substance_snomed ? { system: "SNOMED CT", code: String(i.substance_snomed) } : null).filter(Boolean) as CodeInput[],
+      e: Object.values((streamE.items[0]?.loinc_map ?? {}) as Record<string, string>).map((c) => ({ system: "LOINC", code: String(c) })),
+      f: (streamF.items as any[]).map((i) => i?.loinc_code ? { system: "LOINC", code: String(i.loinc_code) } : null).filter(Boolean) as CodeInput[],
+    };
+    const gateEntries = await Promise.all(
+      (Object.keys(streamCodes) as StreamKey[]).map(async (k) => [k, await validateStreamCodes(k, streamCodes[k], mrn)] as const),
+    );
+    const validation: Record<string, string> = {};
+    let needsReview = false;
+    for (const [k, res] of gateEntries) {
+      validation[k] = res.gateStatus;
+      if (res.gateStatus === "needs_review") needsReview = true;
+      // Decorate items with per-code validated flag.
+      if (k === "e") {
+        // stream_e is a single object; attach a sibling map.
+        (standardized as any).stream_e_validation = res.perCode;
+      } else {
+        const arr = (standardized as any)[`stream_${k}`] as any[];
+        for (const it of arr ?? []) {
+          const codeStr =
+            k === "d" ? (it?.substance_snomed ? String(it.substance_snomed) : null) :
+            k === "f" ? (it?.loinc_code ? String(it.loinc_code) : null) :
+            (it?.snomed_code ? String(it.snomed_code) : null);
+          if (!codeStr) continue;
+          const pc = res.perCode[codeStr];
+          if (pc) {
+            it.validated = pc.valid;
+            if (!pc.valid && pc.reason) it.validation_reason = pc.reason;
+          }
+        }
+      }
+    }
+
     const extractionMapping = {
       streams: {
         a: { source: "chief_complaint", status: streamA.status, count: streamA.count },
@@ -785,6 +828,7 @@ export async function runSixStreamPipeline(
         e: { source: "vitals", status: streamE.status, count: streamE.count },
         f: { source: "lab_results", status: streamF.status, count: streamF.count },
       },
+      validation,
     };
 
     // Idempotent: update the existing pending row for this MRN if present,
@@ -795,7 +839,7 @@ export async function runSixStreamPipeline(
       extraction_mapping: extractionMapping,
       standardized_output: standardized,
       confidence_score: confidence,
-      status: "pending",
+      status: needsReview ? "needs_review" : "pending",
       resolution_method: "auto-6-stream",
       updated_at: new Date().toISOString(),
     } as any;
@@ -803,7 +847,7 @@ export async function runSixStreamPipeline(
       .from("nlp_audit_logs" as any)
       .select("id")
       .eq("patient_mrn", mrn)
-      .eq("status", "pending")
+      .in("status", ["pending", "needs_review"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();

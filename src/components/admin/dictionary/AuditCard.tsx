@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Sparkles,
   User,
+  AlertTriangle,
 } from "lucide-react";
 
 export type AuditRow = {
@@ -60,12 +61,13 @@ function CodePill({ system, code, display }: { system: string; code: string; dis
 }
 
 function StreamCard({
-  streamKey, meta, status, payload,
+  streamKey, meta, status, payload, gate,
 }: {
   streamKey: string;
   meta: { title: string; blurb: string };
   status?: string;
   payload: any;
+  gate?: string;
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
@@ -74,7 +76,14 @@ function StreamCard({
           <div className="text-xs font-semibold text-slate-900">{meta.title}</div>
           <div className="text-[10px] text-slate-500">{meta.blurb}</div>
         </div>
-        <StatusPill s={status} />
+        <div className="flex items-center gap-1">
+          {gate === "needs_review" && (
+            <span className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700" title="One or more codes not in value set">
+              <AlertTriangle className="h-3 w-3" /> Review
+            </span>
+          )}
+          <StatusPill s={status} />
+        </div>
       </div>
       <div className="mt-2 flex flex-wrap gap-1">
         {renderStreamPills(streamKey, payload)}
@@ -86,26 +95,29 @@ function StreamCard({
 function renderStreamPills(key: string, payload: any) {
   if (!payload) return <span className="text-[11px] text-slate-400">No coded items.</span>;
   const pills: ReactElement[] = [];
+  const warn = (validated: any) => (validated === false ? "ring-1 ring-amber-400" : "");
+  const warnTitle = (validated: any, reason?: string) =>
+    validated === false ? (reason ? `Not in value set — ${reason}` : "Not in value set") : undefined;
   if (key === "a") {
     const arr = Array.isArray(payload) ? payload : payload ? [payload] : [];
     arr.forEach((p: any, i: number) => {
-      if (p?.snomed_code) pills.push(<CodePill key={`asn${i}`} system="SNOMED" code={p.snomed_code} display={p.snomed_display} />);
+      if (p?.snomed_code) pills.push(<span key={`asn${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="SNOMED" code={p.snomed_code} display={p.snomed_display} /></span>);
       if (p?.icd10_code) pills.push(<CodePill key={`ai${i}`} system="ICD-10" code={p.icd10_code} display={p.icd10_display} />);
     });
   } else if (key === "b") {
     const arr = Array.isArray(payload) ? payload : [];
     arr.forEach((p: any, i: number) => {
-      if (p.snomed_code) pills.push(<CodePill key={`bs${i}`} system="SNOMED" code={p.snomed_code} display={p.snomed_display} />);
+      if (p.snomed_code) pills.push(<span key={`bs${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="SNOMED" code={p.snomed_code} display={p.snomed_display} /></span>);
       if (p.icd10_code) pills.push(<CodePill key={`bi${i}`} system="ICD-10" code={p.icd10_code} display={p.icd10_display} />);
     });
   } else if (key === "c") {
     (Array.isArray(payload) ? payload : []).forEach((p: any, i: number) =>
-      p.rxnorm_code && pills.push(<CodePill key={`c${i}`} system="RxNorm" code={p.rxnorm_code} display={p.rxnorm_display ?? p.name} />)
+      p.rxnorm_code && pills.push(<span key={`c${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="RxNorm" code={p.rxnorm_code} display={p.rxnorm_display ?? p.name} /></span>)
     );
   } else if (key === "d") {
     (Array.isArray(payload) ? payload : []).forEach((p: any, i: number) => {
       if (p.substance_rxcui) pills.push(<CodePill key={`dr${i}`} system="RxNorm" code={p.substance_rxcui} display={p.substance} />);
-      if (p.substance_snomed) pills.push(<CodePill key={`ds${i}`} system="SNOMED" code={p.substance_snomed} display={p.substance} />);
+      if (p.substance_snomed) pills.push(<span key={`ds${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="SNOMED" code={p.substance_snomed} display={p.substance} /></span>);
       if (p.reaction_snomed) pills.push(<CodePill key={`drx${i}`} system="SNOMED" code={p.reaction_snomed} display="reaction" />);
     });
   } else if (key === "e") {
@@ -115,7 +127,7 @@ function renderStreamPills(key: string, payload: any) {
     );
   } else if (key === "f") {
     (Array.isArray(payload) ? payload : []).forEach((p: any, i: number) =>
-      p.loinc_code && pills.push(<CodePill key={`f${i}`} system="LOINC" code={p.loinc_code} display={p.loinc_display ?? p.test_name} />)
+      p.loinc_code && pills.push(<span key={`f${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="LOINC" code={p.loinc_code} display={p.loinc_display ?? p.test_name} /></span>)
     );
   }
   return pills.length ? pills : <span className="text-[11px] text-slate-400">No coded items.</span>;
@@ -144,8 +156,10 @@ export function AuditCard({
 }) {
   const std = row.standardized_output ?? {};
   const mapping = row.extraction_mapping?.streams ?? {};
+  const validation = row.extraction_mapping?.validation ?? {};
   const conf = Math.round(((row.confidence_score ?? 0) as number) * 100);
   const approved = row.status === "approved";
+  const needsReview = row.status === "needs_review";
   const created = new Date(row.created_at).toLocaleString();
   const approvedBy = (row.approved_by ?? "").toLowerCase();
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -160,7 +174,7 @@ export function AuditCard({
   const startPct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
 
   useEffect(() => {
-    if (!autoApprove || approved || firedRef.current) return;
+    if (!autoApprove || approved || needsReview || firedRef.current) return;
     const fire = () => {
       if (firedRef.current) return;
       firedRef.current = true;
@@ -176,7 +190,7 @@ export function AuditCard({
       timeoutRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoApprove, approved, row.id]);
+  }, [autoApprove, approved, needsReview, row.id]);
 
   const handleApproveClick = () => {
     firedRef.current = true;
@@ -223,14 +237,16 @@ export function AuditCard({
             Confidence · {conf}%
           </span>
           <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-            approved ? "border-emerald-300 bg-emerald-100 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-700"
+            approved ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+            : needsReview ? "border-amber-300 bg-amber-100 text-amber-800"
+            : "border-amber-200 bg-amber-50 text-amber-700"
           }`}>
-            {approved ? "Approved" : "Pending"}
+            {approved ? "Approved" : needsReview ? "⚠ Needs Review" : "Pending"}
           </span>
         </div>
       </button>
 
-      {autoApprove && !approved && remainingMs > 0 && (
+      {autoApprove && !approved && !needsReview && remainingMs > 0 && (
         <div className="h-1.5 w-full bg-slate-100">
           <div
             className="h-full"
@@ -255,6 +271,7 @@ export function AuditCard({
                 meta={STREAM_META[k]}
                 status={mapping?.[k]?.status}
                 payload={std?.[`stream_${k}`]}
+                gate={validation?.[k]}
               />
             ))}
           </div>
