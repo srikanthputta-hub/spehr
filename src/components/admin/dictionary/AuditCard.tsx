@@ -271,6 +271,7 @@ export function AuditCard({
                 meta={STREAM_META[k]}
                 status={mapping?.[k]?.status}
                 payload={std?.[`stream_${k}`]}
+                gate={validation?.[k]}
               />
             ))}
           </div>
