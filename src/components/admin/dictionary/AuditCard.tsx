@@ -95,26 +95,29 @@ function StreamCard({
 function renderStreamPills(key: string, payload: any) {
   if (!payload) return <span className="text-[11px] text-slate-400">No coded items.</span>;
   const pills: ReactElement[] = [];
+  const warn = (validated: any) => (validated === false ? "ring-1 ring-amber-400" : "");
+  const warnTitle = (validated: any, reason?: string) =>
+    validated === false ? (reason ? `Not in value set — ${reason}` : "Not in value set") : undefined;
   if (key === "a") {
     const arr = Array.isArray(payload) ? payload : payload ? [payload] : [];
     arr.forEach((p: any, i: number) => {
-      if (p?.snomed_code) pills.push(<CodePill key={`asn${i}`} system="SNOMED" code={p.snomed_code} display={p.snomed_display} />);
+      if (p?.snomed_code) pills.push(<span key={`asn${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="SNOMED" code={p.snomed_code} display={p.snomed_display} /></span>);
       if (p?.icd10_code) pills.push(<CodePill key={`ai${i}`} system="ICD-10" code={p.icd10_code} display={p.icd10_display} />);
     });
   } else if (key === "b") {
     const arr = Array.isArray(payload) ? payload : [];
     arr.forEach((p: any, i: number) => {
-      if (p.snomed_code) pills.push(<CodePill key={`bs${i}`} system="SNOMED" code={p.snomed_code} display={p.snomed_display} />);
+      if (p.snomed_code) pills.push(<span key={`bs${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="SNOMED" code={p.snomed_code} display={p.snomed_display} /></span>);
       if (p.icd10_code) pills.push(<CodePill key={`bi${i}`} system="ICD-10" code={p.icd10_code} display={p.icd10_display} />);
     });
   } else if (key === "c") {
     (Array.isArray(payload) ? payload : []).forEach((p: any, i: number) =>
-      p.rxnorm_code && pills.push(<CodePill key={`c${i}`} system="RxNorm" code={p.rxnorm_code} display={p.rxnorm_display ?? p.name} />)
+      p.rxnorm_code && pills.push(<span key={`c${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="RxNorm" code={p.rxnorm_code} display={p.rxnorm_display ?? p.name} /></span>)
     );
   } else if (key === "d") {
     (Array.isArray(payload) ? payload : []).forEach((p: any, i: number) => {
       if (p.substance_rxcui) pills.push(<CodePill key={`dr${i}`} system="RxNorm" code={p.substance_rxcui} display={p.substance} />);
-      if (p.substance_snomed) pills.push(<CodePill key={`ds${i}`} system="SNOMED" code={p.substance_snomed} display={p.substance} />);
+      if (p.substance_snomed) pills.push(<span key={`ds${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="SNOMED" code={p.substance_snomed} display={p.substance} /></span>);
       if (p.reaction_snomed) pills.push(<CodePill key={`drx${i}`} system="SNOMED" code={p.reaction_snomed} display="reaction" />);
     });
   } else if (key === "e") {
@@ -124,7 +127,7 @@ function renderStreamPills(key: string, payload: any) {
     );
   } else if (key === "f") {
     (Array.isArray(payload) ? payload : []).forEach((p: any, i: number) =>
-      p.loinc_code && pills.push(<CodePill key={`f${i}`} system="LOINC" code={p.loinc_code} display={p.loinc_display ?? p.test_name} />)
+      p.loinc_code && pills.push(<span key={`f${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="LOINC" code={p.loinc_code} display={p.loinc_display ?? p.test_name} /></span>)
     );
   }
   return pills.length ? pills : <span className="text-[11px] text-slate-400">No coded items.</span>;
