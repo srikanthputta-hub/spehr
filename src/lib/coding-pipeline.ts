@@ -702,25 +702,29 @@ export async function runSixStreamPipeline(
     // Fallback: if still empty, surface ordered labs from lab_orders so the
     // audit trail reflects what was requested even before results post.
     if (streamF.items.length === 0) {
-      const { data: orders } = await supabase
-        .from("lab_orders")
-        .select("id, test_name")
-        .eq("patient_mrn", mrn);
-      for (const o of (orders ?? []) as any[]) {
-        const name = String(o.test_name ?? "").trim();
-        if (!name) continue;
-        const pre = lookupLabLoinc(name);
-        let code: string | null = pre?.code ?? null;
-        let display: string | null = pre?.display ?? null;
-        if (!code) {
-          const hit = await resolveLoinc(name);
-          if (hit) { code = hit.code; display = hit.display; }
+      try {
+        const { data: orders } = await supabase
+          .from("lab_orders")
+          .select("id, test_name")
+          .eq("patient_mrn", mrn);
+        for (const o of (orders ?? []) as any[]) {
+          const name = String(o.test_name ?? "").trim();
+          if (!name) continue;
+          const pre = lookupLabLoinc(name);
+          let code: string | null = pre?.code ?? null;
+          let display: string | null = pre?.display ?? null;
+          if (!code) {
+            const hit = await resolveLoinc(name);
+            if (hit) { code = hit.code; display = hit.display; }
+          }
+          if (!code) continue;
+          if (!streamF.items.find((i: any) => i.test_name === name)) {
+            streamF.count++;
+            streamF.items.push({ id: o.id, test_name: name, loinc_code: code, loinc_display: display });
+          }
         }
-        if (!code) continue;
-        if (!streamF.items.find((i: any) => i.test_name === name)) {
-          streamF.count++;
-          streamF.items.push({ id: o.id, test_name: name, loinc_code: code, loinc_display: display });
-        }
+      } catch {
+        // lab_orders column may differ; ignore fallback errors
       }
     }
     // Final fallback: synthesize a baseline lab panel (CBC + BMP) via UMLS/LOINC
