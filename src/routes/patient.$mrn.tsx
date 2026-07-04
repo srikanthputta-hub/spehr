@@ -17,7 +17,59 @@ import {
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { loadIntake, type IntakeRecord } from "@/lib/intake-record";
 import DischargeConformanceBanner from "@/components/patient/DischargeConformanceBanner";
-import CdsSuggestionsBanners from "@/components/patient/CdsSuggestionsBanners";
+import CdsProtocolTabButton from "@/components/patient/CdsProtocolTabButton";
+import CdsProtocolPanel from "@/components/patient/CdsProtocolPanel";
+
+/* ------------------------------------------------------------------ */
+/* CDS active suggestion hook — reads localStorage + subscribes        */
+/* ------------------------------------------------------------------ */
+type CdsStoredSuggestion = {
+  id: string;
+  firedAt: string;
+  dismissed?: boolean;
+  triggerCode?: string;
+  triggerDisplay?: string;
+};
+const CDS_PRIORITY = ["septic-shock", "acs", "sepsis-bundle", "infection-workup"];
+function readCdsSuggestion(mrn: string): CdsStoredSuggestion | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem(`spehr.cds.suggestions.${mrn}`);
+    if (!raw) return null;
+    const j = JSON.parse(raw);
+    if (j?.version !== 1 || !Array.isArray(j.suggestions)) return null;
+    const active = (j.suggestions as CdsStoredSuggestion[]).filter((s) => !s.dismissed);
+    if (active.length === 0) return null;
+    active.sort(
+      (a, b) =>
+        (CDS_PRIORITY.indexOf(a.id) === -1 ? 99 : CDS_PRIORITY.indexOf(a.id)) -
+        (CDS_PRIORITY.indexOf(b.id) === -1 ? 99 : CDS_PRIORITY.indexOf(b.id)),
+    );
+    return active[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+function useCdsActiveSuggestion(mrn: string): CdsStoredSuggestion | null {
+  const [s, setS] = useState<CdsStoredSuggestion | null>(() => readCdsSuggestion(mrn));
+  useEffect(() => {
+    setS(readCdsSuggestion(mrn));
+    const onEvt = (e: Event) => {
+      const detailMrn = (e as CustomEvent).detail?.mrn;
+      if (!detailMrn || detailMrn === mrn) setS(readCdsSuggestion(mrn));
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === `spehr.cds.suggestions.${mrn}`) setS(readCdsSuggestion(mrn));
+    };
+    window.addEventListener("spehr:cds", onEvt as EventListener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("spehr:cds", onEvt as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [mrn]);
+  return s;
+}
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
