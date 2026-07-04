@@ -73,7 +73,15 @@ export const ORDER_SETS: Record<string, OrderSet> = {
   },
 };
 
-const ACS_CODES = new Set(["57054005", "413444003", "194828000"]);
+const ACS_CODES = new Set([
+  "57054005",
+  "413444003",
+  "194828000",
+  "425677008",
+  "4568003",
+  "59139008",
+  "29857009",
+]);
 const INFECTION_CODES = new Set(["5758002", "91302008"]);
 const SEPTIC_SHOCK_CODE = "76571007";
 
