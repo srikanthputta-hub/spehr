@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Sparkles,
   User,
+  AlertTriangle,
 } from "lucide-react";
 
 export type AuditRow = {
