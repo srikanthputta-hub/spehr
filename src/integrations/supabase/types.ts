@@ -482,6 +482,51 @@ export type Database = {
         }
         Relationships: []
       }
+      cds_suggestions: {
+        Row: {
+          admission_key: string
+          created_at: string | null
+          dismissed: boolean | null
+          fired_at: string | null
+          id: string
+          items: Json
+          label: string
+          mrn: string
+          severity: string
+          suggestion_id: string
+          trigger_code: string | null
+          trigger_display: string | null
+        }
+        Insert: {
+          admission_key: string
+          created_at?: string | null
+          dismissed?: boolean | null
+          fired_at?: string | null
+          id?: string
+          items: Json
+          label: string
+          mrn: string
+          severity: string
+          suggestion_id: string
+          trigger_code?: string | null
+          trigger_display?: string | null
+        }
+        Update: {
+          admission_key?: string
+          created_at?: string | null
+          dismissed?: boolean | null
+          fired_at?: string | null
+          id?: string
+          items?: Json
+          label?: string
+          mrn?: string
+          severity?: string
+          suggestion_id?: string
+          trigger_code?: string | null
+          trigger_display?: string | null
+        }
+        Relationships: []
+      }
       chv_translations: {
         Row: {
           consumer_term: string
