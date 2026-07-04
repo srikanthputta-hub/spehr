@@ -682,6 +682,7 @@ export type Database = {
       }
       clinical_safety_alerts: {
         Row: {
+          alert_type: string | null
           allergy_name: string | null
           author_id: string | null
           auto_resolve_at: string | null
@@ -691,6 +692,7 @@ export type Database = {
             | null
           decided_at: string | null
           decided_by: string | null
+          description: string | null
           drug: string | null
           drug_b: string | null
           facility_name: string | null
@@ -702,11 +704,14 @@ export type Database = {
           rationale: string | null
           resolution_rationale: string | null
           resolved_by: string | null
+          rule_id: string | null
           severity: string | null
           status: string
+          triggered_by: string | null
           updated_at: string
         }
         Insert: {
+          alert_type?: string | null
           allergy_name?: string | null
           author_id?: string | null
           auto_resolve_at?: string | null
@@ -716,6 +721,7 @@ export type Database = {
             | null
           decided_at?: string | null
           decided_by?: string | null
+          description?: string | null
           drug?: string | null
           drug_b?: string | null
           facility_name?: string | null
@@ -727,11 +733,14 @@ export type Database = {
           rationale?: string | null
           resolution_rationale?: string | null
           resolved_by?: string | null
+          rule_id?: string | null
           severity?: string | null
           status?: string
+          triggered_by?: string | null
           updated_at?: string
         }
         Update: {
+          alert_type?: string | null
           allergy_name?: string | null
           author_id?: string | null
           auto_resolve_at?: string | null
@@ -741,6 +750,7 @@ export type Database = {
             | null
           decided_at?: string | null
           decided_by?: string | null
+          description?: string | null
           drug?: string | null
           drug_b?: string | null
           facility_name?: string | null
@@ -752,8 +762,10 @@ export type Database = {
           rationale?: string | null
           resolution_rationale?: string | null
           resolved_by?: string | null
+          rule_id?: string | null
           severity?: string | null
           status?: string
+          triggered_by?: string | null
           updated_at?: string
         }
         Relationships: []
