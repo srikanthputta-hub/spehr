@@ -61,12 +61,13 @@ function CodePill({ system, code, display }: { system: string; code: string; dis
 }
 
 function StreamCard({
-  streamKey, meta, status, payload,
+  streamKey, meta, status, payload, gate,
 }: {
   streamKey: string;
   meta: { title: string; blurb: string };
   status?: string;
   payload: any;
+  gate?: string;
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
@@ -75,7 +76,14 @@ function StreamCard({
           <div className="text-xs font-semibold text-slate-900">{meta.title}</div>
           <div className="text-[10px] text-slate-500">{meta.blurb}</div>
         </div>
-        <StatusPill s={status} />
+        <div className="flex items-center gap-1">
+          {gate === "needs_review" && (
+            <span className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700" title="One or more codes not in value set">
+              <AlertTriangle className="h-3 w-3" /> Review
+            </span>
+          )}
+          <StatusPill s={status} />
+        </div>
       </div>
       <div className="mt-2 flex flex-wrap gap-1">
         {renderStreamPills(streamKey, payload)}
