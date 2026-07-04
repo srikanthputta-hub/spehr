@@ -132,6 +132,7 @@ function RootComponent() {
   useAutoTerminologist();
   useCodingPipelineSweep();
   useSafetyAlertsWatcher();
+  useCdsSuggestionsWatcher();
   useEffect(() => { startLocalGcSweeper(); }, []);
 
   return (
