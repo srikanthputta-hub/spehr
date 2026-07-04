@@ -947,6 +947,10 @@ export async function approveMrnCoding(
     .eq("patient_mrn", mrn)
     .in("status", ["pending", "needs_review"]);
 
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("nlp:approved", { detail: { mrn } }));
+  }
+
   // Feed uncovered SNOMED codes into Auto Terminologist queue
   const { data: conds } = await supabase
     .from("conditions")
