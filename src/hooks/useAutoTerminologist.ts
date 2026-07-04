@@ -5,21 +5,17 @@ import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
 /**
  * Auto Terminologist — autonomous clinical terminologist agent.
  * --------------------------------------------------------------
- * Background loop (10 min cadence, leader-elected across tabs) that:
+ * Background loop (10 min cadence, leader-elected across tabs) that acts
+ * as a GAP DETECTOR ONLY:
  *   1. Scans the last 24h of patient / condition / medication / lab data.
- *   2. Counts unique clinical codes and finds the ones not yet covered
- *      by any row in `custom_value_sets`.
- *   3. Clusters gap codes into clinical themes (by dominant complaint /
- *      condition text) and validates each via the `umls-proxy` `validate`
- *      action.
- *   4. Drafts a new value set per theme (status `review` or `draft`
- *      depending on confidence) — never `published`.
- *   5. Writes human-readable activity to `auto_terminologist_log` and a
- *      heartbeat to `automation_watchdog_logs` so it shows up alongside
- *      Auto Doc / Auto Admin / Auto IT / AUTO API in the Watchdog UI.
+ *   2. Counts unique clinical codes and identifies coverage gaps by theme.
+ *   3. Logs human-readable activity to `auto_terminologist_log` and a
+ *      heartbeat to `automation_watchdog_logs`.
  *
- * Idempotent: the same theme+code-set never produces a duplicate draft —
- * an existing matching draft is "touched" (change_history append) instead.
+ * NOTE: This engine no longer writes to `custom_value_sets`. Draft value
+ * set creation has been removed — all authoring is manual via the Value
+ * Set Library. The only outputs of each cycle are activity log entries
+ * (touched / skipped / heartbeat / no_gaps).
  */
 
 const RUN_INTERVAL_MS = 10 * 60_000;
@@ -154,33 +150,6 @@ async function logActivity(opts: {
     } as any);
   } catch (e) {
     console.warn("[auto-term] activity log failed", e);
-  }
-}
-
-async function validateCode(
-  text: string,
-  vocab: CodeHit["vocab"],
-): Promise<{ active: boolean; display?: string; confidence?: number; resolvedCode?: string }> {
-  const sab =
-    vocab === "SNOMED CT" ? "SNOMEDCT_US" :
-    vocab === "ICD-10" ? "ICD10CM" :
-    vocab === "LOINC" ? "LNC" : "RXNORM";
-  try {
-    const { data, error } = await supabase.functions.invoke("umls-proxy", {
-      // Resolve raw clinical text → SNOMED code (no truncation).
-      body: { action: "resolveAndValidate", params: { string: text, sab } },
-    });
-    if (error) return { active: false };
-    const d = data as any;
-    if (!d?.valid) return { active: false, confidence: d?.confidence ?? 0 };
-    return {
-      active: true,
-      display: d.resolvedName ?? undefined,
-      resolvedCode: d.resolvedCode ?? undefined,
-      confidence: d.confidence ?? undefined,
-    };
-  } catch {
-    return { active: false };
   }
 }
 
