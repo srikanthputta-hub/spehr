@@ -686,13 +686,15 @@ export type Database = {
           author_id: string | null
           auto_resolve_at: string | null
           created_at: string
-          created_by_type: Database["public"]["Enums"]["provenance_origin"]
+          created_by_type:
+            | Database["public"]["Enums"]["provenance_origin"]
+            | null
           decided_at: string | null
           decided_by: string | null
-          drug: string
+          drug: string | null
           drug_b: string | null
           facility_name: string | null
-          family: string
+          family: string | null
           id: string
           kind: string
           mrn: string
@@ -709,13 +711,15 @@ export type Database = {
           author_id?: string | null
           auto_resolve_at?: string | null
           created_at?: string
-          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          created_by_type?:
+            | Database["public"]["Enums"]["provenance_origin"]
+            | null
           decided_at?: string | null
           decided_by?: string | null
-          drug: string
+          drug?: string | null
           drug_b?: string | null
           facility_name?: string | null
-          family: string
+          family?: string | null
           id?: string
           kind: string
           mrn: string
@@ -732,13 +736,15 @@ export type Database = {
           author_id?: string | null
           auto_resolve_at?: string | null
           created_at?: string
-          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          created_by_type?:
+            | Database["public"]["Enums"]["provenance_origin"]
+            | null
           decided_at?: string | null
           decided_by?: string | null
-          drug?: string
+          drug?: string | null
           drug_b?: string | null
           facility_name?: string | null
-          family?: string
+          family?: string | null
           id?: string
           kind?: string
           mrn?: string
