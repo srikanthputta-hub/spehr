@@ -1475,7 +1475,6 @@ function PatientChart() {
         <OrdersDialog patient={patient} automationEnabled={automationEnabled} onClose={() => setOrdersOpen(false)} />
       )}
       <DischargeConformanceBanner mrn={patient.mrn} />
-      <CdsSuggestionsBanners mrn={patient.mrn} />
       {dischargeOpen && (
         <DischargeDialog patient={patient} onClose={() => setDischargeOpen(false)} onDone={() => { setDischargeOpen(false); navigate({ to: "/nursing-board" }).catch(() => {}); }} />
       )}
