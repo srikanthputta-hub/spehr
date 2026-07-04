@@ -8,6 +8,7 @@ import { AuditCard, type AuditRow } from "./AuditCard";
 
 export default function NlpAuditLogsPanel() {
   const [rows, setRows] = useState<AuditRow[]>([]);
+  const [admissionMap, setAdmissionMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const initialLoadRef = useRef(true);
@@ -28,7 +29,22 @@ export default function NlpAuditLogsPanel() {
         setTimeout(() => resolve({ data: [] }), 10_000),
       );
       const { data } = (await Promise.race([query, timeout])) as { data: any[] | null };
-      setRows((data ?? []) as any[]);
+      const list = (data ?? []) as any[];
+      setRows(list);
+      const mrns = Array.from(new Set(list.map((r) => r.patient_mrn).filter(Boolean)));
+      if (mrns.length) {
+        const { data: pts } = await supabase
+          .from("patients")
+          .select("mrn, admission_time")
+          .in("mrn", mrns);
+        const map: Record<string, string> = {};
+        for (const p of (pts ?? []) as any[]) {
+          if (p?.mrn && p?.admission_time) map[p.mrn] = p.admission_time;
+        }
+        setAdmissionMap(map);
+      } else {
+        setAdmissionMap({});
+      }
     } catch {
       setRows([]);
     } finally {
@@ -123,6 +139,7 @@ export default function NlpAuditLogsPanel() {
             <AuditCard
               key={r.id}
               row={r}
+              admissionAt={admissionMap[r.patient_mrn] ?? null}
               onApprove={handleApprove}
               onRecode={handleRecode}
               busy={busy === r.id}
