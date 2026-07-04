@@ -22,9 +22,17 @@ export default function NlpApprovalTrail() {
         setTimeout(() => resolve({ data: [] }), 10_000),
       );
       const { data } = (await Promise.race([query, timeout])) as { data: any[] | null };
-      setRows((data ?? []) as any[]);
+      const fetched = (data ?? []) as AuditRow[];
+      setRows((prev) => {
+        const existingIds = new Set(prev.map((r) => r.id));
+        const newOnes = fetched.filter((r) => !existingIds.has(r.id));
+        // Prepend new approvals (server order = newest first), keep existing
+        // rows in-place so the visible list never reshuffles. Cap at 50 —
+        // oldest fall off the tail.
+        return [...newOnes, ...prev].slice(0, 50);
+      });
     } catch {
-      setRows([]);
+      // Leave existing rows in place on transient error — no flicker.
     } finally {
       setLoading(false);
       initialLoadRef.current = false;
@@ -54,7 +62,7 @@ export default function NlpApprovalTrail() {
           </h2>
           <p className="text-sm text-slate-600 mt-1 max-w-3xl">
             Recently approved audit rows across the 6-Stream Pipeline. Human approvals are
-            tagged green; AI auto-approvals (after the 2-minute grace window) are tagged blue.
+            tagged green; AI auto-approvals (after the 3-minute grace window) are tagged blue.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={refresh}>

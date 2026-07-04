@@ -130,6 +130,7 @@ export function AuditCard({
   defaultExpanded = false,
   autoApprove = false,
   onAutoApprove,
+  admissionAt,
 }: {
   row: AuditRow;
   onApprove?: (r: AuditRow, approvedBy: "human" | "ai") => void | Promise<void>;
@@ -139,6 +140,7 @@ export function AuditCard({
   defaultExpanded?: boolean;
   autoApprove?: boolean;
   onAutoApprove?: (r: AuditRow) => void | Promise<void>;
+  admissionAt?: string | null;
 }) {
   const std = row.standardized_output ?? {};
   const mapping = row.extraction_mapping?.streams ?? {};
@@ -149,10 +151,11 @@ export function AuditCard({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   // CSS-only auto-approve countdown — no interval / no per-tick state.
+  // Anchor to admission time (falls back to row.created_at if unknown).
   const firedRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const createdMs = new Date(row.created_at).getTime();
-  const elapsedMs = Date.now() - createdMs;
+  const anchorMs = new Date(admissionAt ?? row.created_at).getTime();
+  const elapsedMs = Date.now() - anchorMs;
   const remainingMs = Math.max(0, AUTO_APPROVE_MS - elapsedMs);
   const startPct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
 
@@ -204,7 +207,7 @@ export function AuditCard({
         <div className="flex items-center gap-2 shrink-0">
           {approved && approvedBy === "human" && (
             <span className="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-              <User className="h-3 w-3" /> Human
+              <User className="h-3 w-3" /> User
             </span>
           )}
           {approved && approvedBy === "ai" && (

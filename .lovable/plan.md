@@ -1,36 +1,55 @@
-## Fix NLP Coding Audit Trail loading / flicker
+## NLP Coding Audit Trail
 
-Root causes:
-- Pending query fetches up to 25 rows with no timeout and re-runs on every realtime event.
-- A `postgres_changes` subscription triggers `refresh()` continuously, causing the flicker and re-render storm.
-- Each pending `AuditCard` runs a `setInterval(..., 250)` that calls `setState` four times a second — dozens of open cards create a re-render loop.
+**1. Anchor 3-minute timer to admission time (not stream completion)**
 
-### Changes
+Currently the countdown in `AuditCard.tsx` uses `row.created_at` — which is when the pipeline finishes writing the `nlp_audit_logs` row (after streams run). Switch the anchor to the patient's `admission_time`.
 
-**1. `src/components/admin/dictionary/NlpAuditLogsPanel.tsx`**
-- Query: `.eq("status","pending").order("created_at",{ascending:false}).limit(20)`.
-- Wrap the fetch in `Promise.race` with a 10 s timeout. On timeout: stop loading, set `rows=[]`, show the existing "No pipeline runs yet" empty state (copy tweaked to "No pending items").
-- Remove the realtime `postgres_changes` subscription. Keep the one-shot fetch on mount plus the existing **Refresh** button (and refetch after Approve / Re-code, which already happens).
+- `src/components/admin/dictionary/NlpAuditLogsPanel.tsx`: after the audit-log fetch, batch-fetch `patients.admission_time` for the returned MRNs (`.in("mrn", [...])`) and build an `mrn → admission_time` map. Pass `admissionAt` into each `AuditCard`.
+- `src/components/admin/dictionary/AuditCard.tsx`: add optional `admissionAt?: string | null` prop. Use `admissionAt ?? row.created_at` as the timer anchor for `createdMs` / `remainingMs` / `startPct`. Everything else (CSS drain bar, one-shot `setTimeout(fire, remainingMs)`) stays as-is.
 
-**2. `src/components/admin/dictionary/NlpApprovalTrail.tsx`**
-- Same treatment: remove the realtime subscription, keep the single mount fetch, add a 10 s timeout guard. (No Refresh button exists here — add a small one for parity so users can pull latest approvals without a full reload.)
+Auto-approve behavior is already correct: on `remainingMs <= 0` it fires immediately; manual Approve clears the timeout and calls `onApprove(row, "human")` right away.
 
-**3. `src/components/admin/dictionary/AuditCard.tsx` — CSS-only auto-approve timer**
-- Delete the `useState(remainingMs)` + `useEffect` + `setInterval` ticker.
-- Compute `elapsedMs` once from `row.created_at`; if already ≥ `AUTO_APPROVE_MS`, fire `onAutoApprove` once via a single `setTimeout(0)` guard and render an empty bar.
-- Otherwise render the drain bar using a pure CSS animation:
-  - Outer track: `h-1.5 bg-slate-100`.
-  - Inner bar: starts at `width: ${startPct}%` and animates to `width: 0%` over `remainingMs` via an inline `style={{ animation: "audit-drain <remaining>ms linear forwards" }}`.
-  - Colour transition (green → amber → red) done with a second CSS animation on `background-color` keyframed at 66% and 33% marks, scaled to the same duration.
-  - Fire `onAutoApprove` exactly once with a single `setTimeout(onAutoApprove, remainingMs)` (no re-render, no interval). Cleared on unmount and when the user clicks Approve (sets `firedRef` and clears the timeout).
-- Add the `@keyframes audit-drain` and `@keyframes audit-drain-color` blocks to `src/styles.css`.
+**2. Permanent removal after approval**
 
-### Out of scope
-- No schema changes, no edge-function changes.
-- Approval Trail still filters by `status = 'approved'`; only its subscription is removed.
-- Six-stream pipeline, background sync hooks, and other dashboards are untouched.
+Already handled: `handleApprove` in `NlpAuditLogsPanel` optimistically removes the row from local state and the DB query filters `status = 'pending'`, so future refreshes won't bring it back. No change needed beyond confirming both the human and AI paths use the same removal (they do — both go through `handleApprove`).
 
-### Verification
-- Open `/system-admin` → Dictionary → NLP Audit Logs: card list renders within ~1 s or shows "No pending items" after 10 s; no flicker on admissions burst.
-- Pending card shows a smoothly draining bar with no console re-render churn; clicking Approve stops the bar immediately.
-- Waiting 2 min on a pending card auto-approves exactly once (row moves to Approval Trail after clicking Refresh).
+## NLP Approval Trail
+
+**3. Stable, append-only list with hard cap of 50**
+
+`src/components/admin/dictionary/NlpApprovalTrail.tsx` today replaces the whole `rows` state on every refresh, which reorders if `updated_at` values shift. Change `refresh()` to a merge:
+
+- Fetch top 50 approved rows ordered by `updated_at desc` (unchanged query).
+- Merge into existing state: prepend any rows whose `id` isn't already present (in the order returned), keep existing rows in their current position, then truncate to 50 (drops oldest from the tail).
+- Initial mount: state is empty, so the first fetch just seeds the list in server order.
+
+This gives: newest-approved-first on arrival, no reshuffle of rows already on screen, hard cap of 50 with oldest evicted.
+
+**4. Copy tweak + approval tag**
+
+- Change "2-minute grace window" → "3-minute grace window" in the `NlpApprovalTrail` description.
+- Tag rendering already exists in `AuditCard` (green "Human" for `approved_by='human'`, blue "AI" for `approved_by='ai'`). Rename the green pill label from "Human" to "User" to match the spec. Icon stays.
+
+**5. Immediate move to Approval Trail on approval**
+
+Already wired: `NlpAuditLogsPanel.handleApprove` dispatches `window.dispatchEvent(new CustomEvent("nlp:approved"))` and `NlpApprovalTrail` listens for it and calls `refresh()`. With the merge logic above, the new row will prepend without disturbing existing order. No change needed.
+
+## Out of scope
+
+- No schema changes, no changes to `coding-pipeline.ts` write path, no changes to the 6-stream pipeline itself.
+- No touching `AutoDocMonitor`, `ErrorLogPanel`, or other admin panels.
+- No changes to the polling cadence (still 20s), realtime subscriptions stay removed.
+
+## Files changed
+
+- `src/components/admin/dictionary/AuditCard.tsx` — add `admissionAt` prop; rename "Human" pill → "User"; timer anchor swap.
+- `src/components/admin/dictionary/NlpAuditLogsPanel.tsx` — fetch admission times, pass `admissionAt` to each card.
+- `src/components/admin/dictionary/NlpApprovalTrail.tsx` — merge-on-refresh (append-only, cap 50); update grace-window copy.
+
+## Verification
+
+- Admit a patient → open System Admin → NLP Audit Logs → the drain bar starts at (or near) 100% and reflects "3:00 minus (now − admission_time)", not "3:00 minus (now − pipeline_finish)".
+- Click Approve → card disappears from Audit Trail and appears at top of Approval Trail with green "User" pill.
+- Wait 3 minutes on a pending card → auto-approves once; row appears at top of Approval Trail with blue "AI" pill.
+- Refresh the Approval Trail repeatedly with no new approvals → existing rows do not move.
+- Approve 51+ items over time → list stays at 50, oldest drops off.
