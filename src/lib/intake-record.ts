@@ -37,8 +37,9 @@ export const GENDER_IDENTITY_OPTIONS = [
 
 export const DURATION_OPTIONS = ["Constant","Intermittent","Episodic","Progressive"] as const;
 
-export interface IntakeAllergy { name: string; reaction: string }
-export interface IntakeMed { name: string; dose: string; freq: string }
+export interface CodedConcept { code: string; display: string; system: string }
+export interface IntakeAllergy { name: string; reaction: string; code?: CodedConcept }
+export interface IntakeMed { name: string; dose: string; freq: string; code?: CodedConcept }
 
 export interface IntakeRecord {
   // Section 1 — Demographics
@@ -61,6 +62,7 @@ export interface IntakeRecord {
 
   // Section 2 — Chief Complaint
   chiefComplaint: string;
+  chiefComplaintCode?: CodedConcept;
 
   // Section 3 — HPI
   hpiOnset: string;
@@ -73,6 +75,7 @@ export interface IntakeRecord {
 
   // Section 4 — PMH/PSH
   chronicIllnesses: string[];
+  chronicIllnessCodes?: CodedConcept[];
   priorSurgeries: string;
   pastHospitalizations: string;
 
