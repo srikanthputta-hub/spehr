@@ -1306,6 +1306,7 @@ function PatientChart() {
   const [signPin, setSignPin] = useState("");
   const [signError, setSignError] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
+  const [cdsPanelOpen, setCdsPanelOpen] = useState(false);
 
   const openSign = () => {
     if (pending.length === 0) {
