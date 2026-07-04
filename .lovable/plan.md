@@ -1,55 +1,40 @@
-## NLP Coding Audit Trail
+All changes are scoped to the `LiveTerminologyMatrix` component and its `PillRow` popover in `src/routes/system-admin.tsx` (lines ~2583–2949). Nothing else is touched.
 
-**1. Anchor 3-minute timer to admission time (not stream completion)**
+### 1. Approved-only data source
+In the loader (around line 2620), after fetching the top-15 patients, query `nlp_audit_logs` for those MRNs filtered to `status = 'approved'`:
 
-Currently the countdown in `AuditCard.tsx` uses `row.created_at` — which is when the pipeline finishes writing the `nlp_audit_logs` row (after streams run). Switch the anchor to the patient's `admission_time`.
+```ts
+const { data: approvedLogs } = await supabase
+  .from("nlp_audit_logs")
+  .select("patient_mrn, raw_text, standardized_output, updated_at")
+  .in("patient_mrn", mrns)
+  .eq("status", "approved")
+  .order("updated_at", { ascending: false });
+```
 
-- `src/components/admin/dictionary/NlpAuditLogsPanel.tsx`: after the audit-log fetch, batch-fetch `patients.admission_time` for the returned MRNs (`.in("mrn", [...])`) and build an `mrn → admission_time` map. Pass `admissionAt` into each `AuditCard`.
-- `src/components/admin/dictionary/AuditCard.tsx`: add optional `admissionAt?: string | null` prop. Use `admissionAt ?? row.created_at` as the timer anchor for `createdMs` / `remainingMs` / `startPct`. Everything else (CSS drain bar, one-shot `setTimeout(fire, remainingMs)`) stays as-is.
+Build `approvedByMrn = Map<mrn, {raw_text, standardized_output}>` keeping the newest row per MRN. Then filter the `patients` list down to those whose MRN is a key in that map before the rest of the pipeline runs (labs/meds/procedures queries continue as-is, just over the reduced MRN set — or against the original set, filtering happens at cell-build time). Patients with no approved audit row are dropped entirely; if the result is empty the existing "No admissions to display." state renders.
 
-Auto-approve behavior is already correct: on `remainingMs <= 0` it fires immediately; manual Approve clears the timeout and calls `onApprove(row, "human")` right away.
+### 2. Remove chief-complaint subtitle
+Line 2853 — delete the `<div className="text-[10px] text-slate-500 truncate max-w-[180px]">{r.chief_complaint ?? "—"}</div>` line. Keep only the `{r.name}` line. No other row changes.
 
-**2. Permanent removal after approval**
+### 3. Raw Data row in pill popup
+Pipe a per-MRN `rawText` through to `PillRow`:
 
-Already handled: `handleApprove` in `NlpAuditLogsPanel` optimistically removes the row from local state and the DB query filters `status = 'pending'`, so future refreshes won't bring it back. No change needed beyond confirming both the human and AI paths use the same removal (they do — both go through `handleApprove`).
+- Extend `MatrixCell` with `raw_text: string | null` (populated from `approvedByMrn.get(mrn)?.raw_text ?? null`).
+- Add a `rawText` prop to `PillRow` and pass `r.raw_text` from each `<PillRow ... />` call site (5 columns).
+- In `PopoverContent` (line 2886), prepend one block **above everything else**, before the system/code header:
 
-## NLP Approval Trail
+```tsx
+{rawText && (
+  <div className="rounded border border-slate-200 bg-amber-50/60 px-2 py-1.5 mb-1">
+    <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Raw Data</div>
+    <div className="text-[11px] text-slate-800 leading-snug">{rawText}</div>
+  </div>
+)}
+```
 
-**3. Stable, append-only list with hard cap of 50**
+Everything else in the popup (system pill, code, display, value set, description, FHIR CodeableConcept block, View in Authoring, Translate to ICD-10) stays byte-for-byte unchanged.
 
-`src/components/admin/dictionary/NlpApprovalTrail.tsx` today replaces the whole `rows` state on every refresh, which reorders if `updated_at` values shift. Change `refresh()` to a merge:
-
-- Fetch top 50 approved rows ordered by `updated_at desc` (unchanged query).
-- Merge into existing state: prepend any rows whose `id` isn't already present (in the order returned), keep existing rows in their current position, then truncate to 50 (drops oldest from the tail).
-- Initial mount: state is empty, so the first fetch just seeds the list in server order.
-
-This gives: newest-approved-first on arrival, no reshuffle of rows already on screen, hard cap of 50 with oldest evicted.
-
-**4. Copy tweak + approval tag**
-
-- Change "2-minute grace window" → "3-minute grace window" in the `NlpApprovalTrail` description.
-- Tag rendering already exists in `AuditCard` (green "Human" for `approved_by='human'`, blue "AI" for `approved_by='ai'`). Rename the green pill label from "Human" to "User" to match the spec. Icon stays.
-
-**5. Immediate move to Approval Trail on approval**
-
-Already wired: `NlpAuditLogsPanel.handleApprove` dispatches `window.dispatchEvent(new CustomEvent("nlp:approved"))` and `NlpApprovalTrail` listens for it and calls `refresh()`. With the merge logic above, the new row will prepend without disturbing existing order. No change needed.
-
-## Out of scope
-
-- No schema changes, no changes to `coding-pipeline.ts` write path, no changes to the 6-stream pipeline itself.
-- No touching `AutoDocMonitor`, `ErrorLogPanel`, or other admin panels.
-- No changes to the polling cadence (still 20s), realtime subscriptions stay removed.
-
-## Files changed
-
-- `src/components/admin/dictionary/AuditCard.tsx` — add `admissionAt` prop; rename "Human" pill → "User"; timer anchor swap.
-- `src/components/admin/dictionary/NlpAuditLogsPanel.tsx` — fetch admission times, pass `admissionAt` to each card.
-- `src/components/admin/dictionary/NlpApprovalTrail.tsx` — merge-on-refresh (append-only, cap 50); update grace-window copy.
-
-## Verification
-
-- Admit a patient → open System Admin → NLP Audit Logs → the drain bar starts at (or near) 100% and reflects "3:00 minus (now − admission_time)", not "3:00 minus (now − pipeline_finish)".
-- Click Approve → card disappears from Audit Trail and appears at top of Approval Trail with green "User" pill.
-- Wait 3 minutes on a pending card → auto-approves once; row appears at top of Approval Trail with blue "AI" pill.
-- Refresh the Approval Trail repeatedly with no new approvals → existing rows do not move.
-- Approve 51+ items over time → list stays at 50, oldest drops off.
+### Notes
+- `nlp_audit_logs.raw_text` is the original submitted text for that patient's coding pass (the CC/HPI blob that produced the SNOMED/ICD-10 pills, and by extension the meds/labs pulled in the same pipeline). It is shown identically for every pill on that row, matching the example given ("shortness of breath since yesterday evening" for the dyspnea SNOMED code).
+- No schema changes, no other components touched, no styling changes elsewhere.

@@ -2593,6 +2593,7 @@ type MatrixCell = {
   meds: string[];      // medication_name strings
   icd10_codes: string[];
   snomed_codes: string[];
+  raw_text: string | null;
 };
 
 function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility: string }) {
@@ -2635,6 +2636,25 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         return;
       }
       const mrns = (patients ?? []).map((p: any) => p.mrn).filter(Boolean);
+      // Approved-only gate: only patients with an approved nlp_audit_logs row.
+      const { data: approvedLogs } = await fetchWithTimeout(
+        () =>
+          supabase
+            .from("nlp_audit_logs" as any)
+            .select("patient_mrn, raw_text, updated_at")
+            .in("patient_mrn", mrns)
+            .eq("status", "approved")
+            .order("updated_at", { ascending: false }),
+        { data: [] } as any,
+      );
+      const approvedByMrn = new Map<string, { raw_text: string | null }>();
+      for (const r of (approvedLogs ?? []) as any[]) {
+        if (!r?.patient_mrn) continue;
+        if (!approvedByMrn.has(r.patient_mrn)) {
+          approvedByMrn.set(r.patient_mrn, { raw_text: r.raw_text ?? null });
+        }
+      }
+      const approvedPatients = (patients ?? []).filter((p: any) => approvedByMrn.has(p.mrn));
       const [labsRes, medsRes, condsRes] = await fetchWithTimeout(
         () =>
           Promise.all([
@@ -2710,7 +2730,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       for (const r of (procsRes.data ?? []) as any[]) {
         if (r.cpt_code && r.mrn) pushUnique(r.mrn, "cpt", r.cpt_code, r.cpt_display ?? r.display_text);
       }
-      const cells: MatrixCell[] = (patients ?? []).map((p: any) => ({
+      const cells: MatrixCell[] = approvedPatients.map((p: any) => ({
         mrn: p.mrn,
         name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—",
         facility: p.facility_name,
@@ -2720,6 +2740,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         meds: Array.from(medMap.get(p.mrn) ?? []),
         icd10_codes: (p.icd10_codes ?? []) as string[],
         snomed_codes: (p.snomed_codes ?? []) as string[],
+        raw_text: approvedByMrn.get(p.mrn)?.raw_text ?? null,
       }));
       if (!cancelled) {
         setRows(cells);
@@ -2850,13 +2871,12 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                     <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{r.mrn}</td>
                     <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
                       <div className="font-medium">{r.name}</div>
-                      <div className="text-[10px] text-slate-500 truncate max-w-[180px]">{r.chief_complaint ?? "—"}</div>
                     </td>
-                    <td className="px-3 py-2.5"><PillRow entries={snomed} system="SNOMED CT" /></td>
-                    <td className="px-3 py-2.5"><PillRow entries={icd10} system="ICD-10" /></td>
-                    <td className="px-3 py-2.5"><PillRow entries={cpt} system="CPT" /></td>
-                    <td className="px-3 py-2.5"><PillRow entries={loinc} system="LOINC" /></td>
-                    <td className="px-3 py-2.5"><PillRow entries={rxnorm} system="RxNorm" /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={snomed} system="SNOMED CT" rawText={r.raw_text} /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={icd10} system="ICD-10" rawText={r.raw_text} /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={cpt} system="CPT" rawText={r.raw_text} /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={loinc} system="LOINC" rawText={r.raw_text} /></td>
+                    <td className="px-3 py-2.5"><PillRow entries={rxnorm} system="RxNorm" rawText={r.raw_text} /></td>
                   </tr>
                 );
               })}
@@ -2868,7 +2888,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
   );
 }
 
-function PillRow({ entries, system }: { entries: DictEntry[]; system: string }) {
+function PillRow({ entries, system, rawText }: { entries: DictEntry[]; system: string; rawText?: string | null }) {
   if (entries.length === 0) return <span className="text-slate-300">—</span>;
   const chip = SYSTEM_META[system]?.chip ?? "bg-slate-100 text-slate-700 border-slate-200";
   return (
@@ -2885,6 +2905,12 @@ function PillRow({ entries, system }: { entries: DictEntry[]; system: string }) 
           </PopoverTrigger>
           <PopoverContent side="top" className="w-72 text-xs">
             <div className="space-y-1.5">
+              {rawText && (
+                <div className="rounded border border-slate-200 bg-amber-50/60 px-2 py-1.5 mb-1">
+                  <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Raw Data</div>
+                  <div className="text-[11px] text-slate-800 leading-snug">{rawText}</div>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${chip}`}>
                   {system}
