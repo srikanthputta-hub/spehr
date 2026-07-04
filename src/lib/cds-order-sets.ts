@@ -104,7 +104,7 @@ export function matchTriggers(
     if (c === SEPTIC_SHOCK_CODE) fired.add("septic-shock");
     if (INFECTION_CODES.has(c)) fired.add("infection-workup");
     if (sepsisIndicators.has(c)) fired.add("sepsis-bundle");
-    if (highAcuity.has(c) && ACS_CODES.has(c)) fired.add("acs");
+    if (ACS_CODES.has(c)) fired.add("acs");
   }
   // Septic Shock supersedes the base Sepsis Bundle.
   if (fired.has("septic-shock")) fired.delete("sepsis-bundle");
