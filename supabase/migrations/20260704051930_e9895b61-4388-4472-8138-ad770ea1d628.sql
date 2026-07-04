@@ -1,0 +1,2 @@
+ALTER TABLE public.clinical_safety_alerts DROP CONSTRAINT IF EXISTS clinical_safety_alerts_kind_check;
+ALTER TABLE public.clinical_safety_alerts ADD CONSTRAINT clinical_safety_alerts_kind_check CHECK (kind IN ('Drug-Allergy','Drug-Drug','Clinical-Acuity'));
