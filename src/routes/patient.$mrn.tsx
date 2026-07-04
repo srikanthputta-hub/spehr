@@ -1307,6 +1307,7 @@ function PatientChart() {
   const [signError, setSignError] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
   const [cdsPanelOpen, setCdsPanelOpen] = useState(false);
+  const cdsSuggestion = useCdsActiveSuggestion(mrn);
 
   const openSign = () => {
     if (pending.length === 0) {
@@ -1534,7 +1535,17 @@ function PatientChart() {
         <div className="flex-1 min-w-0 px-2 pt-3 pb-6">
           {/* Clinical tab rows */}
           <nav className="space-y-1.5 mb-3">
-            <TabRow tabs={TABS_ROW1} active={tab} onClick={(k) => setTab(k)} variant="blue" />
+            <div className="flex items-center gap-1">
+              <div className="flex-1 min-w-0">
+                <TabRow tabs={TABS_ROW1} active={tab} onClick={(k) => setTab(k)} variant="blue" />
+              </div>
+              {cdsSuggestion && (
+                <CdsProtocolTabButton
+                  suggestion={cdsSuggestion}
+                  onOpen={() => setCdsPanelOpen(true)}
+                />
+              )}
+            </div>
             <TabRow tabs={TABS_ROW2} active={tab} onClick={(k) => setTab(k)} variant="blue" />
             <TabRow tabs={TABS_ROW3} active={tab} onClick={(k) => setTab(k)} variant="cream" />
           </nav>
