@@ -34,6 +34,7 @@ const STREAM_META: Record<string, { title: string; blurb: string }> = {
 };
 
 const AUTO_APPROVE_MS = 180_000;
+const NEEDS_REVIEW_AUTO_APPROVE_MS = 360_000;
 
 function StatusPill({ s }: { s: string | undefined }) {
   const cls =
@@ -162,6 +163,9 @@ export function AuditCard({
   const needsReview = row.status === "needs_review";
   const created = new Date(row.created_at).toLocaleString();
   const approvedBy = (row.approved_by ?? "").toLowerCase();
+  const autoReviewed =
+    (row as any).__autoReviewed === true ||
+    row.extraction_mapping?.auto_reviewed === true;
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   // CSS-only auto-approve countdown — no interval / no per-tick state.
@@ -172,19 +176,26 @@ export function AuditCard({
   const elapsedMs = Date.now() - anchorMs;
   const remainingMs = Math.max(0, AUTO_APPROVE_MS - elapsedMs);
   const startPct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
+  const nrRemainingMs = Math.max(0, NEEDS_REVIEW_AUTO_APPROVE_MS - elapsedMs);
+  const nrStartPct = Math.max(0, Math.min(100, (nrRemainingMs / NEEDS_REVIEW_AUTO_APPROVE_MS) * 100));
 
   useEffect(() => {
-    if (!autoApprove || approved || needsReview || firedRef.current) return;
+    if (!autoApprove || approved || firedRef.current) return;
+    const isNr = needsReview;
+    const windowMs = isNr ? nrRemainingMs : remainingMs;
     const fire = () => {
       if (firedRef.current) return;
       firedRef.current = true;
+      if (isNr) {
+        (row as any).__autoReviewed = true;
+      }
       onAutoApprove?.(row);
     };
-    if (remainingMs <= 0) {
+    if (windowMs <= 0) {
       fire();
       return;
     }
-    timeoutRef.current = setTimeout(fire, remainingMs);
+    timeoutRef.current = setTimeout(fire, windowMs);
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
@@ -224,9 +235,14 @@ export function AuditCard({
               <User className="h-3 w-3" /> User
             </span>
           )}
-          {approved && approvedBy === "ai" && (
+          {approved && approvedBy === "ai" && !autoReviewed && (
             <span className="inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-sky-700">
               <Sparkles className="h-3 w-3" /> AI
+            </span>
+          )}
+          {approved && approvedBy === "ai" && autoReviewed && (
+            <span className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+              <Sparkles className="h-3 w-3" /> AI Reviewed
             </span>
           )}
           <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
@@ -257,6 +273,21 @@ export function AuditCard({
               backgroundColor: "#10b981",
             }}
             title={`Auto-approves in ${Math.ceil(remainingMs / 1000)}s`}
+          />
+        </div>
+      )}
+
+      {autoApprove && !approved && needsReview && nrRemainingMs > 0 && (
+        <div className="h-1.5 w-full bg-slate-100">
+          <div
+            className="h-full"
+            style={{
+              width: `${nrStartPct}%`,
+              animation: `audit-drain ${nrRemainingMs}ms linear forwards`,
+              ["--audit-start" as any]: `${nrStartPct}%`,
+              backgroundColor: "#f59e0b",
+            }}
+            title={`Auto-reviews in ${Math.ceil(nrRemainingMs / 1000)}s`}
           />
         </div>
       )}

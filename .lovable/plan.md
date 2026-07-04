@@ -1,36 +1,26 @@
-## Migration — create `public.cds_suggestions`
 
-Single migration, exactly as requested, with the mandatory `GRANT` block added (Data API cannot reach a public-schema table without it — RLS alone is not enough).
+## Changes to `src/components/admin/dictionary/AuditCard.tsx`
 
-```sql
-CREATE TABLE public.cds_suggestions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  mrn text NOT NULL,
-  suggestion_id text NOT NULL,
-  label text NOT NULL,
-  severity text NOT NULL,
-  items jsonb NOT NULL,
-  trigger_code text,
-  trigger_display text,
-  fired_at timestamptz DEFAULT now(),
-  dismissed boolean DEFAULT false,
-  admission_key text NOT NULL,
-  created_at timestamptz DEFAULT now()
-);
+### 1. Add 6-minute needs_review countdown
+- Add constant `NEEDS_REVIEW_AUTO_APPROVE_MS = 360_000`.
+- Compute a second `nrRemainingMs` / `nrStartPct` from the same anchor (`admissionAt ?? row.created_at`) using the 6-minute window.
+- In the existing `useEffect`, add a parallel branch: when `autoApprove && needsReview && !approved && !firedRef.current`, schedule `onAutoApprove?.(row)` at `nrRemainingMs`. Reuse `firedRef` / `timeoutRef` so manual approve still cancels it.
+- Before firing, tag the row locally: `(row as any).__autoReviewed = true` so downstream `onAutoApprove` handler / render can distinguish origin without a DB migration.
 
-CREATE INDEX ON public.cds_suggestions (mrn, dismissed);
+### 2. Orange countdown bar for needs_review
+- Add a second progress-bar block mirroring the existing green one, gated on `autoApprove && !approved && needsReview && nrRemainingMs > 0`.
+- Same drain animation, `backgroundColor: "#f59e0b"` (orange), title `Auto-reviews in Ns`.
+- Green bar's render condition already excludes `needsReview`, so the two never show together.
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.cds_suggestions TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.cds_suggestions TO anon;
-GRANT ALL ON public.cds_suggestions TO service_role;
+### 3. New "AI REVIEWED" amber badge
+- Track original status via a local flag: read `(row as any).__autoReviewed === true` OR infer from `approved_by === 'ai'` combined with a persisted marker. Since no DB migration is allowed and `standardized_output` / `extraction_mapping` are the only jsonb fields, use `row.extraction_mapping?.auto_reviewed === true` as the derivation source when present, falling back to the local flag set at auto-approve time.
+- Add a third badge branch in the header:
+  - `approved && approvedBy === 'ai' && autoReviewed` → amber badge `<Sparkles/> AI Reviewed` (`border-amber-300 bg-amber-50 text-amber-700`).
+  - Existing blue AI badge only when `approvedBy === 'ai' && !autoReviewed`.
+  - Green USER badge unchanged.
 
-ALTER TABLE public.cds_suggestions ENABLE ROW LEVEL SECURITY;
+### Not touched
+- 3-minute pending timer, green bar, blue AI badge for pending rows, all other files.
 
-CREATE POLICY "Allow all" ON public.cds_suggestions
-  FOR ALL USING (true) WITH CHECK (true);
-```
-
-## Notes
-- No other tables, code, or triggers are touched.
-- `GRANT`s are required by the platform; without them the "Allow all" policy would still return a permission error via PostgREST.
-- The `Allow all` policy plus `anon`+`authenticated` grants is fully permissive as specified — anyone with the anon key can read/write. Flag only; not changed per your instruction.
+### Technical notes
+- No new props; parent already passes `onAutoApprove`. The local `__autoReviewed` flag on the row object is enough for the current-session badge; the `extraction_mapping.auto_reviewed` read handles rows re-fetched after refresh only if a future writer sets it — acceptable per the instruction to prefer the no-migration path.
