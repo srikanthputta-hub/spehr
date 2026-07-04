@@ -25,6 +25,8 @@ import {
   type IntakeRecord,
 } from "@/lib/intake-record";
 import type { AdmitInput } from "@/lib/admit-patient";
+import { TerminologyCombobox } from "@/components/admissions/TerminologyCombobox";
+import type { TerminologyHit } from "@/lib/terminology-search";
 
 export type { AdmitInput };
 
@@ -270,13 +272,28 @@ export function AdmitPatientModal({
           </Section>
 
           <Section title="2 · Chief Complaint (CC) — Patient's Own Words" open={open.cc} onToggle={() => toggleSection("cc")}>
-            <textarea
+            <TerminologyCombobox
               value={intake.chiefComplaint}
-              onChange={(e) => patch({ chiefComplaint: e.target.value })}
-              rows={2}
+              onChange={(v) =>
+                patch({
+                  chiefComplaint: v,
+                  chiefComplaintCode:
+                    intake.chiefComplaintCode && v === intake.chiefComplaintCode.display
+                      ? intake.chiefComplaintCode
+                      : undefined,
+                })
+              }
+              onSelect={(hit: TerminologyHit) =>
+                patch({ chiefComplaint: hit.display, chiefComplaintCode: hit })
+              }
+              sabs="SNOMEDCT_US"
               placeholder={'e.g. "Severe chest pain for the last two hours"'}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40 focus:border-[var(--teal)]"
             />
+            {intake.chiefComplaintCode && (
+              <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                Coded: {intake.chiefComplaintCode.system} · {intake.chiefComplaintCode.code}
+              </p>
+            )}
           </Section>
 
           <Section title="3 · History of Present Illness (HPI)" open={open.hpi} onToggle={() => toggleSection("hpi")}>
@@ -324,11 +341,39 @@ export function AdmitPatientModal({
           <Section title="4 · Past Medical & Surgical History (PMH/PSH)" open={open.pmh} onToggle={() => toggleSection("pmh")}>
             <div className="space-y-3">
               <Field label="Chronic Illnesses">
-                <ChipGroup
-                  options={CHRONIC_OPTIONS as unknown as string[]}
-                  value={intake.chronicIllnesses}
-                  onToggle={(v) => patch({ chronicIllnesses: toggleInArray(intake.chronicIllnesses, v) })}
-                />
+                <div className="space-y-2">
+                  <TerminologyCombobox
+                    value=""
+                    onChange={() => {}}
+                    onSelect={(hit) => {
+                      if (intake.chronicIllnesses.includes(hit.display)) return;
+                      patch({
+                        chronicIllnesses: [...intake.chronicIllnesses, hit.display],
+                        chronicIllnessCodes: [
+                          ...(intake.chronicIllnessCodes ?? []),
+                          hit,
+                        ],
+                      });
+                    }}
+                    sabs="SNOMEDCT_US"
+                    placeholder="Search SNOMED — e.g. Type 2 diabetes"
+                    clearOnSelect
+                  />
+                  <ChipGroup
+                    options={Array.from(new Set([
+                      ...(CHRONIC_OPTIONS as unknown as string[]),
+                      ...intake.chronicIllnesses,
+                    ]))}
+                    value={intake.chronicIllnesses}
+                    onToggle={(v) => {
+                      const next = toggleInArray(intake.chronicIllnesses, v);
+                      const codes = (intake.chronicIllnessCodes ?? []).filter(
+                        (c) => next.includes(c.display),
+                      );
+                      patch({ chronicIllnesses: next, chronicIllnessCodes: codes });
+                    }}
+                  />
+                </div>
               </Field>
               <Field label="Previous Surgeries (procedure, year, complications)">
                 <textarea
@@ -358,11 +403,33 @@ export function AdmitPatientModal({
                   )}
                   {intake.drugAllergies.map((a, idx) => (
                     <div key={idx} className="flex items-center gap-2">
-                      <Input
-                        value={a.name}
-                        onChange={(v) => patch({ drugAllergies: intake.drugAllergies.map((x, i) => (i === idx ? { ...x, name: v } : x)) })}
-                        placeholder="Penicillin"
-                      />
+                      <div className="flex-1">
+                        <TerminologyCombobox
+                          value={a.name}
+                          onChange={(v) =>
+                            patch({
+                              drugAllergies: intake.drugAllergies.map((x, i) =>
+                                i === idx
+                                  ? {
+                                      ...x,
+                                      name: v,
+                                      code: x.code && v === x.code.display ? x.code : undefined,
+                                    }
+                                  : x,
+                              ),
+                            })
+                          }
+                          onSelect={(hit) =>
+                            patch({
+                              drugAllergies: intake.drugAllergies.map((x, i) =>
+                                i === idx ? { ...x, name: hit.display, code: hit } : x,
+                              ),
+                            })
+                          }
+                          sabs="SNOMEDCT_US"
+                          placeholder="Penicillin"
+                        />
+                      </div>
                       <Input
                         value={a.reaction}
                         onChange={(v) => patch({ drugAllergies: intake.drugAllergies.map((x, i) => (i === idx ? { ...x, reaction: v } : x)) })}
@@ -401,9 +468,29 @@ export function AdmitPatientModal({
                   {intake.currentMeds.map((m, idx) => (
                     <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-5">
-                        <Input
+                        <TerminologyCombobox
                           value={m.name}
-                          onChange={(v) => patch({ currentMeds: intake.currentMeds.map((x, i) => (i === idx ? { ...x, name: v } : x)) })}
+                          onChange={(v) =>
+                            patch({
+                              currentMeds: intake.currentMeds.map((x, i) =>
+                                i === idx
+                                  ? {
+                                      ...x,
+                                      name: v,
+                                      code: x.code && v === x.code.display ? x.code : undefined,
+                                    }
+                                  : x,
+                              ),
+                            })
+                          }
+                          onSelect={(hit) =>
+                            patch({
+                              currentMeds: intake.currentMeds.map((x, i) =>
+                                i === idx ? { ...x, name: hit.display, code: hit } : x,
+                              ),
+                            })
+                          }
+                          sabs="RXNORM"
                           placeholder="Lisinopril"
                         />
                       </div>
