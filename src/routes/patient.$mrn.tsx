@@ -1368,7 +1368,16 @@ function PatientChart() {
   const [signError, setSignError] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
   const [cdsPanelOpen, setCdsPanelOpen] = useState(false);
-  const cdsSuggestion = useCdsActiveSuggestion(mrn);
+  const { suggestion: cdsSuggestion, refresh: refreshCds } = useCdsActiveSuggestion(mrn);
+  const dismissCds = async () => {
+    if (!cdsSuggestion) return;
+    await supabase
+      .from("cds_suggestions")
+      .update({ dismissed: true })
+      .eq("id", cdsSuggestion.id);
+    setCdsPanelOpen(false);
+    refreshCds();
+  };
 
   const openSign = () => {
     if (pending.length === 0) {
@@ -1539,9 +1548,9 @@ function PatientChart() {
       )}
       <DischargeConformanceBanner mrn={patient.mrn} />
       {cdsPanelOpen && cdsSuggestion && (
-        <CdsProtocolPanel
-          mrn={patient.mrn}
+        <CdsProtocolModal
           suggestion={cdsSuggestion}
+          onDismiss={dismissCds}
           onClose={() => setCdsPanelOpen(false)}
         />
       )}
@@ -1608,10 +1617,24 @@ function PatientChart() {
                 <TabRow tabs={TABS_ROW1} active={tab} onClick={(k) => setTab(k)} variant="blue" />
               </div>
               {cdsSuggestion && (
-                <CdsProtocolTabButton
-                  suggestion={cdsSuggestion}
-                  onOpen={() => setCdsPanelOpen(true)}
-                />
+                <button
+                  onClick={() => setCdsPanelOpen(true)}
+                  className="inline-flex items-center gap-2 whitespace-nowrap"
+                  style={{
+                    background: "#fee2e2",
+                    border: "1px solid #ef4444",
+                    borderRadius: 6,
+                    padding: "4px 12px",
+                    color: "#991b1b",
+                    fontWeight: 600,
+                  }}
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600" />
+                  </span>
+                  <span>🔴 ACS Protocol</span>
+                </button>
               )}
             </div>
             <TabRow tabs={TABS_ROW2} active={tab} onClick={(k) => setTab(k)} variant="blue" />
