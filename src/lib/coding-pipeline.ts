@@ -30,6 +30,7 @@ import { lookupAllergenSnomed } from "@/lib/allergen-map";
 import { VITALS_LOINC } from "@/lib/vitals-loinc-map";
 import { lookupLabLoinc } from "@/lib/lab-loinc-map";
 import { lookupDrugRxnorm, leadingDrugToken } from "@/lib/drug-rxnorm-map";
+import { validateStreamCodes, type StreamKey, type CodeInput } from "@/lib/nlp-validate";
 
 /**
  * Stream C helper: hardcoded map first, then live RxNorm with an exact
