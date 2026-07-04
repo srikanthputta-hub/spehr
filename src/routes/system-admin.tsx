@@ -1469,6 +1469,7 @@ function SafetyQueue({ facility }: { facility: string }) {
         (i) =>
           i.status === "Pending Review" &&
           !inflight.has(i.id) &&
+          i.auto_resolve_at != null &&
           now >=
             (i.auto_resolve_at
               ? new Date(i.auto_resolve_at).getTime()
