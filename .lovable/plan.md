@@ -1,80 +1,46 @@
-## Goal
+## Scope
 
-Add a runtime Safety Alerts engine driven by the **published** value sets in `custom_value_sets` (looked up by name, not OID), covering 4 rules. Writes only to `clinical_safety_alerts` + `auto_doc_logs`. Existing SafetyQueue UI, Approval Trail, NLP pipeline are not modified.
+Wire live UMLS-backed terminology into 4 admission-form fields. All calls go through `umls-proxy` only. No ancestor filtering (lenient — trust `sabs`). Vitals/Labs dropdowns skipped per your answer.
 
-## Value-set lookups (by name, cached in memory)
+## Fields wired
 
-Loaded lazily on first use, refreshed every 5 min:
+| Field | Current shape | New behavior |
+|---|---|---|
+| Chief Complaint (§2) | textarea | Type-ahead → `umls-proxy` `search`, `sabs: SNOMEDCT_US` |
+| PMH Chronic Illnesses (§4) | ChipGroup of static CHRONIC_OPTIONS | Type-ahead → SNOMED, adds selected concept as a chip |
+| Current Medications name (§5) | plain input | Type-ahead → `umls-proxy` `search`, `sabs: RXNORM` |
+| Drug Allergies name (§5) | plain input | Type-ahead → SNOMED |
 
-| Rule | Value set name | Vocabulary | Type |
-|---|---|---|---|
-| 1 | Penicillin Class Drugs | RxNorm | extensional |
-| 1 | Allergy Substances | SNOMED CT | intensional (`<<105590001`) |
-| 2 | Anticoagulants | RxNorm | extensional |
-| 3 | High-Acuity ED Presentations | SNOMED CT | extensional |
-| 4 | Sepsis Indicators | SNOMED CT | extensional |
+Debounce 300 ms, min 2 chars, loading spinner in dropdown. On umls-proxy failure: dropdown closes, inline "Terminology server unavailable" hint, plain text entry still writes to the field, submission not blocked.
 
-Extensional match = code equality inside the value set's `codes[]`. Intensional SNOMED match = reuse the existing `/api/public/umls-validate-code` endpoint (subsumption via UMLS ancestors). If the endpoint fails, fail open (skip the rule for that trigger) and log an error to `auto_doc_logs`.
+## Data storage
 
-NSAIDs (for Rule 2 "anticoagulant + NSAID") come from a small hard-coded RxNorm SCUI whitelist embedded in the engine (there is no NSAIDs value set among the 13 published sets).
+`IntakeRecord` fields today store plain strings. To satisfy `{display, code, system}` per selection without breaking existing readers (auto-doc, coding pipeline, admit-patient.ts), we store the coded metadata alongside — not replacing — the string:
 
-## New module: `src/lib/safety-alerts-engine.ts`
+- `chiefComplaint` (string) unchanged. New optional `chiefComplaintCode?: { code, display, system }`.
+- `chronicIllnesses: string[]` unchanged. New optional `chronicIllnessCodes?: Array<{code, display, system}>`.
+- `drugAllergies[i]` gains optional `code?: {code, display, system}`.
+- `currentMeds[i]` gains optional `code?: {code, display, system}` (RxNorm rxcui).
 
-Exports:
-- `ensureValueSetsLoaded()` — cached fetch from `custom_value_sets` filtered by name + `status='published'`.
-- `runMedicationOrderRules(order)` — Rules 1 & 2. Reads patient allergies (from `allergies` table) and other active meds (`medication_orders`) for same MRN.
-- `runNlpApprovalRules(auditRow)` — Rules 3 & 4. Reads each code in `standardized_output` for SNOMED codes and checks membership.
-- Shared helpers: `codeInExtensional(vs, system, code)`, `codeInIntensional(vs, system, code)` (calls validate endpoint), `fireAlert(...)`.
+Selecting from the dropdown writes both the display string (into the existing field, so nothing downstream breaks) and the coded object. Free-typed text still works; coded object simply stays undefined and existing `resolveRxNorm`/`resolveSnomed` calls in the coding pipeline handle it as today.
 
-Dedup: uses a stable id key `${mrn}|${ruleKey}|${triggerCode}` and does an upsert-style insert guarded by a pre-select on `clinical_safety_alerts` — the composite key uniqueness is enforced in-app (no schema change required). "Once per patient per admission" = per current `patients.admission_time`; if same MRN re-admits (new admission_time), key resets automatically because the check filters `created_at >= admission_time`.
+## New files
 
-`fireAlert()` writes one row to `clinical_safety_alerts` with:
-- `kind`: existing values `Drug-Allergy` / `Drug-Drug` for Rules 1 & 2; a new `Clinical-Acuity` value for Rules 3 & 4 (see migration below).
-- `family`: rule-specific message (e.g. `⚠ Bleeding Risk — concurrent anticoagulant therapy detected`).
-- `severity`: `HIGH` (Rules 1 & 2) / `CRITICAL` (Rules 3 & 4).
-- `drug` field reused as the triggering entity (medication name or SNOMED display).
-- `status = 'Pending Review'`, `auto_resolve_at = null` (see below).
-- Also inserts an `auto_doc_logs` row: `level='error'`, `stage='safety-alert'`, `mrn`, message and metadata.
+- `src/lib/terminology-search.ts` — thin wrapper `searchTerminology({ query, sabs, pageSize })` calling `supabase.functions.invoke("umls-proxy", { body: { action: "search", params: { string, sabs, returnIdType: "code", pageSize: 10 } } })`. Returns `Array<{code, display, system}>` mapping SNOMEDCT_US→"SNOMED CT", RXNORM→"RxNorm". Throws on network error so caller can show fallback notice.
+- `src/hooks/useTerminologySearch.ts` — debounced (300 ms) type-ahead hook: `{query, setQuery, results, loading, error, clear}`, cancels stale requests via a request-id ref (same pattern as existing `useTerminologyResolution`).
+- `src/components/admissions/TerminologyCombobox.tsx` — presentational combobox: text input + absolute-positioned dropdown listing `display · code`, keyboard nav (↑/↓/Enter/Esc), click-outside close. Props: `value, onChange(text), onSelect({code,display,system}), sabs, placeholder`. Renders spinner while loading, red inline hint on error, "no matches" when empty.
 
-## Manual-only dismissal
+## Edits
 
-Existing SafetyQueue auto-resolves every alert after 2 minutes. Because the spec says these alerts must not auto-resolve, `fireAlert` sets `auto_resolve_at = null` and the SafetyQueue tick already skips rows whose `auto_resolve_at` is in the future indefinitely — but the current fallback uses `created_at + 2min`. Small tweak in `SafetyQueue`'s `tick()` (system-admin.tsx line ~1467): only auto-resolve when `auto_resolve_at` is non-null. No other UI change. This preserves auto-resolve for legacy alerts while making new engine-fired alerts stick until a clinician acts.
+- `src/lib/intake-record.ts` — add the optional coded fields listed above to `IntakeRecord`, `AllergyEntry`, `MedEntry`; extend `blankIntake()` accordingly. Auto-fill / SOAP / all existing readers untouched (fields are optional).
+- `src/components/admissions/AdmitPatientModal.tsx` — swap 4 controls:
+  1. CC textarea → `TerminologyCombobox` (multiline preserved via textarea variant OR keep textarea plus a small "Code lookup" button that opens the combobox in a popover — I'll use the popover approach so free narrative typing is preserved).
+  2. Each `intake.chronicIllnesses` ChipGroup keeps existing static chips; **add** a search combobox above the chip group; selecting appends the display to `chronicIllnesses` and pushes code to `chronicIllnessCodes`.
+  3. Drug allergy name `<Input>` → `TerminologyCombobox` (SNOMED, root note only).
+  4. Current med name `<Input>` → `TerminologyCombobox` (RXNORM).
 
-## Trigger wiring
+No changes to field order, section order, validation, or `onSubmit` payload construction. `handle()` continues to build `AdmitInput` exactly as today; the new coded fields ride along inside `intake`.
 
-1. **Medication orders** — new hook `useSafetyAlertsWatcher` mounted once in `src/routes/__root.tsx` (client-only). It subscribes via Supabase realtime to `INSERT` on `medication_orders` and calls `runMedicationOrderRules`. Realtime is already enabled for other tables in this project.
-2. **NLP approvals** — same hook listens for the existing `window` `nlp:approved` event dispatched from `NlpAuditLogsPanel`, then re-fetches the just-approved `nlp_audit_logs` row and calls `runNlpApprovalRules`.
+## Untouched
 
-Both paths run entirely client-side; no edge function or DB trigger changes.
-
-## Migration
-
-One migration to relax the `kind` CHECK constraint so new rule types can persist:
-
-```sql
-ALTER TABLE public.clinical_safety_alerts
-  DROP CONSTRAINT clinical_safety_alerts_kind_check;
-ALTER TABLE public.clinical_safety_alerts
-  ADD CONSTRAINT clinical_safety_alerts_kind_check
-  CHECK (kind IN ('Drug-Allergy','Drug-Drug','Clinical-Acuity'));
-```
-
-No new tables, no policy changes, no new secrets.
-
-## Files touched
-
-- **new** `src/lib/safety-alerts-engine.ts`
-- **new** `src/hooks/useSafetyAlertsWatcher.ts`
-- **edit** `src/routes/__root.tsx` — mount watcher (single hook call)
-- **edit** `src/routes/system-admin.tsx` — one-line change: gate SafetyQueue auto-resolver on `auto_resolve_at != null`
-- **migration** — relax `kind` CHECK constraint
-
-Existing hardcoded `CROSS_REACT` / `DDI_RULES` regexes in `src/lib/safety-conflicts.ts` remain (they power the legacy `loadSafetyQueue` diagnostic helper, not the DB queue) — the spec says "replace hardcoded lists in the Safety Alerts engine", and the engine is the new module writing to `clinical_safety_alerts`.
-
-## Out of scope (unchanged)
-
-- NLP pipeline
-- Approval Trail
-- Audit Log display
-- Existing SafetyQueue UI (aside from the one-line auto-resolve gate)
-- Value set library
+NLP pipeline, Safety Alerts, Approval Trail, Value Set Library, `fhir-terminology` (never called), `admit-patient.ts` write path, coding pipeline. Vitals/Labs dropdowns explicitly out of scope this turn.
