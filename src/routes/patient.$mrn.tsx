@@ -17,6 +17,7 @@ import {
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { loadIntake, type IntakeRecord } from "@/lib/intake-record";
 import DischargeConformanceBanner from "@/components/patient/DischargeConformanceBanner";
+import CdsSuggestionsBanners from "@/components/patient/CdsSuggestionsBanners";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
@@ -1422,6 +1423,7 @@ function PatientChart() {
         <OrdersDialog patient={patient} automationEnabled={automationEnabled} onClose={() => setOrdersOpen(false)} />
       )}
       <DischargeConformanceBanner mrn={patient.mrn} />
+      <CdsSuggestionsBanners mrn={patient.mrn} />
       {dischargeOpen && (
         <DischargeDialog patient={patient} onClose={() => setDischargeOpen(false)} onDone={() => { setDischargeOpen(false); navigate({ to: "/nursing-board" }).catch(() => {}); }} />
       )}
