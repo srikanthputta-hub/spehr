@@ -351,6 +351,16 @@ export function useBackgroundFhirSync() {
           (target.status ?? "").toLowerCase() === "discharged" ||
           !!target.discharge_time;
         if (isDischarged) {
+          // Pre-push conformance validation. Fail-open: helper logs to
+          // auto_doc_logs, persists the banner state, and never throws.
+          try {
+            const { validateDischargeConformance } = await import(
+              "@/lib/discharge-conformance"
+            );
+            await validateDischargeConformance(bundle, target.mrn);
+          } catch (e) {
+            console.warn("[discharge-conformance]", target.mrn, e);
+          }
           // Two-phase discharge push: persist Encounter (status=finished +
           // period.end), confirmed discharge Condition, all MedicationRequests
           // / MedicationAdministrations, labs and notes FIRST. Then re-PUT
