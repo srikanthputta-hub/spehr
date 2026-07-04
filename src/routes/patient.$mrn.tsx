@@ -17,58 +17,119 @@ import {
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { loadIntake, type IntakeRecord } from "@/lib/intake-record";
 import DischargeConformanceBanner from "@/components/patient/DischargeConformanceBanner";
-import CdsProtocolTabButton from "@/components/patient/CdsProtocolTabButton";
-import CdsProtocolPanel from "@/components/patient/CdsProtocolPanel";
 
 /* ------------------------------------------------------------------ */
-/* CDS active suggestion hook — reads localStorage + subscribes        */
+/* CDS active suggestion hook — reads cds_suggestions table + realtime */
 /* ------------------------------------------------------------------ */
-type CdsStoredSuggestion = {
+type CdsSuggestionRow = {
   id: string;
-  firedAt: string;
-  dismissed?: boolean;
-  triggerCode?: string;
-  triggerDisplay?: string;
+  mrn: string;
+  suggestion_id: string;
+  label: string;
+  severity: string;
+  items: string[];
+  trigger_code: string | null;
+  trigger_display: string | null;
+  fired_at: string | null;
+  dismissed: boolean;
 };
-const CDS_PRIORITY = ["septic-shock", "acs", "sepsis-bundle", "infection-workup"];
-function readCdsSuggestion(mrn: string): CdsStoredSuggestion | null {
-  try {
-    if (typeof window === "undefined") return null;
-    const raw = window.localStorage.getItem(`spehr.cds.suggestions.${mrn}`);
-    if (!raw) return null;
-    const j = JSON.parse(raw);
-    if (j?.version !== 1 || !Array.isArray(j.suggestions)) return null;
-    const active = (j.suggestions as CdsStoredSuggestion[]).filter((s) => !s.dismissed);
-    if (active.length === 0) return null;
-    active.sort(
-      (a, b) =>
-        (CDS_PRIORITY.indexOf(a.id) === -1 ? 99 : CDS_PRIORITY.indexOf(a.id)) -
-        (CDS_PRIORITY.indexOf(b.id) === -1 ? 99 : CDS_PRIORITY.indexOf(b.id)),
-    );
-    return active[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-function useCdsActiveSuggestion(mrn: string): CdsStoredSuggestion | null {
-  const [s, setS] = useState<CdsStoredSuggestion | null>(() => readCdsSuggestion(mrn));
+function useCdsActiveSuggestion(mrn: string): {
+  suggestion: CdsSuggestionRow | null;
+  refresh: () => void;
+} {
+  const [row, setRow] = useState<CdsSuggestionRow | null>(null);
+  const load = async () => {
+    const { data } = await supabase
+      .from("cds_suggestions")
+      .select("*")
+      .eq("mrn", mrn)
+      .eq("dismissed", false)
+      .order("fired_at", { ascending: false })
+      .limit(1);
+    const first = (data ?? [])[0] as any;
+    if (!first) { setRow(null); return; }
+    setRow({
+      ...first,
+      items: Array.isArray(first.items) ? first.items : [],
+    });
+  };
   useEffect(() => {
-    setS(readCdsSuggestion(mrn));
-    const onEvt = (e: Event) => {
-      const detailMrn = (e as CustomEvent).detail?.mrn;
-      if (!detailMrn || detailMrn === mrn) setS(readCdsSuggestion(mrn));
-    };
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === `spehr.cds.suggestions.${mrn}`) setS(readCdsSuggestion(mrn));
-    };
-    window.addEventListener("spehr:cds", onEvt as EventListener);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener("spehr:cds", onEvt as EventListener);
-      window.removeEventListener("storage", onStorage);
-    };
+    load();
+    const channel = supabase
+      .channel(`cds-${mrn}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cds_suggestions", filter: `mrn=eq.${mrn}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mrn]);
-  return s;
+  return { suggestion: row, refresh: load };
+}
+
+function CdsProtocolModal({
+  suggestion,
+  onDismiss,
+  onClose,
+}: {
+  suggestion: CdsSuggestionRow;
+  onDismiss: () => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const [checked, setChecked] = useState<Record<number, boolean>>({});
+  const [dismissing, setDismissing] = useState(false);
+  const handleDismiss = async () => {
+    setDismissing(true);
+    try { await onDismiss(); } finally { setDismissing(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+      <div className="w-full max-w-lg rounded-lg bg-white shadow-2xl border-t-4 border-red-500">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+          <h3 className="text-[13px] font-bold text-slate-800">{suggestion.label}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="px-4 py-3 space-y-3">
+          {suggestion.trigger_display && (
+            <p className="text-[12px] text-slate-600">
+              <span className="font-semibold">Triggered by:</span> {suggestion.trigger_display}
+              {suggestion.trigger_code ? ` (${suggestion.trigger_code})` : ""}
+            </p>
+          )}
+          <ul className="space-y-1.5">
+            {suggestion.items.map((it, i) => (
+              <li key={i} className="flex items-start gap-2 text-[12.5px] text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={!!checked[i]}
+                  onChange={(e) => setChecked((c) => ({ ...c, [i]: e.target.checked }))}
+                  className="mt-0.5"
+                />
+                <span>{it}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
+          <button
+            onClick={onClose}
+            className="rounded border border-slate-300 bg-white px-3 h-8 text-[11.5px] font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            Close
+          </button>
+          <button
+            onClick={handleDismiss}
+            disabled={dismissing}
+            className="rounded bg-red-600 text-white px-3 h-8 text-[11.5px] font-bold uppercase tracking-wider hover:bg-red-700 disabled:opacity-50"
+          >
+            {dismissing ? "Dismissing…" : "Dismiss Protocol"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export const Route = createFileRoute("/patient/$mrn")({
@@ -1307,7 +1368,16 @@ function PatientChart() {
   const [signError, setSignError] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
   const [cdsPanelOpen, setCdsPanelOpen] = useState(false);
-  const cdsSuggestion = useCdsActiveSuggestion(mrn);
+  const { suggestion: cdsSuggestion, refresh: refreshCds } = useCdsActiveSuggestion(mrn);
+  const dismissCds = async () => {
+    if (!cdsSuggestion) return;
+    await supabase
+      .from("cds_suggestions")
+      .update({ dismissed: true })
+      .eq("id", cdsSuggestion.id);
+    setCdsPanelOpen(false);
+    refreshCds();
+  };
 
   const openSign = () => {
     if (pending.length === 0) {
@@ -1478,9 +1548,9 @@ function PatientChart() {
       )}
       <DischargeConformanceBanner mrn={patient.mrn} />
       {cdsPanelOpen && cdsSuggestion && (
-        <CdsProtocolPanel
-          mrn={patient.mrn}
+        <CdsProtocolModal
           suggestion={cdsSuggestion}
+          onDismiss={dismissCds}
           onClose={() => setCdsPanelOpen(false)}
         />
       )}
@@ -1547,10 +1617,24 @@ function PatientChart() {
                 <TabRow tabs={TABS_ROW1} active={tab} onClick={(k) => setTab(k)} variant="blue" />
               </div>
               {cdsSuggestion && (
-                <CdsProtocolTabButton
-                  suggestion={cdsSuggestion}
-                  onOpen={() => setCdsPanelOpen(true)}
-                />
+                <button
+                  onClick={() => setCdsPanelOpen(true)}
+                  className="inline-flex items-center gap-2 whitespace-nowrap"
+                  style={{
+                    background: "#fee2e2",
+                    border: "1px solid #ef4444",
+                    borderRadius: 6,
+                    padding: "4px 12px",
+                    color: "#991b1b",
+                    fontWeight: 600,
+                  }}
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600" />
+                  </span>
+                  <span>🔴 ACS Protocol</span>
+                </button>
               )}
             </div>
             <TabRow tabs={TABS_ROW2} active={tab} onClick={(k) => setTab(k)} variant="blue" />
