@@ -369,26 +369,39 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
 
 function extractSnomedCodes(std: any): Array<{ code: string; display: string }> {
   if (!std || typeof std !== "object") return [];
-  const keys = ["SNOMED CT", "snomed", "SNOMED", "snomed_ct"];
+
   const out: Array<{ code: string; display: string }> = [];
+
   const seen = new Set<string>();
-  for (const k of keys) {
-    const arr = (std as any)[k];
+
+  // 6-stream structure: stream_a and stream_b carry SNOMED codes
+  for (const key of ["stream_a", "stream_b"]) {
+    const arr = (std as any)[key];
     if (!Array.isArray(arr)) continue;
     for (const item of arr) {
-      let code = "";
-      let display = "";
-      if (typeof item === "string") {
-        code = item;
-      } else if (item && typeof item === "object") {
-        code = String(item.code ?? item.value ?? "").trim();
-        display = String(item.display ?? item.name ?? "").trim();
-      }
+      const code = String(item?.snomed_code ?? "").trim();
+      const display = String(item?.snomed_display ?? item?.display_text ?? item?.term ?? "").trim();
       if (!code || seen.has(code)) continue;
       seen.add(code);
       out.push({ code, display: display || code });
     }
   }
+
+  // Legacy fallback: top-level SNOMED CT key
+  for (const k of ["SNOMED CT", "snomed", "SNOMED", "snomed_ct"]) {
+    const arr = (std as any)[k];
+    if (!Array.isArray(arr)) continue;
+    for (const item of arr) {
+      const code = String(
+        typeof item === "string" ? item : (item?.code ?? item?.value ?? "")
+      ).trim();
+      const display = String(item?.display ?? item?.name ?? "").trim();
+      if (!code || seen.has(code)) continue;
+      seen.add(code);
+      out.push({ code, display: display || code });
+    }
+  }
+
   return out;
 }
 
