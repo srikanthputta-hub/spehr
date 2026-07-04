@@ -1477,6 +1477,13 @@ function PatientChart() {
         <OrdersDialog patient={patient} automationEnabled={automationEnabled} onClose={() => setOrdersOpen(false)} />
       )}
       <DischargeConformanceBanner mrn={patient.mrn} />
+      {cdsPanelOpen && cdsSuggestion && (
+        <CdsProtocolPanel
+          mrn={patient.mrn}
+          suggestion={cdsSuggestion}
+          onClose={() => setCdsPanelOpen(false)}
+        />
+      )}
       {dischargeOpen && (
         <DischargeDialog patient={patient} onClose={() => setDischargeOpen(false)} onDone={() => { setDischargeOpen(false); navigate({ to: "/nursing-board" }).catch(() => {}); }} />
       )}
