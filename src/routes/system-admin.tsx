@@ -177,7 +177,7 @@ function WatchdogStatusWidget() {
         { key: "NLP_PIPELINE", label: "NLP Pipeline (raw → mapping → standardised)", group: "Coding" },
         { key: "PRE_PUSH_STANDARDISATION", label: "Pre-Push Code Standardisation", group: "Interop" },
         { key: "DRUG_SAFETY_RXNORM", label: "Drug Safety · RxNorm × AllergyIntolerance", group: "Safety" },
-        { key: "FHIR_SERVER_SYNC", label: "FHIR Server Sync (400 ms heartbeat)", group: "Interop" },
+        { key: "FHIR_SERVER_SYNC", label: "FHIR Server Sync (event-driven)", group: "Interop" },
         { key: "NLP_CONFIDENCE_GATE", label: "NLP Confidence Gate", group: "Governance" },
       ],
     },
