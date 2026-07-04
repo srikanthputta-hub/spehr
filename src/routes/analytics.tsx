@@ -14,6 +14,7 @@ import {
 import { Activity, Users, LogOut as LogOutIcon, Loader2 } from "lucide-react";
 import { PopulationHealth } from "@/components/admin/PopulationHealth";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 
 export const Route = createFileRoute("/analytics")({
   component: AnalyticsPage,
@@ -125,6 +126,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
       )}
 
       <section className={`${embedded ? "w-full" : "max-w-7xl"} mx-auto px-6 py-6 space-y-6`}>
+        <CohortCountsStrip />
         <div className="flex items-center justify-between">
           <h1 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
             📊 Network Operations Overview

@@ -21,6 +21,7 @@ import { useFacility, useActiveNurse } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 
 
 export const Route = createFileRoute("/nursing-board")({
@@ -715,6 +716,7 @@ function Dashboard() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-6">
+        <CohortCountsStrip />
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <StatCard
             icon={Users}

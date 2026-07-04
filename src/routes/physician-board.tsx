@@ -40,6 +40,7 @@ import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
 import { OrderPanelPicker } from "@/components/physician/OrderPanelPicker";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 
 const TRANSFER_DESTINATIONS = [
   "Memorial Hospital",
@@ -385,6 +386,9 @@ function PhysicianBoard() {
         }
       />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
+        <div className="lg:col-span-3">
+          <CohortCountsStrip />
+        </div>
         {/* Patient list */}
         <aside className="lg:col-span-1">
           <div className="rounded-sm border border-slate-300 bg-white shadow-sm overflow-hidden">

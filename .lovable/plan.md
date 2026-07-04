@@ -1,73 +1,71 @@
 ## Scope
 
-Add a pre-push conformance check that validates every coded element in the discharge FHIR bundle against its binding value set. Runs from the existing background sync in `src/hooks/useBackgroundFhirSync.ts` — the single choke-point before `fhir-proxy` receives the bundle. Fail-open in all failure modes.
+Replace hardcoded SNOMED lists with live cohort counts driven by the published value sets in `custom_value_sets`. Five cohorts (Diabetic, Respiratory, Cardiac, Sepsis, High-Acuity) render on both boards and inside the admin Network Analytics tab. Read-only, additive UI.
 
-## New helper
+## New hook
 
-`src/lib/discharge-conformance.ts` — exports `validateDischargeConformance(bundle, mrn)` returning `{ ok: boolean, invalid: InvalidCode[] }`.
+`src/hooks/useCohortCounts.ts` — single shared source of truth.
 
-Steps inside the helper:
+- Loads the five value sets from `custom_value_sets` by NAME
+  (`status = 'published'`): `Diabetes Mellitus`, `Respiratory Conditions`,
+  `Cardiac Conditions`, `Sepsis Indicators`, `High-Acuity ED Presentations`.
+- Extracts the code list from each row: for extensional sets, read
+  `codes[].code`; for intensional sets, read `codes[].code` if present AND
+  append the root code parsed from `intensional_rule` (or the hardcoded root
+  fallback: 73211009, 50043002, 56265001 — spec's "include the root concept
+  code in the match list"). Full ECL descendant expansion is not done
+  client-side, per spec.
+- Queries `conditions` table in one round trip per cohort:
+  `select mrn from conditions where snomed_code = ANY($1) and clinical_status = 'active'`
+  (falls back to no status filter if the code list is empty) — count of
+  DISTINCT `mrn` is the cohort size.
+- Also unions matches from `nlp_audit_logs` where a row's `standardized_output`
+  contains any of the SNOMED codes and its `approval_status = 'approved'`
+  (or `status = 'approved'`, whichever the table uses — schema check at build
+  time). MRN de-dup across both sources.
+- Returns `{ counts: Record<CohortKey, number>, loading, error, lastRefreshed }`.
+- Refresh: on mount + every 60 seconds via `setInterval`. Value-set fetch is
+  cached in-module for 5 minutes; count queries re-run on every tick.
 
-1. **Extract coded elements from the assembled bundle** (bundle already exists, we don't re-derive from tables):
-   - `Condition.code.coding[]` — split by `Condition.category`: `encounter-diagnosis` → "ED Chief Complaints", `problem-list-item` (PMH) → "Chronic Conditions". SNOMED codings only (`system` contains `snomed.info/sct`).
-   - `MedicationRequest.medicationCodeableConcept.coding[]` and `MedicationAdministration.medicationCodeableConcept.coding[]` → "Medicinal Products". RxNorm + SNOMED.
-   - `AllergyIntolerance.code.coding[]` → "Allergy Substances". SNOMED only.
-   - `Observation.code.coding[]` — vital-signs category → "Vital Signs Observations"; laboratory category → "ED Lab Panels". LOINC only.
-2. **Resolve value set OIDs** by NAME from `custom_value_sets` at runtime (`status = 'published'`), 5-minute in-module cache. Missing value set → skip that binding, treat as valid.
-3. **Fan out `Promise.allSettled`** POSTs to `/api/public/umls-validate-code`, one per `{ system, code, valueSetOid }`. In-module memo keyed on `system|code|oid` so repeated codes across an encounter cost one call.
-4. Any rejected promise or `{ valid: false }` response → push to `invalid[]` with `{ code, display, system, element, valueSetName }`. Rejections (network errors) are logged as errors but do NOT count as invalid — fail open per spec.
-5. Return `{ ok: invalid.length === 0, invalid }`.
+Failure modes: any query error → that cohort shows `—`; hook never throws.
 
-## Logging
+## New tile component
 
-For every entry in `invalid[]`, insert into `auto_doc_logs` (client via existing `supabase` client — table already writable):
+`src/components/analytics/CohortCountsStrip.tsx` — presentational only.
 
-```
-level:   'error'
-stage:   'discharge-conformance'
-message: `Non-conformant code ${code} in ${element} for MRN ${mrn} — not in value set ${name}`
-mrn:     mrn
-```
+- Props: `counts`, `loading`.
+- Renders a compact horizontal strip of 5 tiles (label + count + tiny
+  icon). Neutral card styling matching existing surfaces; no color-coded
+  severity. Skeleton `—` while loading.
+- Zero interaction. No drill-down in this task.
 
-For endpoint-failure branch: single `auto_doc_logs` row `level:'error'`, `stage:'discharge-conformance'`, message `"umls-validate-code unavailable — discharge push proceeded without validation for MRN ${mrn}"`.
+## Mount points (additive, no layout rework)
 
-## Warning banner surface
+1. `src/routes/nursing-board.tsx` — insert `<CohortCountsStrip />` at the
+   top of the main content area, above the existing patient grid. One
+   `useCohortCounts()` call at the top of the component.
+2. `src/routes/physician-board.tsx` — same insertion at the top of its
+   main content area.
+3. `src/routes/analytics.tsx` — insert the strip at the top of
+   `AnalyticsPage`, above the existing summary cards. (This surface is what
+   `system-admin` embeds under the Network Analytics tab, so admin
+   automatically picks it up — no `system-admin.tsx` edit needed.)
 
-Persist result to `localStorage` key `spehr.discharge.conformance.${mrn}` as `{ count, at, dismissed:false }` so the chart view can pick it up without a schema change. Write happens in the sync hook after validation.
-
-`src/routes/patient.$mrn.tsx` — inside the existing patient chart view, above the toolbar or at the top of the main card (near the existing status/quality strip), add a dismissable `DischargeConformanceBanner` component:
-
-- Reads the localStorage key for this MRN on mount + on a `spehr:conformance` window event.
-- Renders only when `count > 0 && !dismissed`.
-- Amber banner: `⚠ ${count} non-conformant codes detected — review before sharing externally` + `Dismiss` button that flips `dismissed:true` in localStorage.
-- Zero layout change to the rest of the chart.
-
-New tiny component file: `src/components/patient/DischargeConformanceBanner.tsx`.
-
-## Sync-hook integration
-
-Edit `src/hooks/useBackgroundFhirSync.ts` inside the `pushNext` handler (around line 350, after `assessBundleQuality`, before the `isDischarged` branch pushes):
-
-```
-if (isDischarged) {
-  const result = await validateDischargeConformance(bundle, target.mrn);
-  // result already logged + persisted inside helper; never throws.
-  // Push proceeds unconditionally.
-}
-```
-
-Wrapped in `try/catch` — any thrown error is swallowed, logged, and the push continues. Conformance validation runs only on the discharge branch, not on in-progress admissions.
+Each mount is a single added line + one hook call. No changes to existing
+markup, card design, filters, or refresh cycles.
 
 ## Untouched
 
-- `fhir-proxy` edge function, bundle assembly in `fhir-bundle.ts` and `fhir-admission-discharge.ts` — bundle structure unchanged.
-- NLP pipeline, Safety Alerts, Approval Trail, admission form, Value Set Library.
-- No new migrations, no schema changes, no new secrets. `auto_doc_logs` and `custom_value_sets` used as-is.
-- `/api/public/umls-validate-code` endpoint used exactly as built in Integration 1 — no changes.
+- ED board layout, patient card design, patient grid.
+- Any other analytics widget, PopulationHealth, existing summary cards.
+- NLP pipeline, Safety Alerts, admission form, discharge validation,
+  Value Set Library, custom_value_sets contents.
+- No new tables, no migrations, no secrets.
 
 ## Files touched
 
-- Add: `src/lib/discharge-conformance.ts`
-- Add: `src/components/patient/DischargeConformanceBanner.tsx`
-- Edit: `src/hooks/useBackgroundFhirSync.ts` (single insertion in `pushNext`)
-- Edit: `src/routes/patient.$mrn.tsx` (mount the banner in the existing chart layout)
+- Add: `src/hooks/useCohortCounts.ts`
+- Add: `src/components/analytics/CohortCountsStrip.tsx`
+- Edit: `src/routes/nursing-board.tsx` (import + one tag)
+- Edit: `src/routes/physician-board.tsx` (import + one tag)
+- Edit: `src/routes/analytics.tsx` (import + one tag)
