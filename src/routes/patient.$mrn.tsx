@@ -16,6 +16,7 @@ import {
 } from "@/lib/complaint-protocols";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { loadIntake, type IntakeRecord } from "@/lib/intake-record";
+import DischargeConformanceBanner from "@/components/patient/DischargeConformanceBanner";
 
 export const Route = createFileRoute("/patient/$mrn")({
   component: PatientChart,
