@@ -84,7 +84,7 @@ import NlpAuditLogsPanel from "@/components/admin/dictionary/NlpAuditLogsPanel";
 import LiveTerminologyMatrixPanel from "@/components/admin/dictionary/LiveTerminologyMatrixPanel";
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
-import { AutoDocMonitor } from "@/components/admin/AutoDocMonitor";
+import { ErrorLogPanel } from "@/components/admin/ErrorLogPanel";
 import { AUTOMATION_STORAGE_KEY, getAutomationEnabled, setLocalAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 
@@ -715,7 +715,7 @@ function SystemAdminPage() {
         <WatchdogStatusWidget />
         )}
         {isAdmin && tab === "feature_controls" && (
-        <AutoDocMonitor />
+        <ErrorLogPanel />
         )}
         {isAdmin && tab === "feature_controls" && (
         <div
