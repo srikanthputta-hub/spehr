@@ -14,12 +14,14 @@
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureValueSetsLoaded } from "@/lib/safety-alerts-engine";
-import { matchTriggers, ORDER_SETS } from "@/lib/cds-order-sets";
+import { matchTriggers, ORDER_SETS, firstTriggerCode, CODE_DISPLAY } from "@/lib/cds-order-sets";
 
 type StoredSuggestion = {
   id: string;
   firedAt: string;
   dismissed?: boolean;
+  triggerCode?: string;
+  triggerDisplay?: string;
 };
 
 type StoredPayload = {
@@ -107,10 +109,18 @@ async function processMrn(mrn: string) {
   const existing = new Set(base.suggestions.map((s) => s.id));
   let changed = base !== prior;
   const now = new Date().toISOString();
+  const codeList = Array.from(codes);
   for (const id of fired) {
     if (!ORDER_SETS[id]) continue;
     if (existing.has(id)) continue;
-    base.suggestions.push({ id, firedAt: now });
+    const trigCode = firstTriggerCode(codeList, id, sepsis, highAcuity);
+    const trigDisplay = trigCode ? CODE_DISPLAY[trigCode] : undefined;
+    base.suggestions.push({
+      id,
+      firedAt: now,
+      ...(trigCode ? { triggerCode: trigCode } : {}),
+      ...(trigDisplay ? { triggerDisplay: trigDisplay } : {}),
+    });
     existing.add(id);
     changed = true;
   }
