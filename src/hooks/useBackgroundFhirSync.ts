@@ -21,9 +21,10 @@ import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
  *    every 30s.
  *  - Subscribes to realtime changes on patients / lab_orders /
  *    medication_orders / clinical_notes and requeues the affected MRN.
- *  - A 400ms heartbeat picks the next queued MRN and pushes its bundle via
- *    the `fhir-proxy` edge function. Pushes are idempotent (PUT + stable
- *    resource ids), so re-firing never duplicates resources.
+ *  - An event-driven drain pushes the next queued MRN bundle via
+ *    the `fhir-proxy` edge function whenever realtime signals a change.
+ *    Pushes are idempotent (PUT + stable resource ids), so re-firing never
+ *    duplicates resources.
  *  - Respects the user's master toggle stored at `fhir.autoLoop.enabled`
  *    (same key the on-page panel writes), defaulting to ON.
  *  - Persists per-MRN outcomes to `fhir.pushedMrns` so the panel reflects
