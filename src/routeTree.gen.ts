@@ -22,6 +22,7 @@ import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
+import { Route as ApiPublicUmlsValidateCodeRouteImport } from './routes/api/public/umls-validate-code'
 import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
 import { Route as ApiPublicHooksAutoDocRouteImport } from './routes/api/public/hooks/auto-doc'
 
@@ -90,6 +91,12 @@ const ChartMrnRoute = ChartMrnRouteImport.update({
   path: '/chart/$mrn',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicUmlsValidateCodeRoute =
+  ApiPublicUmlsValidateCodeRouteImport.update({
+    id: '/api/public/umls-validate-code',
+    path: '/api/public/umls-validate-code',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicUmlsSearchRoute = ApiPublicUmlsSearchRouteImport.update({
   id: '/api/public/umls-search',
   path: '/api/public/umls-search',
@@ -116,6 +123,7 @@ export interface FileRoutesByFullPath {
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
+  '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
 }
 export interface FileRoutesByTo {
@@ -133,6 +141,7 @@ export interface FileRoutesByTo {
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
+  '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
 }
 export interface FileRoutesById {
@@ -151,6 +160,7 @@ export interface FileRoutesById {
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
+  '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
 }
 export interface FileRouteTypes {
@@ -170,6 +180,7 @@ export interface FileRouteTypes {
     | '/chart/$mrn'
     | '/patient/$mrn'
     | '/api/public/umls-search'
+    | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -187,6 +198,7 @@ export interface FileRouteTypes {
     | '/chart/$mrn'
     | '/patient/$mrn'
     | '/api/public/umls-search'
+    | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
   id:
     | '__root__'
@@ -204,6 +216,7 @@ export interface FileRouteTypes {
     | '/chart/$mrn'
     | '/patient/$mrn'
     | '/api/public/umls-search'
+    | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
   fileRoutesById: FileRoutesById
 }
@@ -222,6 +235,7 @@ export interface RootRouteChildren {
   ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
   ApiPublicUmlsSearchRoute: typeof ApiPublicUmlsSearchRoute
+  ApiPublicUmlsValidateCodeRoute: typeof ApiPublicUmlsValidateCodeRoute
   ApiPublicHooksAutoDocRoute: typeof ApiPublicHooksAutoDocRoute
 }
 
@@ -318,6 +332,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChartMrnRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/umls-validate-code': {
+      id: '/api/public/umls-validate-code'
+      path: '/api/public/umls-validate-code'
+      fullPath: '/api/public/umls-validate-code'
+      preLoaderRoute: typeof ApiPublicUmlsValidateCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/umls-search': {
       id: '/api/public/umls-search'
       path: '/api/public/umls-search'
@@ -350,6 +371,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
   ApiPublicUmlsSearchRoute: ApiPublicUmlsSearchRoute,
+  ApiPublicUmlsValidateCodeRoute: ApiPublicUmlsValidateCodeRoute,
   ApiPublicHooksAutoDocRoute: ApiPublicHooksAutoDocRoute,
 }
 export const routeTree = rootRouteImport
