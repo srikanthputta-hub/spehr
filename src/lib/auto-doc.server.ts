@@ -56,9 +56,11 @@ export async function log(
   meta?: unknown,
   level: "info" | "warn" | "error" = "info",
 ) {
-  // Only persist failures. Successful progress, completions, heartbeats,
-  // and in-progress ticks are intentionally dropped to reduce DB IO.
-  if (level !== "error" && stage !== "error") return;
+  // HARD GATE: only error-level rows are ever persisted to auto_doc_logs.
+  // Every other level (info, warn, progress ticks, completions, heartbeats)
+  // is dropped unconditionally, regardless of stage. Do not loosen — this is
+  // the sole insert path for this table and the contract is error-only.
+  if (level !== "error") return;
   try {
     await admin().from("auto_doc_logs").insert({
       mrn,
