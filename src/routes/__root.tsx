@@ -16,6 +16,7 @@ import { useBackgroundFhirSync } from "@/hooks/useBackgroundFhirSync";
 import { useStartupRecovery } from "@/hooks/useStartupRecovery";
 import { useAutoTerminologist } from "@/hooks/useAutoTerminologist";
 import { useCodingPipelineSweep } from "@/hooks/useCodingPipelineSweep";
+import { useSafetyAlertsWatcher } from "@/hooks/useSafetyAlertsWatcher";
 import { startLocalGcSweeper } from "@/lib/local-gc";
 import { useEffect } from "react";
 
@@ -129,6 +130,7 @@ function RootComponent() {
   useStartupRecovery();
   useAutoTerminologist();
   useCodingPipelineSweep();
+  useSafetyAlertsWatcher();
   useEffect(() => { startLocalGcSweeper(); }, []);
 
   return (
