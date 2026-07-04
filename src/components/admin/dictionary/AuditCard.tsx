@@ -156,8 +156,10 @@ export function AuditCard({
 }) {
   const std = row.standardized_output ?? {};
   const mapping = row.extraction_mapping?.streams ?? {};
+  const validation = row.extraction_mapping?.validation ?? {};
   const conf = Math.round(((row.confidence_score ?? 0) as number) * 100);
   const approved = row.status === "approved";
+  const needsReview = row.status === "needs_review";
   const created = new Date(row.created_at).toLocaleString();
   const approvedBy = (row.approved_by ?? "").toLowerCase();
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -172,7 +174,7 @@ export function AuditCard({
   const startPct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
 
   useEffect(() => {
-    if (!autoApprove || approved || firedRef.current) return;
+    if (!autoApprove || approved || needsReview || firedRef.current) return;
     const fire = () => {
       if (firedRef.current) return;
       firedRef.current = true;
@@ -188,7 +190,7 @@ export function AuditCard({
       timeoutRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoApprove, approved, row.id]);
+  }, [autoApprove, approved, needsReview, row.id]);
 
   const handleApproveClick = () => {
     firedRef.current = true;
@@ -235,14 +237,16 @@ export function AuditCard({
             Confidence · {conf}%
           </span>
           <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-            approved ? "border-emerald-300 bg-emerald-100 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-700"
+            approved ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+            : needsReview ? "border-amber-300 bg-amber-100 text-amber-800"
+            : "border-amber-200 bg-amber-50 text-amber-700"
           }`}>
-            {approved ? "Approved" : "Pending"}
+            {approved ? "Approved" : needsReview ? "⚠ Needs Review" : "Pending"}
           </span>
         </div>
       </button>
 
-      {autoApprove && !approved && remainingMs > 0 && (
+      {autoApprove && !approved && !needsReview && remainingMs > 0 && (
         <div className="h-1.5 w-full bg-slate-100">
           <div
             className="h-full"
