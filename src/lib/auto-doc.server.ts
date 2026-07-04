@@ -56,6 +56,9 @@ export async function log(
   meta?: unknown,
   level: "info" | "warn" | "error" = "info",
 ) {
+  // Only persist failures. Successful progress, completions, heartbeats,
+  // and in-progress ticks are intentionally dropped to reduce DB IO.
+  if (level !== "error" && stage !== "error") return;
   try {
     await admin().from("auto_doc_logs").insert({
       mrn,
