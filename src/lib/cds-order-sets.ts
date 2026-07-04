@@ -85,6 +85,41 @@ const ACS_CODES = new Set([
 const INFECTION_CODES = new Set(["5758002", "91302008"]);
 const SEPTIC_SHOCK_CODE = "76571007";
 
+/** Best-effort display terms for codes we know about. */
+export const CODE_DISPLAY: Record<string, string> = {
+  "57054005": "Acute myocardial infarction",
+  "413444003": "Acute ischemic heart disease",
+  "194828000": "Angina",
+  "425677008": "Pain radiating to left arm",
+  "4568003": "Retrosternal pain",
+  "59139008": "Crushing chest pain",
+  "29857009": "Chest pain",
+  "5758002": "Infection",
+  "91302008": "Sepsis",
+  "76571007": "Septic shock",
+};
+
+/**
+ * Return the first code from `codes` that fires the given trigger id,
+ * or null when nothing matches. Mirrors the logic in `matchTriggers`.
+ */
+export function firstTriggerCode(
+  codes: string[],
+  triggerId: string,
+  sepsisIndicators: Set<string>,
+  _highAcuity: Set<string>,
+): string | null {
+  for (const raw of codes) {
+    const c = String(raw ?? "").trim();
+    if (!c) continue;
+    if (triggerId === "septic-shock" && c === SEPTIC_SHOCK_CODE) return c;
+    if (triggerId === "infection-workup" && INFECTION_CODES.has(c)) return c;
+    if (triggerId === "sepsis-bundle" && sepsisIndicators.has(c)) return c;
+    if (triggerId === "acs" && ACS_CODES.has(c)) return c;
+  }
+  return null;
+}
+
 /**
  * Match approved SNOMED codes against CDS triggers.
  *
