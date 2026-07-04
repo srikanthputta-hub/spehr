@@ -183,6 +183,8 @@ type FireInput = {
 
 async function fireAlert(input: FireInput): Promise<void> {
   const family = `${input.message} [${input.ruleKey}:${input.triggerCode}] (${input.triggerDisplay})`;
+  const severityLevel =
+    input.severity === "HIGH" || input.severity === "CRITICAL" ? "high" : "medium";
   const row: Record<string, any> = {
     mrn: input.mrn,
     patient_name: input.patient_name ?? null,
@@ -192,10 +194,11 @@ async function fireAlert(input: FireInput): Promise<void> {
     drug_b: input.drug_b ?? null,
     allergy_name: input.allergy_name ?? null,
     family,
-    severity: input.severity,
-    status: "Pending Review",
+    severity: severityLevel,
+    status: "pending_review",
     auto_resolve_at: null,
     created_by_type: "automation",
+    updated_at: new Date().toISOString(),
   };
   const { error } = await supabase.from("clinical_safety_alerts").insert(row as any);
   if (error) {
