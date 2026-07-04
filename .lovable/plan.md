@@ -1,71 +1,59 @@
 ## Scope
 
-Replace hardcoded SNOMED lists with live cohort counts driven by the published value sets in `custom_value_sets`. Five cohorts (Diabetic, Respiratory, Cardiac, Sepsis, High-Acuity) render on both boards and inside the admin Network Analytics tab. Read-only, additive UI.
+Condition-triggered CDS order-set suggestions. Listen for the existing `nlp:approved` window event (same signal Safety Alerts already uses), match approved SNOMED codes against value sets, and surface suggestion banners on the patient chart. Display-only order sets — no auto-ordering, no schema changes.
 
-## New hook
+## Order-set catalog
 
-`src/hooks/useCohortCounts.ts` — single shared source of truth.
+`src/lib/cds-order-sets.ts` — pure data + trigger matcher.
 
-- Loads the five value sets from `custom_value_sets` by NAME
-  (`status = 'published'`): `Diabetes Mellitus`, `Respiratory Conditions`,
-  `Cardiac Conditions`, `Sepsis Indicators`, `High-Acuity ED Presentations`.
-- Extracts the code list from each row: for extensional sets, read
-  `codes[].code`; for intensional sets, read `codes[].code` if present AND
-  append the root code parsed from `intensional_rule` (or the hardcoded root
-  fallback: 73211009, 50043002, 56265001 — spec's "include the root concept
-  code in the match list"). Full ECL descendant expansion is not done
-  client-side, per spec.
-- Queries `conditions` table in one round trip per cohort:
-  `select mrn from conditions where snomed_code = ANY($1) and clinical_status = 'active'`
-  (falls back to no status filter if the code list is empty) — count of
-  DISTINCT `mrn` is the cohort size.
-- Also unions matches from `nlp_audit_logs` where a row's `standardized_output`
-  contains any of the SNOMED codes and its `approval_status = 'approved'`
-  (or `status = 'approved'`, whichever the table uses — schema check at build
-  time). MRN de-dup across both sources.
-- Returns `{ counts: Record<CohortKey, number>, loading, error, lastRefreshed }`.
-- Refresh: on mount + every 60 seconds via `setInterval`. Value-set fetch is
-  cached in-module for 5 minutes; count queries re-run on every tick.
+- Static `ORDER_SETS` array (Sepsis Bundle, ACS, Septic Shock, Infection Workup): each entry has `id`, `label` (e.g. "Sepsis Protocol — 3-hour bundle suggested"), `severity: 'red' | 'critical' | 'amber'`, `items: string[]` from the spec.
+- Static `TRIGGERS` array — one entry per spec:
+  1. Sepsis Bundle → value set `Sepsis Indicators`, any member match, streams A/B.
+  2. ACS → value set `High-Acuity ED Presentations`, code ∈ {57054005, 413444003, 194828000}.
+  3. Septic Shock → exact code 76571007.
+  4. Infection Workup → codes ∈ {5758002, 91302008}, streams A/B.
+- `matchTriggers(approvedSnomedCodes, vsCodeIndex)` → returns matched order-set ids in priority order (critical > red > amber). If Septic Shock fires it supersedes the base Sepsis Bundle (dedupe: drop `sepsis-bundle` when `septic-shock` present).
 
-Failure modes: any query error → that cohort shows `—`; hook never throws.
+Value-set code lookup piggybacks on the already-loaded cache from `src/lib/safety-alerts-engine.ts` via its existing `ensureValueSetsLoaded()` export — both `Sepsis Indicators` and `High-Acuity ED Presentations` are already in that set. Adds no extra Supabase fetch.
 
-## New tile component
+## CDS watcher hook
 
-`src/components/analytics/CohortCountsStrip.tsx` — presentational only.
+`src/hooks/useCdsSuggestionsWatcher.ts` — mounted once from `src/routes/__root.tsx` alongside `useSafetyAlertsWatcher`.
 
-- Props: `counts`, `loading`.
-- Renders a compact horizontal strip of 5 tiles (label + count + tiny
-  icon). Neutral card styling matching existing surfaces; no color-coded
-  severity. Skeleton `—` while loading.
-- Zero interaction. No drill-down in this task.
+- Listens for `window` `nlp:approved` events.
+- On fire: reuses the same fetch pattern as the safety watcher — pulls the 5 most recent approved `nlp_audit_logs` rows for the MRN, flattens the SNOMED code array from `standardized_output["SNOMED CT"]`.
+- Calls `matchTriggers(codes, vsIndex)` then writes results to `localStorage["spehr.cds.suggestions.${mrn}"]` as `{ suggestions: [{id, label, severity, items, firedAt}], version: 1 }`. One suggestion per trigger per admission — dedupe by trigger id already present in stored payload; new admission is detected by a stored `admissionKey` field (composed of MRN + latest `admission_time` from `patients`; if it changes, clear old entries).
+- Dispatches a `spehr:cds` window event with `{ mrn }` so open chart views update immediately.
 
-## Mount points (additive, no layout rework)
+## Chart integration
 
-1. `src/routes/nursing-board.tsx` — insert `<CohortCountsStrip />` at the
-   top of the main content area, above the existing patient grid. One
-   `useCohortCounts()` call at the top of the component.
-2. `src/routes/physician-board.tsx` — same insertion at the top of its
-   main content area.
-3. `src/routes/analytics.tsx` — insert the strip at the top of
-   `AnalyticsPage`, above the existing summary cards. (This surface is what
-   `system-admin` embeds under the Network Analytics tab, so admin
-   automatically picks it up — no `system-admin.tsx` edit needed.)
+`src/components/patient/CdsSuggestionsBanners.tsx` — new component.
 
-Each mount is a single added line + one hook call. No changes to existing
-markup, card design, filters, or refresh cycles.
+- Props: `mrn`.
+- Reads `localStorage["spehr.cds.suggestions.${mrn}"]` on mount and on `spehr:cds` events (and `storage` events for cross-tab).
+- Renders one stacked banner per suggestion above the chart content. Severity styling:
+  - `critical` — deep red border + darker fill, "🔴" prefix.
+  - `red` — red border/fill, "🔴" prefix.
+  - `amber` — amber border/fill, "⚠" prefix.
+- Each banner has a "View Order Set" button and a dismiss (×) button. Dismiss flips a `dismissed:true` flag in the same localStorage record — banner hides but suggestion stays (spec: one per trigger per admission).
+- "View Order Set" opens a slide-over panel (right-side sheet, fixed inset-y-0 right-0 w-96) listing the order-set items as a bulleted read-only list, header shows the label + severity, footer "Close" button. No ordering actions.
+
+Mount point in `src/routes/patient.$mrn.tsx`: insert `<CdsSuggestionsBanners mrn={patient.mrn} />` right next to the existing `<DischargeConformanceBanner />` insertion (single line, same location).
+
+## Wiring in root
+
+`src/routes/__root.tsx` — add `useCdsSuggestionsWatcher()` alongside the existing `useSafetyAlertsWatcher()` call. Nothing else changes.
 
 ## Untouched
 
-- ED board layout, patient card design, patient grid.
-- Any other analytics widget, PopulationHealth, existing summary cards.
-- NLP pipeline, Safety Alerts, admission form, discharge validation,
-  Value Set Library, custom_value_sets contents.
-- No new tables, no migrations, no secrets.
+- Safety Alerts engine, NLP pipeline, admission form, discharge validation, Value Set Library, cohort strip, chart layout.
+- `custom_value_sets`, `nlp_audit_logs`, and every other table — no schema changes, no migrations.
+- No new secrets, no new edge functions or server routes.
 
 ## Files touched
 
-- Add: `src/hooks/useCohortCounts.ts`
-- Add: `src/components/analytics/CohortCountsStrip.tsx`
-- Edit: `src/routes/nursing-board.tsx` (import + one tag)
-- Edit: `src/routes/physician-board.tsx` (import + one tag)
-- Edit: `src/routes/analytics.tsx` (import + one tag)
+- Add: `src/lib/cds-order-sets.ts`
+- Add: `src/hooks/useCdsSuggestionsWatcher.ts`
+- Add: `src/components/patient/CdsSuggestionsBanners.tsx`
+- Edit: `src/routes/__root.tsx` (one hook call)
+- Edit: `src/routes/patient.$mrn.tsx` (import + one tag)
