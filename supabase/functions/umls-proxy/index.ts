@@ -271,6 +271,64 @@ async function checkSubsumes(p: Record<string, unknown>): Promise<{
   return { outcome: "not-subsumed", codeA, codeB, elapsed_ms: Date.now() - started };
 }
 
+// ─── VSAC $expand by OID ─────────────────────────────────────────────────────
+//
+// Calls the NLM VSAC FHIR terminology server with HTTP Basic Auth
+// (username = UMLS_API_KEY, empty password). Returns a normalized shape the
+// UI can preview + import into custom_value_sets.
+
+const VSAC_SYSTEM_TO_VOCAB: Record<string, string> = {
+  "http://snomed.info/sct": "SNOMED CT",
+  "http://hl7.org/fhir/sid/icd-10-cm": "ICD-10-CM",
+  "http://loinc.org": "LOINC",
+  "http://www.nlm.nih.gov/research/umls/rxnorm": "RxNorm",
+  "http://www.ama-assn.org/go/cpt": "CPT",
+};
+
+async function vsacExpand(p: Record<string, unknown>): Promise<
+  | {
+      oid: string;
+      name: string | null;
+      title: string | null;
+      total: number;
+      codes: Array<{ code: string; display: string; vocabulary: string }>;
+    }
+  | { error: string; status: number }
+> {
+  const oid = String(p.oid ?? "").trim();
+  if (!oid) return { error: "Missing OID", status: 400 };
+
+  const url = `https://cts.nlm.nih.gov/fhir/ValueSet/$expand?url=https://cts.nlm.nih.gov/fhir/ValueSet/${encodeURIComponent(oid)}`;
+  const auth = btoa(`${UMLS_API_KEY}:`);
+  const res = await fetch(url, {
+    headers: { Accept: "application/json", Authorization: `Basic ${auth}` },
+  });
+
+  if (!res.ok) {
+    return {
+      error: `VSAC returned ${res.status}: ${res.statusText}. This UMLS API key may not have VSAC access, or the OID doesn't exist.`,
+      status: res.status,
+    };
+  }
+
+  const resource = await res.json();
+  const expansion = resource?.expansion ?? {};
+  const contains: any[] = Array.isArray(expansion.contains) ? expansion.contains : [];
+  const codes = contains.map((c) => ({
+    code: String(c?.code ?? ""),
+    display: String(c?.display ?? ""),
+    vocabulary: VSAC_SYSTEM_TO_VOCAB[String(c?.system ?? "")] ?? String(c?.system ?? ""),
+  })).filter((c) => c.code);
+
+  return {
+    oid,
+    name: resource?.name ?? null,
+    title: resource?.title ?? null,
+    total: typeof expansion.total === "number" ? expansion.total : codes.length,
+    codes,
+  };
+}
+
 // ─── Action type ─────────────────────────────────────────────────────────────
 
 type Action =
