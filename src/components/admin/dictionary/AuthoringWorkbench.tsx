@@ -30,12 +30,46 @@ export function AuthoringWorkbench() {
   const [excluded, setExcluded] = useState<Picked[]>([]);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const [log, setLog] = useState<string[]>([]);
+  const [log, setLog] = useState<Array<{ id: string; created_at: string; actor: string; message: string }>>([]);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [savedStatus, setSavedStatus] = useState<"draft" | "review" | "published" | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load + subscribe to unified authoring activity log
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("terminology_activity_log" as any)
+        .select("id, created_at, actor, message")
+        .eq("feature", "authoring")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (!cancelled && data) setLog(data as any);
+    };
+    load();
+    const ch = supabase
+      .channel("terminology-activity-authoring")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "terminology_activity_log", filter: "feature=eq.authoring" },
+        (payload) => setLog((l) => [payload.new as any, ...l].slice(0, 50)),
+      )
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, []);
+
+  const logActivity = (action: string, message: string, ref_id?: string | null) => {
+    void supabase.from("terminology_activity_log" as any).insert({
+      feature: "authoring",
+      actor: "S.P.E.H.R. Terminology Services",
+      action,
+      message,
+      ref_id: ref_id ?? null,
+    });
+  };
 
   const runSearch = useCallback(async (q: string, v = vocab) => {
     if (!q || q.length < 2) { setResults([]); return; }
@@ -80,13 +114,13 @@ export function AuthoringWorkbench() {
     const picked: Picked = { code: hit.ui, display: hit.name, vocabulary: vocab.label, excluded: exclude };
     if (exclude) setExcluded(p => p.find(x => x.code === picked.code) ? p : [...p, picked]);
     else setPicks(p => p.find(x => x.code === picked.code) ? p : [...p, picked]);
-    setLog(l => [`${exclude ? "Excluded" : "Added"} ${hit.ui} · ${hit.name}`, ...l].slice(0, 10));
+    logActivity(exclude ? "excluded_concept" : "added_concept", `${exclude ? "Excluded" : "Added"} ${hit.ui} · ${hit.name}`, hit.ui);
   };
 
   const removePick = (code: string, list: "in" | "out") => {
     if (list === "in") setPicks(p => p.filter(x => x.code !== code));
     else setExcluded(p => p.filter(x => x.code !== code));
-    setLog(l => [`Removed ${code}`, ...l].slice(0, 10));
+    logActivity("removed_concept", `Removed ${code}`, code);
   };
 
   const save = async (status: "draft" | "review") => {
@@ -113,7 +147,7 @@ export function AuthoringWorkbench() {
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 2000);
       toast.success(status === "review" ? "Submitted for review" : "Draft saved");
-      setLog(l => [`Saved as ${status}`, ...l].slice(0, 10));
+      logActivity(status === "review" ? "submitted_review" : "saved_draft", `Saved "${name}" as ${status}`, data?.id ?? null);
       // IMPORTANT: do NOT reset name / picks / excluded / notes — keep workbench loaded
       // so the user can immediately click "Submit for Review" or keep editing.
     } catch (e: any) {
@@ -301,8 +335,21 @@ export function AuthoringWorkbench() {
 
       <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[10px]">
         <div className="font-semibold text-slate-600 mb-1">Authoring Activity Log</div>
-        {log.length === 0 ? <div className="text-slate-400">No changes this session.</div>
-          : <div className="font-mono text-slate-700 space-x-2">{log.join(" · ")}</div>}
+        {log.length === 0 ? (
+          <div className="text-slate-400">No activity yet.</div>
+        ) : (
+          <ul className="font-mono text-slate-700 space-y-0.5 max-h-40 overflow-y-auto">
+            {log.map((e) => (
+              <li key={e.id}>
+                <span className="text-slate-400">{new Date(e.created_at).toLocaleTimeString()}</span>
+                {" · "}
+                <span className="text-slate-500">{e.actor}</span>
+                {" · "}
+                <span>{e.message}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
