@@ -1145,6 +1145,8 @@ type DbSafetyAlert = {
   auto_resolve_at: string | null;
   resolved_by: string | null;
   resolution_rationale: string | null;
+  risk_score: number | null;
+  medication_order_id: string | null;
 };
 
 /* ------------------------------------------------------------------ */
