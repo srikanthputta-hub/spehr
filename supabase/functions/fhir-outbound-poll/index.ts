@@ -127,7 +127,11 @@ function buildChargeItem(row: any, invoiceNo?: string | null) {
       text: row.description,
     },
     subject: { reference: `Patient/${row.mrn}` },
-    context: invoiceNo ? { reference: `Invoice/${fhirSafeId(invoiceNo)}` } : undefined,
+    // FHIR R4: ChargeItem.context is Encounter|EpisodeOfCare only.
+    // Link back to the Invoice via supportingInformation instead.
+    supportingInformation: invoiceNo
+      ? [{ reference: `Invoice/${fhirSafeId(invoiceNo)}` }]
+      : undefined,
     occurrenceDateTime: row.service_date ?? undefined,
     quantity: { value: quantity },
     priceOverride: { value: unitPrice, currency },
