@@ -704,12 +704,27 @@ function Dashboard() {
   const handleDischarge = async (p: PatientRow) => {
     const prev = patients;
     setPatients((curr) => curr.filter((x) => x.mrn !== p.mrn));
-    const { error } = await supabase.from("patients").delete().eq("mrn", p.mrn);
+    const { error } = await supabase
+      .from("patients")
+      .update({
+        status: "Discharged",
+        discharge_time: new Date().toISOString(),
+      } as any)
+      .eq("mrn", p.mrn);
     if (error) {
       setPatients(prev);
       toast.error("Could not discharge", { description: error.message });
       return;
     }
+    // Release the bed so it becomes available for the next admission.
+    await supabase
+      .from("bed_management")
+      .update({
+        status: "Available",
+        current_patient_mrn: null,
+        status_updated_at: new Date().toISOString(),
+      } as any)
+      .eq("current_patient_mrn", p.mrn);
     toast.success("Patient discharged", { description: `${p.name} · ${p.mrn}` });
   };
 
