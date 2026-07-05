@@ -31,6 +31,7 @@ import { VITALS_LOINC } from "@/lib/vitals-loinc-map";
 import { lookupLabLoinc } from "@/lib/lab-loinc-map";
 import { lookupDrugRxnorm, leadingDrugToken } from "@/lib/drug-rxnorm-map";
 import { validateStreamCodes, type StreamKey, type CodeInput } from "@/lib/nlp-validate";
+import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
 
 /**
  * Stream C helper: hardcoded map first, then live RxNorm with an exact
@@ -378,6 +379,19 @@ export async function runSixStreamPipeline(
           rxnorm_code: rx.code, rxnorm_display: rx.display,
         });
       }
+    }
+    // Fire safety-alert checks for every coded medication in this run —
+    // Stream C codes drugs via UPDATE after insert, so the realtime INSERT
+    // watcher on medication_orders alone misses this path. Explicit call
+    // here ensures Rule 1 (drug-allergy) always gets a chance to fire.
+    for (const item of streamC.items as any[]) {
+      if (!item?.rxnorm_code) continue;
+      runMedicationOrderRules({
+        mrn,
+        rxnorm_code: item.rxnorm_code,
+        rxnorm_display: item.rxnorm_display ?? item.name,
+        medication_name: item.name,
+      }).catch((e) => console.warn("[coding-pipeline] safety alert check failed", e));
     }
     streamC.status = statusFor(streamC.count, Math.max(medsExpected, streamC.count));
 
