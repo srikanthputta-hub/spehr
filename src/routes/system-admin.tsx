@@ -1657,7 +1657,7 @@ function SafetyQueue({ facility }: { facility: string }) {
           ),
         );
 
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from("clinical_safety_alerts")
           .update({
             status,
@@ -1668,9 +1668,14 @@ function SafetyQueue({ facility }: { facility: string }) {
             resolution_rationale: rationale,
           })
           .eq("id", c.id)
-          .eq("status", "Pending Review");
+          .eq("status", "Pending Review")
+          .select("id");
         inflight.delete(c.id);
-        if (!error) {
+        // Only run side effects when THIS caller actually flipped the row
+        // from Pending Review — a no-op update (0 rows) means another tab /
+        // tick already resolved it, so skip to avoid duplicate cds_overrides
+        // and duplicate substitute medication orders.
+        if (!error && (updated?.length ?? 0) > 0) {
           await resolveAlertSideEffects(c, status, physicianName, rationale);
           toast.success(`SLA auto-${status.toLowerCase()}: ${c.patient_name ?? c.mrn}`, {
             description: rationale,
@@ -1693,7 +1698,7 @@ function SafetyQueue({ facility }: { facility: string }) {
           )
         : defaultRationale;
     if (rationale === null) return;
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("clinical_safety_alerts")
       .update({
         status,
@@ -1703,8 +1708,15 @@ function SafetyQueue({ facility }: { facility: string }) {
         resolved_by: "Human Clinician",
         resolution_rationale: rationale,
       })
-      .eq("id", c.id);
+      .eq("id", c.id)
+      .eq("status", "Pending Review")
+      .select("id");
     if (error) { toast.error("Update failed", { description: error.message }); return; }
+    if (!updated || updated.length === 0) {
+      toast.info("Alert already resolved");
+      refresh();
+      return;
+    }
     await resolveAlertSideEffects(c, status, "Human Clinician", rationale);
     toast.success(`Alert ${status.toLowerCase()}`);
     refresh();

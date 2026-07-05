@@ -200,15 +200,26 @@ async function fireAlert(input: FireInput): Promise<void> {
     auto_resolve_at: new Date(Date.now() + 45_000).toISOString(),
     risk_score: riskScoreFor(input.severity),
     medication_order_id: input.medication_order_id ?? null,
+    rule_id: input.ruleKey,
     created_by_type: "automation",
     updated_at: new Date().toISOString(),
   };
-  const { error } = await supabase.from("clinical_safety_alerts").insert(row as any);
+  // Race-safe insert: a unique index on (medication_order_id, rule_id) prevents
+  // duplicates even when two concurrent callers both pass alreadyFired(). Any
+  // unique-violation (23505) means another caller won the race — treat it as
+  // success (no duplicate side effects) and stop before holding the order or
+  // writing a duplicate audit-log line.
+  const { data: inserted, error } = await supabase
+    .from("clinical_safety_alerts")
+    .insert(row as any)
+    .select("id");
   if (error) {
+    if ((error as any).code === "23505") return;
     // eslint-disable-next-line no-console
     console.warn("[safety-alerts] insert failed", error.message);
     return;
   }
+  if (!inserted || inserted.length === 0) return;
   // Hold the offending medication order while the alert is pending review.
   if (input.medication_order_id) {
     await supabase
