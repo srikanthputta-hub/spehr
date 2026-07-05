@@ -28,6 +28,11 @@ const FHIR_APIKEY = Deno.env.get("FHIR_APIKEY") ?? "";
 
 const BATCH_LIMIT = 200;
 
+function isoMax(a: string, b: string): string {
+  const ai = toIso(a), bi = toIso(b);
+  return new Date(ai).getTime() >= new Date(bi).getTime() ? ai : bi;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -215,8 +220,7 @@ async function pollInvoices(admin: any) {
   const result = await pushBundle(entries);
   if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
   stats.pushed = rows.length;
-  // Advance cursor to the latest updated_at we just pushed.
-  const maxTs = rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), since);
+  const maxTs = rows.reduce((m, r) => isoMax(m, r.updated_at), since);
   await writeState(admin, "outbound_invoice_last_synced_at", maxTs);
   return stats;
 }
@@ -249,7 +253,7 @@ async function pollChargeItems(admin: any) {
   const result = await pushBundle(entries);
   if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
   stats.pushed = rows.length;
-  const maxTs = rows.reduce((m, r) => (r.created_at > m ? r.created_at : m), since);
+  const maxTs = rows.reduce((m, r) => isoMax(m, r.created_at), since);
   await writeState(admin, "outbound_chargeitem_last_synced_at", maxTs);
   return stats;
 }
@@ -275,7 +279,7 @@ async function pollAppointments(admin: any) {
   const result = await pushBundle(entries);
   if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
   stats.pushed = rows.length;
-  const maxTs = rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), since);
+  const maxTs = rows.reduce((m, r) => isoMax(m, r.updated_at), since);
   await writeState(admin, "outbound_appointment_last_synced_at", maxTs);
   return stats;
 }
