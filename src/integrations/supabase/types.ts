@@ -966,6 +966,7 @@ export type Database = {
           description: string | null
           end_time: string
           facility_name: string
+          fhir_id: string | null
           id: string
           patient_mrn: string | null
           patient_name: string
@@ -981,6 +982,7 @@ export type Database = {
           description?: string | null
           end_time: string
           facility_name: string
+          fhir_id?: string | null
           id?: string
           patient_mrn?: string | null
           patient_name: string
@@ -996,6 +998,7 @@ export type Database = {
           description?: string | null
           end_time?: string
           facility_name?: string
+          fhir_id?: string | null
           id?: string
           patient_mrn?: string | null
           patient_name?: string
@@ -1302,6 +1305,7 @@ export type Database = {
           amount: number
           created_at: string
           currency: string
+          fhir_id: string | null
           id: string
           invoice_id: string
           mrn: string
@@ -1314,6 +1318,7 @@ export type Database = {
           amount: number
           created_at?: string
           currency?: string
+          fhir_id?: string | null
           id?: string
           invoice_id: string
           mrn: string
@@ -1326,6 +1331,7 @@ export type Database = {
           amount?: number
           created_at?: string
           currency?: string
+          fhir_id?: string | null
           id?: string
           invoice_id?: string
           mrn?: string
