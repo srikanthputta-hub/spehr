@@ -386,6 +386,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       loinc_keyword?: string;
       facilities?: string[];
       since_iso?: string;
+      value_set_id?: string;
     }) => d,
   )
   .handler(async ({ data }) => {
@@ -398,6 +399,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
     // free-text chief_complaint match alone.
     let labMrns: Set<string> | null = null;
     let condMrns: Set<string> | null = null;
+    let vsMrns: Set<string> | null = null;
     const topLoinc: Record<string, number> = {};
     const topSnomed: Record<string, number> = {};
 
@@ -439,6 +441,56 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       }
     }
 
+    // ── 1b. Published value-set gate ───────────────────────────────────
+    // When a value set is selected, narrow to MRNs whose coded conditions
+    // (snomed/icd10) or lab_orders (loinc) contain ANY code from the set.
+    let vsMeta: { name: string; codes_count: number } | null = null;
+    if (data.value_set_id) {
+      const { data: vs } = await sb
+        .from("custom_value_sets")
+        .select("id, name, codes")
+        .eq("id", data.value_set_id)
+        .maybeSingle();
+      const codesArr = Array.isArray((vs as any)?.codes) ? (vs as any).codes : [];
+      vsMeta = { name: (vs as any)?.name ?? "value set", codes_count: codesArr.length };
+      const allCodes = codesArr
+        .map((c: any) => String(c?.code ?? "").trim())
+        .filter((c: string) => c.length > 0);
+      vsMrns = new Set();
+      if (allCodes.length > 0) {
+        const [{ data: vsCond }, { data: vsLab }] = await Promise.all([
+          sb
+            .from("conditions")
+            .select("patient_mrn, snomed_code, snomed_display, icd10_code, icd10_display")
+            .or(
+              `snomed_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")}),icd10_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")})`,
+            )
+            .limit(5000),
+          sb
+            .from("lab_orders")
+            .select("patient_mrn, loinc_code, loinc_display")
+            .in("loinc_code", allCodes)
+            .limit(5000),
+        ]);
+        for (const r of (vsCond as any[]) ?? []) {
+          if (r.patient_mrn) vsMrns.add(r.patient_mrn);
+          const key = r.snomed_display
+            ? `${r.snomed_code ?? "?"} · ${r.snomed_display}`
+            : r.icd10_display
+            ? `${r.icd10_code ?? "?"} · ${r.icd10_display}`
+            : "uncoded";
+          topSnomed[key] = (topSnomed[key] ?? 0) + 1;
+        }
+        for (const r of (vsLab as any[]) ?? []) {
+          if (r.patient_mrn) vsMrns.add(r.patient_mrn);
+          const key = r.loinc_display
+            ? `${r.loinc_code ?? "?"} · ${r.loinc_display}`
+            : r.loinc_code ?? "uncoded";
+          topLoinc[key] = (topLoinc[key] ?? 0) + 1;
+        }
+      }
+    }
+
     // ── 2. Patient query (preserves chief_complaint ilike as fallback) ──
     let q = sb
       .from("patients")
@@ -456,6 +508,9 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
     const { data: rows } = await q;
     let filtered = (rows as any[]) ?? [];
 
+    if (vsMrns) {
+      filtered = filtered.filter((r) => vsMrns!.has(r.mrn));
+    }
     if (data.condition_keyword) {
       const k = data.condition_keyword.toLowerCase();
       filtered = filtered.filter(
@@ -490,6 +545,8 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       condition: data.condition_keyword ?? null,
       loinc: data.loinc_keyword ?? null,
       facilities: data.facilities ?? null,
+      value_set_id: data.value_set_id ?? null,
+      value_set_name: vsMeta?.name ?? null,
       cohort_size: filtered.length,
     });
     return {
