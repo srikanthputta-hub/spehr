@@ -206,7 +206,9 @@ export function buildChargeItemResource(args: {
                 ? "http://www.nlm.nih.gov/research/umls/rxnorm"
                 : c.codeSystem === "CPT"
                   ? "http://www.ama-assn.org/go/cpt"
-                  : "http://spehr.local/charge",
+                  : c.codeSystem === "ICD-10"
+                    ? "http://hl7.org/fhir/sid/icd-10-cm"
+                    : "http://spehr.local/charge",
           code: c.code,
           display: c.description,
         },
