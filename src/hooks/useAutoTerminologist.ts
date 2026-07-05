@@ -97,7 +97,11 @@ function titleCase(s: string): string {
 }
 
 function cleanComplaintName(raw: string): string {
-  let words = raw.replace(/[^a-zA-Z0-9\s\/-]/g, " ").split(/\s+/).filter(Boolean);
+  // Strip trailing SNOMED semantic tags like "(finding)", "(disorder)", "(procedure)"
+  let cleaned = raw.replace(/\s*\((finding|disorder|procedure|situation|observable entity|body structure|qualifier value|event|substance|product)\)\s*$/i, "");
+  // Strip trailing ", unspecified" / ", NOS" / "not otherwise specified"
+  cleaned = cleaned.replace(/,\s*(unspecified|not otherwise specified|nos)\.?\s*$/i, "");
+  let words = cleaned.replace(/[^a-zA-Z0-9\s\/-]/g, " ").split(/\s+/).filter(Boolean);
   // Trim trailing stop / preposition / conjunction fragments
   while (words.length > 1 && STOP_TAIL.has(words[words.length - 1].toLowerCase())) {
     words.pop();
@@ -170,7 +174,7 @@ async function collectRecentCodes(): Promise<{ hits: CodeHit[]; admissions: numb
   for (const p of patients) themeByMrn.set(p.mrn, themeFromText(p.chief_complaint));
 
   const [conds, meds, labs] = await Promise.all([
-    supabase.from("conditions").select("mrn, icd10_code, snomed_code, display_text").in("mrn", mrns).limit(2000),
+    supabase.from("conditions").select("mrn, icd10_code, snomed_code, display_text, snomed_display, icd10_display").in("mrn", mrns).limit(2000),
     supabase.from("medication_orders").select("patient_mrn, rxnorm_code, drug_name").in("patient_mrn", mrns).limit(2000),
     supabase.from("lab_orders").select("patient_mrn, loinc_code, test_type").in("patient_mrn", mrns).limit(2000),
   ]);
@@ -178,8 +182,8 @@ async function collectRecentCodes(): Promise<{ hits: CodeHit[]; admissions: numb
   const hits: CodeHit[] = [];
   for (const c of (conds.data ?? []) as any[]) {
     const theme = themeByMrn.get(c.mrn) ?? themeFromText(c.display_text);
-    if (c.snomed_code) hits.push({ code: String(c.snomed_code), vocab: "SNOMED CT", display: c.display_text, theme });
-    if (c.icd10_code) hits.push({ code: String(c.icd10_code), vocab: "ICD-10", display: c.display_text, theme });
+    if (c.snomed_code) hits.push({ code: String(c.snomed_code), vocab: "SNOMED CT", display: c.snomed_display || c.display_text, theme });
+    if (c.icd10_code) hits.push({ code: String(c.icd10_code), vocab: "ICD-10", display: c.icd10_display || c.display_text, theme });
   }
   for (const m of (meds.data ?? []) as any[]) {
     if (!m.rxnorm_code) continue;
