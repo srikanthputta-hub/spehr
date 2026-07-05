@@ -380,6 +380,19 @@ export async function runSixStreamPipeline(
         });
       }
     }
+    // Fire safety-alert checks for every coded medication in this run —
+    // Stream C codes drugs via UPDATE after insert, so the realtime INSERT
+    // watcher on medication_orders alone misses this path. Explicit call
+    // here ensures Rule 1 (drug-allergy) always gets a chance to fire.
+    for (const item of streamC.items as any[]) {
+      if (!item?.rxnorm_code) continue;
+      runMedicationOrderRules({
+        mrn,
+        rxnorm_code: item.rxnorm_code,
+        rxnorm_display: item.rxnorm_display ?? item.name,
+        medication_name: item.name,
+      }).catch((e) => console.warn("[coding-pipeline] safety alert check failed", e));
+    }
     streamC.status = statusFor(streamC.count, Math.max(medsExpected, streamC.count));
 
     // -------- Stream D: Allergies -------------------------------------
