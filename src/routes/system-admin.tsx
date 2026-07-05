@@ -4195,7 +4195,7 @@ function TaxonomyTree({
 }
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "fhir" | "autoterm">("library");
+  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "fhir" | "autoterm">("authoring");
 
   // Cross-tab navigation: Live Terminology Matrix pills can request a tab switch.
   useEffect(() => {
@@ -4659,12 +4659,12 @@ function MedicalDictionary() {
       {/* Sub-tab nav — 2 rows of 4, full names visible (no truncation) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 rounded-xl bg-slate-100/70 p-1.5 border border-slate-200">
         {([
-          { id: "library",   label: "Value Set Library", Icon: BookMarked },
           { id: "authoring", label: "Authoring Workbench", Icon: Sparkles },
+          { id: "library",   label: "Value Set Library", Icon: BookMarked },
           { id: "crossmap",  label: "Cross-Map Studio", Icon: Activity },
           { id: "audits",    label: "NLP Audit Logs", Icon: Sparkles },
-          { id: "matrix",    label: "Live Terminology Matrix", Icon: Grid3x3 },
           { id: "safety",    label: "Safety Alerts", Icon: ShieldAlert },
+          { id: "matrix",    label: "Live Terminology Matrix", Icon: Grid3x3 },
           { id: "fhir",      label: "FHIR Terminology Server", Icon: FileJson },
           { id: "autoterm",  label: "Auto Terminologist", Icon: Sparkles },
         ] as const).map(({ id, label, Icon }) => {
