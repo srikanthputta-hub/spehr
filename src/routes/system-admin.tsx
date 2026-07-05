@@ -77,7 +77,6 @@ import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
 import { ValueSetLibrary } from "@/components/admin/dictionary/ValueSetLibrary";
 import { AuthoringWorkbench } from "@/components/admin/dictionary/AuthoringWorkbench";
 import { CrossMapStudio } from "@/components/admin/dictionary/CrossMapStudio";
-import { FhirTerminologyServerOps } from "@/components/admin/dictionary/FhirTerminologyServerOps";
 import { TerminologyStatusStrip } from "@/components/admin/dictionary/TerminologyStatusStrip";
 import { AutoTerminologistActivity } from "@/components/admin/dictionary/AutoTerminologistActivity";
 import NlpAuditLogsPanel from "@/components/admin/dictionary/NlpAuditLogsPanel";
@@ -383,6 +382,7 @@ const TABS = [
   { id: "audit" as const, label: "📜 Audit Log", icon: Activity },
   { id: "analytics" as const, label: "📊 Network Analytics", icon: BarChart3 },
   { id: "dictionary" as const, label: "📚 Medical Dictionary", icon: BookMarked },
+  { id: "fhir_interop" as const, label: "🔗 FHIR Interoperability", icon: Network },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -909,6 +909,11 @@ function SystemAdminPage() {
       {tab === "dictionary" && (
         <div className="max-w-6xl mx-auto px-6 pb-8">
           <MedicalDictionary />
+        </div>
+      )}
+      {tab === "fhir_interop" && (
+        <div className="max-w-6xl mx-auto px-6 pb-8">
+          <FhirInteropTopLevel />
         </div>
       )}
     </main>
@@ -3229,6 +3234,32 @@ const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
   );
 });
 
+function FhirInteropTopLevel() {
+  const [facility, setFacility] = useState<string>("all");
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="inline-flex items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+            🏥 Select Facility Network
+          </span>
+          <select
+            value={facility}
+            onChange={(e) => setFacility(e.target.value)}
+            className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none hover:bg-slate-50 focus:border-slate-400 transition cursor-pointer"
+          >
+            <option value="all">All Facilities</option>
+            {FACILITIES.map((f) => (
+              <option key={f} value={f}>{f}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <FhirInteroperability facility={facility} />
+    </div>
+  );
+}
+
 function FhirInteroperability({ facility }: { facility: string }) {
   const [rows, setRows] = useState<FhirEncounterRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4365,7 +4396,7 @@ function TaxonomyTree({
 }
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "fhir" | "autoterm">("authoring");
+  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "autoterm">("authoring");
 
   // Cross-tab navigation: Live Terminology Matrix pills can request a tab switch.
   useEffect(() => {
@@ -4835,7 +4866,6 @@ function MedicalDictionary() {
           { id: "audits",    label: "NLP Audit Logs", Icon: Sparkles },
           { id: "safety",    label: "Safety Alerts", Icon: ShieldAlert },
           { id: "matrix",    label: "Live Terminology Matrix", Icon: Grid3x3 },
-          { id: "fhir",      label: "FHIR Terminology Server", Icon: FileJson },
           { id: "autoterm",  label: "Auto Terminologist", Icon: Sparkles },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
@@ -4865,12 +4895,6 @@ function MedicalDictionary() {
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "safety" && <CdsOverridesFeed />}
-      {subtab === "fhir" && (
-        <div className="space-y-6">
-          <FhirTerminologyServerOps />
-          <FhirInteroperability facility={facilityFilter} />
-        </div>
-      )}
       {subtab === "autoterm" && <AutoTerminologistActivity />}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>

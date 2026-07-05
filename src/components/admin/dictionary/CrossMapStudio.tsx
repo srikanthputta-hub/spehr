@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { TranslateCard } from "@/components/admin/dictionary/FhirOpCards";
 
 const VOCABS = [
   { label: "SNOMED CT", uri: "http://snomed.info/sct" },
@@ -398,6 +399,16 @@ export function CrossMapStudio() {
           </ul>
         )}
       </div>
+
+      <details className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+          ⚡ FHIR Operation · ConceptMap/$translate
+        </summary>
+        <p className="text-[11px] text-slate-600 mt-1 mb-3">
+          Translate a single code across code systems as a FHIR Parameters resource.
+        </p>
+        <TranslateCard />
+      </details>
     </div>
   );
 }

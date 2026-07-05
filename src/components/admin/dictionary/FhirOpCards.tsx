@@ -22,28 +22,6 @@ const SAB_MAP: Record<string, string> = {
 };
 const toSab = (label: string) => SAB_MAP[label] ?? label;
 
-export function FhirTerminologyServerOps() {
-  return (
-    <div className="space-y-4">
-      <div className="rounded-md border border-emerald-200 bg-emerald-50/60 p-5">
-        <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-          ⚡ FHIR R4 Terminology Server Operations
-        </h3>
-        <p className="text-xs text-slate-600 mt-1">
-          S.P.E.H.R. exposes a FHIR-compliant terminology server backed by live UMLS data.
-        </p>
-        <p className="text-[11px] text-slate-700 mt-2 font-mono">Base URL: <strong>https://spehr.live/fhir</strong></p>
-      </div>
-
-      <div className="grid xl:grid-cols-3 gap-4">
-        <LookupCard />
-        <ExpandCard />
-        <TranslateCard />
-      </div>
-    </div>
-  );
-}
-
 function ResponseBox({ data, latencyMs }: { data: any; latencyMs?: number | null }) {
   const [copied, setCopied] = useState(false);
   if (!data) return null;
@@ -77,7 +55,7 @@ function ResponseBox({ data, latencyMs }: { data: any; latencyMs?: number | null
 
 const NEG_RESULT = { resourceType: "Parameters", parameter: [{ name: "result", valueBoolean: false }] };
 
-function LookupCard() {
+export function LookupCard() {
   const [sys, setSys] = useState(CODE_SYSTEMS[0]);
   const [code, setCode] = useState("22298006");
   const [loading, setLoading] = useState(false);
@@ -138,7 +116,7 @@ function LookupCard() {
   );
 }
 
-function ExpandCard() {
+export function ExpandCard() {
   const [valueSets, setValueSets] = useState<string[]>([]);
   const [vs, setVs] = useState<string>("");
   const [filter, setFilter] = useState("");
@@ -243,7 +221,7 @@ function ExpandCard() {
   );
 }
 
-function TranslateCard() {
+export function TranslateCard() {
   const [src, setSrc] = useState(CODE_SYSTEMS[0]);
   const [tgt, setTgt] = useState(CODE_SYSTEMS[1]);
   const [code, setCode] = useState("422504002");
