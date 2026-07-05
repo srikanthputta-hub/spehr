@@ -104,7 +104,18 @@ export function ValueSetLibrary() {
         body: { action: "vsacExpand", params: { oid } },
       });
       if (error) {
-        setVsacError(error.message ?? "Failed to reach VSAC");
+        let detail = error.message ?? "Failed to reach VSAC";
+        try {
+          // supabase-js FunctionsHttpError exposes the raw Response on `.context`
+          const ctx = (error as any).context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            if (body?.error) detail = body.error;
+          }
+        } catch {
+          // ignore — fall back to generic message
+        }
+        setVsacError(detail);
         return;
       }
       if (data?.error) {
