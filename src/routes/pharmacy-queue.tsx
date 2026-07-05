@@ -179,13 +179,15 @@ function PharmacyQueue() {
       "PENDING_PHARMACY",
       "PENDING_VERIFICATION",
       "DISPENSED",
+      "HELD_SAFETY_REVIEW",
+      "REJECTED_SAFETY_ALERT",
     ];
     (async () => {
       const { data, error } = await fetchWithTimeout(
         () =>
           supabase
             .from("medication_orders")
-            .select("id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at")
+            .select("id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at, ordering_physician")
             .eq("facility_name", facility)
             .in("status", PENDING_STATUSES)
             .order("created_at", { ascending: false })
