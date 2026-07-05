@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Download, Activity } from "lucide-react";
 import { runPopulationQuery } from "@/lib/auto-api.functions";
+import { supabase } from "@/integrations/supabase/client";
 
 const FACILITIES = [
   "Memorial Hospital",
@@ -26,6 +27,28 @@ export function PopulationHealth() {
   const [windowHours, setWindowHours] = useState(24 * 7);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [valueSetId, setValueSetId] = useState<string>("");
+  const [valueSets, setValueSets] = useState<Array<{ id: string; name: string; codes_count: number }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("custom_value_sets")
+        .select("id, name, codes")
+        .eq("status", "published")
+        .order("name", { ascending: true });
+      if (cancelled || !data) return;
+      setValueSets(
+        (data as any[]).map((v) => ({
+          id: v.id,
+          name: v.name,
+          codes_count: Array.isArray(v.codes) ? v.codes.length : 0,
+        })),
+      );
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const toggleFac = (f: string) =>
     setFacilities((p) => (p.includes(f) ? p.filter((x) => x !== f) : [...p, f]));
@@ -40,6 +63,7 @@ export function PopulationHealth() {
           loinc_keyword: loinc.trim() || undefined,
           facilities: facilities.length > 0 ? facilities : undefined,
           since_iso: since,
+          value_set_id: valueSetId || undefined,
         },
       });
       setResult(r);
@@ -100,6 +124,23 @@ export function PopulationHealth() {
             />
           </label>
         </div>
+        <label className="text-[11px] block">
+          <span className="font-semibold uppercase tracking-wider text-slate-500">
+            Filter by published value set
+          </span>
+          <select
+            value={valueSetId}
+            onChange={(e) => setValueSetId(e.target.value)}
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm bg-white"
+          >
+            <option value="">None — use keyword search</option>
+            {valueSets.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name} ({v.codes_count} codes)
+              </option>
+            ))}
+          </select>
+        </label>
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Facilities</div>
           <div className="flex flex-wrap gap-2">
