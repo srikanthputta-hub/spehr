@@ -698,19 +698,27 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
 async function pollClinical(admin: any) {
   const since = await readState(admin, "outbound_clinical_last_synced_at");
   const cutoff = new Date().toISOString();
-  const stats: any = { since, cutoff, mrns: 0, entries: 0, pushed: 0, failed: 0, skipped: [] };
+  const stats: any = {
+    since, cutoff, discovered: 0, mrns: 0, entries: 0,
+    pushed: 0, failed: 0, skipped: [] as any[],
+  };
 
-  const { mrns, maxTs } = await collectChangedMrns(admin, since);
-  stats.mrns = mrns.length;
-  if (mrns.length === 0) {
-    // No changes — hold the cursor at `since` so we don't accidentally
-    // skip past data that lands in the same millisecond window on the
-    // next tick. maxTs === since here.
+  const { selected, totalDiscovered, firstSkippedOldest } = await collectChangedMrns(admin, since);
+  stats.discovered = totalDiscovered;
+  stats.mrns = selected.length;
+  if (selected.length === 0) {
+    // No changes since `since`. Advance to `cutoff` so we don't re-scan
+    // the same empty window on every tick.
+    await writeState(admin, "outbound_clinical_last_synced_at", cutoff);
+    stats.cursorTo = cutoff;
     return stats;
   }
 
-  // Push per-MRN so a single bad row/MRN doesn't fail the whole batch.
-  for (const mrn of mrns) {
+  // Push oldest-first so a single bad MRN doesn't fail the whole batch and
+  // so the cursor-advance rule below is monotonic.
+  let lastFullyProcessedNewest: string | null = null;
+  for (const row of selected) {
+    const mrn = row.mrn;
     let built: { entries: any[]; skipped: string | null } | null = null;
     try {
       built = await buildEntriesForMrn(admin, mrn);
@@ -721,6 +729,8 @@ async function pollClinical(admin: any) {
     }
     if (built.skipped || built.entries.length === 0) {
       stats.skipped.push({ mrn, reason: built.skipped ?? "no_entries" });
+      // No push needed — safe to advance the cursor past this MRN.
+      lastFullyProcessedNewest = row.newest;
       continue;
     }
     stats.entries += built.entries.length;
@@ -728,17 +738,50 @@ async function pollClinical(admin: any) {
     if (!result.ok) {
       stats.failed += 1;
       stats.skipped.push({ mrn, reason: `push_${result.status}`, body: result.body });
+      // Do NOT advance past a failed push — next run retries this MRN.
       continue;
     }
     stats.pushed += 1;
+    lastFullyProcessedNewest = row.newest;
   }
 
-  // Advance cursor to the max seen ts (or `cutoff` if nothing had a newer
-  // timestamp — happens when the change was purely a delete or an anomaly).
-  const newCursor = maxTs > since ? maxTs : cutoff;
+  // Cursor-advance rule:
+  //  • If any MRN was skipped past the per-cycle CLINICAL_MRN_LIMIT, NEVER
+  //    advance past that MRN's oldest touched ts, or we'd permanently miss
+  //    it. Set cursor to just before that ts (1µs earlier) so next run's
+  //    `.gt()` picks it up.
+  //  • Otherwise advance to the newest ts we processed to completion,
+  //    falling back to `since` (never regressing).
+  let newCursor: string;
+  if (firstSkippedOldest) {
+    const rewind = subtractOneMicrosecond(firstSkippedOldest);
+    newCursor = lastFullyProcessedNewest && rewind < lastFullyProcessedNewest ? rewind : rewind;
+  } else if (lastFullyProcessedNewest) {
+    newCursor = lastFullyProcessedNewest;
+  } else {
+    newCursor = since;
+  }
+  if (newCursor < since) newCursor = since;
   await writeState(admin, "outbound_clinical_last_synced_at", newCursor);
   stats.cursorTo = newCursor;
   return stats;
+}
+
+// Postgres text ts has microsecond precision. Subtract 1µs so the next scan's
+// `.gt()` re-includes the row at `ts`.
+function subtractOneMicrosecond(ts: string): string {
+  const m = /^(.*\.)(\d{1,6})(.*)$/.exec(ts);
+  if (!m) {
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? ts : new Date(d.getTime() - 1).toISOString();
+  }
+  const digits = m[2].padEnd(6, "0");
+  const n = BigInt(digits) - 1n;
+  if (n < 0n) {
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? ts : new Date(d.getTime() - 1).toISOString();
+  }
+  return `${m[1]}${n.toString().padStart(6, "0")}${m[3]}`;
 }
 
 /* ---------------- Entry point ------------------------------------------- */
