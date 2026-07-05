@@ -4370,7 +4370,7 @@ function TaxonomyTree({
 }
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "fhir" | "autoterm">("authoring");
+  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "autoterm">("authoring");
 
   // Cross-tab navigation: Live Terminology Matrix pills can request a tab switch.
   useEffect(() => {
@@ -4840,7 +4840,6 @@ function MedicalDictionary() {
           { id: "audits",    label: "NLP Audit Logs", Icon: Sparkles },
           { id: "safety",    label: "Safety Alerts", Icon: ShieldAlert },
           { id: "matrix",    label: "Live Terminology Matrix", Icon: Grid3x3 },
-          { id: "fhir",      label: "FHIR Terminology Server", Icon: FileJson },
           { id: "autoterm",  label: "Auto Terminologist", Icon: Sparkles },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
@@ -4870,12 +4869,6 @@ function MedicalDictionary() {
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "safety" && <CdsOverridesFeed />}
-      {subtab === "fhir" && (
-        <div className="space-y-6">
-          <FhirTerminologyServerOps />
-          <FhirInteroperability facility={facilityFilter} />
-        </div>
-      )}
       {subtab === "autoterm" && <AutoTerminologistActivity />}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
