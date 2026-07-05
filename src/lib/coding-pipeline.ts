@@ -141,7 +141,7 @@ export async function runSixStreamPipeline(
     const { data: patient } = await supabase
       .from("patients")
       .select(
-        "mrn, name, first_name, last_name, chief_complaint, hpi_location, hpi_character, past_medical_history, status",
+        "mrn, name, first_name, last_name, chief_complaint, hpi_location, hpi_character, past_medical_history, status, facility_name",
       )
       .eq("mrn", mrn)
       .maybeSingle();
@@ -150,6 +150,7 @@ export async function runSixStreamPipeline(
       (patient as any).name ||
       `${(patient as any).first_name ?? ""} ${(patient as any).last_name ?? ""}`.trim() ||
       null;
+    const facilityName = (patient as any).facility_name ?? null;
 
     // Streams C-F prefer admissionData (form-time snapshot). When the
     // sweep re-runs after tables are populated, fall back to reading.
@@ -297,16 +298,19 @@ export async function runSixStreamPipeline(
           .maybeSingle();
         const row = {
           patient_mrn: mrn,
+          patient_name: patientName,
+          facility_name: facilityName,
+          ordering_physician: "Admission Intake",
           medication_name: drugName,
           dose: m.dose ?? null,
-          route: m.route ?? null,
+          route: m.route ?? "PO",
           frequency: m.frequency ?? null,
           rxnorm_code: rx.code,
           rxnorm_display: rx.display,
           coding_source: "nlp-stream-c",
           coded_at: new Date().toISOString(),
           term_status: "pending",
-          status: "pending",
+          status: "PENDING_PHARMACY",
         } as any;
         if ((existing as any)?.id) {
           await supabase.from("medication_orders").update(row).eq("id", (existing as any).id);
@@ -430,10 +434,26 @@ export async function runSixStreamPipeline(
           .eq("mrn", mrn)
           .eq("substance", substance)
           .maybeSingle();
+        let writeErr: any = null;
         if ((existing as any)?.id) {
-          await supabase.from("allergies").update(patch as any).eq("id", (existing as any).id);
+          const { error } = await supabase
+            .from("allergies")
+            .update(patch as any)
+            .eq("id", (existing as any).id);
+          writeErr = error;
         } else {
-          await supabase.from("allergies").insert(patch as any);
+          const { error } = await supabase.from("allergies").insert(patch as any);
+          writeErr = error;
+        }
+        if (writeErr) {
+          console.error("[stream-d] allergy write failed", {
+            mrn,
+            substance,
+            code: (writeErr as any).code,
+            message: (writeErr as any).message,
+            details: (writeErr as any).details,
+          });
+          continue;
         }
         streamD.count++;
         streamD.items.push({ substance, ...patch });

@@ -40,6 +40,7 @@ export function OrderPanelPicker({
   const [open, setOpen] = useState(false);
   const [sets, setSets] = useState<ValueSet[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetched, setFetched] = useState(false);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,7 +59,10 @@ export function OrderPanelPicker({
           ),
         );
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setFetched(true);
+      });
   }, [open, sets.length]);
 
   const submitPanel = async (panel: ValueSet) => {
@@ -98,9 +102,10 @@ export function OrderPanelPicker({
   const headerHint = useMemo(() => {
     if (!autoApi) return "AUTO API engine OFF — value sets unavailable.";
     if (loading) return "Loading published value sets…";
+    if (!fetched) return "Click to view published order panels.";
     if (sets.length === 0) return "No published LOINC panels — publish one in System Admin → AUTO API.";
     return `${sets.length} published panel${sets.length === 1 ? "" : "s"} available.`;
-  }, [autoApi, loading, sets.length]);
+  }, [autoApi, loading, fetched, sets.length]);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white">

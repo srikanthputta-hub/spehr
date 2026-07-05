@@ -461,7 +461,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
         const [{ data: vsCond }, { data: vsLab }] = await Promise.all([
           sb
             .from("conditions")
-            .select("patient_mrn, snomed_code, snomed_display, icd10_code, icd10_display")
+            .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display")
             .or(
               `snomed_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")}),icd10_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")})`,
             )
@@ -473,7 +473,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
             .limit(5000),
         ]);
         for (const r of (vsCond as any[]) ?? []) {
-          if (r.patient_mrn) vsMrns.add(r.patient_mrn);
+          if (r.mrn) vsMrns.add(r.mrn);
           const key = r.snomed_display
             ? `${r.snomed_code ?? "?"} · ${r.snomed_display}`
             : r.icd10_display
