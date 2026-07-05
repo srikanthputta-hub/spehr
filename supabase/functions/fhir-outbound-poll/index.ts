@@ -1,11 +1,14 @@
 // Outbound FHIR poll — server-side, browser-independent push of
-// billing/appointment resources to Medblocks.
+// clinical + billing/appointment resources to Medblocks.
 //
 // Runs on a pg_cron schedule (every ~30-45s). Reads the three durable
 // cursors from `public.fhir_sync_state`:
 //    outbound_invoice_last_synced_at
 //    outbound_chargeitem_last_synced_at
 //    outbound_appointment_last_synced_at
+//    outbound_clinical_last_synced_at   <-- covers meds / labs / notes /
+//                                            conditions / patient demographics
+//                                            on a single per-MRN cursor
 // Queries each source table for rows changed since that cursor, builds
 // FHIR R4 resources with STABLE ids and the `urn:spehr:source|spehr` tag,
 // and POSTs them as a `type=transaction` bundle of PUT entries to the
@@ -17,6 +20,9 @@
 //  • fhir_appointments rows with a non-null `fhir_id` originated on the
 //    myspehr side (already live on the server), so we skip them here to
 //    avoid needlessly re-writing them under a `spehr`-source id.
+//  • Clinical push does NOT gate on discharge status. Matches the client
+//    hook (`useBackgroundFhirSync` line 385-390: "Full live sync mode:
+//    every patient is eligible regardless of admission status.").
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -27,6 +33,10 @@ const FHIR_BEARER_TOKEN = Deno.env.get("FHIR_BEARER_TOKEN") ?? "";
 const FHIR_APIKEY = Deno.env.get("FHIR_APIKEY") ?? "";
 
 const BATCH_LIMIT = 200;
+// Distinct MRNs handled per clinical poll cycle. A single MRN with a
+// full slate of meds/labs/notes/conditions produces ~20-40 FHIR entries;
+// 25 MRNs per cycle × ~30 entries ≈ well under Medblocks' bundle limits.
+const CLINICAL_MRN_LIMIT = 25;
 
 function isoMax(a: string, b: string): string {
   const ai = toIso(a), bi = toIso(b);
