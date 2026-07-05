@@ -95,11 +95,12 @@ export function AutoTerminologistActivity() {
             <h3 className="text-lg font-semibold">Auto Terminologist · Activity</h3>
           </div>
           <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Autonomous agent that scans the last 24 h of patient data every
-            10 minutes and logs clinical concepts, grouped by theme, that are
-            not yet covered by any published value set. Value set authoring
-            remains manual — a human curates the surfaced gaps in the
-            Authoring Workbench.
+            Autonomous agent that scans the last 36 h of patient data every
+            10 minutes, groups uncovered clinical concepts by theme, and — for
+            genuine recurring gaps — drafts a new value set itself, exactly
+            as a human would in the Authoring Workbench. It never submits
+            for review and never publishes: promoting a draft always
+            requires a human action in the Value Set Library.
           </p>
           <p className="text-xs text-slate-500 mt-2">
             Last run: <span className="font-medium text-slate-700">{formatAgo(lastRunAt)}</span>
