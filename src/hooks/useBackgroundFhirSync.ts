@@ -5,6 +5,9 @@ import {
   splitEncounterBundle,
   assessBundleQuality,
   buildEncounterBundleAsync,
+  buildInvoiceResource,
+  buildChargeItemResource,
+  buildRealAppointmentResource,
   type EncounterAllergy,
   type FhirQuality,
 } from "@/lib/fhir-bundle";
@@ -268,6 +271,77 @@ async function buildBundleForMrn(r: Row) {
     notes: (notesRes.data ?? []) as any[],
     conditions: (condsRes.data ?? []) as any[],
     allergies,
+  }).then(async (bundle) => {
+    // ---- Part A: append Invoice / ChargeItem / real Appointment
+    // resources for this MRN so billing + booking round-trip to
+    // Medblocks alongside the clinical encounter. Uses the same
+    // idempotent PUT-with-stable-id contract as everything else.
+    try {
+      const [invRes, chargesRes, apptRes] = await Promise.all([
+        supabase
+          .from("fhir_invoices")
+          .select("id, invoice_no, mrn, patient_name, facility_name, status, subtotal, tax, total, currency, issued_at, paid_at")
+          .eq("mrn", r.mrn)
+          .order("issued_at", { ascending: false })
+          .limit(50),
+        supabase
+          .from("fhir_charge_items")
+          .select("id, invoice_id, mrn, charge_code, code_system, description, category, quantity, unit_price, amount, currency, service_date")
+          .eq("mrn", r.mrn)
+          .order("service_date", { ascending: false })
+          .limit(200),
+        supabase
+          .from("fhir_appointments")
+          .select("id, facility_name, patient_mrn, patient_name, practitioner_name, service_type, description, start_time, end_time, status, comment")
+          .eq("patient_mrn", r.mrn)
+          .order("start_time", { ascending: false })
+          .limit(50),
+      ]);
+      const invoices = (invRes.data ?? []) as any[];
+      const invoiceNoById = new Map<string, string>(
+        invoices.map((i) => [String(i.id), String(i.invoice_no)]),
+      );
+      const extras: any[] = [];
+      for (const inv of invoices) {
+        try { extras.push(buildInvoiceResource(inv)); } catch (e) {
+          console.warn("[bg-fhir-sync] invoice build failed", inv.invoice_no, e);
+        }
+      }
+      for (const ch of (chargesRes.data ?? []) as any[]) {
+        try {
+          extras.push(
+            buildChargeItemResource(ch, invoiceNoById.get(String(ch.invoice_id))),
+          );
+        } catch (e) {
+          console.warn("[bg-fhir-sync] charge build failed", ch.id, e);
+        }
+      }
+      for (const a of (apptRes.data ?? []) as any[]) {
+        try { extras.push(buildRealAppointmentResource(a)); } catch (e) {
+          console.warn("[bg-fhir-sync] appointment build failed", a.id, e);
+        }
+      }
+      if (extras.length > 0) {
+        const existingEntries: any[] = Array.isArray(bundle.entry) ? bundle.entry : [];
+        const existingKeys = new Set(
+          existingEntries.map((e) => `${e?.resource?.resourceType}/${e?.resource?.id}`),
+        );
+        for (const res of extras) {
+          const key = `${res.resourceType}/${res.id}`;
+          if (existingKeys.has(key)) continue;
+          existingKeys.add(key);
+          existingEntries.push({
+            fullUrl: key,
+            resource: res,
+            request: { method: "PUT", url: key },
+          });
+        }
+        bundle.entry = existingEntries;
+      }
+    } catch (e) {
+      console.warn("[bg-fhir-sync] billing/appt append failed", r.mrn, e);
+    }
+    return bundle;
   });
 }
 
@@ -473,6 +547,21 @@ export function useBackgroundFhirSync() {
         "postgres_changes",
         { event: "*", schema: "public", table: "clinical_notes" },
         (p: any) => requeueByMrn(p?.new?.mrn ?? p?.old?.mrn),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "fhir_invoices" },
+        (p: any) => requeueByMrn(p?.new?.mrn ?? p?.old?.mrn),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "fhir_charge_items" },
+        (p: any) => requeueByMrn(p?.new?.mrn ?? p?.old?.mrn),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "fhir_appointments" },
+        (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
       )
       .subscribe();
 
