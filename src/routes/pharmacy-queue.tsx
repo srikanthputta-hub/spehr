@@ -30,6 +30,7 @@ type Order = {
   approved_at?: string | null;
   dispensed_at?: string | null;
   administered_at?: string | null;
+  ordering_physician?: string | null;
 };
 
 type Patient = {
