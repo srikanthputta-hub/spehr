@@ -20,6 +20,7 @@ import { useSafetyAlertsWatcher } from "@/hooks/useSafetyAlertsWatcher";
 import { useCdsSuggestionsWatcher } from "@/hooks/useCdsSuggestionsWatcher";
 import { startLocalGcSweeper } from "@/lib/local-gc";
 import { useEffect } from "react";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -139,6 +140,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <FacilityProvider>
         <Outlet />
+        <Toaster />
       </FacilityProvider>
     </QueryClientProvider>
   );
