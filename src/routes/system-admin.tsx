@@ -1297,6 +1297,41 @@ function buildSafetyRationale(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Build a concrete structured alternate medication for a rejected   */
+/*  order, based on the alert's cross-reactivity family.              */
+/* ------------------------------------------------------------------ */
+function buildAlternateMed(
+  c: Pick<DbSafetyAlert, "kind" | "drug" | "drug_b" | "allergy_name" | "family">,
+): { medication_name: string; dose: string; route: string; frequency: string } {
+  const fam = (c.family ?? "").toLowerCase();
+  if (/penicillin|β-lactam|beta-lactam|cephalosporin/.test(fam))
+    return { medication_name: "Vancomycin", dose: "15 mg/kg", route: "IV", frequency: "q12h" };
+  if (/sulfonamide/.test(fam))
+    return { medication_name: "Nitrofurantoin", dose: "100 mg", route: "PO", frequency: "BID" };
+  if (/nsaid|bleeding|antiplatelet|anticoagulant/.test(fam))
+    return { medication_name: "Acetaminophen", dose: "650 mg", route: "PO", frequency: "q6h prn pain" };
+  if (/opioid|respiratory depression/.test(fam))
+    return { medication_name: "Hydroxyzine", dose: "25 mg", route: "PO", frequency: "q6h prn" };
+  if (/serotonin/.test(fam))
+    return { medication_name: "Acetaminophen", dose: "650 mg", route: "PO", frequency: "q6h" };
+  if (/cyp2c19|clopidogrel/.test(fam))
+    return { medication_name: "Pantoprazole", dose: "40 mg", route: "PO", frequency: "Daily" };
+  if (/hyperkalemia/.test(fam))
+    return { medication_name: "Hydrochlorothiazide", dose: "25 mg", route: "PO", frequency: "Daily" };
+  if (/inr|warfarin potentiation/.test(fam))
+    return { medication_name: "Cephalexin", dose: "500 mg", route: "PO", frequency: "QID" };
+  if (/lactic acidosis|contrast/.test(fam))
+    return { medication_name: "Insulin sliding scale", dose: "per protocol", route: "SubQ", frequency: "AC & HS" };
+  if (/rhabdomyolysis|statin/.test(fam))
+    return { medication_name: "Pravastatin", dose: "40 mg", route: "PO", frequency: "qHS" };
+  if (/digoxin/.test(fam))
+    return { medication_name: "Digoxin (dose-reduced)", dose: "0.125 mg", route: "PO", frequency: "Daily" };
+  if (/contrast|iodinated/.test(fam))
+    return { medication_name: "Gadolinium MR contrast", dose: "0.1 mmol/kg", route: "IV", frequency: "once" };
+  return { medication_name: "Acetaminophen", dose: "650 mg", route: "PO", frequency: "q6h prn" };
+}
+
+/* ------------------------------------------------------------------ */
 /*  NLP audit enrichment — when the dictionary returned zero concepts */
 /*  for a live admission, infer ICD-10 + SNOMED + recommended labs    */
 /*  from the chief complaint so the audit shows genuine codes instead */
