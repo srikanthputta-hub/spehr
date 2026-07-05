@@ -382,6 +382,7 @@ const TABS = [
   { id: "audit" as const, label: "📜 Audit Log", icon: Activity },
   { id: "analytics" as const, label: "📊 Network Analytics", icon: BarChart3 },
   { id: "dictionary" as const, label: "📚 Medical Dictionary", icon: BookMarked },
+  { id: "fhir_interop" as const, label: "🔗 FHIR Interoperability", icon: Network },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
