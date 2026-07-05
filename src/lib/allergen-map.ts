@@ -1,5 +1,5 @@
 /**
- * Static allergen → SNOMED lookup for environmental/food allergens.
+ * Static allergen → SNOMED lookup for environmental, food, and drug-class allergens.
  * Used by Stream D of the six-stream coding pipeline.
  */
 export const ALLERGEN_SNOMED: Record<string, { snomed: string; display: string }> = {
@@ -18,6 +18,20 @@ export const ALLERGEN_SNOMED: Record<string, { snomed: string; display: string }
   pollen:       { snomed: "256259004", display: "Pollen" },
   "bee sting":  { snomed: "288328004", display: "Bee sting" },
   bee:          { snomed: "288328004", display: "Bee sting" },
+  penicillin:   { snomed: "764146007", display: "Penicillin" },
+  "penicillin g": { snomed: "764146007", display: "Penicillin" },
+  amoxicillin:  { snomed: "764146007", display: "Penicillin" },
+  sulfa:        { snomed: "416897008", display: "Sulfonamide" },
+  sulfonamide:  { snomed: "416897008", display: "Sulfonamide" },
+  "sulfa drugs": { snomed: "416897008", display: "Sulfonamide" },
+  aspirin:      { snomed: "387458008", display: "Aspirin" },
+  nsaid:        { snomed: "372687004", display: "NSAID" },
+  nsaids:       { snomed: "372687004", display: "NSAID" },
+  ibuprofen:    { snomed: "372687004", display: "NSAID" },
+  codeine:      { snomed: "319898004", display: "Codeine" },
+  morphine:     { snomed: "373492002", display: "Opioid" },
+  opioids:      { snomed: "373492002", display: "Opioid" },
+  cephalosporin: { snomed: "764146007", display: "Penicillin" },
 };
 
 export function lookupAllergenSnomed(name: string): { snomed: string; display: string } | null {

@@ -195,7 +195,7 @@ async function fireAlert(input: FireInput): Promise<void> {
     allergy_name: input.allergy_name ?? null,
     family,
     severity: severityLevel,
-    status: "pending_review",
+    status: "Pending Review",
     auto_resolve_at: null,
     created_by_type: "automation",
     updated_at: new Date().toISOString(),
