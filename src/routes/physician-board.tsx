@@ -488,6 +488,14 @@ function PhysicianBoard() {
                           <Activity className="h-3 w-3" /> alert
                         </span>
                       )}
+                      {alertMrns.has(p.mrn) && (
+                        <span
+                          className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-red-600 text-white ring-1 ring-red-700 px-2 py-0.5 text-[10px] font-bold animate-pulse"
+                          title="Active clinical safety alert — pending review in Medical Dictionary → Safety Alerts"
+                        >
+                          🚨 Safety Alert
+                        </span>
+                      )}
                     </div>
                   </button>
                 );
