@@ -55,6 +55,40 @@ export function CrossMapStudio() {
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchResults, setBatchResults] = useState<any[]>([]);
 
+  const [log, setLog] = useState<Array<{ id: string; created_at: string; actor: string; message: string }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("terminology_activity_log" as any)
+        .select("id, created_at, actor, message")
+        .eq("feature", "crossmap")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (!cancelled && data) setLog(data as any);
+    };
+    load();
+    const ch = supabase
+      .channel("terminology-activity-crossmap")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "terminology_activity_log", filter: "feature=eq.crossmap" },
+        (payload) => setLog((l) => [payload.new as any, ...l].slice(0, 50)),
+      )
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, []);
+
+  const logActivity = (action: string, message: string) => {
+    void supabase.from("terminology_activity_log" as any).insert({
+      feature: "crossmap",
+      actor: "S.P.E.H.R. Terminology Services",
+      action,
+      message,
+    });
+  };
+
   // Listen for prefill events from Live Terminology Matrix pills
   useEffect(() => {
     const onPrefill = (e: Event) => {
@@ -133,6 +167,7 @@ export function CrossMapStudio() {
       };
       setResult({ matches, conceptMap });
       toast.success(`${matches.length} match(es)`);
+      logActivity("translated", `Translated ${code.trim()} (${src.label} → ${tgt.label}) — ${matches.length} match(es)`);
     } catch (e: any) { toast.error(e.message); }
     finally { setRunning(false); }
   };
@@ -164,6 +199,7 @@ export function CrossMapStudio() {
       }
       setBatchResults(rows);
       toast.success(`Resolved ${rows.length} code(s)`);
+      logActivity("batch_crosswalk", `Batch crosswalk: ${rows.length} code(s) ${src.label} → ${tgt.label}`);
     } finally { setBatchRunning(false); }
   };
 
@@ -342,6 +378,25 @@ export function CrossMapStudio() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[10px]">
+        <div className="font-semibold text-slate-600 mb-1">Cross-Map Activity Log</div>
+        {log.length === 0 ? (
+          <div className="text-slate-400">No activity yet.</div>
+        ) : (
+          <ul className="font-mono text-slate-700 space-y-0.5 max-h-40 overflow-y-auto">
+            {log.map((e) => (
+              <li key={e.id}>
+                <span className="text-slate-400">{new Date(e.created_at).toLocaleTimeString()}</span>
+                {" · "}
+                <span className="text-slate-500">{e.actor}</span>
+                {" · "}
+                <span>{e.message}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

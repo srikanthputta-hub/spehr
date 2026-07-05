@@ -63,6 +63,40 @@ export function ValueSetLibrary() {
   } | null>(null);
   const [vsacName, setVsacName] = useState("");
   const [vsacImporting, setVsacImporting] = useState(false);
+  const [log, setLog] = useState<Array<{ id: string; created_at: string; actor: string; message: string }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("terminology_activity_log" as any)
+        .select("id, created_at, actor, message")
+        .eq("feature", "library")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (!cancelled && data) setLog(data as any);
+    };
+    load();
+    const ch = supabase
+      .channel("terminology-activity-library")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "terminology_activity_log", filter: "feature=eq.library" },
+        (payload) => setLog((l) => [payload.new as any, ...l].slice(0, 50)),
+      )
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, []);
+
+  const logActivity = (action: string, message: string, ref_id?: string | null) => {
+    void supabase.from("terminology_activity_log" as any).insert({
+      feature: "library",
+      actor: "S.P.E.H.R. Terminology Services",
+      action,
+      message,
+      ref_id: ref_id ?? null,
+    });
+  };
 
   useEffect(() => {
     let alive = true;
@@ -169,6 +203,7 @@ export function ValueSetLibrary() {
         return;
       }
       toast.success(`Imported "${name}" (${codes.length} codes) as draft`);
+      logActivity("imported_from_vsac", `Imported "${name}" from VSAC (${codes.length} codes) — OID ${vsacResult.oid}`);
       setVsacOpen(false);
       setVsacOid("");
       setVsacResult(null);
@@ -214,6 +249,13 @@ export function ValueSetLibrary() {
       .eq("id", row.id);
     if (error) return toast.error(error.message);
     toast.success(successMsg);
+    const actionKey =
+      next === "review" ? "submitted_review"
+      : next === "published" ? "published"
+      : next === "draft" ? "returned_to_draft"
+      : next === "deprecated" ? "deprecated"
+      : `status_${next}`;
+    logActivity(actionKey, `"${row.name}" ${row.status} → ${next}`, row.id);
     setRows(rs => rs.map(r => r.id === row.id ? { ...r, status: next, ...(extra as any) } : r));
     setSelected(s => s && s.id === row.id ? { ...s, status: next, ...(extra as any) } : s);
   };
@@ -222,6 +264,7 @@ export function ValueSetLibrary() {
     const { error } = await supabase.from("custom_value_sets").delete().eq("id", row.id);
     if (error) return toast.error(error.message);
     toast.success(`Deleted "${row.name}"`);
+    logActivity("deleted", `Deleted "${row.name}"`, row.id);
     setRows(rs => rs.filter(r => r.id !== row.id));
     setSelected(s => s && s.id === row.id ? null : s);
   };
@@ -317,6 +360,25 @@ export function ValueSetLibrary() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[10px]">
+        <div className="font-semibold text-slate-600 mb-1">Library Activity Log</div>
+        {log.length === 0 ? (
+          <div className="text-slate-400">No activity yet.</div>
+        ) : (
+          <ul className="font-mono text-slate-700 space-y-0.5 max-h-40 overflow-y-auto">
+            {log.map((e) => (
+              <li key={e.id}>
+                <span className="text-slate-400">{new Date(e.created_at).toLocaleTimeString()}</span>
+                {" · "}
+                <span className="text-slate-500">{e.actor}</span>
+                {" · "}
+                <span>{e.message}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <ValueSetDrawer
