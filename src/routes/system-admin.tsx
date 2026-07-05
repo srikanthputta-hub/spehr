@@ -2874,6 +2874,17 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                     <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{r.mrn}</td>
                     <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
                       <div className="font-medium">{r.name}</div>
+                      <div className="mt-0.5">
+                        {r.qa_approved ? (
+                          <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700">
+                            QA Approved
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700">
+                            Pending Review
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-2.5"><PillRow entries={snomed} system="SNOMED CT" rawText={r.raw_text} /></td>
                     <td className="px-3 py-2.5"><PillRow entries={icd10} system="ICD-10" rawText={r.raw_text} /></td>
