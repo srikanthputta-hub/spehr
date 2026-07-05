@@ -797,15 +797,21 @@ function SummaryView({ mrn, patient }: { mrn: string; patient: PatientRecord }) 
   const latestNote = (notes ?? [])[0];
 
   return (
-    <ClinicalSummary
-      patient={patient}
-      meds={meds}
-      labs={labs}
-      latestNote={latestNote}
-      notesLoading={notes === null}
-      topMeds={topMeds}
-      topLabs={topLabs}
-    />
+    <div className="space-y-3">
+      <ClinicalSummary
+        patient={patient}
+        meds={meds}
+        labs={labs}
+        latestNote={latestNote}
+        notesLoading={notes === null}
+        topMeds={topMeds}
+        topLabs={topLabs}
+      />
+      <section className={widgetBox}>
+        <WidgetHeader title="Invoices & Payment (MySPEHR)" />
+        <PatientInvoicesPanel mrn={mrn} />
+      </section>
+    </div>
   );
 }
 
