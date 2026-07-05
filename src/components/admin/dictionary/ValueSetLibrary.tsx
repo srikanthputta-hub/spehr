@@ -362,6 +362,25 @@ export function ValueSetLibrary() {
         </div>
       </div>
 
+      <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[10px]">
+        <div className="font-semibold text-slate-600 mb-1">Library Activity Log</div>
+        {log.length === 0 ? (
+          <div className="text-slate-400">No activity yet.</div>
+        ) : (
+          <ul className="font-mono text-slate-700 space-y-0.5 max-h-40 overflow-y-auto">
+            {log.map((e) => (
+              <li key={e.id}>
+                <span className="text-slate-400">{new Date(e.created_at).toLocaleTimeString()}</span>
+                {" · "}
+                <span className="text-slate-500">{e.actor}</span>
+                {" · "}
+                <span>{e.message}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <ValueSetDrawer
         vs={selected}
         onClose={() => setSelected(null)}
