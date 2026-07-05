@@ -440,6 +440,7 @@ export type Database = {
           condition_name: string | null
           condition_snomed: string | null
           created_at: string
+          decision: string | null
           drug_name: string | null
           drug_rxnorm: string | null
           fired_at: string
@@ -455,6 +456,7 @@ export type Database = {
           condition_name?: string | null
           condition_snomed?: string | null
           created_at?: string
+          decision?: string | null
           drug_name?: string | null
           drug_rxnorm?: string | null
           fired_at?: string
@@ -470,6 +472,7 @@ export type Database = {
           condition_name?: string | null
           condition_snomed?: string | null
           created_at?: string
+          decision?: string | null
           drug_name?: string | null
           drug_rxnorm?: string | null
           fired_at?: string
