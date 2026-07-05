@@ -179,6 +179,7 @@ type FireInput = {
   drug: string;
   drug_b?: string | null;
   allergy_name?: string | null;
+  medication_order_id?: string | null;
 };
 
 async function fireAlert(input: FireInput): Promise<void> {
@@ -196,7 +197,9 @@ async function fireAlert(input: FireInput): Promise<void> {
     family,
     severity: severityLevel,
     status: "Pending Review",
-    auto_resolve_at: null,
+    auto_resolve_at: new Date(Date.now() + 45_000).toISOString(),
+    risk_score: riskScoreFor(input.severity),
+    medication_order_id: input.medication_order_id ?? null,
     created_by_type: "automation",
     updated_at: new Date().toISOString(),
   };
@@ -205,6 +208,13 @@ async function fireAlert(input: FireInput): Promise<void> {
     // eslint-disable-next-line no-console
     console.warn("[safety-alerts] insert failed", error.message);
     return;
+  }
+  // Hold the offending medication order while the alert is pending review.
+  if (input.medication_order_id) {
+    await supabase
+      .from("medication_orders")
+      .update({ status: "HELD_SAFETY_REVIEW", updated_at: new Date().toISOString() })
+      .eq("id", input.medication_order_id);
   }
   await supabase.from("auto_doc_logs").insert({
     mrn: input.mrn,
