@@ -1452,6 +1452,11 @@ function SafetyQueue({ facility }: { facility: string }) {
   const [items, setItems] = useState<DbSafetyAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [nowTs, setNowTs] = useState<number>(Date.now());
+  const [counts, setCounts] = useState<{ pending: number; overridden: number; rejected: number }>({
+    pending: 0,
+    overridden: 0,
+    rejected: 0,
+  });
 
   // 1s ticker drives the live countdown UI on each pending card.
   useEffect(() => {
@@ -1472,6 +1477,26 @@ function SafetyQueue({ facility }: { facility: string }) {
     const { data, error } = await q;
     if (error) toast.error("Could not load safety alerts", { description: error.message });
     setItems(((data ?? []) as DbSafetyAlert[]));
+    // Real aggregate counts across all rows for this facility (not the
+    // visible slice), so metric tiles stay accurate.
+    const buildCount = (status: string) => {
+      let cq = supabase
+        .from("clinical_safety_alerts")
+        .select("*", { count: "exact", head: true })
+        .eq("status", status);
+      if (facility && facility !== "all") cq = cq.eq("facility_name", facility);
+      return cq;
+    };
+    const [pR, oR, rR] = await Promise.all([
+      buildCount("Pending Review"),
+      buildCount("Overridden"),
+      buildCount("Rejected"),
+    ]);
+    setCounts({
+      pending: pR.count ?? 0,
+      overridden: oR.count ?? 0,
+      rejected: rR.count ?? 0,
+    });
     setLoading(false);
   };
 
