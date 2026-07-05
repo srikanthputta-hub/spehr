@@ -492,13 +492,17 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
     }
 
     // ── 2. Patient query (preserves chief_complaint ilike as fallback) ──
+    const gateMrns = vsMrns ?? condMrns;
     let q = sb
       .from("patients")
       .select(
         "mrn, name, age, gender, facility_name, chief_complaint, admission_time, standardized_output",
-      )
-      .order("admission_time", { ascending: false })
-      .limit(500);
+      );
+    if (gateMrns) {
+      q = q.in("mrn", Array.from(gateMrns));
+    } else {
+      q = q.order("admission_time", { ascending: false }).limit(500);
+    }
     if (data.facilities && data.facilities.length > 0) {
       q = q.in("facility_name", data.facilities);
     }
