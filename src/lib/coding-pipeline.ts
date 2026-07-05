@@ -412,7 +412,6 @@ export async function runSixStreamPipeline(
           mrn,
           substance,
           reaction: a.reaction ?? null,
-          allergy_type: a.type ?? null,
           coding_source: "nlp-stream-d",
           coded_at: new Date().toISOString(),
         };
