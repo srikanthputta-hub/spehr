@@ -5,17 +5,19 @@ import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
 /**
  * Auto Terminologist — autonomous clinical terminologist agent.
  * --------------------------------------------------------------
- * Background loop (10 min cadence, leader-elected across tabs) that acts
- * as a GAP DETECTOR ONLY:
- *   1. Scans the last 24h of patient / condition / medication / lab data.
+ * Background loop (10 min cadence, leader-elected across tabs):
+ *   1. Scans the last 36h of patient / condition / medication / lab data.
  *   2. Counts unique clinical codes and identifies coverage gaps by theme.
- *   3. Logs human-readable activity to `auto_terminologist_log` and a
- *      heartbeat to `automation_watchdog_logs`.
+ *   3. For genuine recurring gaps, drafts a new value set into
+ *      `custom_value_sets` — exactly as a human terminologist would via
+ *      the Authoring Workbench.
+ *   4. Logs human-readable activity to `auto_terminologist_log` +
+ *      `terminology_activity_log`, plus a heartbeat to
+ *      `automation_watchdog_logs`.
  *
- * NOTE: This engine no longer writes to `custom_value_sets`. Draft value
- * set creation has been removed — all authoring is manual via the Value
- * Set Library. The only outputs of each cycle are activity log entries
- * (touched / skipped / heartbeat / no_gaps).
+ * The engine NEVER submits for review and NEVER publishes — every drafted
+ * value set lands in `status: "draft"`. Promotion to review / published
+ * always requires a human action in the Value Set Library.
  */
 
 const RUN_INTERVAL_MS = 10 * 60_000;
@@ -155,7 +157,7 @@ async function logActivity(opts: {
 
 /** Pull recent codes from each clinical table joined to a patient row. */
 async function collectRecentCodes(): Promise<{ hits: CodeHit[]; admissions: number }> {
-  const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const since = new Date(Date.now() - 36 * 3600_000).toISOString();
   const { data: pts } = await supabase
     .from("patients")
     .select("mrn, chief_complaint, admission_time, updated_at")
@@ -190,6 +192,25 @@ async function collectRecentCodes(): Promise<{ hits: CodeHit[]; admissions: numb
     hits.push({ code: String(l.loinc_code), vocab: "LOINC", display: l.test_type, theme });
   }
   return { hits, admissions: patients.length };
+}
+
+// Vocab label → UMLS SAB for crosswalk calls (mirrors CrossMapStudio.tsx)
+const VOCAB_TO_SAB: Record<string, string> = {
+  "SNOMED CT": "SNOMEDCT_US",
+  "ICD-10": "ICD10CM",
+  "LOINC": "LNC",
+  "RxNorm": "RXNORM",
+};
+
+function clinicalApplicationFor(theme: string): string {
+  const t = theme.toLowerCase();
+  if (/(diabet|heart failure|chf|copd|renal|chronic kidney|dialysis)/.test(t)) return "Billing";
+  if (/(anticoag|antiplatelet|drug|allerg|contraindicat)/.test(t)) return "CDS";
+  return "Population Health";
+}
+
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
 async function runAutoTerminologistCycle() {
@@ -254,34 +275,117 @@ async function runAutoTerminologistCycle() {
 
   let touchedCount = 0;
 
-  // Gap-detector only: log each themed cluster of uncovered codes.
-  // NO writes to custom_value_sets — authoring is manual.
+  // Autonomous drafter: for each qualifying themed cluster, draft a new
+  // extensional value set into custom_value_sets (status: "draft" only).
   for (const [theme, group] of byTheme) {
     if (group.length < 2) continue;
 
-    const occMap = new Map<string, number>();
-    const validatedForNaming: Array<{ code: string; display: string; vocabulary: string }> = [];
-    const vocabCount: Record<string, number> = {};
-    for (const g of group) {
-      occMap.set(`${g.hit.vocab}|${g.hit.code}`, g.n);
-      vocabCount[g.hit.vocab] = (vocabCount[g.hit.vocab] ?? 0) + 1;
-      validatedForNaming.push({
-        code: g.hit.code,
-        display: g.hit.display ?? g.hit.code,
-        vocabulary: g.hit.vocab,
-      });
-    }
-    const dominantVocab = Object.entries(vocabCount).sort((a, b) => b[1] - a[1])[0][0];
-    const themeName = deriveThemeName(theme, validatedForNaming, occMap);
-    const totalFreq = group.reduce((s, g) => s + g.n, 0);
+    try {
+      const occMap = new Map<string, number>();
+      const validatedForNaming: Array<{ code: string; display: string; vocabulary: string }> = [];
+      const vocabCount: Record<string, number> = {};
+      for (const g of group) {
+        occMap.set(`${g.hit.vocab}|${g.hit.code}`, g.n);
+        vocabCount[g.hit.vocab] = (vocabCount[g.hit.vocab] ?? 0) + 1;
+        validatedForNaming.push({
+          code: g.hit.code,
+          display: g.hit.display ?? g.hit.code,
+          vocabulary: g.hit.vocab,
+        });
+      }
+      const rankedVocabs = Object.entries(vocabCount).sort((a, b) => b[1] - a[1]);
+      const dominantVocab = rankedVocabs[0][0];
+      const themeName = deriveThemeName(theme, validatedForNaming, occMap);
+      const totalFreq = group.reduce((s, g) => s + g.n, 0);
 
-    touchedCount += 1;
-    await logActivity({
-      message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Coverage gap detected: '${themeName}' — ${group.length} uncovered ${dominantVocab} concept(s) across ${totalFreq} occurrences (last 24h). Logged only — no draft created.`,
-      action: "touched",
-      theme: themeName,
-      codes_count: group.length,
-    });
+      // Build codes array in Authoring Workbench's `Picked` shape.
+      const codes = validatedForNaming.map((v) => ({
+        code: v.code,
+        display: v.display,
+        vocabulary: v.vocabulary,
+      }));
+
+      // Optional cross-vocab crosswalk if the group spans >1 vocabulary.
+      if (rankedVocabs.length > 1) {
+        try {
+          const secondaryVocab = rankedVocabs[1][0];
+          const fromSab = VOCAB_TO_SAB[dominantVocab];
+          const toSab = VOCAB_TO_SAB[secondaryVocab];
+          const fromCode = group.find((g) => g.hit.vocab === dominantVocab)?.hit.code;
+          if (fromSab && toSab && fromCode) {
+            const { data: cw, error: cwErr } = await supabase.functions.invoke("umls-proxy", {
+              body: { action: "crosswalk", params: { fromSab, fromCode, toSab } },
+            });
+            if (!cwErr) {
+              const matches = Array.isArray(cw?.matches)
+                ? cw.matches
+                : (cw?.result ? [cw.result] : []);
+              await supabase.from("terminology_activity_log" as any).insert({
+                feature: "crossmap",
+                actor: "Auto Terminologist",
+                action: "translated",
+                message: `Translated ${fromCode} (${dominantVocab} → ${secondaryVocab}) — ${matches.length} match(es)`,
+              });
+            }
+          }
+        } catch {
+          // Crosswalk is best-effort — never block draft creation.
+        }
+      }
+
+      const clinical_application = clinicalApplicationFor(themeName);
+      const now = new Date().toISOString();
+      const nameSlug = slugify(themeName);
+
+      const { data: upserted, error: upsertErr } = await supabase
+        .from("custom_value_sets")
+        .upsert(
+          {
+            name: themeName,
+            system: dominantVocab.replace(" ", "-"),
+            vocabulary: dominantVocab,
+            type: "extensional",
+            codes,
+            status: "draft",
+            description:
+              "Auto-drafted by Auto Terminologist from a recurring coverage gap detected in the last 36h scan.",
+            clinical_application,
+            fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
+            oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
+            change_history: [
+              { at: now, actor: "Auto Terminologist", change: "Drafted from coverage-gap detection" },
+            ],
+          } as any,
+          { onConflict: "name" },
+        )
+        .select("id")
+        .maybeSingle();
+
+      if (upsertErr) throw upsertErr;
+      const valueSetId = (upserted as any)?.id ?? null;
+
+      touchedCount += 1;
+      const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' — ${group.length} uncovered ${dominantVocab} concept(s) across ${totalFreq} occurrences (last 36h). Drafted as new value set (status: draft — awaiting human review).`;
+
+      await logActivity({
+        message: draftedMsg,
+        action: "drafted",
+        theme: themeName,
+        codes_count: group.length,
+        value_set_id: valueSetId,
+      });
+
+      await supabase.from("terminology_activity_log" as any).insert({
+        feature: "authoring",
+        actor: "Auto Terminologist",
+        action: "drafted_value_set",
+        message: `Drafted value set "${themeName}" (${codes.length} ${dominantVocab} concept(s)) from coverage-gap detection.`,
+        ref_id: valueSetId,
+      });
+    } catch (e) {
+      console.warn("[auto-term] theme draft failed", theme, e);
+    }
   }
 
   enginesChecked["auto_terminologist"] = {
@@ -291,12 +395,12 @@ async function runAutoTerminologistCycle() {
     themes_logged: touchedCount,
   };
   actions.push(
-    `auto_terminologist: scanned ${admissions} admissions · ${gaps.length} gap codes · ${touchedCount} theme(s) logged (no drafts created).`,
+    `auto_terminologist: scanned ${admissions} admissions · ${gaps.length} gap codes · ${touchedCount} theme(s) drafted as value sets.`,
   );
 
   if (touchedCount === 0 && gaps.length === 0) {
     await logActivity({
-      message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Scanned ${admissions} admissions (last 24h). No new coverage gaps detected.`,
+      message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Scanned ${admissions} admissions (last 36h). No new coverage gaps detected.`,
       action: "no_gaps",
       codes_count: 0,
     });
