@@ -333,6 +333,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           triggerDisplay: name || code,
           drug: name || code,
           allergy_name: matched.substance,
+          medication_order_id: evt.medication_order_id ?? null,
         });
       }
     } else if (anyUnavailable) {
@@ -376,6 +377,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           triggerDisplay: name || code,
           drug: name || code,
           drug_b: conflict.name,
+          medication_order_id: evt.medication_order_id ?? null,
         });
       }
     }
