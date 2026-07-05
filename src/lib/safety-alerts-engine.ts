@@ -250,7 +250,16 @@ export type MedOrderEvent = {
   rxnorm_display?: string | null;
   medication_name?: string | null;
   drug_name?: string | null;
+  medication_order_id?: string | null;
 };
+
+function riskScoreFor(severity: string | null | undefined): number {
+  const s = String(severity ?? "").toUpperCase();
+  if (s === "CONTRAINDICATION" || s === "CRITICAL" || s === "HIGH") return 85;
+  if (s === "CAUTION" || s === "MEDIUM" || s === "WARNING") return 55;
+  if (s === "INFO" || s === "LOW") return 25;
+  return 50;
+}
 
 export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void> {
   const mrn = evt.mrn;
