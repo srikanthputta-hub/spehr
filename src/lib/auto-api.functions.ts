@@ -467,17 +467,19 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
           { data: vsCond, error: vsCondErr },
           { data: vsLab, error: vsLabErr },
         ] = await Promise.all([
-          sb
+        sb
             .from("conditions")
             .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display")
             .or(
               `snomed_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")}),icd10_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")})`,
             )
+            .order("created_at", { ascending: false })
             .limit(5000),
-          sb
+        sb
             .from("lab_orders")
             .select("patient_mrn, loinc_code, loinc_display")
             .in("loinc_code", allCodes)
+            .order("created_at", { ascending: false })
             .limit(5000),
         ]);
         if (vsCondErr) {
@@ -599,14 +601,6 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       value_set_id: data.value_set_id ?? null,
       value_set_name: vsMeta?.name ?? null,
       cohort_size: filtered.length,
-      // TEMP DEBUG — remove after diagnosis:
-      debug_vsMrns_size: vsMrns ? vsMrns.size : null,
-      debug_gateMrns_size: gateMrns ? gateMrns.size : null,
-      debug_rows_before_filter: rows.length,
-      debug_allCodes: allCodesDebug,
-      debug_vsCond_error: vsCondErrMsg,
-      debug_vsLab_error: vsLabErrMsg,
-      debug_patient_batch_errors: patientBatchErrors,
     });
     return {
       total: filtered.length,
