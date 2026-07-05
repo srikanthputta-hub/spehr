@@ -526,6 +526,7 @@ function buildUrl(action: Action, p: Record<string, unknown>): {
     // Multi-step actions handled before buildUrl in Deno.serve — should never reach here
     case "resolveAndValidate":
     case "subsumes":
+    case "vsacExpand":
       throw new Error(`Action "${action}" must be handled before buildUrl`);
   }
 }
