@@ -1747,14 +1747,14 @@ function SafetyQueue({ facility }: { facility: string }) {
           <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
           Scanning intake records and medication orders…
         </div>
-      ) : items.length === 0 ? (
+      ) : pending.length === 0 ? (
         <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 p-8 text-center text-sm text-emerald-800">
           <FileCheck2 className="inline h-4 w-4 mr-1.5" />
-          No drug↔allergy conflicts detected across the last 50 admissions.
+          No pending drug↔allergy conflicts — queue clear. Resolved alerts appear in the CDS Hook Overrides feed.
         </div>
       ) : (
         <div className="space-y-2">
-          {items.map((c) => (
+          {pending.map((c) => (
             <div
               key={c.id}
               className={`rounded-xl border bg-white shadow-sm p-4 ${
