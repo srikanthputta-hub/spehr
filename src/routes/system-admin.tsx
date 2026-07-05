@@ -2731,7 +2731,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       for (const r of (procsRes.data ?? []) as any[]) {
         if (r.cpt_code && r.mrn) pushUnique(r.mrn, "cpt", r.cpt_code, r.cpt_display ?? r.display_text);
       }
-      const cells: MatrixCell[] = approvedPatients.map((p: any) => ({
+      const cells: MatrixCell[] = (patients ?? []).map((p: any) => ({
         mrn: p.mrn,
         name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—",
         facility: p.facility_name,
@@ -2742,6 +2742,7 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         icd10_codes: (p.icd10_codes ?? []) as string[],
         snomed_codes: (p.snomed_codes ?? []) as string[],
         raw_text: approvedByMrn.get(p.mrn)?.raw_text ?? null,
+        qa_approved: approvedByMrn.has(p.mrn),
       }));
       if (!cancelled) {
         setRows(cells);
