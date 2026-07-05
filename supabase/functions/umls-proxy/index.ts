@@ -299,10 +299,10 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
   if (!oid) return { error: "Missing OID", status: 400 };
 
   try {
-    const url = `https://cts.nlm.nih.gov/fhir/ValueSet/$expand?url=https://cts.nlm.nih.gov/fhir/ValueSet/${encodeURIComponent(oid)}`;
+    const url = `https://cts.nlm.nih.gov/fhir/ValueSet/${encodeURIComponent(oid)}/$expand`;
     let auth: string;
     try {
-      auth = btoa(`${UMLS_API_KEY}:`);
+      auth = btoa(`apikey:${UMLS_API_KEY}`);
     } catch {
       return { error: "UMLS_API_KEY contains characters that cannot be Base64-encoded for Basic auth.", status: 500 };
     }
