@@ -542,6 +542,189 @@ async function pollAppointments(admin: any) {
   return stats;
 }
 
+/* ---------------- Clinical: per-MRN sweep --------------------------------- */
+
+// Collect distinct MRNs touched by any clinical change since the cursor.
+// Also returns the max updated_at observed so the cursor can advance
+// even when no MRN has any pushable resources this cycle.
+async function collectChangedMrns(admin: any, since: string): Promise<{ mrns: string[]; maxTs: string }> {
+  let maxTs = since;
+  const mrnSet = new Set<string>();
+
+  const bump = (rows: any[], key: string) => {
+    for (const r of rows) {
+      const mrn = r.mrn ?? r.patient_mrn;
+      if (mrn) mrnSet.add(String(mrn));
+      const ts = r[key];
+      if (typeof ts === "string" && ts > maxTs) maxTs = ts;
+    }
+  };
+
+  // Pull an id-only projection for each source with an `updated_at > since` filter.
+  const [meds, labs, results, notes, conds, pats] = await Promise.all([
+    admin.from("medication_orders").select("patient_mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
+    admin.from("lab_orders").select("patient_mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
+    admin.from("lab_results").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
+    admin.from("clinical_notes").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
+    admin.from("conditions").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
+    admin.from("patients").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
+  ]);
+
+  if (meds.error) throw new Error(`meds change scan: ${meds.error.message}`);
+  if (labs.error) throw new Error(`labs change scan: ${labs.error.message}`);
+  if (results.error) throw new Error(`lab_results change scan: ${results.error.message}`);
+  if (notes.error) throw new Error(`notes change scan: ${notes.error.message}`);
+  if (conds.error) throw new Error(`conditions change scan: ${conds.error.message}`);
+  if (pats.error) throw new Error(`patients change scan: ${pats.error.message}`);
+
+  bump((meds.data ?? []) as any[], "updated_at");
+  bump((labs.data ?? []) as any[], "updated_at");
+  bump((results.data ?? []) as any[], "updated_at");
+  bump((notes.data ?? []) as any[], "updated_at");
+  bump((conds.data ?? []) as any[], "updated_at");
+  bump((pats.data ?? []) as any[], "updated_at");
+
+  return { mrns: [...mrnSet].slice(0, CLINICAL_MRN_LIMIT), maxTs };
+}
+
+// Build the full FHIR entry list for a single MRN by fetching all of its
+// active clinical rows and mapping them through the builders above.
+async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: any[]; skipped: string | null }> {
+  const [patientRes, medsRes, labsRes, resultsRes, notesRes, condsRes] = await Promise.all([
+    admin.from("patients").select("mrn, name, first_name, last_name, dob, gender, biological_sex, phone, address, facility_name, admission_time, discharge_time, status, chief_complaint, diagnosis").eq("mrn", mrn).maybeSingle(),
+    admin.from("medication_orders")
+      .select("id, drug_name, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, created_at, updated_at, rxnorm_code, rxnorm_display")
+      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(200),
+    admin.from("lab_orders")
+      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
+      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(80),
+    admin.from("lab_results")
+      .select("id, test_name, result_value, unit, reference_range, flag, created_at")
+      .eq("mrn", mrn).order("created_at", { ascending: false }).limit(80),
+    admin.from("clinical_notes")
+      .select("id, note_type, author, content, created_at")
+      .eq("mrn", mrn).order("created_at", { ascending: false }).limit(20),
+    admin.from("conditions")
+      .select("display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at, created_at")
+      .eq("mrn", mrn).order("coded_at", { ascending: false }).limit(20),
+  ]);
+
+  const patient = (patientRes as any)?.data;
+  if (!patient) return { entries: [], skipped: "no_patient_row" };
+
+  const entries: any[] = [];
+  entries.push(entryFor(buildPatientResource(patient)));
+  entries.push(entryFor(buildEncounterResource(patient)));
+
+  // Chief-complaint / HPI Condition (mirrors client's `cond-hpi-{mrn}`).
+  if (patient.chief_complaint) {
+    entries.push(
+      entryFor(
+        buildCondition(mrn, {
+          display_text: patient.chief_complaint,
+          verification_status: "provisional",
+          coded_at: patient.admission_time,
+        }, { type: "hpi", verification: "provisional", recordedDate: patient.admission_time ?? null }),
+      ),
+    );
+  }
+
+  // Additional coded conditions from the `conditions` table.
+  let condCounter = 0;
+  for (const c of ((condsRes as any)?.data ?? []) as any[]) {
+    const token = c.snomed_code ? `snomed-${String(c.snomed_code).replace(/[^A-Za-z0-9]/g, "").slice(0, 20)}`
+      : c.icd10_code ? `icd-${String(c.icd10_code).replace(/[^A-Za-z0-9]/g, "").slice(0, 20)}`
+      : `pmh-${++condCounter}`;
+    entries.push(entryFor(buildCondition(mrn, c, { type: token, verification: "confirmed", recordedDate: c.coded_at ?? c.created_at ?? null })));
+  }
+
+  // Medications: emit BOTH MedicationRequest (order intent) AND
+  // MedicationAdministration (for rows that reached "Administered"). Dedupe
+  // by drug+dose to avoid two identical Requests when the same admission
+  // template inserts the same row twice.
+  const seenMed = new Set<string>();
+  for (const m of ((medsRes as any)?.data ?? []) as any[]) {
+    const drug = m.drug_name ?? m.medication_name ?? m.drug ?? "medication";
+    const key = `${drug}|${m.dose ?? ""}`.toLowerCase();
+    if (seenMed.has(key)) continue;
+    seenMed.add(key);
+    entries.push(entryFor(buildMedRequest(mrn, m)));
+    const raw = String(m.status ?? "").toLowerCase();
+    if (raw === "administered" || raw === "completed" || raw === "given") {
+      entries.push(entryFor(buildMedAdmin(mrn, m)));
+    }
+  }
+
+  // Labs: prefer the reported row on lab_orders when it has a result_value,
+  // and additionally emit any lab_results rows keyed by their own test_name.
+  const seenLab = new Set<string>();
+  for (const l of ((labsRes as any)?.data ?? []) as any[]) {
+    const key = `${(l.test_type ?? "").toLowerCase()}|${l.loinc_code ?? ""}`;
+    if (seenLab.has(key)) continue;
+    seenLab.add(key);
+    entries.push(entryFor(buildLabObservation(mrn, l)));
+  }
+  for (const r of ((resultsRes as any)?.data ?? []) as any[]) {
+    const key = `${(r.test_name ?? "").toLowerCase()}|`;
+    if (seenLab.has(key)) continue;
+    seenLab.add(key);
+    entries.push(entryFor(buildLabObservation(mrn, r)));
+  }
+
+  // Notes: the client hook writes a single DocumentReference keyed
+  // `docref-{mrn}` (most recent note wins). Match that.
+  const latestNote = (((notesRes as any)?.data ?? []) as any[])[0];
+  if (latestNote) entries.push(entryFor(buildDocRef(mrn, latestNote)));
+
+  return { entries, skipped: null };
+}
+
+async function pollClinical(admin: any) {
+  const since = await readState(admin, "outbound_clinical_last_synced_at");
+  const cutoff = new Date().toISOString();
+  const stats: any = { since, cutoff, mrns: 0, entries: 0, pushed: 0, failed: 0, skipped: [] };
+
+  const { mrns, maxTs } = await collectChangedMrns(admin, since);
+  stats.mrns = mrns.length;
+  if (mrns.length === 0) {
+    // No changes — hold the cursor at `since` so we don't accidentally
+    // skip past data that lands in the same millisecond window on the
+    // next tick. maxTs === since here.
+    return stats;
+  }
+
+  // Push per-MRN so a single bad row/MRN doesn't fail the whole batch.
+  for (const mrn of mrns) {
+    let built: { entries: any[]; skipped: string | null } | null = null;
+    try {
+      built = await buildEntriesForMrn(admin, mrn);
+    } catch (e) {
+      stats.failed += 1;
+      stats.skipped.push({ mrn, reason: `build_error: ${(e as Error).message}` });
+      continue;
+    }
+    if (built.skipped || built.entries.length === 0) {
+      stats.skipped.push({ mrn, reason: built.skipped ?? "no_entries" });
+      continue;
+    }
+    stats.entries += built.entries.length;
+    const result = await pushBundle(built.entries);
+    if (!result.ok) {
+      stats.failed += 1;
+      stats.skipped.push({ mrn, reason: `push_${result.status}`, body: result.body });
+      continue;
+    }
+    stats.pushed += 1;
+  }
+
+  // Advance cursor to the max seen ts (or `cutoff` if nothing had a newer
+  // timestamp — happens when the change was purely a delete or an anomaly).
+  const newCursor = maxTs > since ? maxTs : cutoff;
+  await writeState(admin, "outbound_clinical_last_synced_at", newCursor);
+  stats.cursorTo = newCursor;
+  return stats;
+}
+
 /* ---------------- Entry point ------------------------------------------- */
 
 async function logEvent(admin: any, payload: any) {
@@ -572,7 +755,10 @@ Deno.serve(async (req) => {
     const invoice = await pollInvoices(admin);
     const chargeItem = await pollChargeItems(admin);
     const appointment = await pollAppointments(admin);
-    const result = { ok: true, ranAt: new Date().toISOString(), invoice, chargeItem, appointment };
+    // Clinical push runs last so a slow/blocked FHIR write on many entries
+    // never delays billing (which is the tighter demo dependency).
+    const clinical = await pollClinical(admin);
+    const result = { ok: true, ranAt: new Date().toISOString(), invoice, chargeItem, appointment, clinical };
     await logEvent(admin, result);
     return json(result);
   } catch (e) {
