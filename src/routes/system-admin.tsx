@@ -1375,6 +1375,7 @@ async function resolveAlertSideEffects(
       reason: rationale,
       physician_name: physicianName,
       fired_at: decidedAt,
+      decision: status,
     } as any);
   } catch (e: any) {
     console.warn("[safety] cds_overrides insert failed", e?.message);
