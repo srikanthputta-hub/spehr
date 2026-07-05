@@ -91,3 +91,80 @@ export function checkDrugDisease(
   }
   return hits;
 }
+
+/**
+ * Value-set-backed contraindication check. Queries `custom_value_sets` for
+ * published `clinical_application = 'CDS'` sets, matches the drug via the
+ * value set's name/description (case-insensitive substring), and returns
+ * hits when any patient condition/allergy display text overlaps with a
+ * `codes[].display` in that value set.
+ *
+ * Returns:
+ *   - `{ hits, matchedAnyDrugSet: true }`  when at least one CDS value set
+ *     governed the drug (whether or not conditions matched).
+ *   - `{ hits: [], matchedAnyDrugSet: false }` when NO CDS value set
+ *     covered the drug — caller should fall back to `checkDrugDisease`.
+ */
+export async function checkDrugDiseaseFromValueSets(
+  drugName: string,
+  patientConditions: string[],
+): Promise<{ hits: CdsHit[]; matchedAnyDrugSet: boolean }> {
+  if (!drugName) return { hits: [], matchedAnyDrugSet: false };
+  const { supabase } = await import("@/integrations/supabase/client");
+  const { data, error } = await supabase
+    .from("custom_value_sets")
+    .select("id, name, description, codes, clinical_application, status")
+    .eq("status", "published")
+    .eq("clinical_application", "CDS");
+  if (error || !data || data.length === 0) {
+    return { hits: [], matchedAnyDrugSet: false };
+  }
+  const drugLower = drugName.toLowerCase();
+  const hits: CdsHit[] = [];
+  let matchedAnyDrugSet = false;
+
+  for (const vs of data as any[]) {
+    const name = String(vs.name ?? "");
+    const desc = String(vs.description ?? "");
+    const haystack = `${name} ${desc}`.toLowerCase();
+    // Value set governs this drug when its name/description mentions it
+    // (substring, either direction — tolerates "NSAIDs" naming ibuprofen
+    // and "ibuprofen" being contained in the value set name).
+    const governs =
+      haystack.includes(drugLower) ||
+      drugLower.split(/\s+/).some((tok) => tok.length >= 3 && haystack.includes(tok));
+    if (!governs) continue;
+    matchedAnyDrugSet = true;
+
+    const codes = Array.isArray(vs.codes) ? vs.codes : [];
+    // Optional severity/rationale override via description marker
+    const severity: CdsSeverity =
+      /caution/i.test(desc) ? "CAUTION"
+      : /info/i.test(desc) ? "INFO"
+      : "CONTRAINDICATION";
+
+    for (const cond of patientConditions) {
+      const condLower = String(cond ?? "").toLowerCase();
+      if (!condLower) continue;
+      const match = codes.find((c: any) => {
+        const disp = String(c?.display ?? "").toLowerCase();
+        if (!disp) return false;
+        return condLower.includes(disp) || disp.includes(condLower);
+      });
+      if (match) {
+        const rule: ContraindicationRule = {
+          drug_match: new RegExp(drugLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+          condition_match: new RegExp(String(match.display).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+          condition_snomed: match.code ? String(match.code) : undefined,
+          severity,
+          rationale: desc
+            ? `${name} — ${desc}`
+            : `${name}: patient condition "${cond}" is on this contraindication value set.`,
+        };
+        hits.push({ rule, matched_condition: cond });
+        break; // one hit per value set is enough
+      }
+    }
+  }
+  return { hits, matchedAnyDrugSet };
+}

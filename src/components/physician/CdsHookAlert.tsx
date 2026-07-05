@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ShieldCheck, X } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
-import { checkDrugDisease, type CdsHit } from "@/lib/contraindications";
+import { checkDrugDisease, checkDrugDiseaseFromValueSets, type CdsHit } from "@/lib/contraindications";
 import { logCdsOverride } from "@/lib/auto-api.functions";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
 import { toast } from "sonner";
@@ -27,10 +27,37 @@ export function CdsHookAlert({
   const [overridden, setOverridden] = useState<Set<string>>(new Set());
   const [showInput, setShowInput] = useState<string | null>(null);
 
-  const hits = useMemo(() => {
+  const staticHits = useMemo(() => {
     if (!autoApi || !drugName || drugName.length < 3) return [];
     return checkDrugDisease(drugName, patientConditions);
   }, [drugName, patientConditions, autoApi]);
+
+  // Value-set-backed CDS check runs FIRST; if no published CDS value set
+  // governs this drug at all, we fall back to the static rule list.
+  const [vsHits, setVsHits] = useState<CdsHit[]>([]);
+  const [vsMatchedAnyDrugSet, setVsMatchedAnyDrugSet] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (!autoApi || !drugName || drugName.length < 3) {
+      setVsHits([]);
+      setVsMatchedAnyDrugSet(false);
+      return;
+    }
+    checkDrugDiseaseFromValueSets(drugName, patientConditions)
+      .then((r) => {
+        if (cancelled) return;
+        setVsHits(r.hits);
+        setVsMatchedAnyDrugSet(r.matchedAnyDrugSet);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVsHits([]);
+        setVsMatchedAnyDrugSet(false);
+      });
+    return () => { cancelled = true; };
+  }, [drugName, patientConditions, autoApi]);
+
+  const hits = vsMatchedAnyDrugSet ? vsHits : staticHits;
 
   const allergyHits = useMemo(() => {
     if (!autoApi || !drugName || drugName.length < 3) return [];
