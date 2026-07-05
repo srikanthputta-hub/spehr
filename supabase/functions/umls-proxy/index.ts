@@ -298,35 +298,49 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
   const oid = String(p.oid ?? "").trim();
   if (!oid) return { error: "Missing OID", status: 400 };
 
-  const url = `https://cts.nlm.nih.gov/fhir/ValueSet/$expand?url=https://cts.nlm.nih.gov/fhir/ValueSet/${encodeURIComponent(oid)}`;
-  const auth = btoa(`${UMLS_API_KEY}:`);
-  const res = await fetch(url, {
-    headers: { Accept: "application/json", Authorization: `Basic ${auth}` },
-  });
+  try {
+    const url = `https://cts.nlm.nih.gov/fhir/ValueSet/$expand?url=https://cts.nlm.nih.gov/fhir/ValueSet/${encodeURIComponent(oid)}`;
+    let auth: string;
+    try {
+      auth = btoa(`${UMLS_API_KEY}:`);
+    } catch {
+      return { error: "UMLS_API_KEY contains characters that cannot be Base64-encoded for Basic auth.", status: 500 };
+    }
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", Authorization: `Basic ${auth}` },
+    });
 
-  if (!res.ok) {
+    if (!res.ok) {
+      return {
+        error: `VSAC returned ${res.status}: ${res.statusText}. This UMLS API key may not have VSAC access, or the OID doesn't exist.`,
+        status: res.status,
+      };
+    }
+
+    let resource: any;
+    try {
+      resource = await res.json();
+    } catch {
+      return { error: "VSAC returned a non-JSON response body.", status: 502 };
+    }
+    const expansion = resource?.expansion ?? {};
+    const contains: any[] = Array.isArray(expansion.contains) ? expansion.contains : [];
+    const codes = contains.map((c) => ({
+      code: String(c?.code ?? ""),
+      display: String(c?.display ?? ""),
+      vocabulary: VSAC_SYSTEM_TO_VOCAB[String(c?.system ?? "")] ?? String(c?.system ?? ""),
+    })).filter((c) => c.code);
+
     return {
-      error: `VSAC returned ${res.status}: ${res.statusText}. This UMLS API key may not have VSAC access, or the OID doesn't exist.`,
-      status: res.status,
+      oid,
+      name: resource?.name ?? null,
+      title: resource?.title ?? null,
+      total: typeof expansion.total === "number" ? expansion.total : codes.length,
+      codes,
     };
+  } catch (e) {
+    return { error: `VSAC request failed: ${(e as Error).message ?? "unknown error"}`, status: 502 };
   }
-
-  const resource = await res.json();
-  const expansion = resource?.expansion ?? {};
-  const contains: any[] = Array.isArray(expansion.contains) ? expansion.contains : [];
-  const codes = contains.map((c) => ({
-    code: String(c?.code ?? ""),
-    display: String(c?.display ?? ""),
-    vocabulary: VSAC_SYSTEM_TO_VOCAB[String(c?.system ?? "")] ?? String(c?.system ?? ""),
-  })).filter((c) => c.code);
-
-  return {
-    oid,
-    name: resource?.name ?? null,
-    title: resource?.title ?? null,
-    total: typeof expansion.total === "number" ? expansion.total : codes.length,
-    codes,
-  };
 }
 
 // ─── Action type ─────────────────────────────────────────────────────────────
