@@ -193,6 +193,250 @@ function buildAppointment(row: any) {
   });
 }
 
+/* ---------------- Clinical builders (mirror src/lib/fhir-bundle.ts) ------ */
+//
+// Every stable ID below matches the client-side `stableIds` map so both
+// paths PUT the SAME resource id and re-applications are idempotent.
+// Reference: src/lib/fhir-bundle.ts lines 248-291.
+
+function slugify(input: string): string {
+  return String(input ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40) || "unknown";
+}
+
+const LAB_LOINC_BY_NAME: Record<string, string> = {
+  "hemoglobin": "718-7", "hgb": "718-7",
+  "wbc": "6690-2", "white blood cell count": "6690-2",
+  "glucose": "2345-7", "creatinine": "2160-0",
+  "troponin t": "89579-7", "troponin t hs": "89579-7",
+  "creatine kinase": "2157-6", "ck": "2157-6",
+  "platelets": "777-3", "hematocrit": "4544-3",
+  "sodium": "2951-2", "potassium": "2823-3",
+};
+function loincForLabName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const n = name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (LAB_LOINC_BY_NAME[n]) return LAB_LOINC_BY_NAME[n];
+  for (const k of Object.keys(LAB_LOINC_BY_NAME)) if (n.includes(k)) return LAB_LOINC_BY_NAME[k];
+  return null;
+}
+
+const stableIds = {
+  patient: (mrn: string) => mrn,
+  encounter: (mrn: string) => `enc-${mrn}`,
+  medRequest: (drug: string, mrn: string) => `medreq-${slugify(drug)}-${mrn}`,
+  medAdmin: (drug: string, mrn: string) => `medadmin-${slugify(drug)}-${mrn}`,
+  lab: (name: string, mrn: string, loinc?: string | null) => {
+    if (loinc) {
+      const code = String(loinc).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 40);
+      if (code) return `lab-${code}-${mrn}`;
+    }
+    return `lab-${slugify(name)}-${mrn}`;
+  },
+  condition: (type: string, mrn: string) => `cond-${slugify(type).slice(0, 30) || "unknown"}-${mrn}`,
+  docRef: (mrn: string) => `docref-${mrn}`,
+};
+
+function buildPatientResource(p: any) {
+  const name = p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ");
+  const [given, ...rest] = String(name ?? "").split(" ");
+  const family = rest.join(" ") || given || "";
+  const g = String(p.gender ?? p.biological_sex ?? "").toLowerCase();
+  return tagged({
+    resourceType: "Patient",
+    id: stableIds.patient(p.mrn),
+    identifier: [{ system: "urn:spehr:mrn", value: p.mrn }],
+    name: name ? [{ use: "official", given: given ? [given] : [], family }] : undefined,
+    gender: g.startsWith("m") ? "male" : g.startsWith("f") ? "female" : "unknown",
+    birthDate: p.dob ?? undefined,
+    telecom: p.phone ? [{ system: "phone", value: p.phone }] : undefined,
+    address: p.address ? [{ text: p.address }] : undefined,
+    managingOrganization: p.facility_name ? { display: p.facility_name } : undefined,
+  });
+}
+
+function buildEncounterResource(p: any) {
+  const status =
+    String(p.status ?? "").toLowerCase() === "discharged" || p.discharge_time
+      ? "finished"
+      : "in-progress";
+  return tagged({
+    resourceType: "Encounter",
+    id: stableIds.encounter(p.mrn),
+    identifier: [{ system: "urn:spehr:encounter", value: stableIds.encounter(p.mrn) }],
+    status,
+    class: {
+      system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+      code: "EMER",
+      display: "Emergency",
+    },
+    subject: { reference: `Patient/${p.mrn}` },
+    period: { start: p.admission_time ?? undefined, end: p.discharge_time ?? undefined },
+    reasonCode: p.chief_complaint ? [{ text: p.chief_complaint }] : undefined,
+    serviceProvider: p.facility_name ? { display: p.facility_name } : undefined,
+  });
+}
+
+function buildMedRequest(mrn: string, m: any) {
+  const drug = m.drug_name ?? m.medication_name ?? m.drug ?? "medication";
+  const raw = String(m.status ?? "").toLowerCase();
+  const status =
+    raw === "administered" || raw === "completed" || raw === "given"
+      ? "completed"
+      : raw === "pending" || raw === "draft" || raw === "pending verification" || raw === "pending_pharmacy"
+        ? "draft"
+        : raw === "cancelled" || raw === "canceled"
+          ? "cancelled"
+          : raw === "stopped" || raw === "discontinued"
+            ? "stopped"
+            : "active";
+  const medCC = m.rxnorm_code
+    ? {
+        coding: [{ system: "http://www.nlm.nih.gov/research/umls/rxnorm", code: m.rxnorm_code, display: m.rxnorm_display ?? drug }],
+        text: `${drug}${m.dose ? ` ${m.dose}` : ""}`,
+      }
+    : { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` };
+  return tagged({
+    resourceType: "MedicationRequest",
+    id: stableIds.medRequest(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
+    status,
+    intent: "order",
+    medicationCodeableConcept: medCC,
+    subject: { reference: `Patient/${mrn}` },
+    encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
+    authoredOn: m.created_at ?? undefined,
+    requester: m.ordered_by || m.ordering_physician ? { display: m.ordering_physician ?? m.ordered_by } : undefined,
+    dosageInstruction: m.route
+      ? [{ route: { text: m.route }, text: `${m.dose ?? ""} ${m.route}`.trim() }]
+      : undefined,
+  });
+}
+
+function buildMedAdmin(mrn: string, m: any) {
+  const drug = m.drug_name ?? m.medication_name ?? m.drug ?? "medication";
+  const medCC = m.rxnorm_code
+    ? {
+        coding: [{ system: "http://www.nlm.nih.gov/research/umls/rxnorm", code: m.rxnorm_code, display: m.rxnorm_display ?? drug }],
+        text: `${drug}${m.dose ? ` ${m.dose}` : ""}`,
+      }
+    : { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` };
+  return tagged({
+    resourceType: "MedicationAdministration",
+    id: stableIds.medAdmin(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
+    status: "completed",
+    medicationCodeableConcept: medCC,
+    subject: { reference: `Patient/${mrn}` },
+    context: { reference: `Encounter/${stableIds.encounter(mrn)}` },
+    effectiveDateTime: m.administered_at ?? m.updated_at ?? m.created_at ?? undefined,
+    performer:
+      m.ordering_physician || m.ordered_by
+        ? [{ actor: { display: m.ordering_physician ?? m.ordered_by } }]
+        : undefined,
+  });
+}
+
+function buildLabObservation(mrn: string, l: any) {
+  const loinc = l.loinc_code ?? loincForLabName(l.test_type ?? l.test_name);
+  const id = stableIds.lab(l.test_type ?? l.test_name ?? l.id ?? "unknown", mrn, loinc);
+  const value = l.result_value ?? "";
+  const numeric = value ? Number((String(value).match(/-?\d+(\.\d+)?/) ?? [])[0]) : NaN;
+  return tagged({
+    resourceType: "Observation",
+    id,
+    status:
+      String(l.status ?? "").toLowerCase() === "resulted" ||
+      String(l.status ?? "").toLowerCase() === "reported" ||
+      value
+        ? "final"
+        : "registered",
+    category: [
+      {
+        coding: [
+          { system: "http://terminology.hl7.org/CodeSystem/observation-category", code: "laboratory", display: "Laboratory" },
+        ],
+      },
+    ],
+    code: loinc
+      ? { coding: [{ system: "http://loinc.org", code: loinc, display: l.test_type ?? l.test_name ?? undefined }], text: l.test_type ?? l.test_name ?? "Lab" }
+      : { text: l.test_type ?? l.test_name ?? "Lab" },
+    subject: { reference: `Patient/${mrn}` },
+    encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
+    effectiveDateTime: l.collected_at ?? l.created_at ?? undefined,
+    ...(Number.isFinite(numeric)
+      ? { valueQuantity: { value: numeric, unit: l.unit ?? undefined } }
+      : value
+        ? { valueString: String(value) }
+        : {}),
+  });
+}
+
+function buildCondition(mrn: string, c: any, opts: { type: string; verification: "provisional" | "confirmed"; recordedDate?: string | null }) {
+  const coding: any[] = [];
+  if (c.snomed_code)
+    coding.push({ system: "http://snomed.info/sct", code: c.snomed_code, display: c.snomed_display ?? c.display_text ?? undefined });
+  if (c.icd10_code)
+    coding.push({ system: "http://hl7.org/fhir/sid/icd-10-cm", code: c.icd10_code, display: c.icd10_display ?? c.display_text ?? undefined });
+  const text = c.display_text ?? c.snomed_display ?? c.icd10_display ?? opts.type;
+  return tagged({
+    resourceType: "Condition",
+    id: stableIds.condition(opts.type, mrn),
+    clinicalStatus: {
+      coding: [
+        { system: "http://terminology.hl7.org/CodeSystem/condition-clinical", code: (c.clinical_status ?? "active") },
+      ],
+    },
+    verificationStatus: {
+      coding: [
+        { system: "http://terminology.hl7.org/CodeSystem/condition-ver-status", code: c.verification_status ?? opts.verification },
+      ],
+    },
+    category: [
+      {
+        coding: [
+          { system: "http://terminology.hl7.org/CodeSystem/condition-category", code: "encounter-diagnosis", display: "Encounter Diagnosis" },
+        ],
+      },
+    ],
+    code: coding.length > 0 ? { coding, text } : { text },
+    subject: { reference: `Patient/${mrn}` },
+    encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
+    recordedDate: opts.recordedDate ?? c.coded_at ?? c.created_at ?? undefined,
+  });
+}
+
+// Encode UTF-8 → base64 without depending on Buffer (Deno friendly).
+function b64encode(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function buildDocRef(mrn: string, n: any) {
+  return tagged({
+    resourceType: "DocumentReference",
+    id: stableIds.docRef(mrn),
+    status: "current",
+    type: { text: n.note_type ?? "Clinical note" },
+    subject: { reference: `Patient/${mrn}` },
+    context: { encounter: [{ reference: `Encounter/${stableIds.encounter(mrn)}` }] },
+    date: n.created_at ?? undefined,
+    author: n.author ? [{ display: n.author }] : undefined,
+    content: [
+      {
+        attachment: {
+          contentType: "text/plain",
+          data: b64encode(n.content ?? ""),
+          title: n.note_type ?? "Clinical note",
+        },
+      },
+    ],
+  });
+}
+
 /* ---------------- Transaction bundle push -------------------------------- */
 
 async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number; body: any }> {
