@@ -18,6 +18,11 @@ export const LAB_LOINC: Array<{ pattern: RegExp; code: string; display: string }
   { pattern: /d[-\s]?dimer/i,       code: "48066-5", display: "D-dimer" },
   { pattern: /lactate|lactic\s*acid/i, code: "2519-9",  display: "Lactate" },
   { pattern: /lipase/i,             code: "3040-3",  display: "Lipase" },
+  { pattern: /hematocrit|\bhct\b/i, code: "4544-3",  display: "Hematocrit" },
+  { pattern: /platelet/i,           code: "777-3",   display: "Platelet count" },
+  { pattern: /chloride/i,           code: "2075-0",  display: "Chloride" },
+  { pattern: /bicarbonate|\bco2\b/i,code: "2028-9",  display: "Bicarbonate (CO2)" },
+  { pattern: /\bbun\b|urea nitrogen/i, code: "3094-0", display: "Blood urea nitrogen" },
 ];
 
 export function lookupLabLoinc(name: string): { code: string; display: string } | null {

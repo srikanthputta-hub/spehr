@@ -96,9 +96,10 @@ export function AutoTerminologistActivity() {
           </div>
           <p className="text-sm text-slate-600 mt-1 max-w-3xl">
             Autonomous agent that scans the last 24 h of patient data every
-            10 minutes, detects clinical concepts not yet covered by any value
-            set, validates them against UMLS, and drafts new value sets for
-            human review. Never auto-publishes.
+            10 minutes and logs clinical concepts, grouped by theme, that are
+            not yet covered by any published value set. Value set authoring
+            remains manual — a human curates the surfaced gaps in the
+            Authoring Workbench.
           </p>
           <p className="text-xs text-slate-500 mt-2">
             Last run: <span className="font-medium text-slate-700">{formatAgo(lastRunAt)}</span>
