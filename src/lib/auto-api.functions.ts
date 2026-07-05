@@ -445,6 +445,10 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
     // When a value set is selected, narrow to MRNs whose coded conditions
     // (snomed/icd10) or lab_orders (loinc) contain ANY code from the set.
     let vsMeta: { name: string; codes_count: number } | null = null;
+    let allCodesDebug: string[] | null = null;
+    let vsCondErrMsg: string | null = null;
+    let vsLabErrMsg: string | null = null;
+    const patientBatchErrors: string[] = [];
     if (data.value_set_id) {
       const { data: vs } = await sb
         .from("custom_value_sets")
@@ -456,6 +460,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       const allCodes = codesArr
         .map((c: any) => String(c?.code ?? "").trim())
         .filter((c: string) => c.length > 0);
+      allCodesDebug = allCodes;
       vsMrns = new Set();
       if (allCodes.length > 0) {
         const [
@@ -475,10 +480,14 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
             .in("loinc_code", allCodes)
             .limit(5000),
         ]);
-        if (vsCondErr)
+        if (vsCondErr) {
+          vsCondErrMsg = vsCondErr.message;
           console.error("[population-query] vsCond failed", vsCondErr.message);
-        if (vsLabErr)
+        }
+        if (vsLabErr) {
+          vsLabErrMsg = vsLabErr.message;
           console.error("[population-query] vsLab failed", vsLabErr.message);
+        }
         for (const r of (vsCond as any[]) ?? []) {
           if (r.mrn) vsMrns.add(r.mrn);
           const key = r.snomed_display
@@ -520,11 +529,13 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
             bq = bq.gte("admission_time", data.since_iso);
           }
           const { data: br, error: bErr } = await bq;
-          if (bErr)
+          if (bErr) {
+            patientBatchErrors.push(bErr.message);
             console.error(
               "[population-query] patients batch failed",
               bErr.message,
             );
+          }
           return (br as any[]) ?? [];
         }),
       );
@@ -588,6 +599,14 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       value_set_id: data.value_set_id ?? null,
       value_set_name: vsMeta?.name ?? null,
       cohort_size: filtered.length,
+      // TEMP DEBUG — remove after diagnosis:
+      debug_vsMrns_size: vsMrns ? vsMrns.size : null,
+      debug_gateMrns_size: gateMrns ? gateMrns.size : null,
+      debug_rows_before_filter: rows.length,
+      debug_allCodes: allCodesDebug,
+      debug_vsCond_error: vsCondErrMsg,
+      debug_vsLab_error: vsLabErrMsg,
+      debug_patient_batch_errors: patientBatchErrors,
     });
     return {
       total: filtered.length,
