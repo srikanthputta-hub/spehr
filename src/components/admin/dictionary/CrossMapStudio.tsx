@@ -399,6 +399,16 @@ export function CrossMapStudio() {
           </ul>
         )}
       </div>
+
+      <details className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+          ⚡ FHIR Operation · ConceptMap/$translate
+        </summary>
+        <p className="text-[11px] text-slate-600 mt-1 mb-3">
+          Translate a single code across code systems as a FHIR Parameters resource.
+        </p>
+        <TranslateCard />
+      </details>
     </div>
   );
 }
