@@ -2831,6 +2831,39 @@ export type Database = {
         }
         Relationships: []
       }
+      terminology_activity_log: {
+        Row: {
+          action: string
+          actor: string
+          created_at: string
+          feature: string
+          id: string
+          message: string
+          metadata: Json | null
+          ref_id: string | null
+        }
+        Insert: {
+          action: string
+          actor: string
+          created_at?: string
+          feature: string
+          id?: string
+          message: string
+          metadata?: Json | null
+          ref_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor?: string
+          created_at?: string
+          feature?: string
+          id?: string
+          message?: string
+          metadata?: Json | null
+          ref_id?: string | null
+        }
+        Relationships: []
+      }
       terminology_audit: {
         Row: {
           action: string
