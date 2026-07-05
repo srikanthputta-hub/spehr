@@ -1,0 +1,1 @@
+DELETE FROM public.fhir_appointments WHERE id = 'ce840373-d540-4e87-a163-8cf05fda5a9c';
