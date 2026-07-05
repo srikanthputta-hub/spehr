@@ -3234,6 +3234,32 @@ const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
   );
 });
 
+function FhirInteropTopLevel() {
+  const [facility, setFacility] = useState<string>("all");
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="inline-flex items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+            🏥 Select Facility Network
+          </span>
+          <select
+            value={facility}
+            onChange={(e) => setFacility(e.target.value)}
+            className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none hover:bg-slate-50 focus:border-slate-400 transition cursor-pointer"
+          >
+            <option value="all">All Facilities</option>
+            {FACILITIES.map((f) => (
+              <option key={f} value={f}>{f}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <FhirInteroperability facility={facility} />
+    </div>
+  );
+}
+
 function FhirInteroperability({ facility }: { facility: string }) {
   const [rows, setRows] = useState<FhirEncounterRow[]>([]);
   const [loading, setLoading] = useState(true);
