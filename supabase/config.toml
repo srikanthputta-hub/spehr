@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.fhir-inbound-poll]
 verify_jwt = false
+
+[functions.fhir-outbound-poll]
+verify_jwt = false

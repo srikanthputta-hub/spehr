@@ -404,8 +404,10 @@ export function buildChargeItemResource(
       text: row.description,
     },
     subject: { reference: `Patient/${row.mrn}` },
-    context: invoiceNo
-      ? { reference: `Invoice/${fhirSafeId(invoiceNo)}` }
+    // FHIR R4: ChargeItem.context is Encounter|EpisodeOfCare only. Link
+    // to the Invoice via supportingInformation instead (HAPI-0931).
+    supportingInformation: invoiceNo
+      ? [{ reference: `Invoice/${fhirSafeId(invoiceNo)}` }]
       : undefined,
     occurrenceDateTime: row.service_date ?? undefined,
     quantity: { value: quantity },
