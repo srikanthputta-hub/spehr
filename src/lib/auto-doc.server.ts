@@ -24,6 +24,7 @@ import {
   composeCharges,
   makeInvoiceNo,
   summarizeCharges,
+  matchBillingValueSets,
   type BuildChargesInput,
 } from "./billing-pricing";
 
@@ -784,28 +785,64 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   const [{ data: medRows }, { data: labRows }] = await Promise.all([
     sb
       .from("medication_orders")
-      .select("medication_name,drug_name,drug,status,administered_at")
+      .select("medication_name,drug_name,drug,rxnorm_code,status,administered_at")
       .eq("patient_mrn", mrn),
     sb
       .from("lab_orders")
-      .select("test_type,status,collected_at")
+      .select("test_type,loinc_code,status,collected_at")
       .eq("patient_mrn", mrn),
   ]);
 
   const meds = (medRows ?? [])
     .filter((m: any) => String(m.status ?? "").toLowerCase() === "administered")
     .map((m: any) => ({
-      rxnorm: null,
+      rxnorm: m.rxnorm_code ?? null,
       name: m.medication_name || m.drug_name || m.drug || "Medication",
       administered_at: m.administered_at ?? null,
     }));
   const labs = (labRows ?? [])
     .filter((l: any) => /resulted|reported|final/i.test(String(l.status ?? "")))
     .map((l: any) => ({
-      loinc: null,
+      loinc: l.loinc_code ?? null,
       name: l.test_type ?? "Lab",
       collected_at: l.collected_at ?? null,
     }));
+
+  // Pull ICD-10 codes for this MRN — prefer discrete conditions rows; fall
+  // back to the denormalised patients.icd10_codes array when empty.
+  const { data: condRows } = await sb
+    .from("conditions")
+    .select("icd10_code")
+    .eq("mrn", mrn);
+  let icd10Codes: string[] = ((condRows ?? []) as any[])
+    .map((r) => r?.icd10_code)
+    .filter((c: unknown): c is string => typeof c === "string" && c.length > 0);
+  if (icd10Codes.length === 0) {
+    const { data: pRow } = await sb
+      .from("patients")
+      .select("icd10_codes")
+      .eq("mrn", mrn)
+      .maybeSingle();
+    const arr = (pRow as any)?.icd10_codes;
+    if (Array.isArray(arr)) {
+      icd10Codes = arr.filter((c: unknown): c is string => typeof c === "string" && c.length > 0);
+    }
+  }
+  icd10Codes = Array.from(new Set(icd10Codes));
+
+  // Fetch published Billing value sets and compute matches.
+  const { data: billingVs } = await sb
+    .from("custom_value_sets")
+    .select("name, codes, clinical_application, status")
+    .eq("status", "published")
+    .eq("clinical_application", "Billing");
+  const billingMatches = matchBillingValueSets(
+    icd10Codes,
+    ((billingVs ?? []) as any[]).map((v) => ({
+      name: String(v.name ?? "Billing value set"),
+      codes: Array.isArray(v.codes) ? v.codes : [],
+    })),
+  );
 
   const input: BuildChargesInput = {
     admissionTime: p.admission_time,
@@ -813,6 +850,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     room: p.room,
     meds,
     labs,
+    billingMatches,
   };
   const charges = composeCharges(input);
   const { subtotal, tax, total } = summarizeCharges(charges);

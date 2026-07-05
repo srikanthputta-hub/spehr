@@ -16,7 +16,7 @@ export type ChargeCategory =
 
 export interface PricedCharge {
   code: string;
-  codeSystem: "internal" | "LOINC" | "RxNorm" | "CPT";
+  codeSystem: "internal" | "LOINC" | "RxNorm" | "CPT" | "ICD-10";
   description: string;
   category: ChargeCategory;
   quantity: number;
@@ -35,6 +35,7 @@ export const TARIFF = {
   pharmacy_handling: 75,
   biomedical_waste: 45,
   tax_rate: 0.05,
+  risk_adjustment_doc_fee: 60,
 };
 
 /**
@@ -205,7 +206,9 @@ export function buildChargeItemResource(args: {
                 ? "http://www.nlm.nih.gov/research/umls/rxnorm"
                 : c.codeSystem === "CPT"
                   ? "http://www.ama-assn.org/go/cpt"
-                  : "http://spehr.local/charge",
+                  : c.codeSystem === "ICD-10"
+                    ? "http://hl7.org/fhir/sid/icd-10-cm"
+                    : "http://spehr.local/charge",
           code: c.code,
           display: c.description,
         },
@@ -332,6 +335,42 @@ export interface BuildChargesInput {
     name?: string | null;
     collected_at?: string | null;
   }>;
+  billingMatches?: Array<{
+    icd10: string;
+    display: string;
+    valueSetName: string;
+  }>;
+}
+
+/**
+ * Given a patient's ICD-10 codes and a list of published Billing value sets,
+ * return one match record per ICD-10 code that overlaps with a value set
+ * (deduped by ICD-10 code — first matching value set wins).
+ */
+export function matchBillingValueSets(
+  icd10Codes: string[],
+  billingValueSets: Array<{ name: string; codes: any[] }>,
+): Array<{ icd10: string; display: string; valueSetName: string }> {
+  const results: Array<{ icd10: string; display: string; valueSetName: string }> = [];
+  const seen = new Set<string>();
+  const norm = (c: unknown) => String(c ?? "").trim();
+  const patientCodes = icd10Codes.map(norm).filter(Boolean);
+  for (const vs of billingValueSets) {
+    const vsCodes = Array.isArray(vs.codes) ? vs.codes : [];
+    for (const entry of vsCodes) {
+      const code = norm(entry?.code);
+      if (!code) continue;
+      if (!patientCodes.includes(code)) continue;
+      if (seen.has(code)) continue;
+      seen.add(code);
+      results.push({
+        icd10: code,
+        display: String(entry?.display ?? code),
+        valueSetName: String(vs.name ?? "Billing value set"),
+      });
+    }
+  }
+  return results;
 }
 
 /**
@@ -439,6 +478,19 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
     unitPrice: TARIFF.biomedical_waste,
     amount: TARIFF.biomedical_waste,
   });
+
+  // Risk-adjustment lines driven by published Billing value sets
+  for (const match of input.billingMatches ?? []) {
+    out.push({
+      code: match.icd10,
+      codeSystem: "ICD-10",
+      description: `Diagnosis-Related Risk Adjustment — ${match.display} (captured under "${match.valueSetName}")`,
+      category: "admin",
+      quantity: 1,
+      unitPrice: TARIFF.risk_adjustment_doc_fee,
+      amount: TARIFF.risk_adjustment_doc_fee,
+    });
+  }
 
   return out;
 }

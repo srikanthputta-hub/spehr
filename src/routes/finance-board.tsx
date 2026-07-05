@@ -380,6 +380,8 @@ function FinanceBoard() {
         </div>
       </section>
 
+      <RiskAdjustmentGaps facility={facility} invoices={facilityInvoices} />
+
       {selected && (
         <BillModal
           invoice={selected}
@@ -390,6 +392,121 @@ function FinanceBoard() {
         />
       )}
     </main>
+  );
+}
+
+const CHRONIC_RE = /diabet|heart failure|chf|copd|renal|chronic kidney|dialysis/i;
+
+function RiskAdjustmentGaps({
+  facility,
+  invoices,
+}: {
+  facility: string;
+  invoices: InvoiceRow[];
+}) {
+  const [gaps, setGaps] = useState<
+    Array<{ mrn: string; name: string; diagnosis: string }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const mrns = Array.from(new Set(invoices.map((i) => i.mrn))).filter(Boolean);
+      if (mrns.length === 0) {
+        if (!cancelled) {
+          setGaps([]);
+          setLoading(false);
+        }
+        return;
+      }
+      const [patRes, ciRes] = await Promise.all([
+        (supabase as any)
+          .from("patients")
+          .select("mrn,name,diagnosis,chief_complaint")
+          .in("mrn", mrns),
+        (supabase as any)
+          .from("fhir_charge_items")
+          .select("mrn,code_system")
+          .in("mrn", mrns),
+      ]);
+      if (cancelled) return;
+      const risk = new Set<string>();
+      for (const r of ((ciRes?.data ?? []) as any[])) {
+        if (String(r.code_system) === "ICD-10") risk.add(String(r.mrn));
+      }
+      const rows: Array<{ mrn: string; name: string; diagnosis: string }> = [];
+      for (const p of ((patRes?.data ?? []) as any[])) {
+        const dx = String(p.diagnosis ?? p.chief_complaint ?? "");
+        if (!CHRONIC_RE.test(dx)) continue;
+        if (risk.has(String(p.mrn))) continue;
+        rows.push({
+          mrn: String(p.mrn),
+          name: String(p.name ?? "—"),
+          diagnosis: dx || "—",
+        });
+      }
+      setGaps(rows);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [invoices, facility]);
+
+  return (
+    <section className="px-6 pb-8">
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-5 py-3">
+          <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+            <FileText className="h-4 w-4 text-amber-700" />
+            Risk Adjustment Coverage Gaps
+          </h2>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Discharged patients with a chronic diagnosis whose invoice has no
+            ICD-10 risk-adjustment line — no published Billing value set
+            captured their condition.
+          </p>
+        </div>
+        {loading ? (
+          <div className="grid place-items-center h-24 text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </div>
+        ) : gaps.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-500">
+            No coverage gaps detected in this facility.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                <tr>
+                  <th className="text-left px-4 py-2.5">MRN</th>
+                  <th className="text-left px-4 py-2.5">Patient</th>
+                  <th className="text-left px-4 py-2.5">Diagnosis</th>
+                  <th className="text-right px-4 py-2.5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {gaps.map((g) => (
+                  <tr key={g.mrn} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{g.mrn}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{g.name}</td>
+                    <td className="px-4 py-3 text-slate-700">{g.diagnosis}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-amber-300">
+                        Not captured
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
