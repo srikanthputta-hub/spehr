@@ -602,6 +602,37 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ── vsacExpand: VSAC ValueSet $expand by OID ─────────────────────────────
+    if (action === "vsacExpand") {
+      if (!UMLS_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: "UMLS_API_KEY not configured" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const oid = String((params as any)?.oid ?? "").trim();
+      const cacheKey = await hashKey(`vsacExpand:${oid}`);
+      const cached = await cacheGet(cacheKey);
+      if (cached) {
+        return new Response(
+          JSON.stringify({ cached: true, vocabulary: "VSAC", ...(cached as object) }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const result = await vsacExpand(params ?? {});
+      if ("error" in result) {
+        return new Response(
+          JSON.stringify({ error: result.error }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      cacheSet(cacheKey, "VSAC", result).catch(() => {});
+      return new Response(
+        JSON.stringify({ cached: false, vocabulary: "VSAC", ...result }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // ── All other actions: single-URL via buildUrl ───────────────────────────
     // ── snomed: 2-step CUI → SNOMEDCT_US atom lookup (free-text safe) ────────
     if (action === "snomed") {
