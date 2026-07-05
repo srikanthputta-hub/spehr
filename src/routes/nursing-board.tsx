@@ -364,6 +364,7 @@ function Dashboard() {
     total: 0,
   });
   const [admittedFacilityCount, setAdmittedFacilityCount] = useState<number>(0);
+  const [alertMrns, setAlertMrns] = useState<Set<string>>(new Set());
   const automationEnabled = useAutomationEnabled();
   const { gate } = useRolePermissions("RN");
 
@@ -421,6 +422,32 @@ function Dashboard() {
       cancelled = true;
       supabase.removeChannel(ch);
       clearInterval(interval);
+    };
+  }, [facility]);
+
+  useEffect(() => {
+    if (!facility) return;
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("clinical_safety_alerts")
+        .select("mrn")
+        .eq("facility_name", facility)
+        .eq("status", "Pending Review");
+      if (!cancelled) setAlertMrns(new Set((data ?? []).map((r: any) => r.mrn)));
+    };
+    load();
+    const ch = supabase
+      .channel(`safety-alerts-board-${facility}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "clinical_safety_alerts", filter: `facility_name=eq.${facility}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(ch);
     };
   }, [facility]);
 
