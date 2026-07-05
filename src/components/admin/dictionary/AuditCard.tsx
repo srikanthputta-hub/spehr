@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import {
   CheckCircle2,
@@ -172,12 +172,15 @@ export function AuditCard({
   // Anchor to admission time (falls back to row.created_at if unknown).
   const firedRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const anchorMs = new Date(admissionAt ?? row.created_at).getTime();
-  const elapsedMs = Date.now() - anchorMs;
-  const remainingMs = Math.max(0, AUTO_APPROVE_MS - elapsedMs);
-  const startPct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
-  const nrRemainingMs = Math.max(0, NEEDS_REVIEW_AUTO_APPROVE_MS - elapsedMs);
-  const nrStartPct = Math.max(0, Math.min(100, (nrRemainingMs / NEEDS_REVIEW_AUTO_APPROVE_MS) * 100));
+  const { remainingMs, startPct, nrRemainingMs, nrStartPct } = useMemo(() => {
+    const anchorMs = new Date(admissionAt ?? row.created_at).getTime();
+    const elapsedMs = Date.now() - anchorMs;
+    const remainingMs = Math.max(0, AUTO_APPROVE_MS - elapsedMs);
+    const startPct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
+    const nrRemainingMs = Math.max(0, NEEDS_REVIEW_AUTO_APPROVE_MS - elapsedMs);
+    const nrStartPct = Math.max(0, Math.min(100, (nrRemainingMs / NEEDS_REVIEW_AUTO_APPROVE_MS) * 100));
+    return { remainingMs, startPct, nrRemainingMs, nrStartPct };
+  }, [admissionAt, row.created_at, needsReview]);
 
   useEffect(() => {
     if (!autoApprove || approved || firedRef.current) return;
