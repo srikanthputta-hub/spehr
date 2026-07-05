@@ -26,6 +26,7 @@ import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useServerFn } from "@tanstack/react-start";
 import { backfillInvoices, generateInvoiceForMrn } from "@/lib/auto-doc.functions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { MyspehrPortalActivity } from "@/components/finance/MyspehrPortalActivity";
 
 export const Route = createFileRoute("/finance-board")({
   component: FinanceBoard,
@@ -381,6 +382,10 @@ function FinanceBoard() {
       </section>
 
       <RiskAdjustmentGaps facility={facility} invoices={facilityInvoices} />
+
+      <section className="px-6 pb-6">
+        <MyspehrPortalActivity facility={facility} />
+      </section>
 
       {selected && (
         <BillModal
