@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { ExpandCard } from "@/components/admin/dictionary/FhirOpCards";
 
 type ValueSet = {
   id: string;
@@ -540,6 +541,16 @@ export function ValueSetLibrary() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <details className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+          ⚡ FHIR Operation · ValueSet/$expand
+        </summary>
+        <p className="text-[11px] text-slate-600 mt-1 mb-3">
+          Expand a value set from the library to its explicit list of concepts as a FHIR ValueSet expansion.
+        </p>
+        <ExpandCard />
+      </details>
     </div>
   );
 }
