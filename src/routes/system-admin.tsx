@@ -1711,7 +1711,6 @@ function SafetyQueue({ facility }: { facility: string }) {
   };
 
   const pending = items.filter((i) => i.status === "Pending Review");
-  const decided = items.filter((i) => i.status !== "Pending Review");
 
   return (
     <div className="space-y-4">
@@ -1725,7 +1724,7 @@ function SafetyQueue({ facility }: { facility: string }) {
             RxNorm drug that cross-reacts with a documented patient allergy.
             Pharmacy or an EHR specialist may Override / Reject manually —
             otherwise the <span className="font-semibold">AI Safety Engine</span>{" "}
-            auto-resolves any Pending Review alert after a 2-minute SLA.
+            auto-resolves any Pending Review alert after a 45-second SLA.
             Showing latest 15 for{" "}
             <span className="font-semibold">
               {facility && facility !== "all" ? facility : "all facilities"}
@@ -1738,9 +1737,9 @@ function SafetyQueue({ facility }: { facility: string }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Stat label="Pending review" value={pending.length} tone="red" />
-        <Stat label="Overridden" value={decided.filter((d) => d.status === "Overridden").length} tone="amber" />
-        <Stat label="Rejected" value={decided.filter((d) => d.status === "Rejected").length} tone="slate" />
+        <Stat label="Pending review" value={counts.pending} tone="red" />
+        <Stat label="Overridden" value={counts.overridden} tone="amber" />
+        <Stat label="Rejected" value={counts.rejected} tone="slate" />
       </div>
 
       {loading ? (
