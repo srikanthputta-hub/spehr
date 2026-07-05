@@ -434,10 +434,26 @@ export async function runSixStreamPipeline(
           .eq("mrn", mrn)
           .eq("substance", substance)
           .maybeSingle();
+        let writeErr: any = null;
         if ((existing as any)?.id) {
-          await supabase.from("allergies").update(patch as any).eq("id", (existing as any).id);
+          const { error } = await supabase
+            .from("allergies")
+            .update(patch as any)
+            .eq("id", (existing as any).id);
+          writeErr = error;
         } else {
-          await supabase.from("allergies").insert(patch as any);
+          const { error } = await supabase.from("allergies").insert(patch as any);
+          writeErr = error;
+        }
+        if (writeErr) {
+          console.error("[stream-d] allergy write failed", {
+            mrn,
+            substance,
+            code: (writeErr as any).code,
+            message: (writeErr as any).message,
+            details: (writeErr as any).details,
+          });
+          continue;
         }
         streamD.count++;
         streamD.items.push({ substance, ...patch });
