@@ -378,6 +378,94 @@ export function ValueSetLibrary() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={vsacOpen} onOpenChange={(o) => { if (!o) { setVsacOpen(false); setVsacError(null); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import Value Set from VSAC</DialogTitle>
+            <DialogDescription>
+              Fetch a published value set from the NLM Value Set Authority Center by OID and import it as a draft.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <label className="text-xs font-semibold text-slate-700 block mb-1">VSAC OID</label>
+                <Input
+                  value={vsacOid}
+                  onChange={(e) => setVsacOid(e.target.value)}
+                  placeholder="e.g. 2.16.840.1.113883.3.464.1003.103.12.1001"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <Button onClick={handleVsacFetch} disabled={vsacLoading || !vsacOid.trim()}>
+                {vsacLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                Fetch from VSAC
+              </Button>
+            </div>
+
+            {vsacError && (
+              <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                {vsacError}
+              </div>
+            )}
+
+            {vsacResult && (
+              <div className="space-y-2">
+                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                  <div><span className="font-semibold">Name:</span> {vsacResult.name ?? "—"}</div>
+                  <div><span className="font-semibold">Title:</span> {vsacResult.title ?? "—"}</div>
+                  <div><span className="font-semibold">Total codes:</span> {vsacResult.total}</div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">Value Set Name (editable)</label>
+                  <Input value={vsacName} onChange={(e) => setVsacName(e.target.value)} />
+                </div>
+
+                <div>
+                  <div className="text-xs font-semibold text-slate-700 mb-1">
+                    Preview (first {Math.min(30, vsacResult.codes.length)} of {vsacResult.codes.length})
+                  </div>
+                  <div className="max-h-64 overflow-auto rounded border border-slate-200">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 text-slate-600 sticky top-0">
+                        <tr>
+                          <th className="text-left px-2 py-1 font-semibold">Code</th>
+                          <th className="text-left px-2 py-1 font-semibold">Display</th>
+                          <th className="text-left px-2 py-1 font-semibold">Vocab</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {vsacResult.codes.slice(0, 30).map((c, i) => (
+                          <tr key={i}>
+                            <td className="px-2 py-1 font-mono text-[10px]">{c.code}</td>
+                            <td className="px-2 py-1">{c.display}</td>
+                            <td className="px-2 py-1 text-slate-600">{c.vocabulary}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setVsacOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={handleVsacImport}
+              disabled={!vsacResult || vsacImporting || !vsacName.trim()}
+            >
+              {vsacImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Import as Draft
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
