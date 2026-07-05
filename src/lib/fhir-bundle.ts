@@ -290,6 +290,201 @@ export const stableIds = {
   docRef: (mrn: string) => `docref-${mrn}`,
 };
 
+/* ------------------------------------------------------------------ */
+/*  Billing + real Appointment resource builders (Part A push)         */
+/*                                                                     */
+/*  Every resource is tagged `urn:spehr:source|spehr` so the reverse    */
+/*  Subscription (`_tag=urn:spehr:source|myspehr`) will NOT loop them   */
+/*  back into our inbound webhook.                                     */
+/* ------------------------------------------------------------------ */
+
+export const SPEHR_SOURCE_TAG = {
+  system: "urn:spehr:source",
+  code: "spehr",
+} as const;
+
+function withSpehrSource<T extends Record<string, any>>(resource: T): T {
+  const existingTags: any[] = Array.isArray(resource?.meta?.tag) ? resource.meta.tag : [];
+  const hasSpehr = existingTags.some(
+    (t) => t?.system === SPEHR_SOURCE_TAG.system && t?.code === SPEHR_SOURCE_TAG.code,
+  );
+  return {
+    ...resource,
+    meta: {
+      ...(resource.meta ?? {}),
+      tag: hasSpehr ? existingTags : [...existingTags, { ...SPEHR_SOURCE_TAG }],
+    },
+  };
+}
+
+function fhirSafeId(input: string): string {
+  return String(input ?? "")
+    .replace(/[^A-Za-z0-9\-\.]/g, "-")
+    .slice(0, 64) || "unknown";
+}
+
+export type InvoiceRow = {
+  id: string;
+  invoice_no: string;
+  mrn: string;
+  patient_name?: string | null;
+  facility_name?: string | null;
+  status?: string | null;
+  subtotal?: number | string | null;
+  tax?: number | string | null;
+  total?: number | string | null;
+  currency?: string | null;
+  issued_at?: string | null;
+  paid_at?: string | null;
+};
+
+export function buildInvoiceResource(row: InvoiceRow) {
+  const status =
+    (row.status ?? "").toLowerCase() === "balanced" ? "balanced" : "issued";
+  const currency = row.currency ?? "USD";
+  const subtotal = Number(row.subtotal ?? 0);
+  const total = Number(row.total ?? subtotal);
+  return withSpehrSource({
+    resourceType: "Invoice",
+    id: fhirSafeId(row.invoice_no),
+    identifier: [
+      { system: "urn:spehr:invoice-no", value: row.invoice_no },
+      { system: "urn:spehr:invoice-uuid", value: row.id },
+    ],
+    status,
+    subject: { reference: `Patient/${row.mrn}` },
+    recipient: { reference: `Patient/${row.mrn}` },
+    date: row.issued_at ?? undefined,
+    issuer: row.facility_name ? { display: row.facility_name } : undefined,
+    totalNet: { value: subtotal, currency },
+    totalGross: { value: total, currency },
+    paymentTerms:
+      status === "balanced" && row.paid_at
+        ? `Paid ${row.paid_at}`
+        : undefined,
+  });
+}
+
+export type ChargeItemRow = {
+  id: string;
+  invoice_id: string;
+  mrn: string;
+  charge_code: string;
+  code_system?: string | null;
+  description: string;
+  category?: string | null;
+  quantity?: number | string | null;
+  unit_price?: number | string | null;
+  amount?: number | string | null;
+  currency?: string | null;
+  service_date?: string | null;
+};
+
+export function buildChargeItemResource(
+  row: ChargeItemRow,
+  invoiceNo?: string | null,
+) {
+  const currency = row.currency ?? "USD";
+  const quantity = Number(row.quantity ?? 1);
+  const unitPrice = Number(row.unit_price ?? 0);
+  const amount = Number(row.amount ?? unitPrice * quantity);
+  const codeSystem =
+    row.code_system && row.code_system !== "internal"
+      ? row.code_system
+      : "urn:spehr:charge-code";
+  return withSpehrSource({
+    resourceType: "ChargeItem",
+    id: fhirSafeId(`charge-${row.id}`),
+    identifier: [{ system: "urn:spehr:charge-uuid", value: row.id }],
+    status: "billable",
+    code: {
+      coding: [
+        { system: codeSystem, code: row.charge_code, display: row.description },
+      ],
+      text: row.description,
+    },
+    subject: { reference: `Patient/${row.mrn}` },
+    context: invoiceNo
+      ? { reference: `Invoice/${fhirSafeId(invoiceNo)}` }
+      : undefined,
+    occurrenceDateTime: row.service_date ?? undefined,
+    quantity: { value: quantity },
+    priceOverride: { value: unitPrice, currency },
+    totalPriceComponent: {
+      type: "base",
+      amount: { value: amount, currency },
+    },
+    extension: [
+      {
+        url: "urn:spehr:charge-category",
+        valueString: row.category ?? "uncategorized",
+      },
+      ...(row.invoice_id
+        ? [
+            {
+              url: "urn:spehr:invoice-uuid",
+              valueString: row.invoice_id,
+            },
+          ]
+        : []),
+    ],
+  });
+}
+
+export type AppointmentRow = {
+  id: string;
+  facility_name?: string | null;
+  patient_mrn?: string | null;
+  patient_name?: string | null;
+  practitioner_name?: string | null;
+  service_type?: string | null;
+  description?: string | null;
+  start_time: string;
+  end_time: string;
+  status?: string | null;
+  comment?: string | null;
+};
+
+export function buildRealAppointmentResource(row: AppointmentRow) {
+  const status = (row.status ?? "booked").toLowerCase();
+  const participants: any[] = [];
+  if (row.patient_mrn) {
+    participants.push({
+      actor: {
+        reference: `Patient/${row.patient_mrn}`,
+        display: row.patient_name ?? undefined,
+      },
+      status: "accepted",
+    });
+  }
+  if (row.practitioner_name) {
+    participants.push({
+      actor: { display: row.practitioner_name },
+      status: "accepted",
+    });
+  }
+  return withSpehrSource({
+    resourceType: "Appointment",
+    id: fhirSafeId(`appt-${row.id}`),
+    identifier: [{ system: "urn:spehr:appointment-uuid", value: row.id }],
+    status,
+    description: row.description ?? row.service_type ?? undefined,
+    comment: row.comment ?? undefined,
+    start: row.start_time,
+    end: row.end_time,
+    serviceType: row.service_type
+      ? [{ text: row.service_type }]
+      : undefined,
+    participant:
+      participants.length > 0
+        ? participants
+        : [{ status: "needs-action", actor: { display: "Unknown" } }],
+    ...(row.facility_name
+      ? { location: [{ display: row.facility_name }] }
+      : {}),
+  });
+}
+
 /**
  * Build a FHIR R4 Bundle of type=`document` containing a Composition that
  * references every approved Condition / Observation / MedicationRequest for
