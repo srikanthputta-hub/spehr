@@ -1257,7 +1257,119 @@ function AdministrativeView({ patient }: { patient: PatientRecord }) {
           <dt className="text-slate-600">PCP</dt><dd className="text-slate-800">Dr. Garniss, Derek A, MD</dd>
         </dl>
       </section>
+      <section className={`${widgetBox} md:col-span-2`}>
+        <WidgetHeader title="Invoices (MySPEHR)" />
+        <PatientInvoicesPanel mrn={patient.mrn} />
+      </section>
     </div>
+  );
+}
+
+function PatientInvoicesPanel({ mrn }: { mrn: string }) {
+  const [rows, setRows] = useState<Array<{
+    id: string;
+    invoice_no: string;
+    status: string;
+    total: number | string | null;
+    currency: string | null;
+    issued_at: string | null;
+    paid_at: string | null;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("fhir_invoices")
+      .select("id,invoice_no,status,total,currency,issued_at,paid_at")
+      .eq("mrn", mrn)
+      .order("issued_at", { ascending: false });
+    setRows((data ?? []) as any);
+    setLoading(false);
+  };
+  useEffect(() => { void load(); }, [mrn]);
+
+  const pay = async (invId: string, amount: number, currency: string) => {
+    setPayingId(invId);
+    try {
+      const nowIso = new Date().toISOString();
+      const { error: pnErr } = await supabase.from("fhir_payment_notices").insert({
+        invoice_id: invId,
+        mrn,
+        amount,
+        currency: currency || "USD",
+        status: "active",
+        payment_date: nowIso,
+        payment_method: "MySPEHR patient portal",
+        payload: {
+          resourceType: "PaymentNotice",
+          status: "active",
+          request: { reference: `Invoice/${invId}` },
+          amount: { value: amount, currency: currency || "USD" },
+          paymentStatus: {
+            coding: [{
+              system: "http://terminology.hl7.org/CodeSystem/paymentstatus",
+              code: "paid",
+            }],
+          },
+          created: nowIso,
+        },
+      } as any);
+      if (pnErr) throw pnErr;
+      const { error: upErr } = await supabase
+        .from("fhir_invoices")
+        .update({ status: "balanced", paid_at: nowIso } as any)
+        .eq("id", invId);
+      if (upErr) throw upErr;
+      toast.success("Payment recorded");
+      await load();
+    } catch (e: any) {
+      toast.error(`Payment failed: ${e?.message ?? String(e)}`);
+    } finally {
+      setPayingId(null);
+    }
+  };
+
+  if (loading) return <div className="px-3 py-2 text-[12px] text-slate-500">Loading invoices…</div>;
+  if (rows.length === 0) return <div className="px-3 py-2 text-[12px] text-slate-500">No invoices on file.</div>;
+  return (
+    <table className="w-full text-[12px]">
+      <thead className="bg-slate-50 text-slate-600">
+        <tr>
+          <th className="text-left px-3 py-1.5">Invoice #</th>
+          <th className="text-left px-3 py-1.5">Status</th>
+          <th className="text-right px-3 py-1.5">Total</th>
+          <th className="text-right px-3 py-1.5">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => {
+          const amount = Number(r.total ?? 0);
+          const currency = r.currency ?? "USD";
+          return (
+            <tr key={r.id} className="border-t border-slate-100">
+              <td className="px-3 py-1.5 font-mono">{r.invoice_no}</td>
+              <td className="px-3 py-1.5">{r.status}</td>
+              <td className="px-3 py-1.5 text-right font-mono">{amount.toFixed(2)} {currency}</td>
+              <td className="px-3 py-1.5 text-right">
+                {r.status === "balanced" ? (
+                  <span className="text-emerald-700">Paid</span>
+                ) : (
+                  <button
+                    disabled={payingId === r.id}
+                    onClick={() => pay(r.id, amount, currency)}
+                    className="px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {payingId === r.id ? "Paying…" : "Pay Invoice"}
+                  </button>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
