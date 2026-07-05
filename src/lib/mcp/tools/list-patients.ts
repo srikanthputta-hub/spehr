@@ -29,7 +29,7 @@ export default defineTool({
     );
     let q = supabase
       .from("patients")
-      .select("mrn, full_name, facility_name")
+      .select("mrn, name, age, gender, facility_name, chief_complaint, admission_time, status")
       .limit(limit);
     if (facility) q = q.eq("facility_name", facility);
     const { data, error } = await q;
