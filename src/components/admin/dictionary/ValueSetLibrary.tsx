@@ -50,6 +50,19 @@ export function ValueSetLibrary() {
   const [publishTarget, setPublishTarget] = useState<ValueSet | null>(null);
   const [deprecateTarget, setDeprecateTarget] = useState<ValueSet | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ValueSet | null>(null);
+  const [vsacOpen, setVsacOpen] = useState(false);
+  const [vsacOid, setVsacOid] = useState("");
+  const [vsacLoading, setVsacLoading] = useState(false);
+  const [vsacError, setVsacError] = useState<string | null>(null);
+  const [vsacResult, setVsacResult] = useState<{
+    oid: string;
+    name: string | null;
+    title: string | null;
+    total: number;
+    codes: Array<{ code: string; display: string; vocabulary: string }>;
+  } | null>(null);
+  const [vsacName, setVsacName] = useState("");
+  const [vsacImporting, setVsacImporting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -70,6 +83,90 @@ export function ValueSetLibrary() {
       .subscribe();
     return () => { alive = false; supabase.removeChannel(ch); };
   }, []);
+
+  const refreshRows = async () => {
+    const { data } = await supabase
+      .from("custom_value_sets")
+      .select("*")
+      .order("status", { ascending: true })
+      .order("name", { ascending: true });
+    if (data) setRows(data as any);
+  };
+
+  const handleVsacFetch = async () => {
+    const oid = vsacOid.trim();
+    if (!oid) return;
+    setVsacLoading(true);
+    setVsacError(null);
+    setVsacResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: { action: "vsacExpand", params: { oid } },
+      });
+      if (error) {
+        setVsacError(error.message ?? "Failed to reach VSAC");
+        return;
+      }
+      if (data?.error) {
+        setVsacError(String(data.error));
+        return;
+      }
+      const result = {
+        oid: data.oid,
+        name: data.name ?? null,
+        title: data.title ?? null,
+        total: Number(data.total ?? 0),
+        codes: Array.isArray(data.codes) ? data.codes : [],
+      };
+      setVsacResult(result);
+      setVsacName(result.title || result.name || `VSAC ${oid}`);
+    } catch (e) {
+      setVsacError((e as Error).message ?? "Fetch failed");
+    } finally {
+      setVsacLoading(false);
+    }
+  };
+
+  const handleVsacImport = async () => {
+    if (!vsacResult) return;
+    const name = vsacName.trim() || `VSAC ${vsacResult.oid}`;
+    setVsacImporting(true);
+    try {
+      // Dominant vocabulary = most-frequent among returned codes
+      const counts: Record<string, number> = {};
+      for (const c of vsacResult.codes) {
+        counts[c.vocabulary] = (counts[c.vocabulary] ?? 0) + 1;
+      }
+      const dominantVocab = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      const s = slug(name);
+      const codes = vsacResult.codes.map(c => ({ code: c.code, display: c.display, system: c.vocabulary }));
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("custom_value_sets").insert({
+        name,
+        oid: vsacResult.oid,
+        vocabulary: dominantVocab,
+        type: "extensional",
+        codes,
+        status: "draft",
+        description: "Imported from VSAC",
+        fhir_url: `http://spehr.live/fhir/ValueSet/${s}`,
+        change_history: [{ at: now, actor: "S.P.E.H.R. Terminology Services", change: "Imported from VSAC" }],
+      } as any);
+      if (error) {
+        setVsacError(error.message);
+        return;
+      }
+      toast.success(`Imported "${name}" (${codes.length} codes) as draft`);
+      setVsacOpen(false);
+      setVsacOid("");
+      setVsacResult(null);
+      setVsacName("");
+      setVsacError(null);
+      await refreshRows();
+    } finally {
+      setVsacImporting(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -131,10 +228,10 @@ export function ValueSetLibrary() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => toast.info("Use Authoring Workbench to create a new value set")}>
+            <Button size="sm" variant="outline" onClick={() => window.dispatchEvent(new CustomEvent("spehr:switch-tab", { detail: { tab: "authoring" } }))}>
               <Plus className="h-3.5 w-3.5" /> New Value Set
             </Button>
-            <Button size="sm" variant="outline" onClick={() => toast.info("VSAC import coming soon")}>
+            <Button size="sm" variant="outline" onClick={() => { setVsacOpen(true); setVsacError(null); setVsacResult(null); }}>
               <Upload className="h-3.5 w-3.5" /> Import from VSAC
             </Button>
             <Button size="sm" variant="outline" onClick={() => exportBundle(rows)}>
@@ -278,6 +375,94 @@ export function ValueSetLibrary() {
               setDeleteTarget(null);
               await handleDelete(t);
             }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={vsacOpen} onOpenChange={(o) => { if (!o) { setVsacOpen(false); setVsacError(null); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import Value Set from VSAC</DialogTitle>
+            <DialogDescription>
+              Fetch a published value set from the NLM Value Set Authority Center by OID and import it as a draft.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <label className="text-xs font-semibold text-slate-700 block mb-1">VSAC OID</label>
+                <Input
+                  value={vsacOid}
+                  onChange={(e) => setVsacOid(e.target.value)}
+                  placeholder="e.g. 2.16.840.1.113883.3.464.1003.103.12.1001"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <Button onClick={handleVsacFetch} disabled={vsacLoading || !vsacOid.trim()}>
+                {vsacLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                Fetch from VSAC
+              </Button>
+            </div>
+
+            {vsacError && (
+              <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                {vsacError}
+              </div>
+            )}
+
+            {vsacResult && (
+              <div className="space-y-2">
+                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                  <div><span className="font-semibold">Name:</span> {vsacResult.name ?? "—"}</div>
+                  <div><span className="font-semibold">Title:</span> {vsacResult.title ?? "—"}</div>
+                  <div><span className="font-semibold">Total codes:</span> {vsacResult.total}</div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">Value Set Name (editable)</label>
+                  <Input value={vsacName} onChange={(e) => setVsacName(e.target.value)} />
+                </div>
+
+                <div>
+                  <div className="text-xs font-semibold text-slate-700 mb-1">
+                    Preview (first {Math.min(30, vsacResult.codes.length)} of {vsacResult.codes.length})
+                  </div>
+                  <div className="max-h-64 overflow-auto rounded border border-slate-200">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 text-slate-600 sticky top-0">
+                        <tr>
+                          <th className="text-left px-2 py-1 font-semibold">Code</th>
+                          <th className="text-left px-2 py-1 font-semibold">Display</th>
+                          <th className="text-left px-2 py-1 font-semibold">Vocab</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {vsacResult.codes.slice(0, 30).map((c, i) => (
+                          <tr key={i}>
+                            <td className="px-2 py-1 font-mono text-[10px]">{c.code}</td>
+                            <td className="px-2 py-1">{c.display}</td>
+                            <td className="px-2 py-1 text-slate-600">{c.vocabulary}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setVsacOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={handleVsacImport}
+              disabled={!vsacResult || vsacImporting || !vsacName.trim()}
+            >
+              {vsacImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Import as Draft
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
