@@ -911,6 +911,11 @@ function SystemAdminPage() {
           <MedicalDictionary />
         </div>
       )}
+      {tab === "fhir_interop" && (
+        <div className="max-w-6xl mx-auto px-6 pb-8">
+          <FhirInteropTopLevel />
+        </div>
+      )}
     </main>
   );
 }
