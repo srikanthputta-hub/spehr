@@ -50,6 +50,19 @@ export function ValueSetLibrary() {
   const [publishTarget, setPublishTarget] = useState<ValueSet | null>(null);
   const [deprecateTarget, setDeprecateTarget] = useState<ValueSet | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ValueSet | null>(null);
+  const [vsacOpen, setVsacOpen] = useState(false);
+  const [vsacOid, setVsacOid] = useState("");
+  const [vsacLoading, setVsacLoading] = useState(false);
+  const [vsacError, setVsacError] = useState<string | null>(null);
+  const [vsacResult, setVsacResult] = useState<{
+    oid: string;
+    name: string | null;
+    title: string | null;
+    total: number;
+    codes: Array<{ code: string; display: string; vocabulary: string }>;
+  } | null>(null);
+  const [vsacName, setVsacName] = useState("");
+  const [vsacImporting, setVsacImporting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -70,6 +83,90 @@ export function ValueSetLibrary() {
       .subscribe();
     return () => { alive = false; supabase.removeChannel(ch); };
   }, []);
+
+  const refreshRows = async () => {
+    const { data } = await supabase
+      .from("custom_value_sets")
+      .select("*")
+      .order("status", { ascending: true })
+      .order("name", { ascending: true });
+    if (data) setRows(data as any);
+  };
+
+  const handleVsacFetch = async () => {
+    const oid = vsacOid.trim();
+    if (!oid) return;
+    setVsacLoading(true);
+    setVsacError(null);
+    setVsacResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: { action: "vsacExpand", params: { oid } },
+      });
+      if (error) {
+        setVsacError(error.message ?? "Failed to reach VSAC");
+        return;
+      }
+      if (data?.error) {
+        setVsacError(String(data.error));
+        return;
+      }
+      const result = {
+        oid: data.oid,
+        name: data.name ?? null,
+        title: data.title ?? null,
+        total: Number(data.total ?? 0),
+        codes: Array.isArray(data.codes) ? data.codes : [],
+      };
+      setVsacResult(result);
+      setVsacName(result.title || result.name || `VSAC ${oid}`);
+    } catch (e) {
+      setVsacError((e as Error).message ?? "Fetch failed");
+    } finally {
+      setVsacLoading(false);
+    }
+  };
+
+  const handleVsacImport = async () => {
+    if (!vsacResult) return;
+    const name = vsacName.trim() || `VSAC ${vsacResult.oid}`;
+    setVsacImporting(true);
+    try {
+      // Dominant vocabulary = most-frequent among returned codes
+      const counts: Record<string, number> = {};
+      for (const c of vsacResult.codes) {
+        counts[c.vocabulary] = (counts[c.vocabulary] ?? 0) + 1;
+      }
+      const dominantVocab = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      const s = slug(name);
+      const codes = vsacResult.codes.map(c => ({ code: c.code, display: c.display, system: c.vocabulary }));
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("custom_value_sets").insert({
+        name,
+        oid: vsacResult.oid,
+        vocabulary: dominantVocab,
+        type: "extensional",
+        codes,
+        status: "draft",
+        description: "Imported from VSAC",
+        fhir_url: `http://spehr.live/fhir/ValueSet/${s}`,
+        change_history: [{ at: now, actor: "S.P.E.H.R. Terminology Services", change: "Imported from VSAC" }],
+      } as any);
+      if (error) {
+        setVsacError(error.message);
+        return;
+      }
+      toast.success(`Imported "${name}" (${codes.length} codes) as draft`);
+      setVsacOpen(false);
+      setVsacOid("");
+      setVsacResult(null);
+      setVsacName("");
+      setVsacError(null);
+      await refreshRows();
+    } finally {
+      setVsacImporting(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -131,10 +228,10 @@ export function ValueSetLibrary() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => toast.info("Use Authoring Workbench to create a new value set")}>
+            <Button size="sm" variant="outline" onClick={() => window.dispatchEvent(new CustomEvent("spehr:switch-tab", { detail: { tab: "authoring" } }))}>
               <Plus className="h-3.5 w-3.5" /> New Value Set
             </Button>
-            <Button size="sm" variant="outline" onClick={() => toast.info("VSAC import coming soon")}>
+            <Button size="sm" variant="outline" onClick={() => { setVsacOpen(true); setVsacError(null); setVsacResult(null); }}>
               <Upload className="h-3.5 w-3.5" /> Import from VSAC
             </Button>
             <Button size="sm" variant="outline" onClick={() => exportBundle(rows)}>
