@@ -77,7 +77,6 @@ import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
 import { ValueSetLibrary } from "@/components/admin/dictionary/ValueSetLibrary";
 import { AuthoringWorkbench } from "@/components/admin/dictionary/AuthoringWorkbench";
 import { CrossMapStudio } from "@/components/admin/dictionary/CrossMapStudio";
-import { FhirTerminologyServerOps } from "@/components/admin/dictionary/FhirTerminologyServerOps";
 import { TerminologyStatusStrip } from "@/components/admin/dictionary/TerminologyStatusStrip";
 import { AutoTerminologistActivity } from "@/components/admin/dictionary/AutoTerminologistActivity";
 import NlpAuditLogsPanel from "@/components/admin/dictionary/NlpAuditLogsPanel";
