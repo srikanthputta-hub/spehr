@@ -14,6 +14,7 @@ import { Route as SystemAdminRouteImport } from './routes/system-admin'
 import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
+import { Route as McpRouteImport } from './routes/mcp'
 import { Route as LabBoardRouteImport } from './routes/lab-board'
 import { Route as FinanceBoardRouteImport } from './routes/finance-board'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
@@ -22,8 +23,11 @@ import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
+import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
 import { Route as ApiPublicUmlsValidateCodeRouteImport } from './routes/api/public/umls-validate-code'
 import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
+import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as ApiPublicHooksAutoDocRouteImport } from './routes/api/public/hooks/auto-doc'
 
 const TasksRoute = TasksRouteImport.update({
@@ -49,6 +53,11 @@ const PharmacyQueueRoute = PharmacyQueueRouteImport.update({
 const NursingBoardRoute = NursingBoardRouteImport.update({
   id: '/nursing-board',
   path: '/nursing-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LabBoardRoute = LabBoardRouteImport.update({
@@ -91,6 +100,18 @@ const ChartMrnRoute = ChartMrnRouteImport.update({
   path: '/chart/$mrn',
   getParentRoute: () => rootRouteImport,
 } as any)
+const Char91DotwellKnownChar93OauthProtectedResourceRoute =
+  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
+    id: '/.well-known/oauth-protected-resource',
+    path: '/.well-known/oauth-protected-resource',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const Char91DotmcpChar93ListToolsRoute =
+  Char91DotmcpChar93ListToolsRouteImport.update({
+    id: '/.mcp/list-tools',
+    path: '/.mcp/list-tools',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicUmlsValidateCodeRoute =
   ApiPublicUmlsValidateCodeRouteImport.update({
     id: '/api/public/umls-validate-code',
@@ -102,6 +123,12 @@ const ApiPublicUmlsSearchRoute = ApiPublicUmlsSearchRouteImport.update({
   path: '/api/public/umls-search',
   getParentRoute: () => rootRouteImport,
 } as any)
+const Char91DotmcpChar93InvokeToolToolRoute =
+  Char91DotmcpChar93InvokeToolToolRouteImport.update({
+    id: '/.mcp/invoke-tool/$tool',
+    path: '/.mcp/invoke-tool/$tool',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksAutoDocRoute = ApiPublicHooksAutoDocRouteImport.update({
   id: '/api/public/hooks/auto-doc',
   path: '/api/public/hooks/auto-doc',
@@ -115,13 +142,17 @@ export interface FileRoutesByFullPath {
   '/analytics': typeof AnalyticsRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
+  '/mcp': typeof McpRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
+  '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
+  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
+  '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
@@ -133,13 +164,17 @@ export interface FileRoutesByTo {
   '/analytics': typeof AnalyticsRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
+  '/mcp': typeof McpRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
+  '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
+  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
+  '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
@@ -152,13 +187,17 @@ export interface FileRoutesById {
   '/analytics': typeof AnalyticsRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
+  '/mcp': typeof McpRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
+  '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
+  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
+  '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
@@ -172,13 +211,17 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/finance-board'
     | '/lab-board'
+    | '/mcp'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
     | '/system-admin'
     | '/tasks'
+    | '/.mcp/list-tools'
+    | '/.well-known/oauth-protected-resource'
     | '/chart/$mrn'
     | '/patient/$mrn'
+    | '/.mcp/invoke-tool/$tool'
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
@@ -190,13 +233,17 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/finance-board'
     | '/lab-board'
+    | '/mcp'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
     | '/system-admin'
     | '/tasks'
+    | '/.mcp/list-tools'
+    | '/.well-known/oauth-protected-resource'
     | '/chart/$mrn'
     | '/patient/$mrn'
+    | '/.mcp/invoke-tool/$tool'
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
@@ -208,13 +255,17 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/finance-board'
     | '/lab-board'
+    | '/mcp'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
     | '/system-admin'
     | '/tasks'
+    | '/.mcp/list-tools'
+    | '/.well-known/oauth-protected-resource'
     | '/chart/$mrn'
     | '/patient/$mrn'
+    | '/.mcp/invoke-tool/$tool'
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
@@ -227,13 +278,17 @@ export interface RootRouteChildren {
   AnalyticsRoute: typeof AnalyticsRoute
   FinanceBoardRoute: typeof FinanceBoardRoute
   LabBoardRoute: typeof LabBoardRoute
+  McpRoute: typeof McpRoute
   NursingBoardRoute: typeof NursingBoardRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
   PhysicianBoardRoute: typeof PhysicianBoardRoute
   SystemAdminRoute: typeof SystemAdminRoute
   TasksRoute: typeof TasksRoute
+  Char91DotmcpChar93ListToolsRoute: typeof Char91DotmcpChar93ListToolsRoute
+  Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
+  Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiPublicUmlsSearchRoute: typeof ApiPublicUmlsSearchRoute
   ApiPublicUmlsValidateCodeRoute: typeof ApiPublicUmlsValidateCodeRoute
   ApiPublicHooksAutoDocRoute: typeof ApiPublicHooksAutoDocRoute
@@ -274,6 +329,13 @@ declare module '@tanstack/react-router' {
       path: '/nursing-board'
       fullPath: '/nursing-board'
       preLoaderRoute: typeof NursingBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lab-board': {
@@ -332,6 +394,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChartMrnRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/.well-known/oauth-protected-resource': {
+      id: '/.well-known/oauth-protected-resource'
+      path: '/.well-known/oauth-protected-resource'
+      fullPath: '/.well-known/oauth-protected-resource'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.mcp/list-tools': {
+      id: '/.mcp/list-tools'
+      path: '/.mcp/list-tools'
+      fullPath: '/.mcp/list-tools'
+      preLoaderRoute: typeof Char91DotmcpChar93ListToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/umls-validate-code': {
       id: '/api/public/umls-validate-code'
       path: '/api/public/umls-validate-code'
@@ -344,6 +420,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/umls-search'
       fullPath: '/api/public/umls-search'
       preLoaderRoute: typeof ApiPublicUmlsSearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.mcp/invoke-tool/$tool': {
+      id: '/.mcp/invoke-tool/$tool'
+      path: '/.mcp/invoke-tool/$tool'
+      fullPath: '/.mcp/invoke-tool/$tool'
+      preLoaderRoute: typeof Char91DotmcpChar93InvokeToolToolRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/hooks/auto-doc': {
@@ -363,13 +446,18 @@ const rootRouteChildren: RootRouteChildren = {
   AnalyticsRoute: AnalyticsRoute,
   FinanceBoardRoute: FinanceBoardRoute,
   LabBoardRoute: LabBoardRoute,
+  McpRoute: McpRoute,
   NursingBoardRoute: NursingBoardRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
   PhysicianBoardRoute: PhysicianBoardRoute,
   SystemAdminRoute: SystemAdminRoute,
   TasksRoute: TasksRoute,
+  Char91DotmcpChar93ListToolsRoute: Char91DotmcpChar93ListToolsRoute,
+  Char91DotwellKnownChar93OauthProtectedResourceRoute:
+    Char91DotwellKnownChar93OauthProtectedResourceRoute,
   ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
+  Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiPublicUmlsSearchRoute: ApiPublicUmlsSearchRoute,
   ApiPublicUmlsValidateCodeRoute: ApiPublicUmlsValidateCodeRoute,
   ApiPublicHooksAutoDocRoute: ApiPublicHooksAutoDocRoute,
@@ -377,3 +465,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
