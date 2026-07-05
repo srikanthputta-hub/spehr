@@ -458,7 +458,10 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
         .filter((c: string) => c.length > 0);
       vsMrns = new Set();
       if (allCodes.length > 0) {
-        const [{ data: vsCond }, { data: vsLab }] = await Promise.all([
+        const [
+          { data: vsCond, error: vsCondErr },
+          { data: vsLab, error: vsLabErr },
+        ] = await Promise.all([
           sb
             .from("conditions")
             .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display")
@@ -472,6 +475,10 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
             .in("loinc_code", allCodes)
             .limit(5000),
         ]);
+        if (vsCondErr)
+          console.error("[population-query] vsCond failed", vsCondErr.message);
+        if (vsLabErr)
+          console.error("[population-query] vsLab failed", vsLabErr.message);
         for (const r of (vsCond as any[]) ?? []) {
           if (r.mrn) vsMrns.add(r.mrn);
           const key = r.snomed_display
@@ -493,24 +500,53 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
 
     // ── 2. Patient query (preserves chief_complaint ilike as fallback) ──
     const gateMrns = vsMrns ?? condMrns;
-    let q = sb
-      .from("patients")
-      .select(
-        "mrn, name, age, gender, facility_name, chief_complaint, admission_time, standardized_output",
-      );
+    const PATIENT_SELECT =
+      "mrn, name, age, gender, facility_name, chief_complaint, admission_time, standardized_output";
+    let rows: any[] = [];
     if (gateMrns) {
-      q = q.in("mrn", Array.from(gateMrns));
+      const mrnList = Array.from(gateMrns);
+      const CHUNK = 150;
+      const batches: string[][] = [];
+      for (let i = 0; i < mrnList.length; i += CHUNK) {
+        batches.push(mrnList.slice(i, i + CHUNK));
+      }
+      const results = await Promise.all(
+        batches.map(async (batch) => {
+          let bq = sb.from("patients").select(PATIENT_SELECT).in("mrn", batch);
+          if (data.facilities && data.facilities.length > 0) {
+            bq = bq.in("facility_name", data.facilities);
+          }
+          if (data.since_iso) {
+            bq = bq.gte("admission_time", data.since_iso);
+          }
+          const { data: br, error: bErr } = await bq;
+          if (bErr)
+            console.error(
+              "[population-query] patients batch failed",
+              bErr.message,
+            );
+          return (br as any[]) ?? [];
+        }),
+      );
+      rows = results.flat();
     } else {
-      q = q.order("admission_time", { ascending: false }).limit(500);
+      let q = sb
+        .from("patients")
+        .select(PATIENT_SELECT)
+        .order("admission_time", { ascending: false })
+        .limit(500);
+      if (data.facilities && data.facilities.length > 0) {
+        q = q.in("facility_name", data.facilities);
+      }
+      if (data.since_iso) {
+        q = q.gte("admission_time", data.since_iso);
+      }
+      const { data: qr, error: qErr } = await q;
+      if (qErr)
+        console.error("[population-query] patients failed", qErr.message);
+      rows = (qr as any[]) ?? [];
     }
-    if (data.facilities && data.facilities.length > 0) {
-      q = q.in("facility_name", data.facilities);
-    }
-    if (data.since_iso) {
-      q = q.gte("admission_time", data.since_iso);
-    }
-    const { data: rows } = await q;
-    let filtered = (rows as any[]) ?? [];
+    let filtered = rows;
 
     if (vsMrns) {
       filtered = filtered.filter((r) => vsMrns!.has(r.mrn));
