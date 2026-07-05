@@ -1332,6 +1332,102 @@ function buildAlternateMed(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Look up the ordering physician for the linked medication order.   */
+/* ------------------------------------------------------------------ */
+async function lookupOrderingPhysician(medOrderId: string | null): Promise<string> {
+  if (!medOrderId) return "Attending Physician";
+  const { data } = await supabase
+    .from("medication_orders")
+    .select("ordering_physician")
+    .eq("id", medOrderId)
+    .maybeSingle();
+  const name = (data as any)?.ordering_physician;
+  return name && String(name).trim() ? String(name) : "Attending Physician";
+}
+
+/* ------------------------------------------------------------------ */
+/*  Side-effects when an alert resolves (manual or SLA auto):         */
+/*   - insert matching row into cds_overrides                         */
+/*   - release medication order (Override) or reject + auto-substitute*/
+/* ------------------------------------------------------------------ */
+async function resolveAlertSideEffects(
+  c: DbSafetyAlert,
+  status: "Overridden" | "Rejected",
+  physicianName: string,
+  rationale: string,
+): Promise<void> {
+  const decidedAt = new Date().toISOString();
+
+  // 1. Log to cds_overrides feed
+  try {
+    await supabase.from("cds_overrides").insert({
+      mrn: c.mrn,
+      alert_type: c.kind,
+      severity: c.severity ?? "high",
+      drug_name: c.drug,
+      condition_name:
+        c.kind === "Drug-Drug" ? (c.drug_b ?? null) : (c.allergy_name ?? null),
+      reason: rationale,
+      physician_name: physicianName,
+      fired_at: decidedAt,
+    } as any);
+  } catch (e: any) {
+    console.warn("[safety] cds_overrides insert failed", e?.message);
+  }
+
+  if (!c.medication_order_id) return;
+
+  if (status === "Overridden") {
+    await supabase
+      .from("medication_orders")
+      .update({ status: "PENDING_PHARMACY", updated_at: decidedAt })
+      .eq("id", c.medication_order_id);
+    return;
+  }
+
+  // Rejected → mark original + auto-create alternate order.
+  const { data: original } = await supabase
+    .from("medication_orders")
+    .select("patient_mrn, mrn, patient_name, facility_name, drug_name, medication_name")
+    .eq("id", c.medication_order_id)
+    .maybeSingle();
+
+  await supabase
+    .from("medication_orders")
+    .update({ status: "REJECTED_SAFETY_ALERT", updated_at: decidedAt })
+    .eq("id", c.medication_order_id);
+
+  if (!original) return;
+  const alt = buildAlternateMed(c);
+  const originalName =
+    (original as any).drug_name ??
+    (original as any).medication_name ??
+    c.drug ??
+    "prior order";
+  const displayName = `${alt.medication_name} (auto-substitute for rejected ${originalName})`;
+  try {
+    await supabase.from("medication_orders").insert({
+      patient_mrn: (original as any).patient_mrn ?? (original as any).mrn ?? c.mrn,
+      mrn: (original as any).mrn ?? c.mrn,
+      patient_name: (original as any).patient_name ?? c.patient_name,
+      facility_name: (original as any).facility_name ?? c.facility_name,
+      drug_name: displayName,
+      medication_name: displayName,
+      dose: alt.dose,
+      route: alt.route,
+      frequency: alt.frequency,
+      status: "PENDING_PHARMACY",
+      ordering_physician: physicianName,
+      coding_source: "safety-substitution",
+      term_status: `Auto-substituted alternate for rejected order: ${originalName}`,
+      created_by_type: "automation",
+    } as any);
+  } catch (e: any) {
+    console.warn("[safety] alternate med insert failed", e?.message);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  NLP audit enrichment — when the dictionary returned zero concepts */
 /*  for a live admission, infer ICD-10 + SNOMED + recommended labs    */
 /*  from the chief complaint so the audit shows genuine codes instead */
