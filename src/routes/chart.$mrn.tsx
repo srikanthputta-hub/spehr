@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
 import { PatientReportedVitals } from "@/components/PatientReportedVitals";
 import { PatientCommsInbox } from "@/components/PatientCommsInbox";
+import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
 import { autoCodeLab } from "@/lib/auto-code";
 import {
   getPatient,
@@ -512,6 +513,7 @@ function ChartPage() {
         </div>
       </header>
 
+      <SafetyAlertBanner mrn={patient.mrn} />
       <div className="max-w-[1400px] mx-auto px-5 py-6 grid lg:grid-cols-5 gap-6">
         {/* LEFT — Clinical Context */}
         <div className="lg:col-span-3 space-y-6">

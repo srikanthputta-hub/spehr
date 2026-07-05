@@ -17,6 +17,7 @@ import {
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { loadIntake, type IntakeRecord } from "@/lib/intake-record";
 import DischargeConformanceBanner from "@/components/patient/DischargeConformanceBanner";
+import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
 
 /* ------------------------------------------------------------------ */
 /* CDS active suggestion hook — reads cds_suggestions table + realtime */
@@ -1547,6 +1548,7 @@ function PatientChart() {
         <OrdersDialog patient={patient} automationEnabled={automationEnabled} onClose={() => setOrdersOpen(false)} />
       )}
       <DischargeConformanceBanner mrn={patient.mrn} />
+      <SafetyAlertBanner mrn={patient.mrn} />
       {cdsPanelOpen && cdsSuggestion && (
         <CdsProtocolModal
           suggestion={cdsSuggestion}
