@@ -156,6 +156,7 @@ export function ValueSetLibrary() {
         name,
         oid: vsacResult.oid,
         vocabulary: dominantVocab,
+        system: dominantVocab ? dominantVocab.replace(" ", "-") : null,
         type: "extensional",
         codes,
         status: "draft",
