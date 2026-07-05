@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   Activity,
   CheckCircle2,
+  ChevronRight,
   Database,
   Languages,
   Layers,
@@ -259,10 +260,16 @@ type CdsRow = {
   condition_name: string | null;
   reason: string;
   physician_name: string | null;
+  physician_id?: string | null;
+  drug_rxnorm?: string | null;
+  condition_snomed?: string | null;
+  fired_at?: string | null;
+  decision?: string | null;
 };
 
 export function CdsOverridesFeed() {
   const [rows, setRows] = useState<CdsRow[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -270,7 +277,7 @@ export function CdsOverridesFeed() {
       const { data } = await supabase
         .from("cds_overrides")
         .select(
-          "id, created_at, mrn, alert_type, severity, drug_name, condition_name, reason, physician_name",
+          "id, created_at, mrn, alert_type, severity, drug_name, condition_name, reason, physician_name, physician_id, drug_rxnorm, condition_snomed, fired_at, decision",
         )
         .order("created_at", { ascending: false })
         .limit(25);
@@ -295,7 +302,7 @@ export function CdsOverridesFeed() {
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 text-orange-600" /> CDS Hook Overrides
+          <ShieldAlert className="h-4 w-4 text-orange-600" /> CDS Hook Decisions · Overrides &amp; Rejections
         </h3>
         <span className="text-[10px] uppercase tracking-wider text-slate-500">
           Physician decisions on contraindication alerts
@@ -308,32 +315,125 @@ export function CdsOverridesFeed() {
         </p>
       ) : (
         <div className="divide-y divide-slate-100">
-          {rows.map((r) => (
-            <div key={r.id} className="grid grid-cols-12 gap-2 py-2 text-xs">
-              <div className="col-span-2 font-mono text-[10px] text-slate-500">
-                {new Date(r.created_at).toLocaleString("en-GB", { hour12: false })}
+          {rows.map((r) => {
+            const isOpen = expandedId === r.id;
+            const decisionTone =
+              r.decision === "Rejected"
+                ? "bg-rose-50 text-rose-700 border-rose-200"
+                : r.decision === "Overridden"
+                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                  : "bg-slate-50 text-slate-600 border-slate-200";
+            return (
+              <div key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(isOpen ? null : r.id)}
+                  className="w-full grid grid-cols-12 gap-2 py-2 text-xs text-left cursor-pointer hover:bg-slate-50 rounded transition-colors items-center"
+                  aria-expanded={isOpen}
+                >
+                  <div className="col-span-2 font-mono text-[10px] text-slate-500 flex items-center gap-1">
+                    <ChevronRight
+                      className={`h-3 w-3 text-slate-400 transition-transform ${isOpen ? "rotate-90" : ""}`}
+                    />
+                    {new Date(r.created_at).toLocaleString("en-GB", { hour12: false })}
+                  </div>
+                  <div className="col-span-1 font-mono text-[10px] text-slate-700">
+                    {r.mrn}
+                  </div>
+                  <div className="col-span-2">
+                    <span className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase bg-orange-50 text-orange-700 border-orange-200">
+                      {r.alert_type}
+                    </span>
+                  </div>
+                  <div className="col-span-2">
+                    <span
+                      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase ${decisionTone}`}
+                    >
+                      {r.decision ?? "—"}
+                    </span>
+                  </div>
+                  <div className="col-span-2 truncate text-slate-800">
+                    {r.drug_name ?? "—"} {r.condition_name ? `× ${r.condition_name}` : ""}
+                  </div>
+                  <div className="col-span-2 truncate text-slate-600 italic">
+                    "{r.reason}"
+                  </div>
+                  <div className="col-span-1 text-right text-[10px] text-slate-500 truncate">
+                    {r.physician_name ?? "—"}
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="ml-4 mb-3 mt-1 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-2">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                      <DetailField label="MRN" value={r.mrn} mono />
+                      <DetailField label="Alert Type" value={r.alert_type} />
+                      <DetailField label="Severity" value={r.severity} />
+                      <DetailField label="Decision" value={r.decision ?? "—"} />
+                      <DetailField label="Drug" value={r.drug_name ?? "—"} />
+                      <DetailField label="Drug RxNorm" value={r.drug_rxnorm ?? "—"} mono />
+                      <DetailField label="Condition" value={r.condition_name ?? "—"} />
+                      <DetailField
+                        label="Condition SNOMED"
+                        value={r.condition_snomed ?? "—"}
+                        mono
+                      />
+                      <DetailField label="Physician" value={r.physician_name ?? "—"} />
+                      <DetailField
+                        label="Physician ID"
+                        value={r.physician_id ?? "—"}
+                        mono
+                      />
+                      <DetailField
+                        label="Fired At"
+                        value={
+                          r.fired_at
+                            ? new Date(r.fired_at).toLocaleString("en-GB", { hour12: false })
+                            : "—"
+                        }
+                        mono
+                      />
+                      <DetailField
+                        label="Created At"
+                        value={new Date(r.created_at).toLocaleString("en-GB", { hour12: false })}
+                        mono
+                      />
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">
+                        Reason
+                      </div>
+                      <div className="text-slate-800 whitespace-pre-wrap break-words rounded border border-slate-200 bg-white p-2">
+                        {r.reason}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="col-span-1 font-mono text-[10px] text-slate-700">
-                {r.mrn}
-              </div>
-              <div className="col-span-2">
-                <span className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase bg-orange-50 text-orange-700 border-orange-200">
-                  {r.alert_type}
-                </span>
-              </div>
-              <div className="col-span-3 truncate text-slate-800">
-                {r.drug_name ?? "—"} {r.condition_name ? `× ${r.condition_name}` : ""}
-              </div>
-              <div className="col-span-3 truncate text-slate-600 italic">
-                "{r.reason}"
-              </div>
-              <div className="col-span-1 text-right text-[10px] text-slate-500 truncate">
-                {r.physician_name ?? "—"}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+function DetailField({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+        {label}
+      </div>
+      <div className={`text-slate-800 break-words ${mono ? "font-mono text-[11px]" : ""}`}>
+        {value}
+      </div>
     </div>
   );
 }
