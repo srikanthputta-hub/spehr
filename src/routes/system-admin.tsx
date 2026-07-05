@@ -1855,8 +1855,8 @@ function SafetyQueue({ facility }: { facility: string }) {
 }
 
 /* ----------------------------------------------------------------
- * Live 2-minute SLA countdown badge + progress bar.
- * Flips amber under 30s, red+pulsing under 10s.
+ * Live 45-second SLA countdown badge + progress bar.
+ * Flips amber under 15s, red+pulsing under 5s.
  * ---------------------------------------------------------------- */
 function SlaCountdown({
   autoResolveAt,
@@ -1867,7 +1867,7 @@ function SlaCountdown({
   createdAt: string;
   nowTs: number;
 }) {
-  const TOTAL_MS = 2 * 60_000;
+  const TOTAL_MS = 45_000;
   const end = autoResolveAt
     ? new Date(autoResolveAt).getTime()
     : new Date(createdAt).getTime() + TOTAL_MS;
@@ -1876,8 +1876,8 @@ function SlaCountdown({
   const mm = Math.floor(secs / 60);
   const ss = secs % 60;
   const pct = Math.max(0, Math.min(100, (remaining / TOTAL_MS) * 100));
-  const critical = remaining <= 10_000;
-  const warning = remaining <= 30_000 && !critical;
+  const critical = remaining <= 5_000;
+  const warning = remaining <= 15_000 && !critical;
   const tone = critical
     ? "border-red-300 bg-red-50 text-red-700"
     : warning
