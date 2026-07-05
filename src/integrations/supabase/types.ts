@@ -1389,6 +1389,24 @@ export type Database = {
         }
         Relationships: []
       }
+      fhir_sync_state: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       hospital_staff: {
         Row: {
           assigned_patients: number | null
