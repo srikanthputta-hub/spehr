@@ -48,6 +48,15 @@ function fhirHeaders(): Record<string, string> {
   return h;
 }
 
+function toIso(ts: string): string {
+  // Accept both ISO-8601 (`2026-07-05T21:02:36.276Z`) and Postgres text
+  // (`2026-07-05 20:49:44.868074+00`). HAPI requires the ISO form on
+  // `_lastUpdated`, so normalize before we hit the wire.
+  const d = new Date(ts.includes("T") ? ts : ts.replace(" ", "T"));
+  if (isNaN(d.getTime())) return new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  return d.toISOString();
+}
+
 async function readState(admin: any, key: string): Promise<string> {
   const { data } = await admin
     .from("fhir_sync_state")
@@ -55,7 +64,7 @@ async function readState(admin: any, key: string): Promise<string> {
     .eq("key", key)
     .maybeSingle();
   const ts = data?.value?.ts;
-  if (typeof ts === "string" && ts.length) return ts;
+  if (typeof ts === "string" && ts.length) return toIso(ts);
   // conservative fallback if bootstrap row missing
   return new Date(Date.now() - 10 * 60 * 1000).toISOString();
 }
@@ -63,7 +72,7 @@ async function readState(admin: any, key: string): Promise<string> {
 async function writeState(admin: any, key: string, ts: string) {
   await admin
     .from("fhir_sync_state")
-    .upsert({ key, value: { ts } }, { onConflict: "key" });
+    .upsert({ key, value: { ts: toIso(ts) } }, { onConflict: "key" });
 }
 
 async function fetchBundle(url: string): Promise<any> {
