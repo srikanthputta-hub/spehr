@@ -544,30 +544,43 @@ async function pollAppointments(admin: any) {
 
 /* ---------------- Clinical: per-MRN sweep --------------------------------- */
 
-// Collect distinct MRNs touched by any clinical change since the cursor.
-// Also returns the max updated_at observed so the cursor can advance
-// even when no MRN has any pushable resources this cycle.
-async function collectChangedMrns(admin: any, since: string): Promise<{ mrns: string[]; maxTs: string }> {
-  let maxTs = since;
-  const mrnSet = new Set<string>();
+// Larger scan so a single high-traffic table (e.g. ghost medication cascades)
+// can't monopolise the mrn set and starve slower tables like patients/notes.
+const CLINICAL_SCAN_LIMIT = 2000;
 
-  const bump = (rows: any[], key: string) => {
+type MrnRow = { mrn: string; oldest: string; newest: string };
+
+// Collect distinct MRNs touched by any clinical change since the cursor,
+// tracking each MRN's OLDEST and NEWEST updated_at across all clinical
+// tables. Returned MRNs are sorted by oldest ts ASC — oldest changes get
+// pushed first, which matches the cursor-advance guarantee below.
+async function collectChangedMrns(
+  admin: any,
+  since: string,
+): Promise<{ selected: MrnRow[]; totalDiscovered: number; firstSkippedOldest: string | null }> {
+  const byMrn = new Map<string, MrnRow>();
+
+  const bump = (rows: any[]) => {
     for (const r of rows) {
-      const mrn = r.mrn ?? r.patient_mrn;
-      if (mrn) mrnSet.add(String(mrn));
-      const ts = r[key];
-      if (typeof ts === "string" && ts > maxTs) maxTs = ts;
+      const mrn = String(r.mrn ?? r.patient_mrn ?? "");
+      const ts = r.updated_at as string | undefined;
+      if (!mrn || typeof ts !== "string") continue;
+      const cur = byMrn.get(mrn);
+      if (!cur) byMrn.set(mrn, { mrn, oldest: ts, newest: ts });
+      else {
+        if (ts < cur.oldest) cur.oldest = ts;
+        if (ts > cur.newest) cur.newest = ts;
+      }
     }
   };
 
-  // Pull an id-only projection for each source with an `updated_at > since` filter.
   const [meds, labs, results, notes, conds, pats] = await Promise.all([
-    admin.from("medication_orders").select("patient_mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
-    admin.from("lab_orders").select("patient_mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
-    admin.from("lab_results").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
-    admin.from("clinical_notes").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
-    admin.from("conditions").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
-    admin.from("patients").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(BATCH_LIMIT),
+    admin.from("medication_orders").select("patient_mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("lab_orders").select("patient_mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("lab_results").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("clinical_notes").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("conditions").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("patients").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
   ]);
 
   if (meds.error) throw new Error(`meds change scan: ${meds.error.message}`);
@@ -577,14 +590,17 @@ async function collectChangedMrns(admin: any, since: string): Promise<{ mrns: st
   if (conds.error) throw new Error(`conditions change scan: ${conds.error.message}`);
   if (pats.error) throw new Error(`patients change scan: ${pats.error.message}`);
 
-  bump((meds.data ?? []) as any[], "updated_at");
-  bump((labs.data ?? []) as any[], "updated_at");
-  bump((results.data ?? []) as any[], "updated_at");
-  bump((notes.data ?? []) as any[], "updated_at");
-  bump((conds.data ?? []) as any[], "updated_at");
-  bump((pats.data ?? []) as any[], "updated_at");
+  bump((meds.data ?? []) as any[]);
+  bump((labs.data ?? []) as any[]);
+  bump((results.data ?? []) as any[]);
+  bump((notes.data ?? []) as any[]);
+  bump((conds.data ?? []) as any[]);
+  bump((pats.data ?? []) as any[]);
 
-  return { mrns: [...mrnSet].slice(0, CLINICAL_MRN_LIMIT), maxTs };
+  const all = [...byMrn.values()].sort((a, b) => (a.oldest < b.oldest ? -1 : a.oldest > b.oldest ? 1 : 0));
+  const selected = all.slice(0, CLINICAL_MRN_LIMIT);
+  const firstSkippedOldest = all.length > CLINICAL_MRN_LIMIT ? all[CLINICAL_MRN_LIMIT].oldest : null;
+  return { selected, totalDiscovered: all.length, firstSkippedOldest };
 }
 
 // Build the full FHIR entry list for a single MRN by fetching all of its
