@@ -45,10 +45,11 @@ function formatAgo(ts: string | undefined): string {
 
 export function AutoTerminologistActivity() {
   const [rows, setRows] = useState<LogRow[]>([]);
+  const [latest, setLatest] = useState<LogRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [nowTick, setNowTick] = useState(0);
 
-  const lastRunAt = useMemo(() => rows[0]?.run_at, [rows]);
+  const lastRunAt = useMemo(() => latest?.run_at, [latest]);
   // Recompute "X minutes ago" every 30s
   useEffect(() => {
     const id = setInterval(() => setNowTick((n) => n + 1), 30_000);
@@ -59,13 +60,23 @@ export function AutoTerminologistActivity() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const { data } = await supabase
-        .from("auto_terminologist_log" as any)
-        .select("id, run_at, message, value_set_id, confidence, action, theme, codes_count")
-        .order("run_at", { ascending: false })
-        .limit(50);
+      const [latestRes, draftedRes] = await Promise.all([
+        supabase
+          .from("auto_terminologist_log" as any)
+          .select("id, run_at, message, value_set_id, confidence, action, theme, codes_count")
+          .order("run_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("auto_terminologist_log" as any)
+          .select("id, run_at, message, value_set_id, confidence, action, theme, codes_count")
+          .eq("action", "drafted")
+          .order("run_at", { ascending: false })
+          .limit(50),
+      ]);
       if (!cancelled) {
-        setRows((data as any) ?? []);
+        setLatest(((latestRes as any).data as any) ?? null);
+        setRows(((draftedRes as any).data as any) ?? []);
         setLoading(false);
       }
     };
@@ -75,7 +86,13 @@ export function AutoTerminologistActivity() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "auto_terminologist_log" },
-        (payload) => setRows((r) => [payload.new as any, ...r].slice(0, 50)),
+        (payload) => {
+          const row = payload.new as any as LogRow;
+          setLatest(row);
+          if (row.action === "drafted") {
+            setRows((r) => [row, ...r].slice(0, 50));
+          }
+        },
       )
       .subscribe();
     const id = setInterval(load, 30_000);
@@ -102,9 +119,6 @@ export function AutoTerminologistActivity() {
             for review and never publishes: promoting a draft always
             requires a human action in the Value Set Library.
           </p>
-          <p className="text-xs text-slate-500 mt-2">
-            Last run: <span className="font-medium text-slate-700">{formatAgo(lastRunAt)}</span>
-          </p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -112,12 +126,23 @@ export function AutoTerminologistActivity() {
         </span>
       </div>
 
+      {latest && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <span className="font-semibold text-slate-800">Last cycle:</span>{" "}
+          {new Date(latest.run_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {" "}({formatAgo(lastRunAt)}) — {latest.message}
+        </div>
+      )}
+
+      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 pt-1">
+        Value Sets Drafted
+      </div>
       <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
         {loading ? (
           <div className="px-4 py-6 text-sm text-slate-500">Loading activity…</div>
         ) : rows.length === 0 ? (
           <div className="px-4 py-6 text-sm text-slate-500">
-            No runs logged yet. The agent runs every 10 minutes — first entry will appear shortly after boot.
+            No value sets drafted yet.
           </div>
         ) : (
           rows.map((r) => {
