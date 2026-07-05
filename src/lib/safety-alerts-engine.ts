@@ -179,6 +179,7 @@ type FireInput = {
   drug: string;
   drug_b?: string | null;
   allergy_name?: string | null;
+  medication_order_id?: string | null;
 };
 
 async function fireAlert(input: FireInput): Promise<void> {
@@ -196,7 +197,9 @@ async function fireAlert(input: FireInput): Promise<void> {
     family,
     severity: severityLevel,
     status: "Pending Review",
-    auto_resolve_at: null,
+    auto_resolve_at: new Date(Date.now() + 45_000).toISOString(),
+    risk_score: riskScoreFor(input.severity),
+    medication_order_id: input.medication_order_id ?? null,
     created_by_type: "automation",
     updated_at: new Date().toISOString(),
   };
@@ -205,6 +208,13 @@ async function fireAlert(input: FireInput): Promise<void> {
     // eslint-disable-next-line no-console
     console.warn("[safety-alerts] insert failed", error.message);
     return;
+  }
+  // Hold the offending medication order while the alert is pending review.
+  if (input.medication_order_id) {
+    await supabase
+      .from("medication_orders")
+      .update({ status: "HELD_SAFETY_REVIEW", updated_at: new Date().toISOString() })
+      .eq("id", input.medication_order_id);
   }
   await supabase.from("auto_doc_logs").insert({
     mrn: input.mrn,
@@ -250,7 +260,16 @@ export type MedOrderEvent = {
   rxnorm_display?: string | null;
   medication_name?: string | null;
   drug_name?: string | null;
+  medication_order_id?: string | null;
 };
+
+function riskScoreFor(severity: string | null | undefined): number {
+  const s = String(severity ?? "").toUpperCase();
+  if (s === "CONTRAINDICATION" || s === "CRITICAL" || s === "HIGH") return 85;
+  if (s === "CAUTION" || s === "MEDIUM" || s === "WARNING") return 55;
+  if (s === "INFO" || s === "LOW") return 25;
+  return 50;
+}
 
 export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void> {
   const mrn = evt.mrn;
@@ -314,6 +333,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           triggerDisplay: name || code,
           drug: name || code,
           allergy_name: matched.substance,
+          medication_order_id: evt.medication_order_id ?? null,
         });
       }
     } else if (anyUnavailable) {
@@ -357,6 +377,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           triggerDisplay: name || code,
           drug: name || code,
           drug_b: conflict.name,
+          medication_order_id: evt.medication_order_id ?? null,
         });
       }
     }

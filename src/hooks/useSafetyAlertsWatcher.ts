@@ -35,6 +35,7 @@ export function useSafetyAlertsWatcher() {
             rxnorm_display: rec.rxnorm_display,
             medication_name: rec.medication_name,
             drug_name: rec.drug_name,
+            medication_order_id: rec.id,
           }).catch((e) => console.warn("[safety-alerts] med rule failed", e));
         },
       )

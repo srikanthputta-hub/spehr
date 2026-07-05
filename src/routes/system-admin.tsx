@@ -1145,6 +1145,8 @@ type DbSafetyAlert = {
   auto_resolve_at: string | null;
   resolved_by: string | null;
   resolution_rationale: string | null;
+  risk_score: number | null;
+  medication_order_id: string | null;
 };
 
 /* ------------------------------------------------------------------ */
@@ -1295,6 +1297,137 @@ function buildSafetyRationale(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Build a concrete structured alternate medication for a rejected   */
+/*  order, based on the alert's cross-reactivity family.              */
+/* ------------------------------------------------------------------ */
+function buildAlternateMed(
+  c: Pick<DbSafetyAlert, "kind" | "drug" | "drug_b" | "allergy_name" | "family">,
+): { medication_name: string; dose: string; route: string; frequency: string } {
+  const fam = (c.family ?? "").toLowerCase();
+  if (/penicillin|β-lactam|beta-lactam|cephalosporin/.test(fam))
+    return { medication_name: "Vancomycin", dose: "15 mg/kg", route: "IV", frequency: "q12h" };
+  if (/sulfonamide/.test(fam))
+    return { medication_name: "Nitrofurantoin", dose: "100 mg", route: "PO", frequency: "BID" };
+  if (/nsaid|bleeding|antiplatelet|anticoagulant/.test(fam))
+    return { medication_name: "Acetaminophen", dose: "650 mg", route: "PO", frequency: "q6h prn pain" };
+  if (/opioid|respiratory depression/.test(fam))
+    return { medication_name: "Hydroxyzine", dose: "25 mg", route: "PO", frequency: "q6h prn" };
+  if (/serotonin/.test(fam))
+    return { medication_name: "Acetaminophen", dose: "650 mg", route: "PO", frequency: "q6h" };
+  if (/cyp2c19|clopidogrel/.test(fam))
+    return { medication_name: "Pantoprazole", dose: "40 mg", route: "PO", frequency: "Daily" };
+  if (/hyperkalemia/.test(fam))
+    return { medication_name: "Hydrochlorothiazide", dose: "25 mg", route: "PO", frequency: "Daily" };
+  if (/inr|warfarin potentiation/.test(fam))
+    return { medication_name: "Cephalexin", dose: "500 mg", route: "PO", frequency: "QID" };
+  if (/lactic acidosis|contrast/.test(fam))
+    return { medication_name: "Insulin sliding scale", dose: "per protocol", route: "SubQ", frequency: "AC & HS" };
+  if (/rhabdomyolysis|statin/.test(fam))
+    return { medication_name: "Pravastatin", dose: "40 mg", route: "PO", frequency: "qHS" };
+  if (/digoxin/.test(fam))
+    return { medication_name: "Digoxin (dose-reduced)", dose: "0.125 mg", route: "PO", frequency: "Daily" };
+  if (/contrast|iodinated/.test(fam))
+    return { medication_name: "Gadolinium MR contrast", dose: "0.1 mmol/kg", route: "IV", frequency: "once" };
+  return { medication_name: "Acetaminophen", dose: "650 mg", route: "PO", frequency: "q6h prn" };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Look up the ordering physician for the linked medication order.   */
+/* ------------------------------------------------------------------ */
+async function lookupOrderingPhysician(medOrderId: string | null): Promise<string> {
+  if (!medOrderId) return "Attending Physician";
+  const { data } = await supabase
+    .from("medication_orders")
+    .select("ordering_physician")
+    .eq("id", medOrderId)
+    .maybeSingle();
+  const name = (data as any)?.ordering_physician;
+  return name && String(name).trim() ? String(name) : "Attending Physician";
+}
+
+/* ------------------------------------------------------------------ */
+/*  Side-effects when an alert resolves (manual or SLA auto):         */
+/*   - insert matching row into cds_overrides                         */
+/*   - release medication order (Override) or reject + auto-substitute*/
+/* ------------------------------------------------------------------ */
+async function resolveAlertSideEffects(
+  c: DbSafetyAlert,
+  status: "Overridden" | "Rejected",
+  physicianName: string,
+  rationale: string,
+): Promise<void> {
+  const decidedAt = new Date().toISOString();
+
+  // 1. Log to cds_overrides feed
+  try {
+    await supabase.from("cds_overrides").insert({
+      mrn: c.mrn,
+      alert_type: c.kind,
+      severity: c.severity ?? "high",
+      drug_name: c.drug,
+      condition_name:
+        c.kind === "Drug-Drug" ? (c.drug_b ?? null) : (c.allergy_name ?? null),
+      reason: rationale,
+      physician_name: physicianName,
+      fired_at: decidedAt,
+    } as any);
+  } catch (e: any) {
+    console.warn("[safety] cds_overrides insert failed", e?.message);
+  }
+
+  if (!c.medication_order_id) return;
+
+  if (status === "Overridden") {
+    await supabase
+      .from("medication_orders")
+      .update({ status: "PENDING_PHARMACY", updated_at: decidedAt })
+      .eq("id", c.medication_order_id);
+    return;
+  }
+
+  // Rejected → mark original + auto-create alternate order.
+  const { data: original } = await supabase
+    .from("medication_orders")
+    .select("patient_mrn, mrn, patient_name, facility_name, drug_name, medication_name")
+    .eq("id", c.medication_order_id)
+    .maybeSingle();
+
+  await supabase
+    .from("medication_orders")
+    .update({ status: "REJECTED_SAFETY_ALERT", updated_at: decidedAt })
+    .eq("id", c.medication_order_id);
+
+  if (!original) return;
+  const alt = buildAlternateMed(c);
+  const originalName =
+    (original as any).drug_name ??
+    (original as any).medication_name ??
+    c.drug ??
+    "prior order";
+  const displayName = `${alt.medication_name} (auto-substitute for rejected ${originalName})`;
+  try {
+    await supabase.from("medication_orders").insert({
+      patient_mrn: (original as any).patient_mrn ?? (original as any).mrn ?? c.mrn,
+      mrn: (original as any).mrn ?? c.mrn,
+      patient_name: (original as any).patient_name ?? c.patient_name,
+      facility_name: (original as any).facility_name ?? c.facility_name,
+      drug_name: displayName,
+      medication_name: displayName,
+      dose: alt.dose,
+      route: alt.route,
+      frequency: alt.frequency,
+      status: "PENDING_PHARMACY",
+      ordering_physician: physicianName,
+      coding_source: "safety-substitution",
+      term_status: `Auto-substituted alternate for rejected order: ${originalName}`,
+      created_by_type: "automation",
+    } as any);
+  } catch (e: any) {
+    console.warn("[safety] alternate med insert failed", e?.message);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  NLP audit enrichment — when the dictionary returned zero concepts */
 /*  for a live admission, infer ICD-10 + SNOMED + recommended labs    */
 /*  from the chief complaint so the audit shows genuine codes instead */
@@ -1415,6 +1548,11 @@ function SafetyQueue({ facility }: { facility: string }) {
   const [items, setItems] = useState<DbSafetyAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [nowTs, setNowTs] = useState<number>(Date.now());
+  const [counts, setCounts] = useState<{ pending: number; overridden: number; rejected: number }>({
+    pending: 0,
+    overridden: 0,
+    rejected: 0,
+  });
 
   // 1s ticker drives the live countdown UI on each pending card.
   useEffect(() => {
@@ -1435,6 +1573,26 @@ function SafetyQueue({ facility }: { facility: string }) {
     const { data, error } = await q;
     if (error) toast.error("Could not load safety alerts", { description: error.message });
     setItems(((data ?? []) as DbSafetyAlert[]));
+    // Real aggregate counts across all rows for this facility (not the
+    // visible slice), so metric tiles stay accurate.
+    const buildCount = (status: string) => {
+      let cq = supabase
+        .from("clinical_safety_alerts")
+        .select("*", { count: "exact", head: true })
+        .eq("status", status);
+      if (facility && facility !== "all") cq = cq.eq("facility_name", facility);
+      return cq;
+    };
+    const [pR, oR, rR] = await Promise.all([
+      buildCount("Pending Review"),
+      buildCount("Overridden"),
+      buildCount("Rejected"),
+    ]);
+    setCounts({
+      pending: pR.count ?? 0,
+      overridden: oR.count ?? 0,
+      rejected: rR.count ?? 0,
+    });
     setLoading(false);
   };
 
@@ -1453,15 +1611,16 @@ function SafetyQueue({ facility }: { facility: string }) {
   }, [facility]);
 
   /* ----------------------------------------------------------------
-   * AI Auto-Resolver — every Pending Review alert is auto-decided
-   * the moment its `auto_resolve_at` SLA expires (2-minute window).
-   * The AI Safety Engine randomly chooses Override (70%) vs Reject
-   * (30%) and writes the mandated professional clinical line into
-   * resolution_rationale + resolved_by = "AI Safety Engine".
-   * Mirrors the NLP Audit Log auto-fallback pattern.
+   * Score-based Auto-Resolver — every Pending Review alert is
+   * auto-decided the moment its `auto_resolve_at` SLA expires
+   * (45-second window). Decision is derived from risk_score:
+   *   risk_score >= 70 → auto-Reject (protect patient)
+   *   risk_score <  70 → auto-Override (safe to proceed)
+   * Attribution follows the ordering physician on the linked
+   * medication order, not "AI Safety Engine".
    * ---------------------------------------------------------------- */
   useEffect(() => {
-    const FALLBACK_MS = 2 * 60_000;
+    const FALLBACK_MS = 45_000;
     const inflight = new Set<string>();
     const tick = async () => {
       const now = Date.now();
@@ -1469,7 +1628,6 @@ function SafetyQueue({ facility }: { facility: string }) {
         (i) =>
           i.status === "Pending Review" &&
           !inflight.has(i.id) &&
-          i.auto_resolve_at != null &&
           now >=
             (i.auto_resolve_at
               ? new Date(i.auto_resolve_at).getTime()
@@ -1477,22 +1635,21 @@ function SafetyQueue({ facility }: { facility: string }) {
       );
       for (const c of due) {
         inflight.add(c.id);
-        const override = Math.random() < 0.7;
-        const status: "Overridden" | "Rejected" = override ? "Overridden" : "Rejected";
-        const rationale = buildSafetyRationale(c, status, "AI Safety Engine");
+        const score = c.risk_score ?? 50;
+        const status: "Overridden" | "Rejected" = score >= 70 ? "Rejected" : "Overridden";
+        const physicianName = await lookupOrderingPhysician(c.medication_order_id);
+        const base = buildSafetyRationale(c, status, "AI Safety Engine");
+        const rationale = `[SLA auto-resolved on behalf of ${physicianName} — 45s review window expired] ${base}`;
 
-        // Optimistically update the local list the instant the SLA expires
-        // so the metric tiles (Pending / Overridden / Rejected) move on the
-        // same millisecond as the timeout.
         setItems((prev) =>
           prev.map((row) =>
             row.id === c.id
               ? {
                   ...row,
                   status,
-                  decided_by: "AI Safety Engine",
+                  decided_by: physicianName,
                   decided_at: new Date().toISOString(),
-                  resolved_by: "AI Safety Engine",
+                  resolved_by: physicianName,
                   resolution_rationale: rationale,
                   rationale,
                 }
@@ -1504,17 +1661,18 @@ function SafetyQueue({ facility }: { facility: string }) {
           .from("clinical_safety_alerts")
           .update({
             status,
-            decided_by: "AI Safety Engine",
+            decided_by: physicianName,
             decided_at: new Date().toISOString(),
             rationale,
-            resolved_by: "AI Safety Engine",
+            resolved_by: physicianName,
             resolution_rationale: rationale,
           })
           .eq("id", c.id)
           .eq("status", "Pending Review");
         inflight.delete(c.id);
         if (!error) {
-          toast.success(`AI auto-${status.toLowerCase()}: ${c.patient_name ?? c.mrn}`, {
+          await resolveAlertSideEffects(c, status, physicianName, rationale);
+          toast.success(`SLA auto-${status.toLowerCase()}: ${c.patient_name ?? c.mrn}`, {
             description: rationale,
           });
         }
@@ -1547,12 +1705,12 @@ function SafetyQueue({ facility }: { facility: string }) {
       })
       .eq("id", c.id);
     if (error) { toast.error("Update failed", { description: error.message }); return; }
+    await resolveAlertSideEffects(c, status, "Human Clinician", rationale);
     toast.success(`Alert ${status.toLowerCase()}`);
     refresh();
   };
 
   const pending = items.filter((i) => i.status === "Pending Review");
-  const decided = items.filter((i) => i.status !== "Pending Review");
 
   return (
     <div className="space-y-4">
@@ -1566,7 +1724,7 @@ function SafetyQueue({ facility }: { facility: string }) {
             RxNorm drug that cross-reacts with a documented patient allergy.
             Pharmacy or an EHR specialist may Override / Reject manually —
             otherwise the <span className="font-semibold">AI Safety Engine</span>{" "}
-            auto-resolves any Pending Review alert after a 2-minute SLA.
+            auto-resolves any Pending Review alert after a 45-second SLA.
             Showing latest 15 for{" "}
             <span className="font-semibold">
               {facility && facility !== "all" ? facility : "all facilities"}
@@ -1579,9 +1737,9 @@ function SafetyQueue({ facility }: { facility: string }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Stat label="Pending review" value={pending.length} tone="red" />
-        <Stat label="Overridden" value={decided.filter((d) => d.status === "Overridden").length} tone="amber" />
-        <Stat label="Rejected" value={decided.filter((d) => d.status === "Rejected").length} tone="slate" />
+        <Stat label="Pending review" value={counts.pending} tone="red" />
+        <Stat label="Overridden" value={counts.overridden} tone="amber" />
+        <Stat label="Rejected" value={counts.rejected} tone="slate" />
       </div>
 
       {loading ? (
@@ -1589,14 +1747,14 @@ function SafetyQueue({ facility }: { facility: string }) {
           <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
           Scanning intake records and medication orders…
         </div>
-      ) : items.length === 0 ? (
+      ) : pending.length === 0 ? (
         <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 p-8 text-center text-sm text-emerald-800">
           <FileCheck2 className="inline h-4 w-4 mr-1.5" />
-          No drug↔allergy conflicts detected across the last 50 admissions.
+          No pending drug↔allergy conflicts — queue clear. Resolved alerts appear in the CDS Hook Overrides feed.
         </div>
       ) : (
         <div className="space-y-2">
-          {items.map((c) => (
+          {pending.map((c) => (
             <div
               key={c.id}
               className={`rounded-xl border bg-white shadow-sm p-4 ${
@@ -1697,8 +1855,8 @@ function SafetyQueue({ facility }: { facility: string }) {
 }
 
 /* ----------------------------------------------------------------
- * Live 2-minute SLA countdown badge + progress bar.
- * Flips amber under 30s, red+pulsing under 10s.
+ * Live 45-second SLA countdown badge + progress bar.
+ * Flips amber under 15s, red+pulsing under 5s.
  * ---------------------------------------------------------------- */
 function SlaCountdown({
   autoResolveAt,
@@ -1709,7 +1867,7 @@ function SlaCountdown({
   createdAt: string;
   nowTs: number;
 }) {
-  const TOTAL_MS = 2 * 60_000;
+  const TOTAL_MS = 45_000;
   const end = autoResolveAt
     ? new Date(autoResolveAt).getTime()
     : new Date(createdAt).getTime() + TOTAL_MS;
@@ -1718,8 +1876,8 @@ function SlaCountdown({
   const mm = Math.floor(secs / 60);
   const ss = secs % 60;
   const pct = Math.max(0, Math.min(100, (remaining / TOTAL_MS) * 100));
-  const critical = remaining <= 10_000;
-  const warning = remaining <= 30_000 && !critical;
+  const critical = remaining <= 5_000;
+  const warning = remaining <= 15_000 && !critical;
   const tone = critical
     ? "border-red-300 bg-red-50 text-red-700"
     : warning

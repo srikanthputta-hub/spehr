@@ -273,7 +273,7 @@ export function CdsOverridesFeed() {
           "id, created_at, mrn, alert_type, severity, drug_name, condition_name, reason, physician_name",
         )
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(25);
       if (!cancelled) setRows((data ?? []) as CdsRow[]);
     };
     load();

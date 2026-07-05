@@ -30,6 +30,7 @@ type Order = {
   approved_at?: string | null;
   dispensed_at?: string | null;
   administered_at?: string | null;
+  ordering_physician?: string | null;
 };
 
 type Patient = {
@@ -179,13 +180,15 @@ function PharmacyQueue() {
       "PENDING_PHARMACY",
       "PENDING_VERIFICATION",
       "DISPENSED",
+      "HELD_SAFETY_REVIEW",
+      "REJECTED_SAFETY_ALERT",
     ];
     (async () => {
       const { data, error } = await fetchWithTimeout(
         () =>
           supabase
             .from("medication_orders")
-            .select("id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at")
+            .select("id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at, ordering_physician")
             .eq("facility_name", facility)
             .in("status", PENDING_STATUSES)
             .order("created_at", { ascending: false })
@@ -447,12 +450,19 @@ function PharmacyQueue() {
               )}
               {visibleOrders.map((o) => {
                 const active = o.id === selectedId;
+                const isHeld = (o.status ?? "").toUpperCase() === "HELD_SAFETY_REVIEW";
+                const isRejected = (o.status ?? "").toUpperCase() === "REJECTED_SAFETY_ALERT";
                 return (
                   <button
                     key={o.id}
-                    onClick={() => setSelectedId(o.id)}
+                    onClick={() => { if (!isHeld && !isRejected) setSelectedId(o.id); }}
+                    disabled={isHeld || isRejected}
                     className={`w-full text-left px-3 py-2.5 transition ${
-                      active ? "bg-[#0c2340] text-white" : "hover:bg-slate-50"
+                      isHeld
+                        ? "bg-slate-100 text-slate-500 cursor-not-allowed"
+                        : isRejected
+                          ? "bg-rose-50 text-rose-800 cursor-not-allowed"
+                          : active ? "bg-[#0c2340] text-white" : "hover:bg-slate-50"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -462,6 +472,20 @@ function PharmacyQueue() {
                       </div>
                       {(() => {
                         const s = (o.status ?? "").toUpperCase();
+                        if (s === "HELD_SAFETY_REVIEW") {
+                          return (
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 border border-slate-300">
+                              ⏸ On Hold — Safety Review
+                            </span>
+                          );
+                        }
+                        if (s === "REJECTED_SAFETY_ALERT") {
+                          return (
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300">
+                              🚫 Rejected — Safety Alert{o.ordering_physician ? ` (${o.ordering_physician})` : ""}
+                            </span>
+                          );
+                        }
                         const label =
                           s === "ORDERED"
                             ? "Ordered"

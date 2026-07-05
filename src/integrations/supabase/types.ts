@@ -699,11 +699,13 @@ export type Database = {
           family: string | null
           id: string
           kind: string
+          medication_order_id: string | null
           mrn: string
           patient_name: string | null
           rationale: string | null
           resolution_rationale: string | null
           resolved_by: string | null
+          risk_score: number | null
           rule_id: string | null
           severity: string | null
           status: string
@@ -728,11 +730,13 @@ export type Database = {
           family?: string | null
           id?: string
           kind: string
+          medication_order_id?: string | null
           mrn: string
           patient_name?: string | null
           rationale?: string | null
           resolution_rationale?: string | null
           resolved_by?: string | null
+          risk_score?: number | null
           rule_id?: string | null
           severity?: string | null
           status?: string
@@ -757,11 +761,13 @@ export type Database = {
           family?: string | null
           id?: string
           kind?: string
+          medication_order_id?: string | null
           mrn?: string
           patient_name?: string | null
           rationale?: string | null
           resolution_rationale?: string | null
           resolved_by?: string | null
+          risk_score?: number | null
           rule_id?: string | null
           severity?: string | null
           status?: string
