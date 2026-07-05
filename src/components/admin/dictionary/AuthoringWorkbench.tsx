@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { LookupCard } from "@/components/admin/dictionary/FhirOpCards";
 
 type Hit = { ui: string; name: string; rootSource?: string };
 type Picked = { code: string; display: string; vocabulary: string; excluded?: boolean };
@@ -351,6 +352,16 @@ export function AuthoringWorkbench() {
           </ul>
         )}
       </div>
+
+      <details className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+          ⚡ FHIR Operation · CodeSystem/$lookup
+        </summary>
+        <p className="text-[11px] text-slate-600 mt-1 mb-3">
+          Look up the meaning of a specific code in any supported code system while drafting a value set.
+        </p>
+        <LookupCard />
+      </details>
     </div>
   );
 }
