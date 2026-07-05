@@ -4201,6 +4201,16 @@ function MedicalDictionary() {
     return () => window.removeEventListener("spehr:dict-switch-tab", onSwitch as any);
   }, []);
 
+  // Cross-panel: allow child panels to request a subtab switch via a simple event.
+  useEffect(() => {
+    const onSwitch = (e: Event) => {
+      const d = (e as CustomEvent).detail ?? {};
+      if (d.tab) setSubtab(d.tab);
+    };
+    window.addEventListener("spehr:switch-tab", onSwitch as any);
+    return () => window.removeEventListener("spehr:switch-tab", onSwitch as any);
+  }, []);
+
   const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
