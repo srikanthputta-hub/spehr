@@ -1515,15 +1515,16 @@ function SafetyQueue({ facility }: { facility: string }) {
   }, [facility]);
 
   /* ----------------------------------------------------------------
-   * AI Auto-Resolver — every Pending Review alert is auto-decided
-   * the moment its `auto_resolve_at` SLA expires (2-minute window).
-   * The AI Safety Engine randomly chooses Override (70%) vs Reject
-   * (30%) and writes the mandated professional clinical line into
-   * resolution_rationale + resolved_by = "AI Safety Engine".
-   * Mirrors the NLP Audit Log auto-fallback pattern.
+   * Score-based Auto-Resolver — every Pending Review alert is
+   * auto-decided the moment its `auto_resolve_at` SLA expires
+   * (45-second window). Decision is derived from risk_score:
+   *   risk_score >= 70 → auto-Reject (protect patient)
+   *   risk_score <  70 → auto-Override (safe to proceed)
+   * Attribution follows the ordering physician on the linked
+   * medication order, not "AI Safety Engine".
    * ---------------------------------------------------------------- */
   useEffect(() => {
-    const FALLBACK_MS = 2 * 60_000;
+    const FALLBACK_MS = 45_000;
     const inflight = new Set<string>();
     const tick = async () => {
       const now = Date.now();
@@ -1531,7 +1532,6 @@ function SafetyQueue({ facility }: { facility: string }) {
         (i) =>
           i.status === "Pending Review" &&
           !inflight.has(i.id) &&
-          i.auto_resolve_at != null &&
           now >=
             (i.auto_resolve_at
               ? new Date(i.auto_resolve_at).getTime()
@@ -1539,22 +1539,21 @@ function SafetyQueue({ facility }: { facility: string }) {
       );
       for (const c of due) {
         inflight.add(c.id);
-        const override = Math.random() < 0.7;
-        const status: "Overridden" | "Rejected" = override ? "Overridden" : "Rejected";
-        const rationale = buildSafetyRationale(c, status, "AI Safety Engine");
+        const score = c.risk_score ?? 50;
+        const status: "Overridden" | "Rejected" = score >= 70 ? "Rejected" : "Overridden";
+        const physicianName = await lookupOrderingPhysician(c.medication_order_id);
+        const base = buildSafetyRationale(c, status, "AI Safety Engine");
+        const rationale = `[SLA auto-resolved on behalf of ${physicianName} — 45s review window expired] ${base}`;
 
-        // Optimistically update the local list the instant the SLA expires
-        // so the metric tiles (Pending / Overridden / Rejected) move on the
-        // same millisecond as the timeout.
         setItems((prev) =>
           prev.map((row) =>
             row.id === c.id
               ? {
                   ...row,
                   status,
-                  decided_by: "AI Safety Engine",
+                  decided_by: physicianName,
                   decided_at: new Date().toISOString(),
-                  resolved_by: "AI Safety Engine",
+                  resolved_by: physicianName,
                   resolution_rationale: rationale,
                   rationale,
                 }
@@ -1566,17 +1565,18 @@ function SafetyQueue({ facility }: { facility: string }) {
           .from("clinical_safety_alerts")
           .update({
             status,
-            decided_by: "AI Safety Engine",
+            decided_by: physicianName,
             decided_at: new Date().toISOString(),
             rationale,
-            resolved_by: "AI Safety Engine",
+            resolved_by: physicianName,
             resolution_rationale: rationale,
           })
           .eq("id", c.id)
           .eq("status", "Pending Review");
         inflight.delete(c.id);
         if (!error) {
-          toast.success(`AI auto-${status.toLowerCase()}: ${c.patient_name ?? c.mrn}`, {
+          await resolveAlertSideEffects(c, status, physicianName, rationale);
+          toast.success(`SLA auto-${status.toLowerCase()}: ${c.patient_name ?? c.mrn}`, {
             description: rationale,
           });
         }
@@ -1609,6 +1609,7 @@ function SafetyQueue({ facility }: { facility: string }) {
       })
       .eq("id", c.id);
     if (error) { toast.error("Update failed", { description: error.message }); return; }
+    await resolveAlertSideEffects(c, status, "Human Clinician", rationale);
     toast.success(`Alert ${status.toLowerCase()}`);
     refresh();
   };
