@@ -59,7 +59,7 @@ async function logEvent(admin: any, params: {
       level: params.level ?? "info",
       message: params.message,
       meta: params.meta ?? null,
-      created_by_type: "external",
+      created_by_type: "system",
     });
   } catch (e) {
     console.warn("[fhir-inbound-webhook] log insert failed", e);
