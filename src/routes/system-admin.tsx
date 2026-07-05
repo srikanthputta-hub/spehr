@@ -2595,6 +2595,7 @@ type MatrixCell = {
   icd10_codes: string[];
   snomed_codes: string[];
   raw_text: string | null;
+  qa_approved?: boolean;
 };
 
 function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility: string }) {
