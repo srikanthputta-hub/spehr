@@ -44,18 +44,23 @@ const ancestorCache = new Map<string, Set<string>>();
 async function fetchSnomedAncestors(code: string, apiKey: string): Promise<Set<string>> {
   const cached = ancestorCache.get(code);
   if (cached) return cached;
-  const url = new URL(
-    `https://uts-ws.nlm.nih.gov/rest/content/current/source/SNOMEDCT_US/${encodeURIComponent(code)}/ancestors`,
-  );
-  url.searchParams.set("apiKey", apiKey);
-  url.searchParams.set("pageSize", "200");
-  const r = await fetch(url.toString(), { headers: { Accept: "application/json" } });
-  if (!r.ok) throw new Error(`UMLS ${r.status}`);
-  const j: any = await r.json();
-  const results: any[] = j?.result ?? [];
   const set = new Set<string>();
-  for (const row of results) {
-    if (row?.ui) set.add(String(row.ui));
+  const pageSize = 50;
+  for (let pageNumber = 1; pageNumber <= 10; pageNumber++) {
+    const url = new URL(
+      `https://uts-ws.nlm.nih.gov/rest/content/current/source/SNOMEDCT_US/${encodeURIComponent(code)}/ancestors`,
+    );
+    url.searchParams.set("apiKey", apiKey);
+    url.searchParams.set("pageSize", String(pageSize));
+    url.searchParams.set("pageNumber", String(pageNumber));
+    const r = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+    if (!r.ok) throw new Error(`UMLS ${r.status}`);
+    const j: any = await r.json();
+    const results: any[] = j?.result ?? [];
+    for (const row of results) {
+      if (row?.ui) set.add(String(row.ui));
+    }
+    if (results.length < pageSize) break;
   }
   ancestorCache.set(code, set);
   return set;
