@@ -69,13 +69,18 @@ async function readState(admin: any, key: string): Promise<string> {
     .select("value")
     .eq("key", key)
     .maybeSingle();
-  return toIso(data?.value?.ts);
+  // Preserve raw postgres text (with microsecond precision) so `.gt()`
+  // doesn't re-match the same row after we already pushed it. Fall back to
+  // a 24h window if the cursor row is missing.
+  const ts = data?.value?.ts;
+  if (typeof ts === "string" && ts.length) return ts;
+  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
 
 async function writeState(admin: any, key: string, ts: string) {
   await admin
     .from("fhir_sync_state")
-    .upsert({ key, value: { ts: toIso(ts) } }, { onConflict: "key" });
+    .upsert({ key, value: { ts } }, { onConflict: "key" });
 }
 
 /* ---------------- Builders (server-side copies of src/lib/fhir-bundle.ts) --- */
@@ -220,8 +225,9 @@ async function pollInvoices(admin: any) {
   const result = await pushBundle(entries);
   if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
   stats.pushed = rows.length;
-  const maxTs = rows.reduce((m, r) => isoMax(m, r.updated_at), since);
-  await writeState(admin, "outbound_invoice_last_synced_at", maxTs);
+  // Rows sorted asc; last row is newest updated_at (raw postgres text —
+  // full microsecond precision, so .gt won't re-match it next run).
+  await writeState(admin, "outbound_invoice_last_synced_at", rows[rows.length - 1].updated_at);
   return stats;
 }
 
@@ -253,8 +259,7 @@ async function pollChargeItems(admin: any) {
   const result = await pushBundle(entries);
   if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
   stats.pushed = rows.length;
-  const maxTs = rows.reduce((m, r) => isoMax(m, r.created_at), since);
-  await writeState(admin, "outbound_chargeitem_last_synced_at", maxTs);
+  await writeState(admin, "outbound_chargeitem_last_synced_at", rows[rows.length - 1].created_at);
   return stats;
 }
 
@@ -279,8 +284,7 @@ async function pollAppointments(admin: any) {
   const result = await pushBundle(entries);
   if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
   stats.pushed = rows.length;
-  const maxTs = rows.reduce((m, r) => isoMax(m, r.updated_at), since);
-  await writeState(admin, "outbound_appointment_last_synced_at", maxTs);
+  await writeState(admin, "outbound_appointment_last_synced_at", rows[rows.length - 1].updated_at);
   return stats;
 }
 
