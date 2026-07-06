@@ -4156,10 +4156,13 @@ function AuditLog() {
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">📜 Enterprise Event Ledger</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            Immutable record of clinical, automation, security, and system events across the network. Newest first.
-          </p>
+          <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-1.5">
+            📜 Enterprise Event Ledger
+            <InfoHint
+              className="ml-1.5"
+              text="Immutable, append-only log of clinical, automation, security, and system events across the entire network, newest first. Use Download CSV for compliance review."
+            />
+          </h1>
         </div>
         <button
           type="button"
