@@ -196,6 +196,8 @@ interface PatientRecord {
   spo2: number | null;
   admission_time: string | null;
   facility_name: string | null;
+  allergies: string | null;
+  environmental_allergies: string | null;
 }
 
 function mockAgeFromName(first: string | null | undefined, fallback: number | null): number {
@@ -214,11 +216,56 @@ function mockDobFromAge(age: number): string {
   return `${String(m).padStart(2, "0")}/${String(d).padStart(2, "0")}/${year}`;
 }
 
-function mockAllergy(mrn: string): string {
-  let h = 0;
-  for (let i = 0; i < mrn.length; i++) h = (h * 31 + mrn.charCodeAt(i)) >>> 0;
-  const options = ["NKDA", "Penicillin", "Sulfa", "Latex", "NKDA"];
-  return options[h % options.length];
+/**
+ * Parse the `patients.allergies` free-text field.
+ * Expected shapes: "DrugName (Reaction)" | "NKDA" | null | "".
+ * Returns a structured result usable by every allergy widget.
+ */
+function parseDrugAllergy(raw: string | null | undefined): {
+  isNkda: boolean;
+  name: string | null;
+  reaction: string | null;
+} {
+  const s = (raw ?? "").trim();
+  if (!s || /^nkda$/i.test(s) || /no known/i.test(s)) {
+    return { isNkda: true, name: null, reaction: null };
+  }
+  const m = s.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (m) return { isNkda: false, name: m[1].trim(), reaction: m[2].trim() };
+  return { isNkda: false, name: s, reaction: null };
+}
+
+function AllergiesWidget({
+  allergies,
+  environmentalAllergies,
+  showEnvironmental,
+}: {
+  allergies: string | null;
+  environmentalAllergies: string | null;
+  showEnvironmental?: boolean;
+}) {
+  const parsed = parseDrugAllergy(allergies);
+  const env = (environmentalAllergies ?? "").trim();
+  return (
+    <div className="px-2.5 py-2 text-[12px] space-y-1">
+      {parsed.isNkda ? (
+        <div className="text-slate-800 font-semibold">
+          NKDA — <span className="font-normal text-slate-600">No Known Drug Allergies</span>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <span className="text-slate-800 font-semibold">{parsed.name}</span>
+          <span className="text-slate-500">{parsed.reaction ?? "—"}</span>
+        </div>
+      )}
+      {showEnvironmental && env ? (
+        <div className="text-[11px] text-slate-600">
+          <span className="uppercase tracking-wider text-[9.5px] text-slate-500 font-bold mr-1">Environmental/Food:</span>
+          {env}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function baselineVitals(dx: string | null | undefined) {
@@ -1032,16 +1079,11 @@ function ClinicalSummary({
 
           <section className={widgetBox}>
             <WidgetHeader title="Allergies" />
-            <div className="px-2.5 py-2 text-[12px] space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-800 font-semibold">cefazolin (From Ancef)</span>
-                <span className="text-slate-500">Diarrhea</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-800 font-semibold">penicillin G</span>
-                <span className="text-slate-500">Rash</span>
-              </div>
-            </div>
+            <AllergiesWidget
+              allergies={patient.allergies}
+              environmentalAllergies={patient.environmental_allergies}
+              showEnvironmental
+            />
           </section>
 
           <section className={widgetBox}>
@@ -1207,10 +1249,11 @@ function HistoryProblemsView({ patient }: { patient: PatientRecord }) {
       </section>
       <section className={widgetBox}>
         <WidgetHeader title="Allergies" />
-        <ul className="divide-y divide-slate-200 text-[12px]">
-          <li className="px-3 py-2 flex justify-between"><span className="font-semibold">cefazolin (From Ancef)</span><span className="text-slate-500">Diarrhea</span></li>
-          <li className="px-3 py-2 flex justify-between"><span className="font-semibold">penicillin G</span><span className="text-slate-500">Rash</span></li>
-        </ul>
+        <AllergiesWidget
+          allergies={patient.allergies}
+          environmentalAllergies={patient.environmental_allergies}
+          showEnvironmental
+        />
       </section>
       <section className={widgetBox}>
         <WidgetHeader title="Surgical History" />
@@ -1482,6 +1525,7 @@ function PatientChart() {
   const [dischargeOpen, setDischargeOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [workloadCount, setWorkloadCount] = useState<number>(0);
+  const [workloadOpen, setWorkloadOpen] = useState(false);
   const automationEnabled = useAutomationEnabled();
   const pending = usePendingChanges();
   const [signOpen, setSignOpen] = useState(false);
@@ -1562,7 +1606,7 @@ function PatientChart() {
       setError(null);
       const { data, error } = await supabase
         .from("patients")
-        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name")
+        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name, allergies, environmental_allergies")
         .eq("mrn", mrn)
         .maybeSingle();
       if (cancelled) return;
@@ -1608,8 +1652,9 @@ function PatientChart() {
   const dob = mockDobFromAge(age);
   const codeStatus = (patient.code_status ?? "").trim() || "Full Code";
   const isFullCode = /full/i.test(codeStatus);
-  const allergy = mockAllergy(patient.mrn);
-  const isNKDA = allergy === "NKDA";
+  const drugAllergy = parseDrugAllergy(patient.allergies);
+  const isNKDA = drugAllergy.isNkda;
+  const allergy = isNKDA ? "NKDA" : (drugAllergy.name ?? "NKDA");
   const dx = patient.diagnosis ?? patient.chief_complaint;
 
   const handleSuspend = async () => {
@@ -1646,7 +1691,7 @@ function PatientChart() {
           <ToolbarBtn label="Discharge" icon={<LogOut className="h-4 w-4" />} onClick={() => setDischargeOpen(true)} />
           <div className="flex-1" />
           <ToolbarBtn side="right" label="Sign" icon={<PenLine className="h-4 w-4" />} badge={pending.length} onClick={openSign} />
-          <ToolbarBtn side="right" label="Workload" icon={<ClipboardList className="h-4 w-4" />} badge={workloadCount} onClick={() => navigate({ to: "/tasks" }).catch(() => {})} />
+          <ToolbarBtn side="right" label="Workload" icon={<ClipboardList className="h-4 w-4" />} badge={workloadCount} onClick={() => setWorkloadOpen(true)} />
           <div className="relative">
             <ToolbarBtn side="right" label="Menu" icon={<Settings className="h-4 w-4" />} onClick={() => setMenuOpen((v) => !v)} />
             {menuOpen && (
@@ -1666,6 +1711,9 @@ function PatientChart() {
 
       {ordersOpen && (
         <OrdersDialog patient={patient} automationEnabled={automationEnabled} onClose={() => setOrdersOpen(false)} />
+      )}
+      {workloadOpen && (
+        <WorkloadDialog patient={patient} onClose={() => setWorkloadOpen(false)} />
       )}
       <DischargeConformanceBanner mrn={patient.mrn} />
       <SafetyAlertBanner mrn={patient.mrn} />
@@ -1852,8 +1900,19 @@ function PatientChart() {
 
           <div className="px-3 py-2 border-b border-slate-200">
             <div className="text-[12px] font-semibold text-slate-800 mb-1">● Allergies</div>
-            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>cefazolin</span><span className="text-slate-500">Diarrhea</span></div>
-            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>penicillin G</span><span className="text-slate-500">Rash</span></div>
+            {drugAllergy.isNkda ? (
+              <div className="text-[11.5px] text-slate-700">NKDA — No Known Drug Allergies</div>
+            ) : (
+              <div className="text-[11.5px] text-slate-700 flex justify-between">
+                <span className="font-semibold">{drugAllergy.name}</span>
+                <span className="text-slate-500">{drugAllergy.reaction ?? "—"}</span>
+              </div>
+            )}
+            {patient.environmental_allergies && patient.environmental_allergies.trim() ? (
+              <div className="text-[10.5px] text-slate-500 mt-0.5">
+                Environmental/Food: {patient.environmental_allergies}
+              </div>
+            ) : null}
           </div>
 
           <div className="px-3 py-2">
@@ -2191,6 +2250,121 @@ function DischargeDialog({
     </div>
   );
 }
+
+function WorkloadDialog({
+  patient, onClose,
+}: {
+  patient: PatientRecord;
+  onClose: () => void;
+}) {
+  const fullName = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown Patient";
+  const [loading, setLoading] = useState(true);
+  const [labs, setLabs] = useState<Array<{ id: string; test_type: string | null; status: string | null }>>([]);
+  const [meds, setMeds] = useState<Array<{ id: string; name: string | null; dose: string | null; status: string | null }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const [labsRes, medsRes] = await Promise.all([
+        supabase
+          .from("lab_orders")
+          .select("id, test_type, status")
+          .eq("patient_mrn", patient.mrn)
+          .in("status", ["Ordered", "Processing", "ORDERED", "PROCESSING"])
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("medication_orders")
+          .select("*")
+          .eq("patient_mrn", patient.mrn)
+          .in("status", ["Ordered", "Pending Verification", "Dispensed", "ORDERED", "PENDING_VERIFICATION", "DISPENSED"])
+          .order("created_at", { ascending: false }),
+      ]);
+      if (cancelled) return;
+      setLabs(((labsRes.data ?? []) as any[]).map((r) => ({
+        id: r.id, test_type: r.test_type ?? null, status: r.status ?? null,
+      })));
+      setMeds(((medsRes.data ?? []) as any[]).map((r) => ({
+        id: r.id,
+        name: r.medication_name ?? r.drug_name ?? r.drug ?? r.name ?? null,
+        dose: r.dose ?? null,
+        status: r.status ?? null,
+      })));
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [patient.mrn]);
+
+  const total = labs.length + meds.length;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 grid place-items-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="text-sm font-semibold text-slate-900">
+            Current Workload — {fullName}
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          {loading ? (
+            <div className="grid place-items-center py-8"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+          ) : total === 0 ? (
+            <div className="text-center py-6 text-sm text-slate-500 italic">No pending items</div>
+          ) : (
+            <>
+              <section>
+                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">
+                  Pending Labs · {labs.length}
+                </div>
+                {labs.length === 0 ? (
+                  <div className="text-xs text-slate-400 italic px-1">None</div>
+                ) : (
+                  <ul className="divide-y divide-slate-200 border border-slate-200 rounded">
+                    {labs.map((l) => (
+                      <li key={l.id} className="px-3 py-1.5 flex items-center justify-between text-xs">
+                        <span className="text-slate-800">{l.test_type ?? "—"}</span>
+                        <span className="inline-flex rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 ring-1 ring-amber-300">
+                          {l.status}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+              <section>
+                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">
+                  Pending Medications · {meds.length}
+                </div>
+                {meds.length === 0 ? (
+                  <div className="text-xs text-slate-400 italic px-1">None</div>
+                ) : (
+                  <ul className="divide-y divide-slate-200 border border-slate-200 rounded">
+                    {meds.map((m) => (
+                      <li key={m.id} className="px-3 py-1.5 flex items-center justify-between text-xs">
+                        <span className="text-slate-800">
+                          <span className="font-medium">{m.name ?? "—"}</span>
+                          {m.dose ? <span className="text-slate-500 ml-1">· {m.dose}</span> : null}
+                        </span>
+                        <span className="inline-flex rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 ring-1 ring-amber-300">
+                          {m.status}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t bg-slate-50">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs rounded border border-slate-300 bg-white hover:bg-slate-100">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================ */
 /* Admission Case History — hospital-style intake recap          */
 /* Reads the structured IntakeRecord saved by the Admit modal    */
