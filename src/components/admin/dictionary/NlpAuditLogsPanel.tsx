@@ -6,10 +6,13 @@ import { toast } from "sonner";
 import { runSixStreamPipeline, approveMrnCoding } from "@/lib/coding-pipeline";
 import { AuditCard, type AuditRow } from "./AuditCard";
 
+let cachedAuditRows: AuditRow[] = [];
+let cachedAdmissionMap: Record<string, string> = {};
+
 export default function NlpAuditLogsPanel() {
-  const [rows, setRows] = useState<AuditRow[]>([]);
-  const [admissionMap, setAdmissionMap] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<AuditRow[]>(cachedAuditRows);
+  const [admissionMap, setAdmissionMap] = useState<Record<string, string>>(cachedAdmissionMap);
+  const [loading, setLoading] = useState(cachedAuditRows.length === 0);
   const [busy, setBusy] = useState<string | null>(null);
   const initialLoadRef = useRef(true);
   const firedIdsRef = useRef<Set<string>>(new Set());
@@ -31,6 +34,7 @@ export default function NlpAuditLogsPanel() {
       const { data } = (await Promise.race([query, timeout])) as { data: any[] | null };
       const list = (data ?? []) as any[];
       setRows(list);
+      cachedAuditRows = list;
       const mrns = Array.from(new Set(list.map((r) => r.patient_mrn).filter(Boolean)));
       if (mrns.length) {
         const { data: pts } = await supabase
@@ -42,11 +46,14 @@ export default function NlpAuditLogsPanel() {
           if (p?.mrn && p?.admission_time) map[p.mrn] = p.admission_time;
         }
         setAdmissionMap(map);
+        cachedAdmissionMap = map;
       } else {
         setAdmissionMap({});
+        cachedAdmissionMap = {};
       }
     } catch {
       setRows([]);
+      cachedAuditRows = [];
     } finally {
       setLoading(false);
       initialLoadRef.current = false;
@@ -80,6 +87,7 @@ export default function NlpAuditLogsPanel() {
       }
       // Optimistically remove from local list so auto-approve doesn't refire.
       setRows((prev) => prev.filter((x) => x.patient_mrn !== r.patient_mrn));
+      cachedAuditRows = cachedAuditRows.filter((x) => x.patient_mrn !== r.patient_mrn);
       // Notify the Approval Trail to refresh immediately.
       try { window.dispatchEvent(new CustomEvent("nlp:approved", { detail: { mrn: r.patient_mrn } })); } catch {}
       scheduleRefresh();
