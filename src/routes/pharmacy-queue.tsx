@@ -497,29 +497,6 @@ function PharmacyQueue() {
                           </span>
                         );
                       })()}
-                          );
-                        }
-                        const label =
-                          s === "ORDERED"
-                            ? "Ordered"
-                            : s === "DISPENSED"
-                              ? "Dispensed"
-                              : "Pending Verification";
-                        const cls = active
-                          ? "bg-white/15 text-white"
-                          : s === "ORDERED"
-                            ? "bg-sky-50 text-sky-700 border border-sky-200"
-                            : s === "DISPENSED"
-                              ? "bg-violet-50 text-violet-700 border border-violet-200"
-                              : "bg-amber-50 text-amber-700 border border-amber-200";
-                        return (
-                          <span
-                            className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${cls}`}
-                          >
-                            {label}
-                          </span>
-                        );
-                          })()}
                     </div>
                     <div className={`mt-0.5 text-[11px] truncate ${active ? "text-white/75" : "text-slate-500"}`}>
                       {o.dose} · {o.route} · {o.frequency}
