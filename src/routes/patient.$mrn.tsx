@@ -18,6 +18,7 @@ import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { loadIntake, type IntakeRecord } from "@/lib/intake-record";
 import DischargeConformanceBanner from "@/components/patient/DischargeConformanceBanner";
 import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
+import { dischargePatientViaWorker } from "@/lib/discharge-patient";
 
 /* ------------------------------------------------------------------ */
 /* CDS active suggestion hook — reads cds_suggestions table + realtime */
@@ -2134,21 +2135,22 @@ function DischargeDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [summary, setSummary] = useState("Patient stable for discharge. Follow up with PCP in 7 days.");
+  const DEFAULT_SUMMARY = "Patient stable for discharge. Follow up with PCP in 7 days.";
+  const [summary, setSummary] = useState(DEFAULT_SUMMARY);
   const [submitting, setSubmitting] = useState(false);
 
   const submit = async () => {
     setSubmitting(true);
     try {
-      const { error } = await supabase
-        .from("patients")
-        .update({
-          status: "Discharged",
-          discharge_time: new Date().toISOString(),
-          discharge_summary: summary,
-        } as any)
-        .eq("mrn", patient.mrn);
-      if (error) throw error;
+      // Route through ghost-discharge-worker so the DISCHARGE_SUMMARY note,
+      // FHIR Composition (with real meds/labs) and DocumentReference all get
+      // built headlessly. Preserve clinician free-text only when they edited
+      // the default placeholder.
+      const clinicianSummary = summary.trim() && summary.trim() !== DEFAULT_SUMMARY
+        ? summary
+        : null;
+      const result = await dischargePatientViaWorker({ mrn: patient.mrn, clinicianSummary });
+      if (!result.ok) throw new Error(result.reason ?? "discharge_failed");
       toast.success(`${patient.first_name ?? "Patient"} ${patient.last_name ?? ""} discharged`);
       onDone();
     } catch (e: any) {

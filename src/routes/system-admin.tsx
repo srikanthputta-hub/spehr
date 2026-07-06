@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { dischargePatientViaWorker } from "@/lib/discharge-patient";
 import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
 import {
   lookupTerminology,
@@ -600,20 +601,30 @@ function SystemAdminPage() {
     }
     setDischarging(true);
     try {
-      const nowIso = new Date().toISOString();
-      const { data: discharged, error: pErr } = await supabase
+      // Fetch every Admitted patient, then route each through
+      // ghost-discharge-worker so the DISCHARGE_SUMMARY note, real-data FHIR
+      // Composition/DocumentReference and bed release all happen together.
+      const { data: admitted, error: qErr } = await supabase
         .from("patients")
-        .update({ status: "Discharged", discharge_time: nowIso })
-        .neq("status", "Discharged")
-        .select("mrn");
-      if (pErr) throw pErr;
-      const { error: bErr } = await supabase
-        .from("bed_management")
-        .update({ status: "Available", current_patient_mrn: null })
-        .neq("status", "Available");
-      if (bErr) throw bErr;
-      toast.success("All patients discharged", {
-        description: `${discharged?.length ?? 0} patients discharged · all beds freed.`,
+        .select("mrn")
+        .eq("status", "Admitted");
+      if (qErr) throw qErr;
+      const mrns = (admitted ?? []).map((r: any) => r.mrn).filter(Boolean) as string[];
+      let succeeded = 0;
+      let failed = 0;
+      // Bounded concurrency: 4 at a time to avoid stampeding the worker.
+      const CONCURRENCY = 4;
+      for (let i = 0; i < mrns.length; i += CONCURRENCY) {
+        const chunk = mrns.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(
+          chunk.map((mrn) => dischargePatientViaWorker({ mrn }).catch((e) => ({ ok: false, mrn, reason: String(e?.message ?? e) }))),
+        );
+        for (const r of results) {
+          if (r.ok) succeeded++; else failed++;
+        }
+      }
+      toast.success("Bulk discharge complete", {
+        description: `${succeeded} discharged · ${failed} failed · ${mrns.length} total`,
       });
     } catch (e: any) {
       toast.error("Discharge failed", { description: e?.message ?? "Unknown error" });
