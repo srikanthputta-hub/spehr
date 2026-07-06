@@ -63,12 +63,6 @@ interface Patient {
   admission_time?: string | null;
 }
 
-interface Assignment {
-  id: string;
-  nurse: string;
-  cluster: string;
-}
-
 interface StaffMember {
   id: string;
   name: string;
@@ -257,10 +251,6 @@ function AdminDashboard() {
   const [pendingPharm, setPendingPharm] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const [nurse, setNurse] = useState("");
-  const [cluster, setCluster] = useState("");
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
-
   // Per-role shift clock — driven by real wall-clock time. Every 12h
   // (UTC-aligned) the on-duty index rotates to the next slot, exactly
   // like a real hospital handoff.
@@ -389,12 +379,14 @@ function AdminDashboard() {
     () => patients.filter((p) => (p.facility_name ?? "Memorial Hospital") === facility),
     [patients, facility],
   );
-  // Active census: exclude discharged patients. Treat any status that is
-  // not explicitly "Discharged" (case-insensitive) as active/admitted.
+  // Active census: strictly patients.status = "Admitted". Matches the
+  // nursing / physician / analytics boards so the tile is consistent
+  // across the entire app (previously used status !== "discharged"
+  // which loosely counted null / pending / cancelled rows too).
   const activePatients = useMemo(
     () =>
       facilityPatients.filter(
-        (p) => (p.status ?? "Admitted").toString().toLowerCase() !== "discharged",
+        (p) => (p.status ?? "").toString().toLowerCase() === "admitted",
       ),
     [facilityPatients],
   );
@@ -407,24 +399,6 @@ function AdminDashboard() {
       facilityPatients.filter((p) => (p.hr ?? 0) > 100 || (p.spo2 ?? 100) < 92).length,
     [facilityPatients],
   );
-
-  const addAssignment = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!nurse.trim() || !cluster) {
-      toast.error("Enter a nurse name and select a cluster");
-      return;
-    }
-    setAssignments((a) => [
-      { id: crypto.randomUUID(), nurse: nurse.trim(), cluster },
-      ...a,
-    ]);
-    toast.success(`${nurse.trim()} assigned to ${cluster}`);
-    setNurse("");
-    setCluster("");
-  };
-
-  const removeAssignment = (id: string) =>
-    setAssignments((a) => a.filter((x) => x.id !== id));
 
   // ============ Real-Time 12-hour Shift Rotation ============
   // Recompute the wall-clock shift state every 30s. When the 12h block
@@ -790,77 +764,6 @@ function AdminDashboard() {
                 );
               })}
             </div>
-          </div>
-        </div>
-
-        {/* Staffing */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3">
-            <UserCog className="h-4 w-4 text-slate-600" />
-            <h2 className="text-sm font-semibold text-slate-900">
-              Staffing Allocation
-            </h2>
-          </div>
-          <form
-            onSubmit={addAssignment}
-            className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 p-5 items-end"
-          >
-            <div className="space-y-1.5">
-              <Label>Lead Nurse</Label>
-              <Input
-                placeholder="e.g. Sarah Jenkins, RN"
-                value={nurse}
-                onChange={(e) => setNurse(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Room Cluster</Label>
-              <Select value={cluster} onValueChange={setCluster}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select cluster…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ROOM_CLUSTERS.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button type="submit" className="bg-[#0c2340] hover:bg-[#0c2340]/90">
-              Assign
-            </Button>
-          </form>
-
-          <div className="px-5 pb-5">
-            {assignments.length === 0 ? (
-              <p className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-md py-4 text-center">
-                No assignments yet — assign a nurse to a cluster above.
-              </p>
-            ) : (
-              <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
-                {assignments.map((a) => (
-                  <li
-                    key={a.id}
-                    className="flex items-center justify-between px-4 py-2.5"
-                  >
-                    <div>
-                      <div className="text-sm font-medium text-slate-900">
-                        {a.nurse}
-                      </div>
-                      <div className="text-xs text-slate-500">{a.cluster}</div>
-                    </div>
-                    <button
-                      onClick={() => removeAssignment(a.id)}
-                      className="text-slate-400 hover:text-red-600"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
         </div>
 
