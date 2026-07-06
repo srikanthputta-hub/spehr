@@ -4838,6 +4838,10 @@ function MedicalDictionary() {
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
               📚 Medical Dictionary
+              <InfoHint
+                className="ml-1.5"
+                text="VSAC-aligned terminology library powering every clinical, safety, and billing workflow in SPEHR — browse SNOMED CT, ICD-10, LOINC, and RxNorm value sets, or extend the dictionary with site-specific codes."
+              />
             </h1>
             <label className="inline-flex items-center gap-1.5">
               <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
@@ -4855,10 +4859,6 @@ function MedicalDictionary() {
               </select>
             </label>
           </div>
-          <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-            VSAC-aligned terminology library used across the EHR. Browse SNOMED CT, ICD-10,
-            LOINC, RxNorm, and curated value sets; extend with site-specific codes.
-          </p>
           {subtab === "library" && (
             <p className="text-[11px] mt-1 text-slate-500">
               VSAC-aligned value set repository · {usageMeta.count} admissions referenced
