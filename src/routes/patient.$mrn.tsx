@@ -18,6 +18,7 @@ import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { loadIntake, type IntakeRecord } from "@/lib/intake-record";
 import DischargeConformanceBanner from "@/components/patient/DischargeConformanceBanner";
 import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
+import ClinicalTriggersBanner from "@/components/patient/ClinicalTriggersBanner";
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
 
 /* ------------------------------------------------------------------ */
@@ -1668,6 +1669,7 @@ function PatientChart() {
       )}
       <DischargeConformanceBanner mrn={patient.mrn} />
       <SafetyAlertBanner mrn={patient.mrn} />
+      <ClinicalTriggersBanner mrn={patient.mrn} />
       {cdsPanelOpen && cdsSuggestion && (
         <CdsProtocolModal
           suggestion={cdsSuggestion}
