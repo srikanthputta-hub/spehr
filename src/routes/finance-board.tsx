@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { InfoHint } from "@/components/ui/info-hint";
 import {
   Loader2,
   Wallet,
@@ -261,12 +262,11 @@ function FinanceBoard() {
               <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                 <Receipt className="h-4 w-4 text-emerald-700" />
                 {tab === "settled" ? "Settled · Paid Ledger" : "Active · Bill Generation Queue"}
+                <InfoHint
+                  className="ml-1"
+                  text="Active shows invoices Auto Doc issued at discharge (FHIR Invoice + ChargeItem); Settled is the historical ledger of invoices fully paid by patients through MySPEHR (FHIR PaymentNotice) — an invoice moves from Active to Settled automatically the moment it's paid."
+                />
               </h2>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                {tab === "settled"
-                  ? "Historical ledger of fully balanced invoices — populated in real time by patient payments from MySPEHR (FHIR PaymentNotice)."
-                  : "Invoices issued by Auto Doc on discharge using FHIR Invoice + ChargeItem resources. Moves to Settled automatically when the patient pays."}
-              </p>
             </div>
             <div className="flex items-center gap-2">
               <div className="inline-flex rounded-md border border-slate-200 overflow-hidden text-xs font-semibold">
@@ -467,12 +467,11 @@ function RiskAdjustmentGaps({
           <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
             <FileText className="h-4 w-4 text-amber-700" />
             Risk Adjustment Coverage Gaps
+            <InfoHint
+              className="ml-1"
+              text="Discharged patients with a chronic diagnosis whose invoice has no ICD-10 risk-adjustment line, because no published Billing value set covers that code yet. Each gap shown here has also automatically filed a change request with Auto Terminologist so the missing code can be reviewed and added to a value set."
+            />
           </h2>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            Discharged patients with a chronic diagnosis whose invoice has no
-            ICD-10 risk-adjustment line — no published Billing value set
-            captured their condition.
-          </p>
         </div>
         {loading ? (
           <div className="grid place-items-center h-24 text-slate-500">
