@@ -156,12 +156,12 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
             info={`Global network-wide count of patients where status = "Admitted" across all 5 facilities — unlike the nursing/admin boards, this is not scoped to any one facility.`}
           />
           <KpiCard
-            label="Total Discharges"
-            sub="Status = Discharged"
+            label="Discharges · Last 48h"
+            sub="Rolling window"
             value={totals.discharged}
             icon={<LogOutIcon className="h-4 w-4" />}
             tone="slate"
-            info="Network-wide count of patients with status = Discharged. Because discharged rows are removed by the 48h TTL garbage-collection sweep, this number decrements over time — it is not an all-time cumulative discharge total."
+            info="Network-wide count of patients currently sitting in the patients table with status = Discharged. This is a ROLLING 48-HOUR WINDOW, not an all-time cumulative total — the TTL garbage-collection sweep deletes discharged rows once they age past ~48h, so the number decrements as older discharges are pruned."
           />
         </div>
 

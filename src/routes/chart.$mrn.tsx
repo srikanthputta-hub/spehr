@@ -22,8 +22,6 @@ import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react
 import { FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
-import { PatientReportedVitals } from "@/components/PatientReportedVitals";
-import { PatientCommsInbox } from "@/components/PatientCommsInbox";
 import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
 import { autoCodeLab } from "@/lib/auto-code";
 import {
@@ -101,6 +99,7 @@ function ChartPage() {
   const [given, setGiven] = useState<Record<string, string>>({});
   const [dbPatient, setDbPatient] = useState<any>(null);
   const [lookupDone, setLookupDone] = useState(false);
+  const [liveMeds, setLiveMeds] = useState<MedOrder[] | null>(null);
   const [administering, setAdministering] = useState<string | null>(null);
   const [shiftNotes, setShiftNotes] = useState<any[]>([]);
   const [noteText, setNoteText] = useState("");
@@ -235,6 +234,37 @@ function ChartPage() {
     })();
   }, [mrn]);
 
+  // Load real active medication orders for this MRN. Excludes historical
+  // Administered rows and REJECTED / REJECTED_SAFETY_ALERT statuses.
+  useEffect(() => {
+    if (staticPatient) return; // static demo patients keep their seeded meds
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("medication_orders")
+        .select(
+          "id, medication_name, drug_name, dose, route, frequency, status, created_at",
+        )
+        .eq("patient_mrn", mrn)
+        .not("status", "in", "(Administered,REJECTED,REJECTED_SAFETY_ALERT)")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (cancelled) return;
+      const mapped: MedOrder[] = (data ?? []).map((r: any, i: number) => ({
+        id: r.id ?? `${mrn}-med-${i}`,
+        name: r.medication_name ?? r.drug_name ?? "Unnamed medication",
+        dose: r.dose ?? "—",
+        route: r.route ?? "—",
+        freq: r.frequency ?? "—",
+        due: "Now",
+      }));
+      setLiveMeds(mapped);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mrn, staticPatient]);
+
   // Fetch completed historical lab reports for this patient
   useEffect(() => {
     let cancelled = false;
@@ -263,20 +293,12 @@ function ChartPage() {
     })();
   }, [activeTab, mrn]);
 
-  // Ensure there's always at least one med to administer (mock fallback)
+  // Real active medication orders for this MRN (excludes historical
+  // Administered rows and REJECTED / REJECTED_SAFETY_ALERT). If the DB
+  // has none, render an honest empty state — showing a fake drug on a
+  // patient chart is unacceptable.
   const medsList: MedOrder[] =
-    patient.meds.length > 0
-      ? patient.meds
-      : [
-          {
-            id: "mock-1",
-            name: "Furosemide (Lasix)",
-            dose: "40 mg",
-            route: "PO",
-            freq: "Q12H",
-            due: "Now",
-          },
-        ];
+    liveMeds ?? (patient.meds.length > 0 ? patient.meds : []);
 
   if (!ready) {
     return (
@@ -924,17 +946,11 @@ function ChartPage() {
         {/* RIGHT — MAR */}
         <div className="lg:col-span-2">
           <div className="space-y-4 sticky top-[88px]">
-          <PatientReportedVitals mrn={patient.mrn} />
-          <PatientCommsInbox
-            mrn={patient.mrn}
-            facility={facility}
-            providerLabel={nurse?.name ?? "Care Team"}
-          />
           <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader
               icon={Pill}
               title="MAR — Due Now"
-              subtitle={`${patient.meds.length} active orders`}
+              subtitle={`${medsList.length} active order${medsList.length === 1 ? "" : "s"}`}
               right={
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--teal-soft)] text-[var(--teal)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
                   <span className="h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
@@ -942,17 +958,23 @@ function ChartPage() {
                 </span>
               }
             />
-            <ul className="divide-y divide-border">
-              {medsList.map((m) => (
-                <MedRow
-                  key={m.id}
-                  med={m}
-                  givenAt={given[m.id]}
-                  busy={administering === m.id}
-                  onAdminister={() => handleAdminister(m)}
-                />
-              ))}
-            </ul>
+            {medsList.length === 0 ? (
+              <div className="px-4 py-6 text-xs text-muted-foreground italic">
+                No active medications on file for this patient.
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {medsList.map((m) => (
+                  <MedRow
+                    key={m.id}
+                    med={m}
+                    givenAt={given[m.id]}
+                    busy={administering === m.id}
+                    onAdminister={() => handleAdminister(m)}
+                  />
+                ))}
+              </ul>
+            )}
           </section>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Pencil, X, Timer } from "lucide-react";
+import { CheckCircle2, X, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { InfoHint } from "@/components/ui/info-hint";
@@ -185,14 +185,6 @@ export function QaGovernanceQueue({
                       >
                         <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
                         Approve & Push
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy === it.id}
-                        title="Edit codes (in-table)"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         size="sm"

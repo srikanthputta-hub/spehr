@@ -370,8 +370,6 @@ function Dashboard() {
   const automationEnabled = useAutomationEnabled();
   const { gate } = useRolePermissions("RN");
 
-  const MEDS_DUE_NAMES = ["margaret chen", "robert alvarez", "srujan patel", "marcus vance"];
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setEmail(data.session?.user.email ?? "demo@sgroup.health");
@@ -678,7 +676,7 @@ function Dashboard() {
     const q = query.trim().toLowerCase();
     let list = patients.filter((p) => p.facility === facility);
     if (showOnlyMedsDue) {
-      list = list.filter((p) => MEDS_DUE_NAMES.some((n) => p.name.toLowerCase().includes(n)));
+      list = list.filter((p) => (p.medsDue ?? 0) > 0);
     }
     if (!q) return list;
     return list.filter(
@@ -754,7 +752,7 @@ function Dashboard() {
             label="Total Patients"
             value={`${admittedFacilityCount}`}
             tone="navy"
-            info={`Currently admitted patients at ${facility} — counts occupied beds on this facility's bed board, so it can differ from the physician board census (which reads patients.status = "Admitted") if a bed hasn't been reconciled yet.`}
+            info={`Live count of rows in the patients table where facility_name = "${facility}" AND status = "Admitted" — the same query the physician board uses, refreshed via realtime.`}
           />
           <StatCard
             icon={AlertTriangle}
