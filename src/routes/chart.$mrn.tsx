@@ -234,6 +234,37 @@ function ChartPage() {
     })();
   }, [mrn]);
 
+  // Load real active medication orders for this MRN. Excludes historical
+  // Administered rows and REJECTED / REJECTED_SAFETY_ALERT statuses.
+  useEffect(() => {
+    if (staticPatient) return; // static demo patients keep their seeded meds
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("medication_orders")
+        .select(
+          "id, medication_name, drug_name, dose, route, frequency, status, created_at",
+        )
+        .eq("patient_mrn", mrn)
+        .not("status", "in", "(Administered,REJECTED,REJECTED_SAFETY_ALERT)")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (cancelled) return;
+      const mapped: MedOrder[] = (data ?? []).map((r: any, i: number) => ({
+        id: r.id ?? `${mrn}-med-${i}`,
+        name: r.medication_name ?? r.drug_name ?? "Unnamed medication",
+        dose: r.dose ?? "—",
+        route: r.route ?? "—",
+        freq: r.frequency ?? "—",
+        due: "Now",
+      }));
+      setLiveMeds(mapped);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mrn, staticPatient]);
+
   // Fetch completed historical lab reports for this patient
   useEffect(() => {
     let cancelled = false;
