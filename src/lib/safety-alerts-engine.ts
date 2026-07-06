@@ -15,6 +15,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
 
 /* ------------------------------------------------------------------ */
 /*  Value-set cache                                                    */
@@ -53,14 +54,14 @@ export async function ensureValueSetsLoaded(): Promise<Map<VsName, VsRow>> {
     return vsCache;
   }
   vsLoadPromise = (async () => {
-    const { data } = await supabase
-      .from("custom_value_sets")
-      .select("id, name, oid, vocabulary, type, codes, intensional_rule")
-      .in("name", VS_NAMES as unknown as string[])
-      .eq("status", "published");
+    const hits = await loadPublishedValueSetsForConsumer({
+      consumer: "Safety Alerts Engine",
+    });
     const next = new Map<VsName, VsRow>();
-    for (const row of (data ?? []) as any[]) {
-      if (VS_NAMES.includes(row.name)) next.set(row.name as VsName, row as VsRow);
+    for (const { value_set_name, row } of hits) {
+      if ((VS_NAMES as readonly string[]).includes(value_set_name)) {
+        next.set(value_set_name as VsName, row as VsRow);
+      }
     }
     vsCache = next;
     vsLoadedAt = Date.now();
