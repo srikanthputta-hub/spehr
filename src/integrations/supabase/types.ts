@@ -2949,6 +2949,7 @@ export type Database = {
           automation_enabled: boolean | null
           created_at: string
           created_by_type: Database["public"]["Enums"]["provenance_origin"]
+          ghost_safety_demo_counter: number
           id: number
           updated_at: string
         }
@@ -2961,6 +2962,7 @@ export type Database = {
           automation_enabled?: boolean | null
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          ghost_safety_demo_counter?: number
           id: number
           updated_at?: string
         }
@@ -2973,6 +2975,7 @@ export type Database = {
           automation_enabled?: boolean | null
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          ghost_safety_demo_counter?: number
           id?: number
           updated_at?: string
         }
