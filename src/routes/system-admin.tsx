@@ -74,6 +74,7 @@ import {
 import NlpApprovalTrail from "@/components/admin/dictionary/NlpApprovalTrail";
 import { AutoApiStatusPill } from "@/components/admin/AutoApiStatusPill";
 import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
+import { InfoHint } from "@/components/ui/info-hint";
 import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
 import { ValueSetLibrary } from "@/components/admin/dictionary/ValueSetLibrary";
 import { AuthoringWorkbench } from "@/components/admin/dictionary/AuthoringWorkbench";
