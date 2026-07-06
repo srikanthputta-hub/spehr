@@ -3041,6 +3041,56 @@ export type Database = {
         }
         Relationships: []
       }
+      value_set_dependencies: {
+        Row: {
+          consumer: string
+          consumer_file: string | null
+          created_at: string
+          id: string
+          lookup_mode: string
+          notes: string | null
+          purpose: string
+          required: boolean
+          updated_at: string
+          value_set_id: string | null
+          value_set_name: string
+        }
+        Insert: {
+          consumer: string
+          consumer_file?: string | null
+          created_at?: string
+          id?: string
+          lookup_mode?: string
+          notes?: string | null
+          purpose: string
+          required?: boolean
+          updated_at?: string
+          value_set_id?: string | null
+          value_set_name: string
+        }
+        Update: {
+          consumer?: string
+          consumer_file?: string | null
+          created_at?: string
+          id?: string
+          lookup_mode?: string
+          notes?: string | null
+          purpose?: string
+          required?: boolean
+          updated_at?: string
+          value_set_id?: string | null
+          value_set_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "value_set_dependencies_value_set_id_fkey"
+            columns: ["value_set_id"]
+            isOneToOne: false
+            referencedRelation: "custom_value_sets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vitals: {
         Row: {
           bp_diastolic: number | null
