@@ -588,14 +588,21 @@ const CLINICAL_SCAN_LIMIT = 2000;
 
 type MrnRow = { mrn: string; oldest: string; newest: string };
 
-// Collect distinct MRNs touched by any clinical change since the cursor,
-// tracking each MRN's OLDEST and NEWEST updated_at across all clinical
-// tables. Returned MRNs are sorted by oldest ts ASC — oldest changes get
-// pushed first, which matches the cursor-advance guarantee below.
+// Collect distinct MRNs touched by any clinical change strictly after the
+// composite cursor `(cursor.ts, cursor.mrn)`. Per-MRN OLDEST + NEWEST
+// updated_at are tracked across all clinical tables. Sort key is
+// `(newest ASC, mrn ASC)` — the same key we advance the cursor along,
+// so consecutive ticks make strict lexicographic progress even when
+// many MRNs share an identical timestamp.
+//
+// Scan uses `.gte("updated_at", cursor.ts)` (NOT `.gt`) so that MRNs
+// still living inside the tied `cursor.ts` bucket but sorting AFTER
+// `cursor.mrn` are still discovered on the next tick. The in-code
+// filter re-applies the strict composite comparison.
 async function collectChangedMrns(
   admin: any,
-  since: string,
-): Promise<{ selected: MrnRow[]; totalDiscovered: number; firstSkippedOldest: string | null }> {
+  cursor: ClinicalCursor,
+): Promise<{ selected: MrnRow[]; totalDiscovered: number; eligibleTotal: number }> {
   const byMrn = new Map<string, MrnRow>();
 
   const bump = (rows: any[]) => {
@@ -612,13 +619,14 @@ async function collectChangedMrns(
     }
   };
 
+  const since = cursor.ts;
   const [meds, labs, results, notes, conds, pats] = await Promise.all([
-    admin.from("medication_orders").select("patient_mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("lab_orders").select("patient_mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("lab_results").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("clinical_notes").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("conditions").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("patients").select("mrn, updated_at").gt("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("medication_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("lab_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("lab_results").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("clinical_notes").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("conditions").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("patients").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
   ]);
 
   if (meds.error) throw new Error(`meds change scan: ${meds.error.message}`);
@@ -635,10 +643,21 @@ async function collectChangedMrns(
   bump((conds.data ?? []) as any[]);
   bump((pats.data ?? []) as any[]);
 
-  const all = [...byMrn.values()].sort((a, b) => (a.oldest < b.oldest ? -1 : a.oldest > b.oldest ? 1 : 0));
-  const selected = all.slice(0, CLINICAL_MRN_LIMIT);
-  const firstSkippedOldest = all.length > CLINICAL_MRN_LIMIT ? all[CLINICAL_MRN_LIMIT].oldest : null;
-  return { selected, totalDiscovered: all.length, firstSkippedOldest };
+  const totalDiscovered = byMrn.size;
+
+  // Strict lex filter on (newest, mrn) > (cursor.ts, cursor.mrn).
+  // Using `newest` (not `oldest`) as the sort/cursor key guarantees an
+  // MRN with a fresh update always re-qualifies on subsequent ticks,
+  // even if we already processed it at an earlier `newest` value.
+  const eligible = [...byMrn.values()].filter((r) =>
+    cursorGt({ ts: r.newest, mrn: r.mrn }, cursor)
+  );
+  eligible.sort((a, b) => {
+    if (a.newest !== b.newest) return a.newest < b.newest ? -1 : 1;
+    return a.mrn < b.mrn ? -1 : 1;
+  });
+  const selected = eligible.slice(0, CLINICAL_MRN_LIMIT);
+  return { selected, totalDiscovered, eligibleTotal: eligible.length };
 }
 
 // Build the full FHIR entry list for a single MRN by fetching all of its
@@ -734,28 +753,45 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
 }
 
 async function pollClinical(admin: any) {
-  const since = await readState(admin, "outbound_clinical_last_synced_at");
+  const cursor = await readClinicalCursor(admin);
   const cutoff = new Date().toISOString();
   const stats: any = {
-    since, cutoff, discovered: 0, mrns: 0, entries: 0,
-    pushed: 0, failed: 0, skipped: [] as any[],
+    since: cursor.ts,
+    sinceMrn: cursor.mrn,
+    cutoff,
+    discovered: 0,
+    eligible: 0,
+    mrns: 0,
+    entries: 0,
+    pushed: 0,
+    failed: 0,
+    skipped: [] as any[],
   };
 
-  const { selected, totalDiscovered, firstSkippedOldest } = await collectChangedMrns(admin, since);
+  const { selected, totalDiscovered, eligibleTotal } = await collectChangedMrns(admin, cursor);
   stats.discovered = totalDiscovered;
+  stats.eligible = eligibleTotal;
   stats.mrns = selected.length;
+
   if (selected.length === 0) {
-    // No changes since `since`. Advance to `cutoff` so we don't re-scan
-    // the same empty window on every tick.
-    await writeState(admin, "outbound_clinical_last_synced_at", cutoff);
-    stats.cursorTo = cutoff;
+    // No eligible work — bump the cursor to `cutoff` so we don't rescan
+    // the same window on every tick. Clear the mrn tiebreaker since
+    // there's nothing left in the (cursor.ts) bucket by definition.
+    const newCursor: ClinicalCursor = { ts: cutoff, mrn: "" };
+    await writeClinicalCursor(admin, newCursor);
+    stats.cursorTo = newCursor;
     return stats;
   }
 
-  // Push oldest-first so a single bad MRN doesn't fail the whole batch and
-  // so the cursor-advance rule below is monotonic.
-  let lastFullyProcessedNewest: string | null = null;
+  // Process in (newest ASC, mrn ASC) order. The cursor advances
+  // monotonically along the composite (newest, mrn) key, so batch
+  // boundaries within a tied ts bucket are safe: the next tick resumes
+  // from the last-processed (newest, mrn) and picks up strictly later
+  // MRNs in the same bucket via `mrn > cursor.mrn`.
+  let lastAdvanced: ClinicalCursor | null = null;
+  let hardStop = false;
   for (const row of selected) {
+    if (hardStop) break;
     const mrn = row.mrn;
     let built: { entries: any[]; skipped: string | null } | null = null;
     try {
@@ -763,12 +799,14 @@ async function pollClinical(admin: any) {
     } catch (e) {
       stats.failed += 1;
       stats.skipped.push({ mrn, reason: `build_error: ${(e as Error).message}` });
+      // Do NOT advance past a build failure — next tick retries this MRN.
+      hardStop = true;
       continue;
     }
     if (built.skipped || built.entries.length === 0) {
       stats.skipped.push({ mrn, reason: built.skipped ?? "no_entries" });
-      // No push needed — safe to advance the cursor past this MRN.
-      lastFullyProcessedNewest = row.newest;
+      // Nothing to push — safe to advance past this MRN.
+      lastAdvanced = { ts: row.newest, mrn: row.mrn };
       continue;
     }
     stats.entries += built.entries.length;
@@ -776,32 +814,20 @@ async function pollClinical(admin: any) {
     if (!result.ok) {
       stats.failed += 1;
       stats.skipped.push({ mrn, reason: `push_${result.status}`, body: result.body });
-      // Do NOT advance past a failed push — next run retries this MRN.
+      // Freeze cursor at the last success so the failed MRN is retried
+      // on the next tick without skipping over it.
+      hardStop = true;
       continue;
     }
     stats.pushed += 1;
-    lastFullyProcessedNewest = row.newest;
+    lastAdvanced = { ts: row.newest, mrn: row.mrn };
   }
 
-  // Cursor-advance rule:
-  //  • If any MRN was skipped past the per-cycle CLINICAL_MRN_LIMIT, NEVER
-  //    advance past that MRN's oldest touched ts, or we'd permanently miss
-  //    it. Set cursor to just before that ts (1µs earlier) so next run's
-  //    `.gt()` picks it up.
-  //  • Otherwise advance to the newest ts we processed to completion,
-  //    falling back to `since` (never regressing).
-  let newCursor: string;
-  if (firstSkippedOldest) {
-    const rewind = subtractOneMicrosecond(firstSkippedOldest);
-    newCursor = lastFullyProcessedNewest && rewind < lastFullyProcessedNewest ? rewind : rewind;
-  } else if (lastFullyProcessedNewest) {
-    newCursor = lastFullyProcessedNewest;
-  } else {
-    newCursor = since;
-  }
-  if (newCursor < since) newCursor = since;
-  await writeState(admin, "outbound_clinical_last_synced_at", newCursor);
-  stats.cursorTo = newCursor;
+  const newCursor: ClinicalCursor = lastAdvanced ?? cursor;
+  // Never regress the cursor.
+  const finalCursor: ClinicalCursor = cursorGt(newCursor, cursor) ? newCursor : cursor;
+  await writeClinicalCursor(admin, finalCursor);
+  stats.cursorTo = finalCursor;
   return stats;
 }
 
