@@ -1216,10 +1216,11 @@ function HistoryProblemsView({ patient }: { patient: PatientRecord }) {
       </section>
       <section className={widgetBox}>
         <WidgetHeader title="Allergies" />
-        <ul className="divide-y divide-slate-200 text-[12px]">
-          <li className="px-3 py-2 flex justify-between"><span className="font-semibold">cefazolin (From Ancef)</span><span className="text-slate-500">Diarrhea</span></li>
-          <li className="px-3 py-2 flex justify-between"><span className="font-semibold">penicillin G</span><span className="text-slate-500">Rash</span></li>
-        </ul>
+        <AllergiesWidget
+          allergies={patient.allergies}
+          environmentalAllergies={patient.environmental_allergies}
+          showEnvironmental
+        />
       </section>
       <section className={widgetBox}>
         <WidgetHeader title="Surgical History" />
