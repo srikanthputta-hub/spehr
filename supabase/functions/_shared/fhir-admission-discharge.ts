@@ -641,8 +641,24 @@ export function buildDischargeTransactionBundle(opts: {
   const patient = buildPatient(p, patientId);
   const encounter = buildEncounter(p, patientId, encounterId);
 
-  const labEntries = (opts.labs ?? []).map((l) => buildLabObservation(p, patientId, encounterId, l));
-  const medEntries = (opts.dischargeMeds ?? []).map((m) => buildDischargeMedRequest(patientId, encounterId, m));
+  const labEntriesAll = (opts.labs ?? []).map((l) => buildLabObservation(p, patientId, encounterId, l));
+  const medEntriesAll = (opts.dischargeMeds ?? []).map((m) => buildDischargeMedRequest(patientId, encounterId, m));
+  // Dedupe by stable resource id: lab_orders + lab_results can each carry
+  // the same test (e.g. "WBC") for one encounter, and multiple medication
+  // orders for the same drug also collide. Keep the first occurrence so
+  // the transaction Bundle stays HAPI-valid.
+  const dedupeById = <T extends { id: string }>(rows: T[]): T[] => {
+    const seen = new Set<string>();
+    const out: T[] = [];
+    for (const r of rows) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r);
+    }
+    return out;
+  };
+  const labEntries = dedupeById(labEntriesAll);
+  const medEntries = dedupeById(medEntriesAll);
 
   const exam = opts.physicalExam ?? {};
   const examText = [
