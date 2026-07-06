@@ -574,6 +574,43 @@ function escapeXml(s: string) {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Compose the "Hospital Course" narrative from the ACTUAL per-encounter
+ * medication list. Never mentions a drug that was not passed in — this
+ * replaces the pre-fix behaviour of piping in a per-diagnosis template
+ * string (e.g. "ceftriaxone/azithromycin" for CAP) which named drugs the
+ * patient was never given.
+ *
+ * Falls back to the caller-provided `hospitalCourse` framing only when
+ * BOTH meds and labs are empty (nothing patient-specific to render).
+ */
+function composeHospitalCourse(
+  meds: DischargeMed[],
+  labs: DischargeLab[],
+  admittingDiagnosis: string | undefined,
+  dischargeDiagnosis: string | undefined,
+  fallback: string,
+): string {
+  if (meds.length === 0 && labs.length === 0) return fallback;
+  const dx = dischargeDiagnosis || admittingDiagnosis;
+  const parts: string[] = [];
+  if (dx) parts.push(`Managed for ${dx}.`);
+  if (meds.length > 0) {
+    const medPhrases = meds.map((m) => {
+      const name = m.drug ?? m.drug_name ?? m.medication_name ?? "medication";
+      const detail = [m.dose, m.route, m.frequency].filter(Boolean).join(" ");
+      return detail ? `${name} ${detail}` : name;
+    });
+    parts.push(`Treated during admission with ${medPhrases.join("; ")}.`);
+  }
+  if (labs.length > 0) {
+    const labNames = Array.from(new Set(labs.map((l) => l.test_name ?? l.test_type ?? "lab").filter(Boolean)));
+    parts.push(`Diagnostic workup: ${labNames.join(", ")}.`);
+  }
+  parts.push("Patient clinically stable at discharge with appropriate follow-up planned.");
+  return parts.join(" ");
+}
+
 export function buildDischargeTransactionBundle(opts: {
   patient: AdmissionPatient;
   labs?: DischargeLab[];
@@ -664,7 +701,16 @@ export function buildDischargeTransactionBundle(opts: {
       narrativeSection("Chief Complaint & History of Present Illness", hpiText || p.chief_complaint || ""),
       narrativeSection("Past Medical History & Allergies", pmhText),
       narrativeSection("Physical Examination on Admission", examText),
-      narrativeSection("Hospital Course", opts.hospitalCourse ?? p.discharge_summary ?? ""),
+      narrativeSection(
+        "Hospital Course",
+        composeHospitalCourse(
+          opts.dischargeMeds ?? [],
+          opts.labs ?? [],
+          opts.admittingDiagnosis ?? undefined,
+          opts.dischargeDiagnosis ?? p.diagnosis ?? undefined,
+          opts.hospitalCourse ?? p.discharge_summary ?? "",
+        ),
+      ),
       narrativeSection("Procedures Performed", (opts.procedures ?? []).join("; ")),
       narrativeSection(
         "Pertinent Laboratory Findings",
