@@ -255,6 +255,18 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
               Updating every 10s
             </div>
           </div>
+          <div className="px-5 py-3 border-b border-slate-100">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by patient, MRN, complaint, or facility…"
+                className="w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
+              />
+            </div>
+          </div>
           <div className="max-h-[480px] overflow-auto">
             <table className="w-full text-[12px]">
               <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.14em] text-slate-500 sticky top-0">
