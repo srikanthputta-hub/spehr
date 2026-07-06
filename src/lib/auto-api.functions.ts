@@ -382,8 +382,8 @@ export const listAutoApiEvents = createServerFn({ method: "GET" }).handler(
 export const runPopulationQuery = createServerFn({ method: "POST" })
   .inputValidator(
     (d: {
-      condition_keyword?: string;
-      loinc_keyword?: string;
+      code_system?: "SNOMED" | "ICD10" | "LOINC" | "RXNORM";
+      keyword?: string;
       facilities?: string[];
       since_iso?: string;
       value_set_id?: string;
@@ -391,55 +391,76 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const sb = client();
-    // ── 1. Coded MRN gates (Part 6: terminology-driven cohort) ──────────
-    // If a LOINC keyword is given, narrow to MRNs that have a matching
-    // pre-coded lab_orders row (via loinc_code or loinc_display). If a
-    // SNOMED-style condition keyword is given, also collect MRNs with a
-    // matching coded conditions row so the cohort isn't limited to the
-    // free-text chief_complaint match alone.
-    let labMrns: Set<string> | null = null;
-    let condMrns: Set<string> | null = null;
+    // ── 1. Coded MRN gate (system + keyword) ────────────────────────────
+    // Routes to the right coded table for the selected code system, and
+    // applies the time window against that table's own created_at column
+    // so 6h/12h narrows by when the code was recorded (not just admission).
+    let codeMrns: Set<string> | null = null;
     let vsMrns: Set<string> | null = null;
     const topLoinc: Record<string, number> = {};
     const topSnomed: Record<string, number> = {};
+    const topRxnorm: Record<string, number> = {};
 
-    if (data.loinc_keyword) {
-      const k = data.loinc_keyword.trim();
-      const { data: lab, error: labErr } = await sb
-        .from("lab_orders")
-        .select("patient_mrn, loinc_code, loinc_display")
-        .or(`loinc_display.ilike.%${k}%,loinc_code.ilike.%${k}%,test_type.ilike.%${k}%`)
-        .limit(2000);
-      if (labErr) console.error("[population-query] lab_orders keyword failed", labErr.message);
-      labMrns = new Set();
-      for (const r of (lab as any[]) ?? []) {
-        if (r.patient_mrn) labMrns.add(r.patient_mrn);
-        const key = r.loinc_display
-          ? `${r.loinc_code ?? "?"} · ${r.loinc_display}`
-          : r.loinc_code ?? "uncoded";
-        topLoinc[key] = (topLoinc[key] ?? 0) + 1;
-      }
-    }
-
-    if (data.condition_keyword) {
-      const k = data.condition_keyword.trim();
-      const { data: cond, error: condErr } = await sb
-        .from("conditions")
-        .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
-        .or(
-          `snomed_display.ilike.%${k}%,icd10_display.ilike.%${k}%,display_text.ilike.%${k}%`,
-        )
-        .limit(2000);
-      if (condErr) console.error("[population-query] conditions keyword failed", condErr.message);
-      condMrns = new Set();
-      for (const r of (cond as any[]) ?? []) {
-        if (r.mrn) condMrns.add(r.mrn);
-        const key = r.snomed_display
-          ? `${r.snomed_code ?? "?"} · ${r.snomed_display}`
-          : r.icd10_display
-          ? `${r.icd10_code ?? "?"} · ${r.icd10_display}`
-          : r.display_text ?? "uncoded";
-        topSnomed[key] = (topSnomed[key] ?? 0) + 1;
+    const kwRaw = (data.keyword ?? "").trim();
+    if (kwRaw && data.code_system) {
+      const k = kwRaw;
+      codeMrns = new Set();
+      if (data.code_system === "SNOMED") {
+        let q = sb
+          .from("conditions")
+          .select("mrn, snomed_code, snomed_display")
+          .ilike("snomed_display", `%${k}%`)
+          .limit(5000);
+        if (data.since_iso) q = q.gte("created_at", data.since_iso);
+        const { data: rows, error } = await q;
+        if (error) console.error("[population-query] SNOMED keyword failed", error.message);
+        for (const r of (rows as any[]) ?? []) {
+          if (r.mrn) codeMrns.add(r.mrn);
+          const key = `${r.snomed_code ?? "?"} · ${r.snomed_display ?? "uncoded"}`;
+          topSnomed[key] = (topSnomed[key] ?? 0) + 1;
+        }
+      } else if (data.code_system === "ICD10") {
+        let q = sb
+          .from("conditions")
+          .select("mrn, icd10_code, icd10_display")
+          .ilike("icd10_display", `%${k}%`)
+          .limit(5000);
+        if (data.since_iso) q = q.gte("created_at", data.since_iso);
+        const { data: rows, error } = await q;
+        if (error) console.error("[population-query] ICD10 keyword failed", error.message);
+        for (const r of (rows as any[]) ?? []) {
+          if (r.mrn) codeMrns.add(r.mrn);
+          const key = `${r.icd10_code ?? "?"} · ${r.icd10_display ?? "uncoded"}`;
+          topSnomed[key] = (topSnomed[key] ?? 0) + 1;
+        }
+      } else if (data.code_system === "LOINC") {
+        let q = sb
+          .from("lab_orders")
+          .select("patient_mrn, loinc_code, loinc_display")
+          .ilike("loinc_display", `%${k}%`)
+          .limit(5000);
+        if (data.since_iso) q = q.gte("created_at", data.since_iso);
+        const { data: rows, error } = await q;
+        if (error) console.error("[population-query] LOINC keyword failed", error.message);
+        for (const r of (rows as any[]) ?? []) {
+          if (r.patient_mrn) codeMrns.add(r.patient_mrn);
+          const key = `${r.loinc_code ?? "?"} · ${r.loinc_display ?? "uncoded"}`;
+          topLoinc[key] = (topLoinc[key] ?? 0) + 1;
+        }
+      } else if (data.code_system === "RXNORM") {
+        let q = sb
+          .from("medication_orders")
+          .select("patient_mrn, rxnorm_code, rxnorm_display")
+          .ilike("rxnorm_display", `%${k}%`)
+          .limit(5000);
+        if (data.since_iso) q = q.gte("created_at", data.since_iso);
+        const { data: rows, error } = await q;
+        if (error) console.error("[population-query] RXNORM keyword failed", error.message);
+        for (const r of (rows as any[]) ?? []) {
+          if (r.patient_mrn) codeMrns.add(r.patient_mrn);
+          const key = `${r.rxnorm_code ?? "?"} · ${r.rxnorm_display ?? "uncoded"}`;
+          topRxnorm[key] = (topRxnorm[key] ?? 0) + 1;
+        }
       }
     }
 
@@ -512,7 +533,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
     }
 
     // ── 2. Patient query (preserves chief_complaint ilike as fallback) ──
-    const gateMrns = vsMrns ?? condMrns;
+    const gateMrns = vsMrns ?? codeMrns;
     const PATIENT_SELECT =
       "mrn, name, age, gender, facility_name, chief_complaint, admission_time, standardized_output";
     let rows: any[] = [];
@@ -566,21 +587,8 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
     if (vsMrns) {
       filtered = filtered.filter((r) => vsMrns!.has(r.mrn));
     }
-    if (data.condition_keyword) {
-      const k = data.condition_keyword.toLowerCase();
-      filtered = filtered.filter(
-        (r) =>
-          (condMrns && condMrns.has(r.mrn)) ||
-          (r.chief_complaint ?? "").toLowerCase().includes(k),
-      );
-    }
-    if (data.loinc_keyword) {
-      const k = data.loinc_keyword.toLowerCase();
-      filtered = filtered.filter((r) => {
-        if (labMrns && labMrns.has(r.mrn)) return true;
-        const loinc = (r.standardized_output?.LOINC as any[]) ?? [];
-        return loinc.some((c) => String(c).toLowerCase().includes(k));
-      });
+    if (codeMrns) {
+      filtered = filtered.filter((r) => codeMrns!.has(r.mrn));
     }
 
     const ages = filtered.map((r) => Number(r.age)).filter((n) => !isNaN(n));
@@ -597,8 +605,8 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
         .slice(0, n)
         .map(([label, count]) => ({ label, count }));
     await logEvent("POPULATION_QUERY", {
-      condition: data.condition_keyword ?? null,
-      loinc: data.loinc_keyword ?? null,
+      code_system: data.code_system ?? null,
+      keyword: kwRaw || null,
       facilities: data.facilities ?? null,
       value_set_id: data.value_set_id ?? null,
       value_set_name: vsMeta?.name ?? null,
@@ -610,6 +618,74 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       gender_distribution: genderCount,
       top_loinc: topN(topLoinc),
       top_snomed: topN(topSnomed),
+      top_rxnorm: topN(topRxnorm),
       rows: filtered.slice(0, 100),
     };
+  });
+
+/* ─────────────────────────── Coded keyword suggestions ───────────────── */
+
+export const getCodedKeywordSuggestions = createServerFn({ method: "POST" })
+  .inputValidator(
+    (d: {
+      system: "SNOMED" | "ICD10" | "LOINC" | "RXNORM";
+      query: string;
+    }) => d,
+  )
+  .handler(async ({ data }) => {
+    const q = (data.query ?? "").trim();
+    if (q.length < 2) return { items: [] as Array<{ code: string; display: string; count: number }> };
+    const sb = client();
+    const agg = new Map<string, { code: string; display: string; count: number }>();
+    const bump = (code: string, display: string) => {
+      const key = `${code}::${display}`;
+      const cur = agg.get(key);
+      if (cur) cur.count += 1;
+      else agg.set(key, { code, display, count: 1 });
+    };
+    if (data.system === "SNOMED") {
+      const { data: rows } = await sb
+        .from("conditions")
+        .select("snomed_code, snomed_display")
+        .ilike("snomed_display", `%${q}%`)
+        .not("snomed_code", "is", null)
+        .limit(4000);
+      for (const r of (rows as any[]) ?? []) {
+        if (r.snomed_code && r.snomed_display) bump(String(r.snomed_code), String(r.snomed_display));
+      }
+    } else if (data.system === "ICD10") {
+      const { data: rows } = await sb
+        .from("conditions")
+        .select("icd10_code, icd10_display")
+        .ilike("icd10_display", `%${q}%`)
+        .not("icd10_code", "is", null)
+        .limit(4000);
+      for (const r of (rows as any[]) ?? []) {
+        if (r.icd10_code && r.icd10_display) bump(String(r.icd10_code), String(r.icd10_display));
+      }
+    } else if (data.system === "LOINC") {
+      const { data: rows } = await sb
+        .from("lab_orders")
+        .select("loinc_code, loinc_display")
+        .ilike("loinc_display", `%${q}%`)
+        .not("loinc_code", "is", null)
+        .limit(4000);
+      for (const r of (rows as any[]) ?? []) {
+        if (r.loinc_code && r.loinc_display) bump(String(r.loinc_code), String(r.loinc_display));
+      }
+    } else if (data.system === "RXNORM") {
+      const { data: rows } = await sb
+        .from("medication_orders")
+        .select("rxnorm_code, rxnorm_display")
+        .ilike("rxnorm_display", `%${q}%`)
+        .not("rxnorm_code", "is", null)
+        .limit(4000);
+      for (const r of (rows as any[]) ?? []) {
+        if (r.rxnorm_code && r.rxnorm_display) bump(String(r.rxnorm_code), String(r.rxnorm_display));
+      }
+    }
+    const items = Array.from(agg.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+    return { items };
   });
