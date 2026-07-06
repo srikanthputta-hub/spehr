@@ -519,7 +519,7 @@ function PharmacyQueue() {
                             {label}
                           </span>
                         );
-                      })()}
+                          })()}
                     </div>
                     <div className={`mt-0.5 text-[11px] truncate ${active ? "text-white/75" : "text-slate-500"}`}>
                       {o.dose} · {o.route} · {o.frequency}
