@@ -1,43 +1,34 @@
-import { Droplet, Wind, HeartPulse, AlertTriangle, Siren } from "lucide-react";
-import { useCohortCounts, COHORTS, type CohortKey } from "@/hooks/useCohortCounts";
+import { AlertTriangle } from "lucide-react";
+import { useHighAcuityCount, HIGH_ACUITY_VS_NAME } from "@/hooks/useCohortCounts";
+import { InfoHint } from "@/components/ui/info-hint";
 
-const ICONS: Record<CohortKey, React.ComponentType<{ className?: string }>> = {
-  diabetic: Droplet,
-  respiratory: Wind,
-  cardiac: HeartPulse,
-  sepsis: Siren,
-  highAcuity: AlertTriangle,
-};
-
+/**
+ * Compact single-tile strip — shows currently-admitted patients whose
+ * active conditions match the published High-Acuity ED Presentations
+ * value set (chest pain, stroke, cardiac arrest, MI, anaphylaxis,
+ * acute respiratory failure, GI hemorrhage, altered mental status).
+ */
 export default function CohortCountsStrip({ className = "" }: { className?: string }) {
-  const { counts, loading } = useCohortCounts();
+  const { count, loading } = useHighAcuityCount();
+  const display = loading && count === null ? "…" : count === null ? "—" : String(count);
   return (
     <section
-      className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 ${className}`}
-      aria-label="Value-set cohort counts"
+      className={`flex ${className}`}
+      aria-label="Currently admitted high-acuity patients"
     >
-      {COHORTS.map((c) => {
-        const Icon = ICONS[c.key];
-        const v = counts[c.key];
-        const display = loading && v === null ? "…" : v === null ? "—" : String(v);
-        return (
-          <div
-            key={c.key}
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 flex items-center gap-2 shadow-[0_1px_0_rgba(15,23,42,0.03)]"
-            title={`${c.label} patients (from value set: ${c.vsName})`}
-          >
-            <Icon className="h-4 w-4 text-slate-500 flex-none" />
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 truncate">
-                {c.label}
-              </div>
-              <div className="text-lg font-semibold tabular-nums text-slate-900 leading-none">
-                {display}
-              </div>
-            </div>
+      <div className="inline-flex items-center gap-2.5 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 shadow-[0_1px_0_rgba(15,23,42,0.03)]">
+        <AlertTriangle className="h-4 w-4 text-rose-600 flex-none" />
+        <div className="flex flex-col leading-none">
+          <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-rose-700 font-semibold">
+            Admitted · High-Acuity
+            <InfoHint
+              className="ml-0.5"
+              text={`Currently admitted patients (patients.status = "Admitted") who have at least one active condition coded to the published "${HIGH_ACUITY_VS_NAME}" value set (chest pain, ischemic stroke, cardiac arrest, acute MI, anaphylaxis, acute respiratory failure, GI hemorrhage, altered mental status, cerebrovascular accident). Scoped to live census — does not include already-discharged patients.`}
+            />
           </div>
-        );
-      })}
+          <div className="text-lg font-bold tabular-nums text-rose-900">{display}</div>
+        </div>
+      </div>
     </section>
   );
 }
