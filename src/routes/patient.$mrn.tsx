@@ -1576,7 +1576,7 @@ function PatientChart() {
       setError(null);
       const { data, error } = await supabase
         .from("patients")
-        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name")
+        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name, allergies, environmental_allergies")
         .eq("mrn", mrn)
         .maybeSingle();
       if (cancelled) return;
@@ -1622,8 +1622,9 @@ function PatientChart() {
   const dob = mockDobFromAge(age);
   const codeStatus = (patient.code_status ?? "").trim() || "Full Code";
   const isFullCode = /full/i.test(codeStatus);
-  const allergy = mockAllergy(patient.mrn);
-  const isNKDA = allergy === "NKDA";
+  const drugAllergy = parseDrugAllergy(patient.allergies);
+  const isNKDA = drugAllergy.isNkda;
+  const allergy = isNKDA ? "NKDA" : (drugAllergy.name ?? "NKDA");
   const dx = patient.diagnosis ?? patient.chief_complaint;
 
   const handleSuspend = async () => {
