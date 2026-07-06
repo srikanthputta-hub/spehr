@@ -5,6 +5,7 @@ import { Sparkles, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { runSixStreamPipeline, approveMrnCoding } from "@/lib/coding-pipeline";
 import { AuditCard, type AuditRow } from "./AuditCard";
+import { InfoHint } from "@/components/ui/info-hint";
 
 let cachedAuditRows: AuditRow[] = [];
 let cachedAdmissionMap: Record<string, string> = {};
@@ -123,12 +124,11 @@ export default function NlpAuditLogsPanel() {
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
               6-Stream Pipeline · Live
             </span>
+            <InfoHint
+              className="ml-1.5"
+              text="Every new admission fans out through 6 parallel NLP streams — Chief Complaint & HPI, Past Medical History, Medications, Allergies, Vitals, and Labs — each extracted and standardized against its matching vocabulary (SNOMED CT, RxNorm, or LOINC) through a three-stage pipeline (raw entry → extraction mapping → standardized output). A pending card auto-approves after a 3-minute grace window if no one reviews it first."
+            />
           </h2>
-          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Every admission fans out through 6 terminology streams (CC + HPI, PMH, Meds,
-            Allergies, Vitals, Labs). Pending cards auto-approve after 3 minutes if a
-            human doesn't act first.
-          </p>
         </div>
         <Button variant="outline" size="sm" onClick={refresh}>
           <RefreshCw className="h-4 w-4" /> Refresh
