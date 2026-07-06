@@ -18,6 +18,7 @@ import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import { getPatient as getSeedPatient } from "@/lib/patients";
+import { dischargePatientViaWorker } from "@/lib/discharge-patient";
 import {
   MEDICATION_CATALOG,
   LAB_CATALOG,
