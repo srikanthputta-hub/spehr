@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Loader2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { reconcileOrphanedBeds } from "@/lib/admit-patient";
+import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
 
 interface BedRow {
   id: string;
@@ -15,6 +16,9 @@ interface BedRow {
 }
 
 type PatientNameMap = Record<string, string>;
+
+// Phase 4 — Auto Admin isolation precaution flag. Non-blocking: badge only.
+type PrecautionMap = Record<string, string>; // mrn -> precaution type label
 
 const CLEAN_PHASE_MS = 60_000;
 
@@ -60,6 +64,7 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
 export function BedManagementBoard({ facility, onClose }: { facility: string; onClose: () => void }) {
   const [beds, setBeds] = useState<BedRow[]>([]);
   const [names, setNames] = useState<PatientNameMap>({});
+  const [precautions, setPrecautions] = useState<PrecautionMap>({});
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -91,8 +96,33 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
           map[p.mrn as string] = `${(p as any).first_name ?? ""} ${(p as any).last_name ?? ""}`.trim();
         }
         setNames(map);
+        // Best-effort precaution lookup — never blocks bed board rendering.
+        try {
+          const hits = await loadPublishedValueSetsForConsumer({
+            consumer: "Auto Admin — Isolation/Status Flags",
+          });
+          const iso = hits.find((h) => h.value_set_name === "Isolation Precaution Diagnoses");
+          const codes: Array<{ code: string; display?: string; precaution_type?: string }> =
+            iso?.row?.codes ?? [];
+          if (codes.length && mrns.length) {
+            const { data: conds } = await supabase
+              .from("conditions")
+              .select("mrn, snomed_code")
+              .in("mrn", mrns);
+            const codeMap = new Map(codes.map((c) => [c.code, c]));
+            const pmap: PrecautionMap = {};
+            for (const c of (conds ?? []) as any[]) {
+              const hit = codeMap.get(String(c.snomed_code));
+              if (hit && !pmap[c.mrn]) pmap[c.mrn] = hit.precaution_type ?? "Contact";
+            }
+            if (!cancelled) setPrecautions(pmap);
+          }
+        } catch {
+          /* silent — banner is informational */
+        }
       } else {
         setNames({});
+        setPrecautions({});
       }
     };
     load();
@@ -169,6 +199,14 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
                         <span className="underline decoration-dotted">{b.current_patient_mrn}</span>
                         {names[b.current_patient_mrn] && (
                           <span className="font-sans font-medium text-slate-900">· {names[b.current_patient_mrn]}</span>
+                        )}
+                        {precautions[b.current_patient_mrn] && (
+                          <span
+                            className="inline-flex items-center rounded-full bg-amber-200 text-amber-900 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                            title="Isolation precaution flagged by value-set match"
+                          >
+                            {precautions[b.current_patient_mrn]}
+                          </span>
                         )}
                       </span>
                     ) : "—"}

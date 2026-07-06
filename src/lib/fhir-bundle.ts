@@ -1876,5 +1876,105 @@ export async function buildEncounterBundleAsync(opts: {
     seen.set(key, e); // last write wins (newer enrichment)
   }
   bundle.entry = Array.from(seen.values());
+  /* ---- 10. Auto IT — best-effort dual-coding via umls-proxy crosswalk.
+     For any Condition or MedicationRequest whose coding[] currently
+     carries only ONE code system, attempt to add a second coding via
+     UMLS crosswalk (SNOMED↔ICD-10 for conditions, RxNorm→NDC for meds).
+     Non-blocking: failures / empty results leave the bundle unchanged. */
+  try {
+    await enrichBundleWithCrosswalks(bundle);
+  } catch (e) {
+    console.warn("[fhir-bundle] Auto IT dual-code enrichment skipped", e);
+  }
   return bundle;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Auto IT — dual-coding enrichment (Phase 4)                         */
+/* ------------------------------------------------------------------ */
+
+const SYS_TO_SAB: Record<string, string> = {
+  [FHIR_SYSTEM_URI["SNOMED CT"]]: "SNOMEDCT_US",
+  [FHIR_SYSTEM_URI["ICD-10"]]: "ICD10CM",
+  [FHIR_SYSTEM_URI.RxNorm]: "RXNORM",
+};
+const SAB_TO_SYS: Record<string, string> = {
+  SNOMEDCT_US: FHIR_SYSTEM_URI["SNOMED CT"],
+  ICD10CM: FHIR_SYSTEM_URI["ICD-10"],
+  RXNORM: FHIR_SYSTEM_URI.RxNorm,
+  NDC: "http://hl7.org/fhir/sid/ndc",
+};
+
+async function crosswalk(
+  fromSab: string,
+  fromCode: string,
+  toSab: string,
+): Promise<{ code: string; display: string } | null> {
+  try {
+    const { supabase } = await import("@/integrations/supabase/client");
+    const { data, error } = await supabase.functions.invoke("umls-proxy", {
+      body: { action: "crosswalk", params: { fromSab, fromCode, toSab } },
+    });
+    if (error) return null;
+    const match =
+      (data as any)?.result ??
+      (Array.isArray((data as any)?.matches) ? (data as any).matches[0] : null);
+    if (!match?.code && !match?.ui) return null;
+    return {
+      code: String(match.code ?? match.ui),
+      display: String(match.name ?? match.display ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function enrichCoding(
+  cc: any,
+  targetsBySab: Record<string, string[]>,
+): Promise<void> {
+  if (!cc || !Array.isArray(cc.coding) || cc.coding.length !== 1) return;
+  const only = cc.coding[0];
+  const sab = SYS_TO_SAB[only?.system];
+  if (!sab || !only?.code) return;
+  const targets = targetsBySab[sab] ?? [];
+  const haveSystems = new Set(cc.coding.map((c: any) => c.system));
+  for (const toSab of targets) {
+    const toSys = SAB_TO_SYS[toSab];
+    if (!toSys || haveSystems.has(toSys)) continue;
+    const hit = await crosswalk(sab, only.code, toSab);
+    if (hit) {
+      cc.coding.push({ system: toSys, code: hit.code, display: hit.display || only.display });
+      haveSystems.add(toSys);
+    }
+  }
+}
+
+async function enrichBundleWithCrosswalks(bundle: any): Promise<void> {
+  const entries: any[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
+  const condTargets: Record<string, string[]> = {
+    SNOMEDCT_US: ["ICD10CM"],
+    ICD10CM: ["SNOMEDCT_US"],
+  };
+  const medTargets: Record<string, string[]> = {
+    RXNORM: ["NDC"],
+  };
+  const tasks: Promise<void>[] = [];
+  for (const e of entries) {
+    const r = e?.resource;
+    if (!r) continue;
+    if (r.resourceType === "Condition") {
+      tasks.push(enrichCoding(r.code, condTargets));
+    } else if (
+      r.resourceType === "MedicationRequest" ||
+      r.resourceType === "MedicationAdministration"
+    ) {
+      tasks.push(enrichCoding(r.medicationCodeableConcept, medTargets));
+    }
+  }
+  // Cap concurrency to be gentle on the crosswalk endpoint.
+  const CHUNK = 4;
+  for (let i = 0; i < tasks.length; i += CHUNK) {
+    await Promise.all(tasks.slice(i, i + CHUNK));
+  }
 }
