@@ -320,7 +320,7 @@ function PharmacyQueue() {
       if (!mrn) continue;
       rows.push({
         key: o.id,
-        timestamp: o.administered_at ?? o.created_at,
+        timestamp: o.updated_at ?? o.administered_at ?? o.created_at,
         patient_name: o.patient_name || "Unknown",
         patient_mrn: mrn,
         drug_name: o.drug_name ?? o.medication_name ?? "—",
