@@ -93,6 +93,44 @@ async function writeState(admin: any, key: string, ts: string) {
     .upsert({ key, value: { ts } }, { onConflict: "key" });
 }
 
+// Composite cursor for the clinical poll. See `pollClinical` for the
+// full rationale — short version: a scalar `{ ts }` cursor cannot make
+// forward progress when more than CLINICAL_MRN_LIMIT MRNs share the
+// exact same `updated_at` (routine after bulk auto-admits). We store
+// the last-processed MRN alongside the ts and use lexicographic
+// `(ts, mrn)` ordering so the batch boundary can fall inside a tied ts
+// bucket without starving the tail.
+type ClinicalCursor = { ts: string; mrn: string };
+
+async function readClinicalCursor(admin: any): Promise<ClinicalCursor> {
+  const { data } = await admin
+    .from("fhir_sync_state")
+    .select("value")
+    .eq("key", "outbound_clinical_last_synced_at")
+    .maybeSingle();
+  const v = data?.value ?? {};
+  const ts = typeof v.ts === "string" && v.ts.length
+    ? v.ts
+    : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const mrn = typeof v.mrn === "string" ? v.mrn : "";
+  return { ts, mrn };
+}
+
+async function writeClinicalCursor(admin: any, cursor: ClinicalCursor) {
+  await admin
+    .from("fhir_sync_state")
+    .upsert(
+      { key: "outbound_clinical_last_synced_at", value: { ts: cursor.ts, mrn: cursor.mrn } },
+      { onConflict: "key" },
+    );
+}
+
+// Strict lexicographic > on (ts, mrn) pairs. Ties on ts are broken by mrn.
+function cursorGt(a: { ts: string; mrn: string }, b: { ts: string; mrn: string }): boolean {
+  if (a.ts !== b.ts) return a.ts > b.ts;
+  return a.mrn > b.mrn;
+}
+
 /* ---------------- Builders (server-side copies of src/lib/fhir-bundle.ts) --- */
 
 const SPEHR_TAG = { system: "urn:spehr:source", code: "spehr" };
