@@ -38,6 +38,7 @@ const VS_NAMES = [
   "High-Acuity ED Presentations",
   "Sepsis Indicators",
   "NSAIDs",
+  "Penicillin/Beta-Lactam Allergens",
 ] as const;
 
 type VsName = (typeof VS_NAMES)[number];
