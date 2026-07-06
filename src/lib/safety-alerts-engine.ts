@@ -15,7 +15,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
+import { loadPublishedValueSetsForConsumer, requestTerminologyUpdate } from "@/lib/value-set-registry";
 
 /* ------------------------------------------------------------------ */
 /*  Value-set cache                                                    */
@@ -337,6 +337,26 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
       }
     } else if (anyUnavailable) {
       await logProxyFailure(mrn, "rule1-drug-allergy", "UMLS ancestor lookup unavailable");
+    }
+  } else if (name) {
+    // Coverage-gap detection: the drug name looks like a penicillin/beta-
+    // lactam agent but its RxNorm code isn't in the published "Penicillin
+    // Class Drugs" value set, so Rule 1 could not evaluate it. File a
+    // governed change request to Auto Terminologist instead of silently
+    // skipping the safety check.
+    const betaLactamPattern =
+      /(penicillin|amoxicillin|ampicillin|piperacillin|ticarcillin|nafcillin|oxacillin|cloxacillin|dicloxacillin|methicillin)/i;
+    if (betaLactamPattern.test(name)) {
+      await requestTerminologyUpdate({
+        requesting_consumer: "Safety Alerts Engine",
+        requested_name: "Penicillin Class Drugs",
+        justification: `Order for "${name}"${code ? ` (RxNorm ${code})` : " (no RxNorm code captured)"} matches a penicillin/beta-lactam naming pattern but is not present in the published Penicillin Class Drugs value set — Rule 1 (Drug-Allergy Conflict) could not evaluate this order for allergy risk.`,
+        priority: "high",
+        vocabulary: "RxNorm",
+        seed_codes: code ? [{ code, display: name }] : [],
+        clinical_application: "CDS",
+        related_mrn: mrn,
+      });
     }
   }
 
