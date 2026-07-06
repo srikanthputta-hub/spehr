@@ -217,6 +217,239 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+/* ------------------------------------------------------------------ */
+/*  Demand mode — terminology_requests quality gate + drafting         */
+/* ------------------------------------------------------------------ */
+
+type SeedCode = { code: string; display: string; vocabulary: string };
+
+const VALID_VOCABS = new Set(["SNOMED CT", "ICD-10", "RxNorm", "LOINC"]);
+
+function codeShapeMatches(vocab: string, code: string): boolean {
+  const c = String(code ?? "").trim();
+  if (!c) return false;
+  if (vocab === "SNOMED CT") return /^\d{6,18}$/.test(c);
+  if (vocab === "ICD-10") return /^[A-Z]\d[A-Z0-9]?(\.[A-Z0-9]+)?$/i.test(c);
+  if (vocab === "RxNorm") return /^\d+$/.test(c);
+  if (vocab === "LOINC") return /^\d+-\d+$/.test(c);
+  return true;
+}
+
+function runQualityGate(
+  seedCodes: SeedCode[],
+  requestVocab: string | null | undefined,
+): { ok: boolean; notes: string; empty: boolean } {
+  if (!Array.isArray(seedCodes) || seedCodes.length === 0) {
+    return { ok: false, empty: true, notes: "No seed codes supplied — no scan match available yet" };
+  }
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  let missingDisp = 0, missingCode = 0, missingVocab = 0, badVocab = 0, badDisp = 0, dupCount = 0, badShape = 0;
+  for (const raw of seedCodes) {
+    const code = String(raw?.code ?? "").trim();
+    const disp = String(raw?.display ?? "").trim();
+    const vocab = String(raw?.vocabulary ?? requestVocab ?? "").trim();
+    if (!code) missingCode++;
+    if (!disp) missingDisp++;
+    if (!vocab) missingVocab++;
+    if (vocab && !VALID_VOCABS.has(vocab)) badVocab++;
+    if (disp && (disp.length < 3 || /^[\d\s]+$/.test(disp))) badDisp++;
+    if (code) {
+      if (seen.has(code)) dupCount++;
+      seen.add(code);
+    }
+    if (vocab && code && VALID_VOCABS.has(vocab) && !codeShapeMatches(vocab, code)) badShape++;
+  }
+  const total = seedCodes.length;
+  if (missingCode) problems.push(`${missingCode} of ${total} seed codes missing a code`);
+  if (missingDisp) problems.push(`${missingDisp} of ${total} seed codes are missing a display name`);
+  if (missingVocab) problems.push(`${missingVocab} of ${total} seed codes missing a vocabulary`);
+  if (badVocab) problems.push(`${badVocab} seed code(s) use an unsupported vocabulary (must be SNOMED CT, ICD-10, RxNorm, or LOINC)`);
+  if (badDisp) problems.push(`${badDisp} seed code display(s) are too short or non-descriptive`);
+  if (dupCount) problems.push(`${dupCount} duplicate code value(s) within the request`);
+  if (badShape) problems.push(`${badShape} seed code(s) don't match the shape expected for their declared vocabulary`);
+  if (problems.length === 0) return { ok: true, empty: false, notes: "" };
+  return { ok: false, empty: false, notes: `Rejected by quality gate: ${problems.join("; ")}` };
+}
+
+function normalizePriority(p: string | null | undefined): number {
+  const v = String(p ?? "normal").toLowerCase();
+  if (v === "urgent") return 0;
+  if (v === "high") return 1;
+  if (v === "normal") return 2;
+  if (v === "low") return 3;
+  return 2;
+}
+
+/** Loose case-insensitive substring match in either direction. */
+function looselyMatches(a: string, b: string): boolean {
+  const x = a.toLowerCase().trim();
+  const y = b.toLowerCase().trim();
+  if (!x || !y) return false;
+  return x.includes(y) || y.includes(x);
+}
+
+/** Try to satisfy an empty-seed request from the current cycle's scan gaps. */
+function findScanMatchForRequest(
+  requestedName: string,
+  byTheme: Map<string, Array<{ hit: CodeHit; n: number }>>,
+): SeedCode[] | null {
+  for (const [theme, group] of byTheme) {
+    if (group.length === 0) continue;
+    const themeMatches = looselyMatches(theme, requestedName);
+    const displayMatch = group.find((g) =>
+      looselyMatches(g.hit.display ?? g.hit.code, requestedName),
+    );
+    if (!themeMatches && !displayMatch) continue;
+    return group.map((g) => ({
+      code: g.hit.code,
+      display: g.hit.display ?? g.hit.code,
+      vocabulary: g.hit.vocab,
+    }));
+  }
+  return null;
+}
+
+// Cadence guard so still-pending requests don't spam the activity log
+// every 60s tick — key = request id, value = last log timestamp + notes.
+const requestLogTracker = new Map<string, { loggedAt: number; notes: string }>();
+
+async function processPendingTerminologyRequests(
+  byTheme: Map<string, Array<{ hit: CodeHit; n: number }>>,
+): Promise<{ drafted: number; gated: number }> {
+  let drafted = 0;
+  let gated = 0;
+  const { data: pending, error } = await supabase
+    .from("terminology_requests" as any)
+    .select(
+      "id, requesting_consumer, requested_name, justification, priority, vocabulary, seed_codes, clinical_application, related_mrn, quality_gate_notes",
+    )
+    .eq("status", "pending");
+  if (error || !pending) return { drafted, gated };
+
+  const rows = [...(pending as any[])].sort((a, b) => {
+    const dp = normalizePriority(a.priority) - normalizePriority(b.priority);
+    if (dp !== 0) return dp;
+    return String(a.requested_at ?? "").localeCompare(String(b.requested_at ?? ""));
+  });
+
+  for (const req of rows) {
+    try {
+      const requestedName = String(req.requested_name ?? "").trim();
+      if (!requestedName) continue;
+      let seedCodes: SeedCode[] = Array.isArray(req.seed_codes) ? (req.seed_codes as any[])
+        .map((s) => ({
+          code: String(s?.code ?? "").trim(),
+          display: String(s?.display ?? "").trim(),
+          vocabulary: String(s?.vocabulary ?? req.vocabulary ?? "").trim(),
+        })) : [];
+
+      // Fallback: try to satisfy an empty-seed request from this cycle's scan gaps
+      if (seedCodes.length === 0) {
+        const match = findScanMatchForRequest(requestedName, byTheme);
+        if (match) seedCodes = match;
+      }
+
+      const gate = runQualityGate(seedCodes, req.vocabulary);
+      const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      if (!gate.ok) {
+        gated += 1;
+        // Update the request row so humans can see why it was held.
+        await supabase
+          .from("terminology_requests" as any)
+          .update({ quality_gate_notes: gate.notes, updated_at: new Date().toISOString() } as any)
+          .eq("id", req.id);
+
+        // Log to activity, but no more than once per RUN_INTERVAL_MS per request
+        // unless the failure reason has changed.
+        const prev = requestLogTracker.get(String(req.id));
+        const changed = !prev || prev.notes !== gate.notes;
+        const stale = !prev || Date.now() - prev.loggedAt >= RUN_INTERVAL_MS;
+        if (changed || stale) {
+          await logActivity({
+            action: "requested",
+            message: `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — quality gate failed: ${gate.notes}`,
+            theme: requestedName,
+            codes_count: seedCodes.length,
+          });
+          requestLogTracker.set(String(req.id), { loggedAt: Date.now(), notes: gate.notes });
+        }
+        continue;
+      }
+
+      // Gate passed — draft as a new value set, exactly mirroring the
+      // opportunistic path's shape (status: draft, spehr OID, etc.).
+      const dominantVocab = seedCodes[0].vocabulary;
+      const codes = seedCodes.map((s) => ({
+        code: s.code,
+        display: s.display,
+        vocabulary: s.vocabulary,
+      }));
+      const clinical_application =
+        (typeof req.clinical_application === "string" && req.clinical_application.trim()) ||
+        clinicalApplicationFor(requestedName);
+      const now = new Date().toISOString();
+      const nameSlug = slugify(requestedName);
+
+      const { data: upserted, error: upsertErr } = await supabase
+        .from("custom_value_sets")
+        .upsert(
+          {
+            name: requestedName,
+            system: dominantVocab.replace(" ", "-"),
+            vocabulary: dominantVocab,
+            type: "extensional",
+            codes,
+            status: "draft",
+            description: `Drafted in response to a terminology request from ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+            clinical_application,
+            fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
+            oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
+            change_history: [
+              {
+                at: now,
+                actor: "Auto Terminologist",
+                change: `Drafted from terminology request by ${req.requesting_consumer}`,
+              },
+            ],
+          } as any,
+          { onConflict: "name" },
+        )
+        .select("id")
+        .maybeSingle();
+
+      if (upsertErr) throw upsertErr;
+      const valueSetId = (upserted as any)?.id ?? null;
+
+      await supabase
+        .from("terminology_requests" as any)
+        .update({
+          status: "drafted",
+          value_set_id: valueSetId,
+          resolved_at: now,
+          updated_at: now,
+          quality_gate_notes: null,
+        } as any)
+        .eq("id", req.id);
+
+      await logActivity({
+        action: "drafted",
+        message: `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — drafted as new value set (status: draft — awaiting human review). ${req.justification ?? ""}`.trim(),
+        theme: requestedName,
+        codes_count: codes.length,
+        value_set_id: valueSetId,
+      });
+      requestLogTracker.delete(String(req.id));
+      drafted += 1;
+    } catch (e) {
+      console.warn("[auto-term] request processing failed", req?.id, e);
+    }
+  }
+
+  return { drafted, gated };
+}
+
 async function runAutoTerminologistCycle() {
   const automationOn = await getAutomationEnabled();
 
@@ -275,6 +508,15 @@ async function runAutoTerminologistCycle() {
     const arr = byTheme.get(g.theme) ?? [];
     arr.push({ hit: g.hit, n: g.n });
     byTheme.set(g.theme, arr);
+  }
+
+  // Demand-mode pass: fulfill pending terminology_requests before the
+  // opportunistic drafter runs. Failures are non-fatal.
+  let demand = { drafted: 0, gated: 0 };
+  try {
+    demand = await processPendingTerminologyRequests(byTheme);
+  } catch (e) {
+    console.warn("[auto-term] demand pass failed", e);
   }
 
   let touchedCount = 0;
@@ -397,9 +639,11 @@ async function runAutoTerminologistCycle() {
     unique_codes: freq.size,
     coverage_gaps: gaps.length,
     themes_logged: touchedCount,
+    requests_drafted: demand.drafted,
+    requests_gated: demand.gated,
   };
   actions.push(
-    `auto_terminologist: scanned ${admissions} admissions · ${gaps.length} gap codes · ${touchedCount} theme(s) drafted as value sets.`,
+    `auto_terminologist: scanned ${admissions} admissions · ${gaps.length} gap codes · ${touchedCount} theme(s) drafted · demand queue drafted ${demand.drafted}, gated ${demand.gated}.`,
   );
 
   if (touchedCount === 0 && gaps.length === 0) {
