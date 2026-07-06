@@ -864,45 +864,52 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
       const displayByCode = new Map(((dictRows ?? []) as any[]).map((r) => [r.code, r.display]));
       const seedCodes = unmatchedIcd10.map((c) => ({ code: c, display: displayByCode.get(c) ?? c }));
 
-      const { data: existingReq } = await sb
-        .from("terminology_requests" as any)
-        .select("id, seed_codes")
-        .eq("requesting_consumer", "Billing Engine")
-        .eq("requested_name", "Billing Coverage Gaps")
-        .eq("status", "pending")
-        .maybeSingle();
+      const { error: insertErr } = await sb.from("terminology_requests" as any).insert({
+        requesting_consumer: "Billing Engine",
+        requested_name: "Billing Coverage Gaps",
+        justification: `Invoice ${invoiceNo} for MRN-${mrn} includes ${unmatchedIcd10.length} ICD-10 diagnosis code(s) with no match in any published Billing value set — these codes are being charged without a governed coverage/risk-adjustment mapping.`,
+        priority: "normal",
+        vocabulary: "ICD-10",
+        seed_codes: seedCodes,
+        clinical_application: "Billing",
+        related_mrn: mrn,
+        status: "pending",
+      } as any);
 
-      if (existingReq) {
-        const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(
-          (existingReq as any).seed_codes,
-        )
-          ? (existingReq as any).seed_codes
-          : [];
-        const seen = new Set(prevCodes.map((c) => String(c?.code ?? "")));
-        const merged = [...prevCodes];
-        for (const c of seedCodes) {
-          if (seen.has(c.code)) continue;
-          seen.add(c.code);
-          merged.push(c);
-        }
-        if (merged.length !== prevCodes.length) {
-          await sb
-            .from("terminology_requests" as any)
-            .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
-            .eq("id", (existingReq as any).id);
+      if (!insertErr) {
+        // fresh pending request created
+      } else if ((insertErr as any).code === "23505") {
+        // Unique-violation: a pending request already exists — merge seed codes.
+        const { data: existingReq } = await sb
+          .from("terminology_requests" as any)
+          .select("id, seed_codes")
+          .eq("requesting_consumer", "Billing Engine")
+          .eq("requested_name", "Billing Coverage Gaps")
+          .eq("status", "pending")
+          .maybeSingle();
+        if (existingReq) {
+          const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(
+            (existingReq as any).seed_codes,
+          )
+            ? (existingReq as any).seed_codes
+            : [];
+          const seen = new Set(prevCodes.map((c) => String(c?.code ?? "")));
+          const merged = [...prevCodes];
+          for (const c of seedCodes) {
+            const code = String(c?.code ?? "").trim();
+            if (!code || seen.has(code)) continue;
+            seen.add(code);
+            merged.push(c);
+          }
+          if (merged.length !== prevCodes.length) {
+            await sb
+              .from("terminology_requests" as any)
+              .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
+              .eq("id", (existingReq as any).id);
+          }
         }
       } else {
-        await sb.from("terminology_requests" as any).insert({
-          requesting_consumer: "Billing Engine",
-          requested_name: "Billing Coverage Gaps",
-          justification: `Invoice ${invoiceNo} for MRN-${mrn} includes ${unmatchedIcd10.length} ICD-10 diagnosis code(s) with no match in any published Billing value set — these codes are being charged without a governed coverage/risk-adjustment mapping.`,
-          priority: "normal",
-          vocabulary: "ICD-10",
-          seed_codes: seedCodes,
-          clinical_application: "Billing",
-          related_mrn: mrn,
-          status: "pending",
-        } as any);
+        console.warn("[billing] terminology gap request insert failed", insertErr.message);
       }
     } catch (e) {
       console.warn("[billing] terminology gap request failed", (e as Error).message);
