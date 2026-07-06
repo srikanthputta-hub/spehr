@@ -38,6 +38,7 @@ const VS_NAMES = [
   "High-Acuity ED Presentations",
   "Sepsis Indicators",
   "NSAIDs",
+  "Penicillin/Beta-Lactam Allergens",
 ] as const;
 
 type VsName = (typeof VS_NAMES)[number];
@@ -278,7 +279,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
 
   const vs = await ensureValueSetsLoaded();
   const penicillins = vs.get("Penicillin Class Drugs");
-  const allergies = vs.get("Allergy Substances");
+  const penicillinAllergens = vs.get("Penicillin/Beta-Lactam Allergens");
   const anticoags = vs.get("Anticoagulants");
 
   // Patient meta for anchoring & row display
@@ -306,7 +307,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
     for (const a of (allergyRows ?? []) as any[]) {
       const snomed = String(a?.substance_snomed ?? "").trim();
       if (!snomed) continue;
-      const res = await intensionalContains(allergies, "http://snomed.info/sct", snomed);
+      const res = await intensionalContains(penicillinAllergens, "http://snomed.info/sct", snomed);
       if (res.unavailable) {
         anyUnavailable = true;
         continue;
