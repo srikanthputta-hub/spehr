@@ -16,6 +16,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
 
 /* ------------------------------------------------------------------ */
 /*  Value-set OID cache (by name)                                      */
@@ -43,15 +44,13 @@ async function ensureVsOids(): Promise<Map<VsName, string>> {
     return vsCache;
   }
   vsLoadPromise = (async () => {
-    const { data } = await supabase
-      .from("custom_value_sets")
-      .select("name, oid")
-      .in("name", VS_NAMES as unknown as string[])
-      .eq("status", "published");
+    const hits = await loadPublishedValueSetsForConsumer({
+      consumer: "Discharge Conformance",
+    });
     const next = new Map<VsName, string>();
-    for (const row of (data ?? []) as Array<{ name: string; oid: string | null }>) {
-      if (row.oid && (VS_NAMES as readonly string[]).includes(row.name)) {
-        next.set(row.name as VsName, String(row.oid));
+    for (const { value_set_name, row } of hits) {
+      if (row?.oid && (VS_NAMES as readonly string[]).includes(value_set_name)) {
+        next.set(value_set_name as VsName, String(row.oid));
       }
     }
     vsCache = next;

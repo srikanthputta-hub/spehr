@@ -10,6 +10,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
 
 export type StreamKey = "a" | "b" | "c" | "d" | "e" | "f";
 
@@ -31,15 +32,18 @@ async function loadValueSets(): Promise<Partial<Record<StreamKey, VsInfo>>> {
   if (vsCache) return vsCache;
   if (vsCachePromise) return vsCachePromise;
   vsCachePromise = (async () => {
-    const names = Object.values(STREAM_VS_NAME);
-    const { data } = await supabase
-      .from("custom_value_sets")
-      .select("name, oid, vocabulary, type, status")
-      .in("name", names)
-      .eq("status", "published");
+    const hits = await loadPublishedValueSetsForConsumer({
+      consumer_file: "src/lib/nlp-validate.ts",
+    });
     const byName = new Map<string, VsInfo>();
-    for (const row of (data ?? []) as any[]) {
-      if (row?.oid) byName.set(row.name, { oid: row.oid, vocabulary: row.vocabulary, type: row.type });
+    for (const { value_set_name, row } of hits) {
+      if (row?.oid) {
+        byName.set(value_set_name, {
+          oid: row.oid,
+          vocabulary: row.vocabulary,
+          type: row.type,
+        });
+      }
     }
     const out: Partial<Record<StreamKey, VsInfo>> = {};
     for (const k of Object.keys(STREAM_VS_NAME) as StreamKey[]) {
