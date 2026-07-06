@@ -176,7 +176,10 @@ function FinanceBoard() {
 
   const [tab, setTab] = useState<"active" | "settled">("active");
   const filtered = useMemo(() => {
-    const base = tab === "settled" ? balanced : facilityInvoices.filter((i) => i.status !== "balanced");
+    // Keep Active tab in lockstep with the "Issued Invoices · Awaiting
+    // Payment" KPI (status === "issued"). Prior filter used status !==
+    // "balanced" which double-counted draft/cancelled invoices.
+    const base = tab === "settled" ? balanced : issued;
     const q = search.trim().toLowerCase();
     if (!q) return base;
     return base.filter(
@@ -185,7 +188,7 @@ function FinanceBoard() {
         (i.patient_name ?? "").toLowerCase().includes(q) ||
         i.invoice_no.toLowerCase().includes(q),
     );
-  }, [facilityInvoices, balanced, search, tab]);
+  }, [issued, balanced, search, tab]);
 
   const totalRevenue = useMemo(
     () => facilityInvoices.reduce((s, i) => s + Number(i.total ?? 0), 0),

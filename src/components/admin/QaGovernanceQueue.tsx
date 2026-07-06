@@ -189,14 +189,6 @@ export function QaGovernanceQueue({
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={busy === it.id}
-                        title="Edit codes (in-table)"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
                         className="border-rose-200 text-rose-700 hover:bg-rose-50"
                         disabled={busy === it.id}
                         onClick={() => reject(it.id)}

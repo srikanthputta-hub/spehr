@@ -1147,10 +1147,24 @@ function PhysicianBoard() {
                             // to Medblocks. No forked client-side narrative.
                             const result = await dischargePatientViaWorker({ mrn });
                             if (!result.ok) {
-                              console.log("Discharge worker failed: ", result.reason);
+                              console.error("Discharge worker failed:", result.reason);
+                              toast.error(
+                                `Discharge summary failed for ${fullName}`,
+                                { description: result.reason ?? "Ghost discharge worker returned an error — patient record was not updated." },
+                              );
+                              setDischargeLoading(false);
+                              setActionsMrn(null);
+                              return;
                             }
                           } catch (error) {
-                            console.log("Discharge Summary Error: ", error);
+                            console.error("Discharge Summary Error:", error);
+                            toast.error(
+                              `Discharge summary error for ${fullName}`,
+                              { description: error instanceof Error ? error.message : "Unexpected error while generating discharge summary." },
+                            );
+                            setDischargeLoading(false);
+                            setActionsMrn(null);
+                            return;
                           } finally {
                             setPatients((prev) => prev.filter((x) => x.mrn !== mrn));
                             if (selectedMrn === mrn) setSelectedMrn(null);
