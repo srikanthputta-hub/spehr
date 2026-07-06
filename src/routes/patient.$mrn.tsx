@@ -235,6 +235,39 @@ function parseDrugAllergy(raw: string | null | undefined): {
   return { isNkda: false, name: s, reaction: null };
 }
 
+function AllergiesWidget({
+  allergies,
+  environmentalAllergies,
+  showEnvironmental,
+}: {
+  allergies: string | null;
+  environmentalAllergies: string | null;
+  showEnvironmental?: boolean;
+}) {
+  const parsed = parseDrugAllergy(allergies);
+  const env = (environmentalAllergies ?? "").trim();
+  return (
+    <div className="px-2.5 py-2 text-[12px] space-y-1">
+      {parsed.isNkda ? (
+        <div className="text-slate-800 font-semibold">
+          NKDA — <span className="font-normal text-slate-600">No Known Drug Allergies</span>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <span className="text-slate-800 font-semibold">{parsed.name}</span>
+          <span className="text-slate-500">{parsed.reaction ?? "—"}</span>
+        </div>
+      )}
+      {showEnvironmental && env ? (
+        <div className="text-[11px] text-slate-600">
+          <span className="uppercase tracking-wider text-[9.5px] text-slate-500 font-bold mr-1">Environmental/Food:</span>
+          {env}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function baselineVitals(dx: string | null | undefined) {
   const d = (dx ?? "").toLowerCase();
   if (d.includes("sepsis")) return { hr: 112, sys: 88, dia: 55, spo2: 95 };
