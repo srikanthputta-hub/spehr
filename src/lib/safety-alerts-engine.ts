@@ -37,6 +37,7 @@ const VS_NAMES = [
   "Anticoagulants",
   "High-Acuity ED Presentations",
   "Sepsis Indicators",
+  "NSAIDs",
 ] as const;
 
 type VsName = (typeof VS_NAMES)[number];
@@ -110,26 +111,11 @@ async function intensionalContains(
 }
 
 /* ------------------------------------------------------------------ */
-/*  NSAID whitelist — no published value set exists for this class     */
+/*  NSAID membership — governed via the published "NSAIDs" value set   */
 /* ------------------------------------------------------------------ */
 
-// RxNorm SCUIs / names (lower-cased) for common NSAIDs used clinically.
-const NSAID_NAMES = [
-  "ibuprofen",
-  "naproxen",
-  "ketorolac",
-  "aspirin",
-  "diclofenac",
-  "meloxicam",
-  "celecoxib",
-  "indomethacin",
-  "piroxicam",
-  "ketoprofen",
-];
-
-function nameLooksLikeNsaid(name: string): boolean {
-  const n = (name ?? "").toLowerCase();
-  return NSAID_NAMES.some((k) => n.includes(k));
+function codeIsNsaid(vs: Map<VsName, VsRow>, code: string): boolean {
+  return extensionalContains(vs.get("NSAIDs"), code);
 }
 
 /* ------------------------------------------------------------------ */
