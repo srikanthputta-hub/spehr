@@ -9,6 +9,7 @@ import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { InfoHint } from "@/components/ui/info-hint";
 
 export const Route = createFileRoute("/lab-board")({
   component: LabBoard,
@@ -453,6 +454,7 @@ function LabBoard() {
                             </button>
                           )}
                           {results && (
+                            <span className="inline-flex items-center gap-1">
                             <button
                               {...gate("btn_submit_report", () => submitReport(o))}
                               disabled={submitting === o.id || !can("btn_submit_report")}
@@ -465,6 +467,8 @@ function LabBoard() {
                               )}
                               {submitting === o.id ? "Posting…" : "Submit Official Report"}
                             </button>
+                              <InfoHint text="Final, irreversible release: sets lab_orders.status = Reported, flags patients.unread_labs_alert = true, and makes results visible in the patient chart. Draft edits are locked after submission." />
+                            </span>
                           )}
                         </div>
                       </div>
@@ -477,7 +481,12 @@ function LabBoard() {
                                 <th className="text-left px-3 py-2 font-semibold">Test</th>
                                 <th className="text-left px-3 py-2 font-semibold">Value</th>
                                 <th className="text-left px-3 py-2 font-semibold">Range</th>
-                                <th className="text-left px-3 py-2 font-semibold">Flag</th>
+                                <th className="text-left px-3 py-2 font-semibold">
+                                  <span className="inline-flex items-center gap-1">
+                                    Flag
+                                    <InfoHint text="H = above reference range · L = below reference range · CRITICAL = panic-level result requiring immediate clinical action · NORMAL = within range." />
+                                  </span>
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
