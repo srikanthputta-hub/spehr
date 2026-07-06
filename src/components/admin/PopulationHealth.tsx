@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Download, Activity } from "lucide-react";
-import { runPopulationQuery } from "@/lib/auto-api.functions";
+import { runPopulationQuery, getCodedKeywordSuggestions } from "@/lib/auto-api.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { InfoHint } from "@/components/ui/info-hint";
 
@@ -14,16 +14,32 @@ const FACILITIES = [
 ];
 
 const WINDOWS = [
+  { label: "Last 6h", hours: 6 },
+  { label: "Last 12h", hours: 12 },
   { label: "Last 24h", hours: 24 },
   { label: "Last 7d", hours: 24 * 7 },
   { label: "Last 30d", hours: 24 * 30 },
   { label: "All time", hours: 0 },
 ];
 
+type CodeSystem = "SNOMED" | "ICD10" | "LOINC" | "RXNORM";
+const CODE_SYSTEMS: Array<{ value: CodeSystem; label: string }> = [
+  { value: "SNOMED", label: "SNOMED CT" },
+  { value: "ICD10", label: "ICD-10" },
+  { value: "LOINC", label: "LOINC" },
+  { value: "RXNORM", label: "RxNorm" },
+];
+
 export function PopulationHealth() {
   const run = useServerFn(runPopulationQuery);
-  const [condition, setCondition] = useState("");
-  const [loinc, setLoinc] = useState("");
+  const suggest = useServerFn(getCodedKeywordSuggestions);
+  const [codeSystem, setCodeSystem] = useState<CodeSystem>("SNOMED");
+  const [keyword, setKeyword] = useState("");
+  const [suggestions, setSuggestions] = useState<Array<{ code: string; display: string; count: number }>>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const suggestTimer = useRef<number | null>(null);
+  const suggestReq = useRef(0);
   const [facilities, setFacilities] = useState<string[]>([]);
   const [windowHours, setWindowHours] = useState(24 * 7);
   const [loading, setLoading] = useState(false);
@@ -51,6 +67,31 @@ export function PopulationHealth() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (suggestTimer.current) window.clearTimeout(suggestTimer.current);
+    const term = keyword.trim();
+    if (term.length < 2) {
+      setSuggestions([]);
+      setSuggestOpen(false);
+      return;
+    }
+    suggestTimer.current = window.setTimeout(async () => {
+      const id = ++suggestReq.current;
+      setSuggestLoading(true);
+      try {
+        const r = await suggest({ data: { system: codeSystem, query: term } });
+        if (id !== suggestReq.current) return;
+        setSuggestions(r.items);
+        setSuggestOpen(true);
+      } finally {
+        if (id === suggestReq.current) setSuggestLoading(false);
+      }
+    }, 250);
+    return () => {
+      if (suggestTimer.current) window.clearTimeout(suggestTimer.current);
+    };
+  }, [keyword, codeSystem, suggest]);
+
   const toggleFac = (f: string) =>
     setFacilities((p) => (p.includes(f) ? p.filter((x) => x !== f) : [...p, f]));
 
@@ -60,8 +101,8 @@ export function PopulationHealth() {
       const since = windowHours > 0 ? new Date(Date.now() - windowHours * 3600_000).toISOString() : undefined;
       const r = await run({
         data: {
-          condition_keyword: condition.trim() || undefined,
-          loinc_keyword: loinc.trim() || undefined,
+          code_system: keyword.trim() ? codeSystem : undefined,
+          keyword: keyword.trim() || undefined,
           facilities: facilities.length > 0 ? facilities : undefined,
           since_iso: since,
           value_set_id: valueSetId || undefined,
@@ -106,24 +147,71 @@ export function PopulationHealth() {
         </div>
       </div>
       <div className="p-5 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-3">
           <label className="text-[11px]">
-            <span className="font-semibold uppercase tracking-wider text-slate-500">Condition keyword (SNOMED)</span>
-            <input
-              value={condition}
-              onChange={(e) => setCondition(e.target.value)}
-              placeholder="e.g. pneumonia, sepsis"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-            />
+            <span className="font-semibold uppercase tracking-wider text-slate-500">Code System</span>
+            <select
+              value={codeSystem}
+              onChange={(e) => {
+                setCodeSystem(e.target.value as CodeSystem);
+                setSuggestions([]);
+                setSuggestOpen(false);
+              }}
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm"
+            >
+              {CODE_SYSTEMS.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
           </label>
-          <label className="text-[11px]">
-            <span className="font-semibold uppercase tracking-wider text-slate-500">Lab keyword (LOINC)</span>
-            <input
-              value={loinc}
-              onChange={(e) => setLoinc(e.target.value)}
-              placeholder="e.g. lactate, troponin"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-            />
+          <label className="text-[11px] relative">
+            <span className="font-semibold uppercase tracking-wider text-slate-500 inline-flex items-center gap-1">
+              Keyword
+              <InfoHint text="Type to see live coded terms actually present in the database for the selected system. Each suggestion shows its code and the number of records using it. Click one to fill the field with the exact display text." />
+            </span>
+            <div className="relative">
+              <input
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                onFocus={() => suggestions.length > 0 && setSuggestOpen(true)}
+                onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                placeholder={
+                  codeSystem === "SNOMED" ? "e.g. chest pain, sepsis"
+                  : codeSystem === "ICD10" ? "e.g. pneumonia"
+                  : codeSystem === "LOINC" ? "e.g. lactate, troponin"
+                  : "e.g. aspirin, metformin"
+                }
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+              />
+              {suggestLoading && (
+                <Loader2 className="absolute right-2 top-3 h-4 w-4 animate-spin text-slate-400" />
+              )}
+              {suggestOpen && suggestions.length > 0 && (
+                <div className="absolute z-30 mt-1 w-full max-h-64 overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.code + s.display}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setKeyword(s.display);
+                        setSuggestOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[12px] hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                    >
+                      <span className="truncate">
+                        <span className="font-mono text-slate-500">{s.code}</span>
+                        <span className="mx-1 text-slate-400">·</span>
+                        <span className="text-slate-900">{s.display}</span>
+                      </span>
+                      <span className="font-mono text-[11px] text-slate-500 flex-shrink-0">
+                        ({s.count.toLocaleString()})
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </label>
         </div>
         <label className="text-[11px] block">
