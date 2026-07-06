@@ -355,7 +355,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
         conflict = { name: mName || mCode, code: mCode, kind: "anticoag" };
         break;
       }
-      if (nameLooksLikeNsaid(mName)) {
+      if (mCode && codeIsNsaid(vs, mCode)) {
         conflict = { name: mName, code: mCode, kind: "nsaid" };
         break;
       }
