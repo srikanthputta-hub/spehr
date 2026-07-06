@@ -239,9 +239,21 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
   note_id?: string;
   summary_len?: number;
 }> {
-  const { summary, patient } = await buildSummaryForMrn(admin, mrn);
+  const { summary: autoSummary, patient } = await buildSummaryForMrn(admin, mrn);
   if (!patient) return { mrn, ok: false, reason: "no_patient_row" };
-  if (!summary) return { mrn, ok: false, reason: "summary_build_failed" };
+  if (!autoSummary) return { mrn, ok: false, reason: "summary_build_failed" };
+
+  // A UI path can pass a clinician-authored discharge summary (e.g. the free
+  // text typed in the patient-chart DischargeDialog). When present, that
+  // text becomes the DISCHARGE_SUMMARY note + patients.discharge_summary
+  // (what the clinician wrote wins on the narrative surface). The FHIR
+  // Composition below is ALWAYS rebuilt from real DB rows regardless, so
+  // structured meds/labs/diagnoses remain accurate.
+  const override = typeof (opts as any).override === "string"
+    ? String((opts as any).override).trim()
+    : "";
+  const summary = override.length > 0 ? override : autoSummary;
+  const noteAuthor = override.length > 0 ? "Clinician - Manual Discharge" : "Ghost AI - Auto Discharge";
 
   const alreadyDischarged = String(patient.status ?? "").toLowerCase() === "discharged";
   if (alreadyDischarged && !opts.force) {
@@ -255,7 +267,7 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
     .insert({
       mrn,
       note_type: "DISCHARGE_SUMMARY",
-      author: "Ghost AI - Auto Discharge",
+      author: noteAuthor,
       content: summary,
     })
     .select("id")
@@ -375,6 +387,9 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { /* empty body is fine */ }
   const targetMrn: string | undefined = body?.mrn;
   const force: boolean = !!body?.force;
+  const override: string | undefined = typeof body?.discharge_summary_override === "string"
+    ? body.discharge_summary_override
+    : undefined;
 
   // Automation gate — respect the global kill switch for the cron path
   // (backfill / explicit single-MRN calls bypass it).
@@ -393,7 +408,7 @@ Deno.serve(async (req) => {
   const results: any[] = [];
   for (const mrn of mrns) {
     try {
-      results.push(await processMrn(admin, mrn, { force }));
+      results.push(await processMrn(admin, mrn, { force, override } as any));
     } catch (e) {
       results.push({ mrn, ok: false, reason: `exception: ${(e as Error).message}` });
     }
