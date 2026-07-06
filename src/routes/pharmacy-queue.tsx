@@ -253,11 +253,11 @@ function PharmacyQueue() {
       const { data } = await supabase
         .from("medication_orders")
         .select(
-          "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, administered_at, created_at, ordering_physician, facility_name",
+          "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, updated_at, administered_at, created_at, ordering_physician, facility_name",
         )
         .eq("facility_name", facility)
         .in("status", ["Administered", "ADMINISTERED", "REJECTED", "REJECTED_SAFETY_ALERT"])
-        .order("administered_at", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false, nullsFirst: false })
         .limit(15);
       if (!active) return;
