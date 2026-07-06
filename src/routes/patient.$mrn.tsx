@@ -1863,8 +1863,19 @@ function PatientChart() {
 
           <div className="px-3 py-2 border-b border-slate-200">
             <div className="text-[12px] font-semibold text-slate-800 mb-1">● Allergies</div>
-            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>cefazolin</span><span className="text-slate-500">Diarrhea</span></div>
-            <div className="text-[11.5px] text-slate-700 flex justify-between"><span>penicillin G</span><span className="text-slate-500">Rash</span></div>
+            {drugAllergy.isNkda ? (
+              <div className="text-[11.5px] text-slate-700">NKDA — No Known Drug Allergies</div>
+            ) : (
+              <div className="text-[11.5px] text-slate-700 flex justify-between">
+                <span className="font-semibold">{drugAllergy.name}</span>
+                <span className="text-slate-500">{drugAllergy.reaction ?? "—"}</span>
+              </div>
+            )}
+            {patient.environmental_allergies && patient.environmental_allergies.trim() ? (
+              <div className="text-[10.5px] text-slate-500 mt-0.5">
+                Environmental/Food: {patient.environmental_allergies}
+              </div>
+            ) : null}
           </div>
 
           <div className="px-3 py-2">
