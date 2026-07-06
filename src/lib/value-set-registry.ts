@@ -42,3 +42,69 @@ export async function loadPublishedValueSetsForConsumer(
   }
   return out;
 }
+
+/**
+ * File (or extend) a governed change request against the Auto Terminologist
+ * demand queue (`terminology_requests`). If a PENDING request already exists
+ * for the same (requesting_consumer, requested_name), new seed codes are
+ * merged into it (dedup by code) instead of creating a duplicate row — this
+ * mirrors the real-world "change request" pattern where a terminologist
+ * consolidates repeat asks rather than processing the same ask twice.
+ */
+export async function requestTerminologyUpdate(req: {
+  requesting_consumer: string;
+  requested_name: string;
+  justification: string;
+  priority?: "low" | "normal" | "high" | "urgent";
+  vocabulary?: string;
+  seed_codes: Array<{ code: string; display?: string }>;
+  clinical_application?: string;
+  related_mrn?: string | null;
+}): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from("terminology_requests" as any)
+      .select("id, seed_codes")
+      .eq("requesting_consumer", req.requesting_consumer)
+      .eq("requested_name", req.requested_name)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (existing) {
+      const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(
+        (existing as any).seed_codes,
+      )
+        ? (existing as any).seed_codes
+        : [];
+      const seen = new Set(prevCodes.map((c) => String(c?.code ?? "")));
+      const merged = [...prevCodes];
+      for (const c of req.seed_codes) {
+        const code = String(c?.code ?? "").trim();
+        if (!code || seen.has(code)) continue;
+        seen.add(code);
+        merged.push(c);
+      }
+      if (merged.length === prevCodes.length) return; // nothing new to add
+      await supabase
+        .from("terminology_requests" as any)
+        .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
+        .eq("id", (existing as any).id);
+      return;
+    }
+
+    await supabase.from("terminology_requests" as any).insert({
+      requesting_consumer: req.requesting_consumer,
+      requested_name: req.requested_name,
+      justification: req.justification,
+      priority: req.priority ?? "normal",
+      vocabulary: req.vocabulary ?? null,
+      seed_codes: req.seed_codes,
+      clinical_application: req.clinical_application ?? null,
+      related_mrn: req.related_mrn ?? null,
+      status: "pending",
+    } as any);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[value-set-registry] requestTerminologyUpdate failed", (e as Error)?.message);
+  }
+}

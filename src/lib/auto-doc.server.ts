@@ -844,6 +844,71 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     })),
   );
 
+  const invoiceNo = makeInvoiceNo(mrn, p.discharge_time);
+
+  // Coverage-gap detection: any ICD-10 code on this patient with no match
+  // in a published Billing value set means the invoice is being charged
+  // without a governed risk-adjustment/coverage mapping. File (or extend)
+  // a change request directly against terminology_requests using the
+  // admin client — mirrors the real-world "billing/quality team flags a
+  // missing code" change-request trigger.
+  const matchedIcd10 = new Set(billingMatches.map((m) => m.icd10));
+  const unmatchedIcd10 = icd10Codes.filter((c) => !matchedIcd10.has(c));
+  if (unmatchedIcd10.length > 0) {
+    try {
+      const { data: dictRows } = await sb
+        .from("medical_terminology")
+        .select("code, display")
+        .eq("code_system", "ICD-10")
+        .in("code", unmatchedIcd10);
+      const displayByCode = new Map(((dictRows ?? []) as any[]).map((r) => [r.code, r.display]));
+      const seedCodes = unmatchedIcd10.map((c) => ({ code: c, display: displayByCode.get(c) ?? c }));
+
+      const { data: existingReq } = await sb
+        .from("terminology_requests" as any)
+        .select("id, seed_codes")
+        .eq("requesting_consumer", "Billing Engine")
+        .eq("requested_name", "Billing Coverage Gaps")
+        .eq("status", "pending")
+        .maybeSingle();
+
+      if (existingReq) {
+        const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(
+          (existingReq as any).seed_codes,
+        )
+          ? (existingReq as any).seed_codes
+          : [];
+        const seen = new Set(prevCodes.map((c) => String(c?.code ?? "")));
+        const merged = [...prevCodes];
+        for (const c of seedCodes) {
+          if (seen.has(c.code)) continue;
+          seen.add(c.code);
+          merged.push(c);
+        }
+        if (merged.length !== prevCodes.length) {
+          await sb
+            .from("terminology_requests" as any)
+            .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
+            .eq("id", (existingReq as any).id);
+        }
+      } else {
+        await sb.from("terminology_requests" as any).insert({
+          requesting_consumer: "Billing Engine",
+          requested_name: "Billing Coverage Gaps",
+          justification: `Invoice ${invoiceNo} for MRN-${mrn} includes ${unmatchedIcd10.length} ICD-10 diagnosis code(s) with no match in any published Billing value set — these codes are being charged without a governed coverage/risk-adjustment mapping.`,
+          priority: "normal",
+          vocabulary: "ICD-10",
+          seed_codes: seedCodes,
+          clinical_application: "Billing",
+          related_mrn: mrn,
+          status: "pending",
+        } as any);
+      }
+    } catch (e) {
+      console.warn("[billing] terminology gap request failed", (e as Error).message);
+    }
+  }
+
   const input: BuildChargesInput = {
     admissionTime: p.admission_time,
     dischargeTime: p.discharge_time,
@@ -854,7 +919,6 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   };
   const charges = composeCharges(input);
   const { subtotal, tax, total } = summarizeCharges(charges);
-  const invoiceNo = makeInvoiceNo(mrn, p.discharge_time);
 
   // Idempotency: replace previous invoice for this discharge if it exists
   const { data: existing } = await sb
