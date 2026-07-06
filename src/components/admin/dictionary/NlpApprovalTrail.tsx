@@ -4,9 +4,11 @@ import { Sparkles, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AuditCard, type AuditRow } from "./AuditCard";
 
+let cachedApprovalRows: AuditRow[] = [];
+
 export default function NlpApprovalTrail() {
-  const [rows, setRows] = useState<AuditRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<AuditRow[]>(cachedApprovalRows);
+  const [loading, setLoading] = useState(cachedApprovalRows.length === 0);
   const initialLoadRef = useRef(true);
 
   const refresh = async () => {
@@ -29,7 +31,9 @@ export default function NlpApprovalTrail() {
         // Prepend new approvals (server order = newest first), keep existing
         // rows in-place so the visible list never reshuffles. Cap at 50 —
         // oldest fall off the tail.
-        return [...newOnes, ...prev].slice(0, 50);
+        const merged = [...newOnes, ...prev].slice(0, 50);
+        cachedApprovalRows = merged;
+        return merged;
       });
     } catch {
       // Leave existing rows in place on transient error — no flicker.
