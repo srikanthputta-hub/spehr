@@ -393,6 +393,7 @@ export function CdsOverridesFeed() {
                         label="Risk Score"
                         value={r.risk_score != null ? `${r.risk_score}/100 (${r.risk_score >= 70 ? "≥70 → auto-Reject band" : "<70 → auto-Override band"})` : "—"}
                         mono
+                        info="Composite risk score computed from drug-disease severity × condition-match confidence. ≥70 → the Safety Engine auto-Rejects the order; <70 → auto-Overrides (logs the alert but lets the order proceed)."
                       />
                       <DetailField label="Drug" value={r.drug_name ?? "—"} />
                       <DetailField label="Drug RxNorm" value={r.drug_rxnorm ?? "—"} mono />
@@ -446,15 +447,18 @@ function DetailField({
   label,
   value,
   mono,
+  info,
 }: {
   label: string;
   value: string;
   mono?: boolean;
+  info?: string;
 }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+      <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 inline-flex items-center gap-1">
         {label}
+        {info && <InfoHint text={info} />}
       </div>
       <div className={`text-slate-800 break-words ${mono ? "font-mono text-[11px]" : ""}`}>
         {value}
