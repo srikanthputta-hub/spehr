@@ -22,6 +22,7 @@ import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
+import { dischargePatientViaWorker } from "@/lib/discharge-patient";
 
 
 export const Route = createFileRoute("/nursing-board")({
@@ -704,27 +705,14 @@ function Dashboard() {
   const handleDischarge = async (p: PatientRow) => {
     const prev = patients;
     setPatients((curr) => curr.filter((x) => x.mrn !== p.mrn));
-    const { error } = await supabase
-      .from("patients")
-      .update({
-        status: "Discharged",
-        discharge_time: new Date().toISOString(),
-      } as any)
-      .eq("mrn", p.mrn);
-    if (error) {
+    // Route through ghost-discharge-worker so the DISCHARGE_SUMMARY note,
+    // real-data FHIR Composition and bed release all happen together.
+    const result = await dischargePatientViaWorker({ mrn: p.mrn });
+    if (!result.ok) {
       setPatients(prev);
-      toast.error("Could not discharge", { description: error.message });
+      toast.error("Could not discharge", { description: result.reason ?? "unknown_error" });
       return;
     }
-    // Release the bed so it becomes available for the next admission.
-    await supabase
-      .from("bed_management")
-      .update({
-        status: "Available",
-        current_patient_mrn: null,
-        status_updated_at: new Date().toISOString(),
-      } as any)
-      .eq("current_patient_mrn", p.mrn);
     toast.success("Patient discharged", { description: `${p.name} · ${p.mrn}` });
   };
 
