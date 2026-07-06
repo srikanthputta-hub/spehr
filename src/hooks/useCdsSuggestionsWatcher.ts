@@ -14,7 +14,27 @@
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureValueSetsLoaded } from "@/lib/safety-alerts-engine";
-import { matchTriggers, ORDER_SETS, firstTriggerCode, CODE_DISPLAY } from "@/lib/cds-order-sets";
+import { matchTriggers, ORDER_SETS, firstTriggerCode, CODE_DISPLAY, setAcsCodes } from "@/lib/cds-order-sets";
+import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
+
+let acsHydrated = false;
+let acsHydratePromise: Promise<void> | null = null;
+async function hydrateAcsCodes(): Promise<void> {
+  if (acsHydrated) return;
+  if (acsHydratePromise) return acsHydratePromise;
+  acsHydratePromise = (async () => {
+    const hits = await loadPublishedValueSetsForConsumer({ consumer: "CDS Order Sets" });
+    const acs = hits.find((h) => h.value_set_name === "Acute Coronary Syndrome Presentations");
+    const codes: string[] = [];
+    for (const c of (acs?.row?.codes ?? []) as any[]) {
+      const code = String(c?.code ?? "").trim();
+      if (code) codes.push(code);
+    }
+    setAcsCodes(codes);
+    acsHydrated = codes.length > 0;
+  })().finally(() => { acsHydratePromise = null; });
+  return acsHydratePromise;
+}
 
 type StoredSuggestion = {
   id: string;
@@ -57,6 +77,7 @@ function writeStored(mrn: string, payload: StoredPayload) {
 
 async function processMrn(mrn: string) {
   // 1. Value sets (cached in the safety-alerts engine).
+  await Promise.all([ensureValueSetsLoaded(), hydrateAcsCodes()]);
   const vs = await ensureValueSetsLoaded();
   const sepsis = new Set<string>();
   const highAcuity = new Set<string>();
@@ -135,6 +156,7 @@ async function processMrn(mrn: string) {
 export function useCdsSuggestionsWatcher() {
   useEffect(() => {
     void ensureValueSetsLoaded().catch(() => {});
+    void hydrateAcsCodes().catch(() => {});
     const onApproved = (e: Event) => {
       const mrn = (e as CustomEvent).detail?.mrn;
       if (!mrn) return;
