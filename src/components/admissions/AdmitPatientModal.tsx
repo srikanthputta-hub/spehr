@@ -402,34 +402,32 @@ export function AdmitPatientModal({
                     <p className="text-[11px] text-muted-foreground italic">No known drug allergies (NKDA)</p>
                   )}
                   {intake.drugAllergies.map((a, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <TerminologyCombobox
-                          value={a.name}
-                          onChange={(v) =>
-                            patch({
-                              drugAllergies: intake.drugAllergies.map((x, i) =>
-                                i === idx
-                                  ? {
-                                      ...x,
-                                      name: v,
-                                      code: x.code && v === x.code.display ? x.code : undefined,
-                                    }
-                                  : x,
-                              ),
-                            })
-                          }
-                          onSelect={(hit) =>
-                            patch({
-                              drugAllergies: intake.drugAllergies.map((x, i) =>
-                                i === idx ? { ...x, name: hit.display, code: hit } : x,
-                              ),
-                            })
-                          }
-                          sabs="SNOMEDCT_US"
-                          placeholder="Penicillin"
-                        />
-                      </div>
+                    <div key={idx} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                      <TerminologyCombobox
+                        value={a.name}
+                        onChange={(v) =>
+                          patch({
+                            drugAllergies: intake.drugAllergies.map((x, i) =>
+                              i === idx
+                                ? {
+                                    ...x,
+                                    name: v,
+                                    code: x.code && v === x.code.display ? x.code : undefined,
+                                  }
+                                : x,
+                            ),
+                          })
+                        }
+                        onSelect={(hit) =>
+                          patch({
+                            drugAllergies: intake.drugAllergies.map((x, i) =>
+                              i === idx ? { ...x, name: hit.display, code: hit } : x,
+                            ),
+                          })
+                        }
+                        sabs="SNOMEDCT_US"
+                        placeholder="Penicillin"
+                      />
                       <Input
                         value={a.reaction}
                         onChange={(v) => patch({ drugAllergies: intake.drugAllergies.map((x, i) => (i === idx ? { ...x, reaction: v } : x)) })}
