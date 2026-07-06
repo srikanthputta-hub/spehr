@@ -90,6 +90,7 @@ function PharmacyQueue() {
       route: string | null;
       frequency: string | null;
       status: string | null;
+      updated_at: string | null;
       administered_at: string | null;
       created_at: string | null;
       ordering_physician: string | null;
@@ -252,11 +253,11 @@ function PharmacyQueue() {
       const { data } = await supabase
         .from("medication_orders")
         .select(
-          "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, administered_at, created_at, ordering_physician, facility_name",
+          "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, updated_at, administered_at, created_at, ordering_physician, facility_name",
         )
         .eq("facility_name", facility)
         .in("status", ["Administered", "ADMINISTERED", "REJECTED", "REJECTED_SAFETY_ALERT"])
-        .order("administered_at", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false, nullsFirst: false })
         .limit(15);
       if (!active) return;
@@ -319,7 +320,7 @@ function PharmacyQueue() {
       if (!mrn) continue;
       rows.push({
         key: o.id,
-        timestamp: o.administered_at ?? o.created_at,
+        timestamp: o.updated_at ?? o.administered_at ?? o.created_at,
         patient_name: o.patient_name || "Unknown",
         patient_mrn: mrn,
         drug_name: o.drug_name ?? o.medication_name ?? "—",
