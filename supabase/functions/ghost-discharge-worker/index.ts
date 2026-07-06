@@ -43,9 +43,38 @@ import {
   type NarrativeMed,
   type NarrativePatient,
 } from "../_shared/discharge-narrative.ts";
+import {
+  buildDischargeTransactionBundle,
+  type DischargeLab as FhirDischargeLab,
+  type DischargeMed as FhirDischargeMed,
+  type AdmissionPatient,
+} from "../_shared/fhir-admission-discharge.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const FHIR_SERVER_URL = (Deno.env.get("FHIR_SERVER_URL") ?? "").replace(/\/+$/, "");
+const FHIR_BEARER_TOKEN = Deno.env.get("FHIR_BEARER_TOKEN") ?? "";
+const FHIR_APIKEY = Deno.env.get("FHIR_APIKEY") ?? "";
+
+async function pushDischargeBundleToFhir(bundle: unknown): Promise<{ ok: boolean; status: number }> {
+  if (!FHIR_SERVER_URL || !FHIR_BEARER_TOKEN) {
+    return { ok: false, status: 0 };
+  }
+  const headers: Record<string, string> = {
+    "content-type": "application/fhir+json",
+    accept: "application/fhir+json",
+    authorization: `Bearer ${FHIR_BEARER_TOKEN}`,
+  };
+  if (FHIR_APIKEY) headers["apikey"] = FHIR_APIKEY;
+  const res = await fetch(FHIR_SERVER_URL, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(bundle),
+  });
+  // drain
+  try { await res.text(); } catch { /* ignore */ }
+  return { ok: res.ok, status: res.status };
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
