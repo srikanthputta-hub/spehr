@@ -211,7 +211,43 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
     console.warn("[admit] coding pipeline failed", e),
   );
 
+  // Auto Admin → Auto Terminologist: request an HRRP tracked-conditions
+  // value set the first time an admission runs through this codepath.
+  // Dedupe by requested_name so it's only ever submitted once.
+  void requestHrrpValueSet().catch((e) =>
+    console.warn("[admit] HRRP request failed", e),
+  );
+
   return { ok: true, patient: data };
+}
+
+const HRRP_REQUEST_NAME = "CMS Hospital Readmissions Reduction Program (HRRP) Conditions";
+
+async function requestHrrpValueSet(): Promise<void> {
+  const { data: existing } = await supabase
+    .from("terminology_requests" as any)
+    .select("id")
+    .eq("requested_name", HRRP_REQUEST_NAME)
+    .in("status", ["pending", "drafted", "published"])
+    .limit(1);
+  if (existing && (existing as any[]).length > 0) return;
+  await supabase.from("terminology_requests" as any).insert({
+    requesting_consumer: "Auto Admin",
+    requested_name: HRRP_REQUEST_NAME,
+    justification:
+      "Need a governed value set of HRRP-tracked diagnoses to flag admissions for enhanced discharge planning",
+    vocabulary: "ICD-10",
+    clinical_application: "Billing",
+    priority: "high",
+    seed_codes: [
+      { code: "I50.9", display: "Heart failure, unspecified", vocabulary: "ICD-10" },
+      { code: "J44.9", display: "Chronic obstructive pulmonary disease, unspecified", vocabulary: "ICD-10" },
+      { code: "J18.9", display: "Pneumonia, unspecified organism", vocabulary: "ICD-10" },
+      { code: "I21.9", display: "Acute myocardial infarction, unspecified", vocabulary: "ICD-10" },
+      { code: "Z96.641", display: "Presence of right artificial hip joint", vocabulary: "ICD-10" },
+      { code: "Z96.652", display: "Presence of left artificial knee joint", vocabulary: "ICD-10" },
+    ],
+  } as any);
 }
 
 /**

@@ -28,6 +28,54 @@ async function patch(
   if (error) console.warn(`[auto-code] ${table} update failed`, error.message);
 }
 
+/**
+ * Coding-compliance requester (Auto Doc → Auto Terminologist).
+ *
+ * After a diagnosis code is assigned to a note, check whether any published
+ * value set already covers it. If not, submit a `terminology_requests` row
+ * so the Auto Terminologist can draft coverage on its next cycle. Deduped
+ * by requested_name so we don't flood the queue.
+ */
+async function requestCoverageIfMissing(args: {
+  vocabulary: "SNOMED CT" | "ICD-10";
+  code: string;
+  display: string;
+  mrn?: string | null;
+}): Promise<void> {
+  const { vocabulary, code, display, mrn } = args;
+  const name = (display ?? "").trim();
+  if (!code || !name || !vocabulary) return;
+  try {
+    const { data: sets } = await supabase
+      .from("custom_value_sets")
+      .select("codes")
+      .eq("status", "published");
+    for (const row of (sets ?? []) as any[]) {
+      const codes = Array.isArray(row?.codes) ? row.codes : [];
+      if (codes.some((c: any) => String(c?.code ?? "").trim() === code)) return;
+    }
+    const { data: existing } = await supabase
+      .from("terminology_requests" as any)
+      .select("id")
+      .eq("requested_name", name)
+      .in("status", ["pending", "drafted"])
+      .limit(1);
+    if (existing && (existing as any[]).length > 0) return;
+    await supabase.from("terminology_requests" as any).insert({
+      requesting_consumer: "Auto Doc",
+      requested_name: name,
+      justification: `Coding-compliance check found no governed value set covering ${vocabulary} code ${code} (${name}) assigned during note finalization for MRN ${mrn ?? "unknown"}`,
+      vocabulary,
+      seed_codes: [{ code, display: name, vocabulary }],
+      clinical_application: "CDS",
+      related_mrn: mrn ?? null,
+      priority: "normal",
+    } as any);
+  } catch (e) {
+    console.warn("[auto-code] coverage-request failed", e);
+  }
+}
+
 /** Resolve a lab test name → LOINC code, write back to lab_orders.id. */
 export function autoCodeLab(text: string, ctx: AutoCodeContext): void {
   void (async () => {
@@ -100,6 +148,22 @@ export function autoCodeCondition(text: string, ctx: AutoCodeContext): void {
       patchData.icd10_display = icd10.display;
     }
     if (snomed || icd10) await patch("conditions", ctx.resourceId, patchData);
+    if (snomed?.code) {
+      await requestCoverageIfMissing({
+        vocabulary: "SNOMED CT",
+        code: snomed.code,
+        display: snomed.display ?? text,
+        mrn: ctx.mrn ?? null,
+      });
+    }
+    if (icd10?.code) {
+      await requestCoverageIfMissing({
+        vocabulary: "ICD-10",
+        code: icd10.code,
+        display: icd10.display ?? text,
+        mrn: ctx.mrn ?? null,
+      });
+    }
   })();
 }
 

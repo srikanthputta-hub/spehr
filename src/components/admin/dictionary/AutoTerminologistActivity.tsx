@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Bot, RefreshCw, CheckCircle2, AlertTriangle, Pause } from "lucide-react";
+import { Bot, RefreshCw, CheckCircle2, AlertTriangle, Pause, Clock, Inbox } from "lucide-react";
 
 type LogRow = {
   id: string;
@@ -19,6 +19,8 @@ function actionTone(action: string | null) {
       return { Icon: CheckCircle2, cls: "text-emerald-700 bg-emerald-50 border-emerald-200" };
     case "drafted":
       return { Icon: CheckCircle2, cls: "text-sky-700 bg-sky-50 border-sky-200" };
+    case "requested":
+      return { Icon: Clock, cls: "text-amber-700 bg-amber-50 border-amber-200" };
     case "touched":
       return { Icon: RefreshCw, cls: "text-slate-600 bg-slate-50 border-slate-200" };
     case "skipped":
@@ -43,11 +45,32 @@ function formatAgo(ts: string | undefined): string {
   return hrs === 1 ? "1 hour ago" : `${hrs} hours ago`;
 }
 
+type RequestRow = {
+  id: string;
+  requesting_consumer: string;
+  requested_name: string;
+  justification: string | null;
+  priority: string | null;
+  status: string | null;
+  quality_gate_notes: string | null;
+  requested_at: string;
+  resolved_at: string | null;
+};
+
+function statusBadge(status: string | null): string {
+  const s = String(status ?? "pending").toLowerCase();
+  if (s === "drafted") return "text-sky-700 bg-sky-50 border-sky-200";
+  if (s === "published") return "text-emerald-700 bg-emerald-50 border-emerald-200";
+  if (s === "rejected") return "text-red-700 bg-red-50 border-red-200";
+  return "text-amber-700 bg-amber-50 border-amber-200"; // pending
+}
+
 export function AutoTerminologistActivity() {
   const [rows, setRows] = useState<LogRow[]>([]);
   const [latest, setLatest] = useState<LogRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [nowTick, setNowTick] = useState(0);
+  const [requests, setRequests] = useState<RequestRow[]>([]);
 
   const lastRunAt = useMemo(() => latest?.run_at, [latest]);
   // Recompute "X minutes ago" every 30s
@@ -81,6 +104,17 @@ export function AutoTerminologistActivity() {
       }
     };
     load();
+    const loadRequests = async () => {
+      const { data } = await supabase
+        .from("terminology_requests" as any)
+        .select(
+          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at",
+        )
+        .order("requested_at", { ascending: false })
+        .limit(50);
+      if (!cancelled) setRequests(((data as any) ?? []) as RequestRow[]);
+    };
+    loadRequests();
     const ch = supabase
       .channel("auto-term-activity")
       .on(
@@ -95,10 +129,30 @@ export function AutoTerminologistActivity() {
         },
       )
       .subscribe();
+    const reqCh = supabase
+      .channel("auto-term-requests")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "terminology_requests" },
+        (payload) => {
+          const row = payload.new as any as RequestRow;
+          setRequests((r) => [row, ...r.filter((x) => x.id !== row.id)].slice(0, 50));
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "terminology_requests" },
+        (payload) => {
+          const row = payload.new as any as RequestRow;
+          setRequests((r) => r.map((x) => (x.id === row.id ? row : x)));
+        },
+      )
+      .subscribe();
     const id = setInterval(load, 30_000);
     return () => {
       cancelled = true;
       supabase.removeChannel(ch);
+      supabase.removeChannel(reqCh);
       clearInterval(id);
     };
   }, []);
@@ -117,7 +171,10 @@ export function AutoTerminologistActivity() {
             genuine recurring gaps — drafts a new value set itself, exactly
             as a human would in the Authoring Workbench. It never submits
             for review and never publishes: promoting a draft always
-            requires a human action in the Value Set Library.
+            requires a human action in the Value Set Library. It also
+            fulfills terminology requests from other SPEHR consumers
+            (Auto Doc, Auto Admin, Auto IT) on demand, subject to the same
+            draft-only quality gate.
           </p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
@@ -133,6 +190,59 @@ export function AutoTerminologistActivity() {
           {" "}({formatAgo(lastRunAt)}) — {latest.message}
         </div>
       )}
+
+      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 pt-1 flex items-center gap-1.5">
+        <Inbox className="h-3.5 w-3.5" />
+        Terminology Requests
+      </div>
+      <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
+        {requests.length === 0 ? (
+          <div className="px-4 py-6 text-sm text-slate-500">
+            No terminology requests submitted yet.
+          </div>
+        ) : (
+          requests.map((r) => {
+            const time = new Date(r.requested_at).toLocaleString([], {
+              month: "short",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            return (
+              <div key={r.id} className="flex items-start gap-3 px-4 py-3">
+                <span className="mt-0.5 inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                  {r.requesting_consumer}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium text-slate-800 leading-snug">{r.requested_name}</p>
+                    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBadge(r.status)}`}>
+                      {(r.status ?? "pending")}
+                    </span>
+                    {r.priority && r.priority !== "normal" && (
+                      <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                        priority: {r.priority}
+                      </span>
+                    )}
+                  </div>
+                  {r.justification && (
+                    <p className="mt-1 text-xs text-slate-600 leading-snug">{r.justification}</p>
+                  )}
+                  {r.quality_gate_notes && (
+                    <p className="mt-1 text-[11px] text-amber-700 leading-snug">
+                      Gate: {r.quality_gate_notes}
+                    </p>
+                  )}
+                  <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3">
+                    <span>{time}</span>
+                    <span>({formatAgo(r.requested_at)})</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
 
       <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 pt-1">
         Value Sets Drafted
