@@ -41,6 +41,7 @@ import { useFacility, useActiveStaff, STAFF_BY_FACILITY, type Facility, type Sta
 import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { InfoHint } from "@/components/ui/info-hint";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -528,6 +529,7 @@ function AdminDashboard() {
             label="Total Active Census"
             value={loading ? "…" : activePatients.length}
             tint="bg-sky-50 text-sky-700"
+            info={`Facility-scoped count of patients where status ≠ "Discharged" at ${facility}. Includes "Admitted" and any other non-discharged status values — not strictly = "Admitted".`}
           />
           <MetricCard
             icon={<PillBottle className="h-5 w-5" />}
@@ -535,6 +537,7 @@ function AdminDashboard() {
             value={loading ? "…" : pendingPharm}
             tint="bg-amber-50 text-amber-700"
             sub="Orders pending verification"
+            info={`Orders at ${facility} with status = "PENDING_PHARMACY". PENDING_VERIFICATION and HELD_SAFETY_REVIEW orders are NOT included in this count.`}
           />
           <MetricCard
             icon={<AlertTriangle className="h-5 w-5" />}
@@ -543,6 +546,7 @@ function AdminDashboard() {
             tint="bg-red-50 text-red-700"
             sub="HR >100 or SpO₂ <92%"
             alert={acuity > 0}
+            info="Threshold: HR > 100 bpm OR SpO₂ < 92% only. Blood pressure, respiratory rate, and temperature are not incorporated in this indicator today."
           />
         </div>
 
@@ -625,6 +629,7 @@ function AdminDashboard() {
                             )}
                             ✅ Approve &amp; Transfer
                           </Button>
+                          <InfoHint text="In-network destination: moves the patient's facility_name to the target facility (record preserved). Outside-network destination: PERMANENTLY DELETES the local patient record because the patient is leaving the SPEHR network entirely — this action cannot be undone." />
                           <Button
                             size="sm"
                             variant="outline"
@@ -654,6 +659,7 @@ function AdminDashboard() {
             </h2>
             <span className="text-[11px] text-slate-500 font-mono">
               3-per-role rotation · {MAX_SHIFT_HOURS}h shifts
+              <InfoHint className="ml-1" text="Wall-clock UTC rotation: 3 staff members per role cycle through 12-hour shift blocks aligned to absolute UTC time, so shift changes happen at the same instant network-wide regardless of local timezone." />
             </span>
           </div>
 
@@ -695,6 +701,7 @@ function AdminDashboard() {
                 }`}
               >
                 {onDutyRNs > 0 ? `1:${Math.ceil(census / onDutyRNs)}` : "—"}
+                <InfoHint className="ml-1.5" text="Safety threshold hardcoded at ≤5 patients per RN (green). >5 turns the card amber. Real facilities configure this per unit; here it is a fixed demo threshold." />
               </div>
             </div>
           </div>
@@ -872,6 +879,7 @@ function MetricCard({
   tint,
   sub,
   alert,
+  info,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -879,6 +887,7 @@ function MetricCard({
   tint: string;
   sub?: string;
   alert?: boolean;
+  info?: string;
 }) {
   return (
     <div
@@ -889,6 +898,7 @@ function MetricCard({
       <div className="flex items-center justify-between">
         <div className="text-xs font-medium uppercase tracking-widest text-slate-500">
           {label}
+          {info && <InfoHint className="ml-1.5" text={info} />}
         </div>
         <div className={`grid place-items-center h-8 w-8 rounded-md ${tint}`}>
           {icon}

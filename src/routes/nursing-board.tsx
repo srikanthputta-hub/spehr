@@ -23,6 +23,7 @@ import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
+import { InfoHint } from "@/components/ui/info-hint";
 
 
 export const Route = createFileRoute("/nursing-board")({
@@ -753,6 +754,7 @@ function Dashboard() {
             label="Total Patients"
             value={`${admittedFacilityCount}`}
             tone="navy"
+            info={`Currently admitted patients at ${facility} — counts occupied beds on this facility's bed board, so it can differ from the physician board census (which reads patients.status = "Admitted") if a bed hasn't been reconciled yet.`}
           />
           <StatCard
             icon={AlertTriangle}
@@ -760,6 +762,7 @@ function Dashboard() {
             value={`${facilityPatients.filter((p) => p.o2 < 90 || p.hr > 115).length}`}
             tone="red"
             sub="SpO₂ < 90% or HR > 115 bpm"
+            info="Currently defined as SpO₂ < 90% OR HR > 115 bpm only — blood pressure, temperature, and respiratory rate thresholds are NOT included in this tile today."
           />
           <StatCard
             icon={BedDouble}
@@ -775,6 +778,7 @@ function Dashboard() {
             interactive
             active={bedBoardOpen}
             onClick={() => setBedBoardOpen(true)}
+            info={`Beds where bed_management.status = "Available" at ${facility}. Beds in "Cleaning" (60s terminal clean) or "Disinfecting" (extended isolation protocol) are NOT counted as available until the cycle completes.`}
           />
         </section>
 
@@ -991,6 +995,7 @@ function StatCard({
   active,
   onClick,
   warn,
+  info,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -1001,6 +1006,7 @@ function StatCard({
   active?: boolean;
   onClick?: () => void;
   warn?: boolean;
+  info?: string;
 }) {
   const tones = {
     navy: "bg-[var(--navy)] text-white",
@@ -1027,6 +1033,7 @@ function StatCard({
       <div className="min-w-0">
         <div className="text-xs uppercase tracking-wider text-muted-foreground">
           {label}
+          {info && <InfoHint className="ml-1.5" text={info} />}
           {interactive && (
             <span
               className={`ml-2 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold tracking-wider ${active ? "bg-[var(--teal)] text-white" : "bg-secondary text-muted-foreground"}`}

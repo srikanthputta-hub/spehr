@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { listValueSets } from "@/lib/auto-api.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
+import { InfoHint } from "@/components/ui/info-hint";
 
 type Code = { code: string; display: string; system?: string };
 type ValueSet = {
@@ -117,8 +118,9 @@ export function OrderPanelPicker({
         <div className="flex items-center gap-2">
           <FlaskConical className="h-4 w-4 text-violet-600" />
           <div className="text-left">
-            <div className="text-sm font-semibold text-slate-900">
+            <div className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1">
               Order Panels (Value-Set Driven)
+              <InfoHint text="Pre-built lab bundles authored in System Admin → Medical Dictionary → Value Set Library. Clicking a panel one-shot submits every member LOINC code as an individual PENDING lab order, each already pre-coded — no separate auto-coder round trip needed." />
             </div>
             <div className="text-[11px] text-slate-500">{headerHint}</div>
           </div>

@@ -15,6 +15,7 @@ import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { InfoHint } from "@/components/ui/info-hint";
 
 type Order = {
   id: string;
@@ -472,8 +473,11 @@ function PharmacyQueue() {
                         const s = (o.status ?? "").toUpperCase();
                         if (s === "HELD_SAFETY_REVIEW") {
                           return (
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 border border-slate-300">
-                              ⏸ On Hold — Safety Review
+                            <span className="inline-flex items-center gap-1">
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 border border-slate-300">
+                                ⏸ On Hold — Safety Review
+                              </span>
+                              <InfoHint text="Frozen because clinical_safety_alerts fired a drug-allergy or drug-disease conflict for this order. The row is unclickable until an admin resolves the linked alert (manually or via the 45s SLA) in System Admin → Medical Dictionary → Safety Alerts." />
                             </span>
                           );
                         }
@@ -590,6 +594,7 @@ function PharmacyQueue() {
 
                 {/* Actions */}
                 <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+                  <div className="inline-flex items-center gap-1">
                   <button
                     onClick={() => actOnOrder(selected.id, "DUE")}
                     disabled={acting || !can("btn_verify_med")}
@@ -599,6 +604,9 @@ function PharmacyQueue() {
                     {acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                     Approve &amp; Verify → Send to MAR
                   </button>
+                    <InfoHint text="Sets status = DUE, which immediately surfaces this order on the nursing task board (MAR) as ready to administer. Cannot be undone from this screen." />
+                  </div>
+                  <div className="inline-flex items-center gap-1">
                   <button
                     onClick={() => actOnOrder(selected.id, "REJECTED")}
                     disabled={acting || !can("btn_dispense_med")}
@@ -608,6 +616,8 @@ function PharmacyQueue() {
                     <XCircle className="h-4 w-4" />
                     Reject Order
                   </button>
+                    <InfoHint text="Sets status = REJECTED and returns the order to the ordering physician for reissue. The medication never reaches the MAR." />
+                  </div>
                   <div className="ml-auto text-[11px] text-slate-500">
                     Approval routes status to <span className="font-mono text-slate-700">DUE</span>
                   </div>

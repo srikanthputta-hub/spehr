@@ -15,6 +15,7 @@ import { Activity, Users, LogOut as LogOutIcon, Loader2 } from "lucide-react";
 import { PopulationHealth } from "@/components/admin/PopulationHealth";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
+import { InfoHint } from "@/components/ui/info-hint";
 
 export const Route = createFileRoute("/analytics")({
   component: AnalyticsPage,
@@ -144,6 +145,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
             value={totals.total}
             icon={<Users className="h-4 w-4" />}
             tone="navy"
+            info="Cumulative count of every row in the patients table across all 5 facilities — INCLUDES already-discharged patients. This is not the current census. Rows are retained ~48h before TTL garbage collection removes them."
           />
           <KpiCard
             label="Currently Active Census"
@@ -151,6 +153,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
             value={totals.admitted}
             icon={<Activity className="h-4 w-4" />}
             tone="emerald"
+            info={`Global network-wide count of patients where status = "Admitted" across all 5 facilities — unlike the nursing/admin boards, this is not scoped to any one facility.`}
           />
           <KpiCard
             label="Total Discharges"
@@ -158,6 +161,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
             value={totals.discharged}
             icon={<LogOutIcon className="h-4 w-4" />}
             tone="slate"
+            info="Network-wide count of patients with status = Discharged. Because discharged rows are removed by the 48h TTL garbage-collection sweep, this number decrements over time — it is not an all-time cumulative discharge total."
           />
         </div>
 
@@ -296,12 +300,14 @@ function KpiCard({
   value,
   icon,
   tone,
+  info,
 }: {
   label: string;
   sub: string;
   value: number;
   icon: React.ReactNode;
   tone: "navy" | "emerald" | "slate";
+  info?: string;
 }) {
   const tones: Record<string, string> = {
     navy: "bg-[#0c2340] text-white",
@@ -314,6 +320,7 @@ function KpiCard({
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
             {label}
+            {info && <InfoHint className="ml-1" text={info} />}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>
         </div>

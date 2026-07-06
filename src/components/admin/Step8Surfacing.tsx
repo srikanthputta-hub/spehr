@@ -76,36 +76,42 @@ export function TerminologyMetricsStrip() {
       label: "UMLS Resolved · 24h",
       value: m?.resolved24h ?? "—",
       cls: "text-emerald-700 bg-emerald-50 border-emerald-200",
+      info: "Free-text inputs (drugs, conditions, lab names) the UMLS resolver mapped to a canonical code in the last 24h across all facilities.",
     },
     {
       icon: XCircle,
       label: "Rejected · 24h",
       value: m?.rejected24h ?? "—",
       cls: "text-rose-700 bg-rose-50 border-rose-200",
+      info: "Terms the resolver rejected in the last 24h — confidence below the NLP gate threshold or no matching UMLS concept. Rejects go to the NLP Approval Trail for manual review.",
     },
     {
       icon: Database,
       label: "Audit Trail · Total",
       value: m?.auditTotal ?? "—",
       cls: "text-slate-700 bg-slate-50 border-slate-200",
+      info: "All-time count of every terminology resolution attempt (resolved + rejected + pending) across all facilities.",
     },
     {
       icon: Layers,
       label: "Value Sets · Published",
       value: m?.valueSets ?? "—",
       cls: "text-indigo-700 bg-indigo-50 border-indigo-200",
+      info: "Custom value sets in status = published — the only ones visible to consumers (physician order panels, CDS engine, billing, population health).",
     },
     {
       icon: Languages,
       label: "CHV Translations",
       value: m?.chv ?? "—",
       cls: "text-amber-700 bg-amber-50 border-amber-200",
+      info: 'CHV = Consumer Health Vocabulary — plain-language equivalents of clinical terms (e.g. "myocardial infarction" → "heart attack"). Used by MySPEHR patient portal to render readable explanations.',
     },
     {
       icon: ShieldAlert,
       label: "CDS Overrides · 24h",
       value: m?.cds24h ?? "—",
       cls: "text-orange-700 bg-orange-50 border-orange-200",
+      info: "Count of drug-allergy or drug-disease CDS alerts a physician acknowledged and overrode (with logged justification) in the last 24h.",
     },
   ];
 
@@ -121,10 +127,11 @@ export function TerminologyMetricsStrip() {
         </span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-        {items.map(({ icon: Icon, label, value, cls }) => (
+        {items.map(({ icon: Icon, label, value, cls, info }) => (
           <div key={label} className={`rounded-lg border px-3 py-2 ${cls}`}>
             <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold opacity-80">
               <Icon className="h-3 w-3" /> {label}
+              {info && <InfoHint className="ml-auto" text={info} />}
             </div>
             <div className="text-xl font-bold mt-0.5 tabular-nums">{value}</div>
           </div>
@@ -386,6 +393,7 @@ export function CdsOverridesFeed() {
                         label="Risk Score"
                         value={r.risk_score != null ? `${r.risk_score}/100 (${r.risk_score >= 70 ? "≥70 → auto-Reject band" : "<70 → auto-Override band"})` : "—"}
                         mono
+                        info="Composite risk score computed from drug-disease severity × condition-match confidence. ≥70 → the Safety Engine auto-Rejects the order; <70 → auto-Overrides (logs the alert but lets the order proceed)."
                       />
                       <DetailField label="Drug" value={r.drug_name ?? "—"} />
                       <DetailField label="Drug RxNorm" value={r.drug_rxnorm ?? "—"} mono />
@@ -439,15 +447,18 @@ function DetailField({
   label,
   value,
   mono,
+  info,
 }: {
   label: string;
   value: string;
   mono?: boolean;
+  info?: string;
 }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+      <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 inline-flex items-center gap-1">
         {label}
+        {info && <InfoHint text={info} />}
       </div>
       <div className={`text-slate-800 break-words ${mono ? "font-mono text-[11px]" : ""}`}>
         {value}

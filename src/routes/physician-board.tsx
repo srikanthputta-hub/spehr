@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplete";
 import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
+import { InfoHint } from "@/components/ui/info-hint";
 import { OrderPanelPicker } from "@/components/physician/OrderPanelPicker";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { fetchWithTimeout } from "@/lib/async-timeout";
@@ -490,11 +491,11 @@ function PhysicianBoard() {
                         </span>
                       )}
                       {alertMrns.has(p.mrn) && (
-                        <span
-                          className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-red-600 text-white ring-1 ring-red-700 px-2 py-0.5 text-[10px] font-bold animate-pulse"
-                          title="Active clinical safety alert — pending review in Medical Dictionary → Safety Alerts"
-                        >
-                          🚨 Safety Alert
+                        <span className="ml-1.5 inline-flex items-center gap-1">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-red-600 text-white ring-1 ring-red-700 px-2 py-0.5 text-[10px] font-bold animate-pulse">
+                            🚨 Safety Alert
+                          </span>
+                          <InfoHint text="An active row in clinical_safety_alerts with status = Pending Review. Blocks new medication orders for this patient until an admin resolves it in System Admin → Medical Dictionary → Safety Alerts (or the 45s SLA auto-resolves it). Not a vitals-threshold indicator." />
                         </span>
                       )}
                     </div>
@@ -630,8 +631,9 @@ function PhysicianBoard() {
                     </select>
                   </Field>
                   <div className="col-span-12 flex items-center justify-between pt-1">
-                    <div className="text-[11px] text-slate-500">
+                    <div className="text-[11px] text-slate-500 inline-flex items-center gap-1">
                       New orders set to <span className="font-mono text-slate-700">PENDING_PHARMACY</span>
+                      <InfoHint text="Order lifecycle: PENDING_PHARMACY (this state) → pharmacist verifies on the Pharmacy Queue → DUE on the nurse's MAR → Administered. If a safety alert fires during routing, status flips to HELD_SAFETY_REVIEW instead." />
                     </div>
                     <button
                       type="submit"

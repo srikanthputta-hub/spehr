@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Download, Activity } from "lucide-react";
 import { runPopulationQuery } from "@/lib/auto-api.functions";
 import { supabase } from "@/integrations/supabase/client";
+import { InfoHint } from "@/components/ui/info-hint";
 
 const FACILITIES = [
   "Memorial Hospital",
@@ -97,8 +98,9 @@ export function PopulationHealth() {
             <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
               AUTO API · Population Health
             </div>
-            <div className="text-sm font-semibold text-slate-900">
+            <div className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1">
               Cohort Query (SNOMED / LOINC + Facility filter)
+              <InfoHint text="SNOMED CT = Systematized Nomenclature of Medicine (condition/diagnosis codes). LOINC = Logical Observation Identifiers (lab test codes). This query filters patients whose diagnoses/labs match the entered keywords or a published value set, scoped to the selected facilities and time window." />
             </div>
           </div>
         </div>

@@ -5,6 +5,7 @@ import { BoardHeader } from "@/components/BoardShell";
 import { useFacility } from "@/lib/facility-context";
 import { toast } from "sonner";
 import { Loader2, CheckCircle2, ShieldCheck } from "lucide-react";
+import { InfoHint } from "@/components/ui/info-hint";
 
 export const Route = createFileRoute("/tasks")({
   component: TasksPage,
@@ -139,8 +140,18 @@ function TasksPage() {
                   <th className="px-3 py-2 text-left font-semibold">Medication</th>
                   <th className="px-3 py-2 text-left font-semibold">Dose</th>
                   <th className="px-3 py-2 text-left font-semibold">Route</th>
-                  <th className="px-3 py-2 text-left font-semibold">Status</th>
-                  <th className="px-3 py-2 text-right font-semibold">Action</th>
+                  <th className="px-3 py-2 text-left font-semibold">
+                    <span className="inline-flex items-center gap-1">
+                      Status
+                      <InfoHint text='"Pending Verification" = pharmacist has not verified yet (action: Verify Order). "Approved" = pharmacist verified and the order is DUE for nurse administration (action: Administer). The status drives which action button appears in the Action column.' />
+                    </span>
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    <span className="inline-flex items-center gap-1">
+                      Action
+                      <InfoHint text='"Verify Order" only sets status = Approved and stamps approved_at — the medication is NOT yet administered. A second click on "Administer" is required to mark the dose given (status = Administered, administered_at stamped).' />
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

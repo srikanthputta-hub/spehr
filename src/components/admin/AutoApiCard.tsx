@@ -17,6 +17,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { getAutoApiLoopStatus, flushQaQueue } from "@/lib/auto-api.functions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { InfoHint } from "@/components/ui/info-hint";
 
 type LoopStatus = "NORMAL" | "WARNING" | "ERROR";
 type Loop = {
@@ -170,6 +171,7 @@ export function AutoApiCard() {
           >
             {!enabled ? "DISABLED" : hasErr ? "ERROR" : hasWarn ? "WARNING" : "ACTIVE"}
           </Badge>
+          <InfoHint text="Master switch for the AUTO API microservice ONLY — controls UMLS live queries, the NLP resolver pipeline, RxNorm drug-safety checks, and FHIR server sync. Distinct from the top-level 'Automate Hospital Network' toggle, which controls ghost admissions/discharges/labs." />
           <Switch checked={enabled} onCheckedChange={toggle} />
         </div>
       </div>
@@ -208,7 +210,10 @@ export function AutoApiCard() {
         </div>
         <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-600">
           <div>
-            <div className="uppercase tracking-wider text-slate-400">Idempotency Self-Test</div>
+            <div className="uppercase tracking-wider text-slate-400 inline-flex items-center gap-1">
+              Idempotency Self-Test
+              <InfoHint text="Idempotency = re-sending the same FHIR resource (via PUT with a deterministic stable ID) produces no duplicate rows on the Medblocks FHIR server. This heartbeat re-syncs known bundles every ~5 minutes and confirms zero duplicates were created." />
+            </div>
             <div className="font-semibold text-slate-800">
               {idemp.pass ? "PASS" : "FAIL"} · {idemp.duplicates} duplicates · {fmtAgo(idemp.lastRun)}
             </div>
@@ -254,10 +259,12 @@ export function AutoApiCard() {
             <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
             Force Sync
           </Button>
+          <InfoHint text="Dispatches an immediate FHIR push: all pending discharged-patient bundles are POSTed to the Medblocks FHIR server right now instead of waiting for the next 30s auto-sync heartbeat. Uses idempotent PUT with stable IDs, so re-running is safe." />
           <Button size="sm" variant="outline" disabled={busy || !enabled} onClick={flush}>
             <Trash2 className="h-3.5 w-3.5 mr-1.5" />
             Flush NLP Queue
           </Button>
+          <InfoHint text="Irreversibly clears every pending item from the NLP confidence-gate review queue (mappings below the auto-accept threshold awaiting human approval). Un-reviewed mappings are discarded — nothing is auto-committed." />
         </div>
       </div>
     </div>

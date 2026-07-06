@@ -23,6 +23,7 @@ import { AdmitPatientModal } from "@/components/admissions/AdmitPatientModal";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
 import spehrLogo from "@/assets/spehr-logo.png.asset.json";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { InfoHint } from "@/components/ui/info-hint";
 
 export const Route = createFileRoute("/admissions-board")({
   component: AdmissionsBoard,
@@ -121,8 +122,9 @@ function AdmissionsBoard() {
               </button>
             );
           })}
-          <div className="ml-auto text-[11px] text-white/60">
+          <div className="ml-auto text-[11px] text-white/60 inline-flex items-center gap-1">
             {bedCounts.available} / {bedCounts.total} beds open
+            <InfoHint text={`Beds where bed_management.status = "Available" at ${facility}. Beds in "Cleaning" or "Disinfecting" are not counted as open — they roll back to Available automatically when the cleaning cycle finishes.`} />
           </div>
         </div>
       </div>

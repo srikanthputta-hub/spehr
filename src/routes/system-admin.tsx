@@ -750,8 +750,9 @@ function SystemAdminPage() {
                 <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                   ⚙️ Global System Controls
                 </div>
-                <div className="text-base font-semibold text-slate-900">
+                <div className="text-base font-semibold text-slate-900 inline-flex items-center gap-1">
                   Automate Hospital Network (AI Engines)
+                  <InfoHint text="Master switch across ALL 5 facilities simultaneously — not just the one currently selected. When OFF, every background engine halts: ghost admissions, auto-discharges, lab ordering & auto-results, medication cascades, vitals simulation. The system enters a fully manual state." />
                 </div>
                 <div className="text-xs text-slate-600 mt-0.5">
                   Controls all background engines: ghost admissions, discharges, lab
@@ -772,11 +773,12 @@ function SystemAdminPage() {
                   />
                 </span>
                 <span
-                  className={`text-[11px] font-bold uppercase tracking-wider ${
+                  className={`text-[11px] font-bold uppercase tracking-wider inline-flex items-center gap-1 ${
                     automation ? "text-emerald-700" : "text-slate-500"
                   }`}
                 >
                   {automation === null ? "Loading…" : automation ? "Engines Active" : "Paused"}
+                  <InfoHint text='"Paused" means every background automation loop is stopped: vitals stop jittering, beds stop freeing, invoices stop generating, ghost admissions stop firing. Existing data is preserved — nothing new is generated until this is flipped back to Engines Active.' />
                 </span>
               </div>
               <button
@@ -810,6 +812,7 @@ function SystemAdminPage() {
                   <>🏥 Discharge All Patients</>
                 )}
               </button>
+              <InfoHint text="NETWORK-WIDE, not scoped to the currently selected facility: discharges every admitted patient across all 5 facilities, releases all occupied beds (into the Cleaning cycle), and triggers a FHIR Discharge Summary + invoice generation for each patient. Cannot be undone." />
             </div>
           </div>
         </div>

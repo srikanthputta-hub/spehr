@@ -246,12 +246,14 @@ function FinanceBoard() {
           label="Total Billed Revenue"
           value={money(totalRevenue)}
           tone="violet"
+          info="Sum of ALL invoices at this facility regardless of status (issued + balanced) — not just money actually collected. The gap between Total Billed and Collected is the outstanding accounts receivable."
         />
         <KpiCard
           icon={<DollarSign className="h-4 w-4" />}
           label="Collected (Paid)"
           value={money(collected)}
           tone="amber"
+          info="Sum of only FHIR Invoices with status = balanced at this facility — the portion patients have actually paid via the MySPEHR portal (FHIR PaymentNotice)."
         />
       </section>
 
@@ -519,11 +521,13 @@ function KpiCard({
   label,
   value,
   tone,
+  info,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   tone: "emerald" | "sky" | "violet" | "amber";
+  info?: string;
 }) {
   const toneMap: Record<string, string> = {
     emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
@@ -534,7 +538,10 @@ function KpiCard({
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
+        <div className="text-[10px] uppercase tracking-widest text-slate-500">
+          {label}
+          {info && <InfoHint className="ml-1" text={info} />}
+        </div>
         <span className={`inline-grid place-items-center h-7 w-7 rounded-md ring-1 ${toneMap[tone]}`}>
           {icon}
         </span>

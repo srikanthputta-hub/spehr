@@ -4,6 +4,7 @@ import { Loader2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { reconcileOrphanedBeds } from "@/lib/admit-patient";
 import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
+import { InfoHint } from "@/components/ui/info-hint";
 
 interface BedRow {
   id: string;
@@ -161,8 +162,14 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
         <div className="flex items-center gap-3 text-xs">
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-400" /> Available {counts.available}</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" /> Occupied {counts.occupied}</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-400" /> Cleaning {counts.cleaning}</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-indigo-400" /> Disinfecting {counts.disinfecting}</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-amber-400" /> Cleaning {counts.cleaning}
+            <InfoHint text="Standard 60-second terminal clean after a routine discharge. Bed auto-flips back to Available when the cleaning cycle timer expires." />
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-indigo-400" /> Disinfecting {counts.disinfecting}
+            <InfoHint text="Extended decontamination protocol triggered when the prior occupant had an isolation-precaution diagnosis (matched against the Isolation Precautions value set). Takes longer than a standard clean before the bed returns to Available." />
+          </span>
           <button onClick={onClose} className="ml-2 inline-flex items-center gap-1 rounded-md bg-white/10 hover:bg-white/20 px-3 h-8 text-xs font-semibold">
             <X className="h-3.5 w-3.5" /> Close
           </button>
@@ -201,11 +208,11 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
                           <span className="font-sans font-medium text-slate-900">· {names[b.current_patient_mrn]}</span>
                         )}
                         {precautions[b.current_patient_mrn] && (
-                          <span
-                            className="inline-flex items-center rounded-full bg-amber-200 text-amber-900 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
-                            title="Isolation precaution flagged by value-set match"
-                          >
-                            {precautions[b.current_patient_mrn]}
+                          <span className="inline-flex items-center gap-1">
+                            <span className="inline-flex items-center rounded-full bg-amber-200 text-amber-900 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider">
+                              {precautions[b.current_patient_mrn]}
+                            </span>
+                            <InfoHint text="Isolation precaution: this patient's SNOMED conditions match the published Isolation Precautions value set. When they discharge, the bed will require the extended Disinfecting protocol before returning to Available." />
                           </span>
                         )}
                       </span>

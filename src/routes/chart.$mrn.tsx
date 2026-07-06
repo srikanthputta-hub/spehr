@@ -36,6 +36,7 @@ import {
   type MedOrder,
   type Patient,
 } from "@/lib/patients";
+import { InfoHint } from "@/components/ui/info-hint";
 
 export const Route = createFileRoute("/chart/$mrn")({
   component: ChartPage,
@@ -486,6 +487,7 @@ function ChartPage() {
                 >
                   {patient.code}
                 </span>
+                <InfoHint text="Code status: Full Code = attempt full resuscitation; DNR = Do Not Resuscitate (no CPR); DNI = Do Not Intubate (no advanced airway) — DNR and DNI are separate orders; Comfort = comfort-measures / palliative only." />
               </div>
               <div className="text-[11px] text-white/65 mt-0.5">
                 Room {patient.room} · {patient.age}
@@ -818,7 +820,9 @@ function ChartPage() {
                       {savingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span aria-hidden>💾</span>}
                       Save As Draft
                     </button>
+                    <InfoHint text="Draft = reversible. Saves the note to the chart in an editable state — you can revise or delete it later. Not medicolegally binding." />
                     {can("btn_esign_note") && (
+                      <>
                       <button
                         type="button"
                         onClick={openEsignModal}
@@ -827,6 +831,8 @@ function ChartPage() {
                         <span aria-hidden>✍️</span>
                         E-Sign & Lock Note
                       </button>
+                      <InfoHint text="Legally-binding, irreversible: stamps the note to the permanent medical record with your credentials and locks it from all future edits. Cannot be undone." />
+                      </>
                     )}
                   </div>
                 )}
