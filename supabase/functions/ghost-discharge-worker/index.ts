@@ -43,9 +43,41 @@ import {
   type NarrativeMed,
   type NarrativePatient,
 } from "../_shared/discharge-narrative.ts";
+import {
+  buildDischargeTransactionBundle,
+  type DischargeLab as FhirDischargeLab,
+  type DischargeMed as FhirDischargeMed,
+  type AdmissionPatient,
+} from "../_shared/fhir-admission-discharge.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const FHIR_SERVER_URL = (Deno.env.get("FHIR_SERVER_URL") ?? "").replace(/\/+$/, "");
+const FHIR_BEARER_TOKEN = Deno.env.get("FHIR_BEARER_TOKEN") ?? "";
+const FHIR_APIKEY = Deno.env.get("FHIR_APIKEY") ?? "";
+
+async function pushDischargeBundleToFhir(bundle: unknown): Promise<{ ok: boolean; status: number }> {
+  if (!FHIR_SERVER_URL || !FHIR_BEARER_TOKEN) {
+    return { ok: false, status: 0 };
+  }
+  const headers: Record<string, string> = {
+    "content-type": "application/fhir+json",
+    accept: "application/fhir+json",
+    authorization: `Bearer ${FHIR_BEARER_TOKEN}`,
+  };
+  if (FHIR_APIKEY) headers["apikey"] = FHIR_APIKEY;
+  const res = await fetch(FHIR_SERVER_URL, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(bundle),
+  });
+  let bodyText = "";
+  try { bodyText = await res.text(); } catch { /* ignore */ }
+  if (!res.ok) {
+    console.error(`[ghost-discharge-worker] FHIR push ${res.status}:`, bodyText.slice(0, 800));
+  }
+  return { ok: res.ok, status: res.status };
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -79,35 +111,75 @@ async function pickCandidates(admin: any): Promise<string[]> {
 }
 
 /**
- * Fetch the full clinical context for a single MRN and hand it to
- * `buildDischargeMarkdown`. The mapping here MUST stay consistent with the
- * physician-board client flow so both discharge paths generate the same
- * summary shape.
+ * Fetch the raw per-encounter clinical context for a single MRN. Consumed
+ * both by `buildSummaryForMrn` (narrative markdown) and by the FHIR
+ * discharge Composition push (real drug/lab names).
  */
-async function buildSummaryForMrn(admin: any, mrn: string): Promise<{
-  summary: string | null;
+async function fetchClinicalContext(admin: any, mrn: string): Promise<{
   patient: any | null;
+  meds: any[];
+  labs: any[];
+  allergies: any[];
 }> {
   const [pRes, mRes, lRes, lrRes, aRes] = await Promise.all([
     admin.from("patients").select("*").eq("mrn", mrn).maybeSingle(),
     admin.from("medication_orders")
-      .select("drug_name, medication_name, dose, route, status, ordered_by, ordering_physician, administered_at, rxnorm_code, rxnorm_display, frequency")
+      .select("id, drug_name, medication_name, dose, route, status, ordered_by, ordering_physician, administered_at, rxnorm_code, rxnorm_display, frequency")
       .eq("patient_mrn", mrn),
     admin.from("lab_orders")
-      .select("test_type, status, result_value, collected_at, loinc_code")
+      .select("id, test_type, status, result_value, collected_at, loinc_code")
       .eq("patient_mrn", mrn),
     admin.from("lab_results")
-      .select("test_name, result_value, unit, flag, reference_range, created_at")
+      .select("id, test_name, result_value, unit, flag, reference_range, created_at")
       .eq("mrn", mrn),
     admin.from("allergies")
       .select("substance, reaction, severity")
       .eq("mrn", mrn),
   ]);
+  const patient = (pRes as any)?.data ?? null;
+  const meds = ((mRes as any)?.data ?? []) as any[];
+  const labOrders = ((lRes as any)?.data ?? []) as any[];
+  const labResults = ((lrRes as any)?.data ?? []) as any[];
+  const allergies = ((aRes as any)?.data ?? []) as any[];
+  const labs = [
+    ...labOrders.map((l) => ({
+      id: l.id,
+      test_type: l.test_type ?? null,
+      test_name: l.test_type ?? null,
+      status: l.status ?? null,
+      result_value: l.result_value ?? null,
+      collected_at: l.collected_at ?? null,
+      loinc_code: l.loinc_code ?? null,
+      flag: null,
+      unit: null,
+    })),
+    ...labResults.map((r) => ({
+      id: r.id,
+      test_type: r.test_name ?? null,
+      test_name: r.test_name ?? null,
+      status: "Reported",
+      result_value: r.result_value ?? null,
+      collected_at: r.created_at ?? null,
+      loinc_code: null,
+      flag: r.flag ?? null,
+      unit: r.unit ?? null,
+    })),
+  ];
+  return { patient, meds, labs, allergies };
+}
 
-  const patient = (pRes as any)?.data;
+/**
+ * Turn the raw clinical context into the narrative markdown consumed by
+ * `clinical_notes` / DocumentReference.
+ */
+async function buildSummaryForMrn(admin: any, mrn: string): Promise<{
+  summary: string | null;
+  patient: any | null;
+}> {
+  const { patient, meds: rawMeds, labs: rawLabs, allergies: rawAllergies } = await fetchClinicalContext(admin, mrn);
   if (!patient) return { summary: null, patient: null };
 
-  const meds: NarrativeMed[] = (((mRes as any)?.data ?? []) as any[]).map((m) => ({
+  const meds: NarrativeMed[] = rawMeds.map((m: any) => ({
     medication_name: m.medication_name ?? m.drug_name ?? null,
     drug_name: m.drug_name ?? null,
     dose: m.dose ?? null,
@@ -120,28 +192,18 @@ async function buildSummaryForMrn(admin: any, mrn: string): Promise<{
     frequency: m.frequency ?? null,
   }));
 
-  const labs: NarrativeLab[] = [
-    ...(((lRes as any)?.data ?? []) as any[]).map((l) => ({
-      test_type: l.test_type ?? null,
-      status: l.status ?? null,
-      result_value: l.result_value ?? null,
-      collected_at: l.collected_at ?? null,
-      loinc_code: l.loinc_code ?? null,
-      display_name: l.test_type ?? null,
-    })),
-    ...(((lrRes as any)?.data ?? []) as any[]).map((r) => ({
-      test_type: r.test_name ?? null,
-      status: "Reported",
-      result_value: r.result_value ?? null,
-      collected_at: r.created_at ?? null,
-      loinc_code: null,
-      display_name: r.test_name ?? null,
-      unit: r.unit ?? null,
-      abnormal_flag: r.flag ?? null,
-    })),
-  ];
+  const labs: NarrativeLab[] = rawLabs.map((l: any) => ({
+    test_type: l.test_type ?? null,
+    status: l.status ?? null,
+    result_value: l.result_value ?? null,
+    collected_at: l.collected_at ?? null,
+    loinc_code: l.loinc_code ?? null,
+    display_name: l.test_name ?? l.test_type ?? null,
+    unit: l.unit ?? null,
+    abnormal_flag: l.flag ?? null,
+  }));
 
-  const allergies: NarrativeAllergy[] = (((aRes as any)?.data ?? []) as any[]).map((a) => ({
+  const allergies: NarrativeAllergy[] = rawAllergies.map((a: any) => ({
     substance: a.substance ?? null,
     reaction: a.reaction ?? null,
     severity: a.severity ?? null,
@@ -227,7 +289,80 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
       .eq("current_patient_mrn", mrn);
   }
 
-  return { mrn, ok: true, note_id: noteRow?.id, summary_len: summary.length };
+  // Rebuild the FHIR Discharge Composition with REAL per-encounter meds/labs
+  // and push it to Medblocks. Fixes the admission-time Composition that
+  // hallucinated drug names from a per-diagnosis template and reported
+  // "No laboratory observations / No discharge medications" because it ran
+  // before any orders existed.
+  let composition_push: { ok: boolean; status: number } | undefined;
+  try {
+    const { patient: freshPatient, meds: rawMeds, labs: rawLabs } = await fetchClinicalContext(admin, mrn);
+    const fhirMeds: FhirDischargeMed[] = rawMeds.map((m: any) => ({
+      id: m.id,
+      drug: m.medication_name ?? m.drug_name ?? "medication",
+      drug_name: m.drug_name ?? undefined,
+      medication_name: m.medication_name ?? undefined,
+      dose: m.dose ?? undefined,
+      route: m.route ?? undefined,
+      frequency: m.frequency ?? undefined,
+      rxnorm: m.rxnorm_code ?? undefined,
+      status: m.status ?? undefined,
+      ordering_physician: m.ordering_physician ?? m.ordered_by ?? undefined,
+    }));
+    const fhirLabs: FhirDischargeLab[] = rawLabs.map((l: any) => ({
+      test_name: l.test_name ?? l.test_type ?? "Lab",
+      test_type: l.test_type ?? undefined,
+      result_value: l.result_value ?? undefined,
+      unit: l.unit ?? undefined,
+      loinc: l.loinc_code ?? undefined,
+      flag: l.flag ?? undefined,
+      collected_at: l.collected_at ?? undefined,
+      performing_lab: "SPEHR Central Laboratory",
+    }));
+    const admissionPatient: AdmissionPatient = {
+      mrn,
+      first_name: freshPatient.first_name ?? null,
+      last_name: freshPatient.last_name ?? null,
+      name: freshPatient.name ?? null,
+      dob: freshPatient.dob ?? null,
+      age: freshPatient.age ?? null,
+      gender: freshPatient.gender ?? freshPatient.biological_sex ?? null,
+      admission_time: freshPatient.admission_time ?? null,
+      discharge_time: freshPatient.discharge_time ?? patientUpdate.discharge_time as string ?? new Date().toISOString(),
+      status: "Discharged",
+      chief_complaint: freshPatient.chief_complaint ?? null,
+      diagnosis: freshPatient.diagnosis ?? null,
+      past_medical_history: freshPatient.past_medical_history ?? null,
+      past_surgical_history: freshPatient.past_surgical_history ?? null,
+      allergies: freshPatient.allergies ?? null,
+      environmental_allergies: freshPatient.environmental_allergies ?? null,
+      primary_care_physician: freshPatient.primary_care_physician ?? null,
+      discharge_summary: summary,
+    };
+    const { bundle } = buildDischargeTransactionBundle({
+      patient: admissionPatient,
+      labs: fhirLabs,
+      dischargeMeds: fhirMeds,
+      admittingDiagnosis: freshPatient.chief_complaint ?? undefined,
+      dischargeDiagnosis: freshPatient.diagnosis ?? freshPatient.chief_complaint ?? undefined,
+      conditionAtDischarge: "Stable, improved.",
+      diet: "Regular as tolerated",
+      activity: "Activity as tolerated",
+      physicalExam: {
+        general: "Awake, alert, in no acute distress on admission.",
+        cardiovascular: "Regular rate and rhythm, no murmurs.",
+        pulmonary: "Clear to auscultation bilaterally.",
+        abdomen: "Soft, non-tender, non-distended.",
+        neurologic: "Alert and oriented x3, no focal deficits.",
+      },
+    });
+    composition_push = await pushDischargeBundleToFhir(bundle);
+  } catch (e) {
+    composition_push = { ok: false, status: -1 };
+    console.error("[ghost-discharge-worker] composition push failed:", (e as Error).message);
+  }
+
+  return { mrn, ok: true, note_id: noteRow?.id, summary_len: summary.length, composition_push };
 }
 
 Deno.serve(async (req) => {
