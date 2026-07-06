@@ -1525,6 +1525,7 @@ function PatientChart() {
   const [dischargeOpen, setDischargeOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [workloadCount, setWorkloadCount] = useState<number>(0);
+  const [workloadOpen, setWorkloadOpen] = useState(false);
   const automationEnabled = useAutomationEnabled();
   const pending = usePendingChanges();
   const [signOpen, setSignOpen] = useState(false);
@@ -1690,7 +1691,7 @@ function PatientChart() {
           <ToolbarBtn label="Discharge" icon={<LogOut className="h-4 w-4" />} onClick={() => setDischargeOpen(true)} />
           <div className="flex-1" />
           <ToolbarBtn side="right" label="Sign" icon={<PenLine className="h-4 w-4" />} badge={pending.length} onClick={openSign} />
-          <ToolbarBtn side="right" label="Workload" icon={<ClipboardList className="h-4 w-4" />} badge={workloadCount} onClick={() => navigate({ to: "/tasks" }).catch(() => {})} />
+          <ToolbarBtn side="right" label="Workload" icon={<ClipboardList className="h-4 w-4" />} badge={workloadCount} onClick={() => setWorkloadOpen(true)} />
           <div className="relative">
             <ToolbarBtn side="right" label="Menu" icon={<Settings className="h-4 w-4" />} onClick={() => setMenuOpen((v) => !v)} />
             {menuOpen && (
@@ -1710,6 +1711,9 @@ function PatientChart() {
 
       {ordersOpen && (
         <OrdersDialog patient={patient} automationEnabled={automationEnabled} onClose={() => setOrdersOpen(false)} />
+      )}
+      {workloadOpen && (
+        <WorkloadDialog patient={patient} onClose={() => setWorkloadOpen(false)} />
       )}
       <DischargeConformanceBanner mrn={patient.mrn} />
       <SafetyAlertBanner mrn={patient.mrn} />
