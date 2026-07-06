@@ -3,22 +3,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { toast } from "sonner";
 import {
   Users,
   PillBottle,
   AlertTriangle,
-  UserCog,
-  Trash2,
   Loader2,
   ShieldCheck,
   ShieldAlert,
@@ -212,14 +201,6 @@ function roleBadgeClass(role: string) {
       return "bg-slate-100 text-slate-700 ring-1 ring-slate-600/20";
   }
 }
-
-const ROOM_CLUSTERS = [
-  "Rooms 401–404",
-  "Rooms 405–408",
-  "Rooms 409–412",
-  "ICU Pod A",
-  "ICU Pod B",
-];
 
 function fullName(p: Patient) {
   return (
