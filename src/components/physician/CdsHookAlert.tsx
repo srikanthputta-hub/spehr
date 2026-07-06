@@ -143,6 +143,7 @@ export function CdsHookAlert({
                 </button>
               </div>
             ) : (
+              <>
               <button
                 type="button"
                 onClick={() => setShowInput(key)}
@@ -151,6 +152,7 @@ export function CdsHookAlert({
                 Override with reason →
               </button>
               <InfoHint className="ml-2 align-middle" text="Overriding is not silent — it writes a permanent audit row to cds_overrides with your name, the drug (RxNorm), the condition/allergy, and your justification. Reviewable in System Admin → CDS Hook Decisions." />
+              </>
             )}
           </div>
         );
