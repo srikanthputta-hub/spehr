@@ -423,16 +423,17 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
 
     if (data.condition_keyword) {
       const k = data.condition_keyword.trim();
-      const { data: cond } = await sb
+      const { data: cond, error: condErr } = await sb
         .from("conditions")
-        .select("patient_mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
+        .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
         .or(
           `snomed_display.ilike.%${k}%,icd10_display.ilike.%${k}%,display_text.ilike.%${k}%`,
         )
         .limit(2000);
+      if (condErr) console.error("[population-query] conditions keyword failed", condErr.message);
       condMrns = new Set();
       for (const r of (cond as any[]) ?? []) {
-        if (r.patient_mrn) condMrns.add(r.patient_mrn);
+        if (r.mrn) condMrns.add(r.mrn);
         const key = r.snomed_display
           ? `${r.snomed_code ?? "?"} · ${r.snomed_display}`
           : r.icd10_display
