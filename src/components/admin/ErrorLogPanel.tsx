@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AlertTriangle } from "lucide-react";
+import { InfoHint } from "@/components/ui/info-hint";
 
 type TabId = "auto-doc" | "auto-admin" | "auto-it" | "auto-api";
 
@@ -94,9 +95,15 @@ export function ErrorLogPanel() {
           <AlertTriangle className="h-5 w-5" />
         </div>
         <div>
-          <div className="text-sm font-semibold text-slate-900">Error Log</div>
+          <div className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+            Error Log
+            <InfoHint
+              className="ml-1"
+              text="Shows only error-level events from the four autonomous engines (Auto Doc, Auto Admin, Auto IT, Auto API) — informational and warning-level activity is filtered out so real failures aren't buried."
+            />
+          </div>
           <div className="text-[11px] text-slate-500">
-            Error-level events only · 50 most recent per agent · refresh 60s
+            50 most recent · refreshes every 60s
           </div>
         </div>
       </div>

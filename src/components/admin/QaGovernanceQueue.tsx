@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Pencil, X, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { InfoHint } from "@/components/ui/info-hint";
 import {
   getQaQueue,
   approveQaItem,
@@ -101,6 +102,7 @@ export function QaGovernanceQueue({
           <h3 className="text-sm font-bold text-slate-900">
             NLP Confidence & QA Governance Queue
           </h3>
+          <InfoHint text="Mappings scoring 80–94% confidence are held here for mandatory administrator review before FHIR push. 95% or higher auto-commits; below 80% auto-rejects." />
           <Badge variant="outline" className="bg-white text-violet-700 border-violet-300">
             {items.length} pending
           </Badge>
@@ -108,10 +110,6 @@ export function QaGovernanceQueue({
         <div className="text-[10px] uppercase tracking-wider text-slate-500">
           AUTO API · NLP_CONFIDENCE_GATE
         </div>
-      </div>
-      <div className="text-xs text-slate-600 mb-3">
-        Mappings scoring 80–94% confidence are held here for administrator
-        review before FHIR push. ≥ 95% auto-commits; &lt; 80% auto-rejects.
       </div>
       {items.length === 0 ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-6 text-center text-sm text-emerald-700">

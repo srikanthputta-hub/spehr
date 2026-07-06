@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Sparkles, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AuditCard, type AuditRow } from "./AuditCard";
+import { InfoHint } from "@/components/ui/info-hint";
 
 let cachedApprovalRows: AuditRow[] = [];
 
@@ -63,11 +64,11 @@ export default function NlpApprovalTrail() {
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700">
               Last 50 · Approved
             </span>
+            <InfoHint
+              className="ml-1.5"
+              text="The 50 most recently approved audit rows across the 6-stream pipeline. Human approvals are tagged green; AI auto-approvals (after the 3-minute grace window elapses untouched) are tagged blue."
+            />
           </h2>
-          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Recently approved audit rows across the 6-Stream Pipeline. Human approvals are
-            tagged green; AI auto-approvals (after the 3-minute grace window) are tagged blue.
-          </p>
         </div>
         <Button variant="outline" size="sm" onClick={refresh}>
           <RefreshCw className="h-4 w-4" /> Refresh

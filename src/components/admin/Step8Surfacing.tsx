@@ -11,6 +11,7 @@ import {
   Sparkles,
   XCircle,
 } from "lucide-react";
+import { InfoHint } from "@/components/ui/info-hint";
 
 /* ------------------------------------------------------------------ */
 /*  Catalog → live counts from the step-8 tables                       */
@@ -306,6 +307,10 @@ export function CdsOverridesFeed() {
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 text-orange-600" /> CDS Hook Decisions · Overrides &amp; Rejections
+          <InfoHint
+            className="ml-1.5"
+            text="Historical record of every Safety Alert decision, manual or SLA auto-resolved, including the computed risk score, the auto-decision threshold, and the full rationale behind each Override or Reject."
+          />
         </h3>
         <span className="text-[10px] uppercase tracking-wider text-slate-500">
           Physician decisions on contraindication alerts

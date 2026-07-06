@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { TranslateCard } from "@/components/admin/dictionary/FhirOpCards";
+import { InfoHint } from "@/components/ui/info-hint";
 
 const VOCABS = [
   { label: "SNOMED CT", uri: "http://snomed.info/sct" },
@@ -216,11 +217,13 @@ export function CrossMapStudio() {
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-slate-200 bg-white p-5">
-        <h3 className="text-lg font-semibold text-slate-900">🔀 Cross-Map Studio</h3>
-        <p className="text-xs text-slate-500 mt-1">
-          Translate clinical concepts across SNOMED CT, ICD-10-CM, LOINC, RxNorm, and CPT. All mappings
-          validated via the UMLS Metathesaurus CUI layer. Powered by AUTO API crosswalk endpoint.
-        </p>
+        <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-1.5">
+          🔀 Cross-Map Studio
+          <InfoHint
+            className="ml-1.5"
+            text="Translate a single clinical code between SNOMED CT, ICD-10-CM, LOINC, RxNorm, and CPT — one at a time or as a batch crosswalk. Every mapping is validated through the UMLS Metathesaurus CUI layer; the table below shows common equivalence mappings already on file."
+          />
+        </h3>
       </div>
 
       {/* Single translator */}

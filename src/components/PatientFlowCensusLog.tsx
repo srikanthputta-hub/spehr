@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Printer, FileText, Brain } from "lucide-react";
 import { buildDischargeMarkdown } from "@/lib/discharge-narrative";
+import { InfoHint } from "@/components/ui/info-hint";
 
 interface PatientRow {
   id: string;
@@ -589,8 +590,12 @@ export function PatientFlowCensusLog() {
     <div>
       <div className="mb-3 flex items-end justify-between flex-wrap gap-2">
         <div>
-          <h2 className="text-base font-semibold text-slate-900">
+          <h2 className="text-base font-semibold text-slate-900 flex items-center gap-1.5">
             🛏️ Patient Flow & Census Log
+            <InfoHint
+              className="ml-1"
+              text="Chronological log of every admission and discharge across the network, newest first — mirrors exactly what drives the Floor Board's live census counts."
+            />
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Last 50 admissions · {facility} · Realtime

@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { LookupCard } from "@/components/admin/dictionary/FhirOpCards";
+import { InfoHint } from "@/components/ui/info-hint";
 
 type Hit = { ui: string; name: string; rootSource?: string };
 type Picked = { code: string; display: string; vocabulary: string; excluded?: boolean };
@@ -167,10 +168,13 @@ export function AuthoringWorkbench() {
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-slate-200 bg-white p-5">
-        <h3 className="text-lg font-semibold text-slate-900">🛠 Authoring Workbench</h3>
-        <p className="text-xs text-slate-500 mt-1">
-          Search UMLS, browse hierarchies, and assemble value sets. All concepts resolved live from the UMLS Metathesaurus.
-        </p>
+        <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-1.5">
+          🛠 Authoring Workbench
+          <InfoHint
+            className="ml-1.5"
+            text="Search the UMLS Metathesaurus live, pick concepts by hierarchy, and assemble them into a new extensional or intensional value set. Nothing publishes automatically — Save Draft or Submit for Review when you're ready."
+          />
+        </h3>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">

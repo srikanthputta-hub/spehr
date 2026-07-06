@@ -74,6 +74,7 @@ import {
 import NlpApprovalTrail from "@/components/admin/dictionary/NlpApprovalTrail";
 import { AutoApiStatusPill } from "@/components/admin/AutoApiStatusPill";
 import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
+import { InfoHint } from "@/components/ui/info-hint";
 import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
 import { ValueSetLibrary } from "@/components/admin/dictionary/ValueSetLibrary";
 import { AuthoringWorkbench } from "@/components/admin/dictionary/AuthoringWorkbench";
@@ -817,13 +818,13 @@ function SystemAdminPage() {
         {tab === "feature_controls" && (
           <div className="space-y-6">
             <div>
-              <h1 className="text-xl font-semibold text-slate-900">
+              <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-1.5">
                 🎛️ UI &amp; Feature Controls
+                <InfoHint
+                  className="ml-1.5"
+                  text="Master switches for in-app actions, scoped per facility. Toggling a switch instantly changes button visibility for every user with that clinical role at the selected facility — no redeploy required."
+                />
               </h1>
-              <p className="text-sm text-slate-600 mt-1">
-                Master switches for in-app actions, scoped per hospital. Toggling a switch
-                instantly updates button visibility for users of that role at the selected facility.
-              </p>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-5 py-4">
@@ -976,10 +977,13 @@ function UserDirectory() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">👥 User Directory</h1>
-        <p className="text-sm text-slate-600 mt-1">
-          Network-wide staff accounts with assigned clinical role, primary facility, and current access status.
-        </p>
+        <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-1.5">
+          👥 User Directory
+          <InfoHint
+            className="ml-1.5"
+            text="Network-wide staff directory with each person's clinical role, primary facility, and access status. Use Edit Access to suspend or reinstate an account."
+          />
+        </h1>
       </div>
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <table className="w-full text-sm">
@@ -1751,18 +1755,11 @@ function SafetyQueue({ facility }: { facility: string }) {
         <div>
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <ShieldAlert className="h-4 w-4 text-red-600" /> Intervention & Safety Queue
+            <InfoHint
+              className="ml-1.5"
+              text="Fires whenever an order or NLP-extracted code conflicts with a documented patient allergy or a dangerous drug-drug interaction, checked against the published Safety value sets (Penicillin Class Drugs, Anticoagulants, NSAIDs, etc). A clinician can manually Override or Reject within 45 seconds; after that, the SLA auto-resolves it using a computed risk score — 70/100 or higher auto-Rejects, below 70 auto-Overrides. Showing the latest 15 alerts for the selected facility scope."
+            />
           </h2>
-          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Auto-commit halts whenever the NLP engine or an order maps an
-            RxNorm drug that cross-reacts with a documented patient allergy.
-            Pharmacy or an EHR specialist may Override / Reject manually —
-            otherwise the <span className="font-semibold">AI Safety Engine</span>{" "}
-            auto-resolves any Pending Review alert after a 45-second SLA.
-            Showing latest 15 for{" "}
-            <span className="font-semibold">
-              {facility && facility !== "all" ? facility : "all facilities"}
-            </span>.
-          </p>
         </div>
         <Button variant="outline" onClick={refresh}>
           <Loader2 className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -3005,12 +3002,11 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         <div>
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <Grid3x3 className="h-4 w-4 text-[#0c2340]" /> Live Terminology Matrix
+            <InfoHint
+              className="ml-1.5"
+              text="Last 15 admissions mapped to SNOMED CT, ICD-10, LOINC, and RxNorm — click any pill for its canonical display and value-set category. (The CPT column is reserved for future procedure-coding support; Auto Doc doesn't assign CPT codes yet, so it will always read empty today.)"
+            />
           </h2>
-          <p className="text-sm text-slate-600 mt-0.5">
-            Last 15 admissions{facility !== "all" ? ` at ${facility}` : " across the network"} mapped to
-            SNOMED-CT, ICD-10, CPT, LOINC, and RxNorm. Click any pill for the canonical
-            display and value-set category.
-          </p>
         </div>
         <div className="text-xs text-slate-500">{rows.length} patients</div>
       </div>
@@ -3702,14 +3698,11 @@ function FhirInteroperability({ facility }: { facility: string }) {
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <FileJson className="h-5 w-5 text-[#0c2340]" />
             FHIR Interoperability
+            <InfoHint
+              className="ml-1.5"
+              text="Final staging area for the unified FHIR R4 encounter Bundle. Each row is one admission encounter — opening the JSON shows the complete longitudinal record (Patient, Encounter, Observations, MedicationRequest/Administration, DocumentReference, CarePlan, Appointment) exactly as pushed to the external Medblocks FHIR server, with deterministic idempotent IDs so re-syncing a patient never creates duplicates."
+            />
           </h2>
-          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Final staging area for the unified FHIR R4 encounter Bundle. Each row
-            represents one admission encounter; opening the JSON shows the full
-            longitudinal record (Patient · Encounter · Observations · Medication
-            Requests &amp; Administrations · DocumentReference · CarePlan ·
-            Appointment) ready to be pushed to the external FHIR server.
-          </p>
         </div>
         <div className="text-xs text-slate-500">{rows.length} encounters</div>
       </div>
@@ -4163,10 +4156,13 @@ function AuditLog() {
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">📜 Enterprise Event Ledger</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            Immutable record of clinical, automation, security, and system events across the network. Newest first.
-          </p>
+          <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-1.5">
+            📜 Enterprise Event Ledger
+            <InfoHint
+              className="ml-1.5"
+              text="Immutable, append-only log of clinical, automation, security, and system events across the entire network, newest first. Use Download CSV for compliance review."
+            />
+          </h1>
         </div>
         <button
           type="button"
@@ -4842,6 +4838,10 @@ function MedicalDictionary() {
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
               📚 Medical Dictionary
+              <InfoHint
+                className="ml-1.5"
+                text="VSAC-aligned terminology library powering every clinical, safety, and billing workflow in SPEHR — browse SNOMED CT, ICD-10, LOINC, and RxNorm value sets, or extend the dictionary with site-specific codes."
+              />
             </h1>
             <label className="inline-flex items-center gap-1.5">
               <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
@@ -4859,10 +4859,6 @@ function MedicalDictionary() {
               </select>
             </label>
           </div>
-          <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-            VSAC-aligned terminology library used across the EHR. Browse SNOMED CT, ICD-10,
-            LOINC, RxNorm, and curated value sets; extend with site-specific codes.
-          </p>
           {subtab === "library" && (
             <p className="text-[11px] mt-1 text-slate-500">
               VSAC-aligned value set repository · {usageMeta.count} admissions referenced
