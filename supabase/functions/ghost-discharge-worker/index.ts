@@ -256,7 +256,80 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
       .eq("current_patient_mrn", mrn);
   }
 
-  return { mrn, ok: true, note_id: noteRow?.id, summary_len: summary.length };
+  // Rebuild the FHIR Discharge Composition with REAL per-encounter meds/labs
+  // and push it to Medblocks. Fixes the admission-time Composition that
+  // hallucinated drug names from a per-diagnosis template and reported
+  // "No laboratory observations / No discharge medications" because it ran
+  // before any orders existed.
+  let composition_push: { ok: boolean; status: number } | undefined;
+  try {
+    const { patient: freshPatient, meds: rawMeds, labs: rawLabs } = await fetchClinicalContext(admin, mrn);
+    const fhirMeds: FhirDischargeMed[] = rawMeds.map((m: any) => ({
+      id: m.id,
+      drug: m.medication_name ?? m.drug_name ?? "medication",
+      drug_name: m.drug_name ?? undefined,
+      medication_name: m.medication_name ?? undefined,
+      dose: m.dose ?? undefined,
+      route: m.route ?? undefined,
+      frequency: m.frequency ?? undefined,
+      rxnorm: m.rxnorm_code ?? undefined,
+      status: m.status ?? undefined,
+      ordering_physician: m.ordering_physician ?? m.ordered_by ?? undefined,
+    }));
+    const fhirLabs: FhirDischargeLab[] = rawLabs.map((l: any) => ({
+      test_name: l.test_name ?? l.test_type ?? "Lab",
+      test_type: l.test_type ?? undefined,
+      result_value: l.result_value ?? undefined,
+      unit: l.unit ?? undefined,
+      loinc: l.loinc_code ?? undefined,
+      flag: l.flag ?? undefined,
+      collected_at: l.collected_at ?? undefined,
+      performing_lab: "SPEHR Central Laboratory",
+    }));
+    const admissionPatient: AdmissionPatient = {
+      mrn,
+      first_name: freshPatient.first_name ?? null,
+      last_name: freshPatient.last_name ?? null,
+      name: freshPatient.name ?? null,
+      dob: freshPatient.dob ?? null,
+      age: freshPatient.age ?? null,
+      gender: freshPatient.gender ?? freshPatient.biological_sex ?? null,
+      admission_time: freshPatient.admission_time ?? null,
+      discharge_time: freshPatient.discharge_time ?? patientUpdate.discharge_time as string ?? new Date().toISOString(),
+      status: "Discharged",
+      chief_complaint: freshPatient.chief_complaint ?? null,
+      diagnosis: freshPatient.diagnosis ?? null,
+      past_medical_history: freshPatient.past_medical_history ?? null,
+      past_surgical_history: freshPatient.past_surgical_history ?? null,
+      allergies: freshPatient.allergies ?? null,
+      environmental_allergies: freshPatient.environmental_allergies ?? null,
+      primary_care_physician: freshPatient.primary_care_physician ?? null,
+      discharge_summary: summary,
+    };
+    const { bundle } = buildDischargeTransactionBundle({
+      patient: admissionPatient,
+      labs: fhirLabs,
+      dischargeMeds: fhirMeds,
+      admittingDiagnosis: freshPatient.chief_complaint ?? undefined,
+      dischargeDiagnosis: freshPatient.diagnosis ?? freshPatient.chief_complaint ?? undefined,
+      conditionAtDischarge: "Stable, improved.",
+      diet: "Regular as tolerated",
+      activity: "Activity as tolerated",
+      physicalExam: {
+        general: "Awake, alert, in no acute distress on admission.",
+        cardiovascular: "Regular rate and rhythm, no murmurs.",
+        pulmonary: "Clear to auscultation bilaterally.",
+        abdomen: "Soft, non-tender, non-distended.",
+        neurologic: "Alert and oriented x3, no focal deficits.",
+      },
+    });
+    composition_push = await pushDischargeBundleToFhir(bundle);
+  } catch (e) {
+    composition_push = { ok: false, status: -1 };
+    console.error("[ghost-discharge-worker] composition push failed:", (e as Error).message);
+  }
+
+  return { mrn, ok: true, note_id: noteRow?.id, summary_len: summary.length, composition_push };
 }
 
 Deno.serve(async (req) => {
