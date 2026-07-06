@@ -181,7 +181,6 @@ function PharmacyQueue() {
       "PENDING_VERIFICATION",
       "DISPENSED",
       "HELD_SAFETY_REVIEW",
-      "REJECTED_SAFETY_ALERT",
     ];
     (async () => {
       const { data, error } = await fetchWithTimeout(
@@ -256,7 +255,7 @@ function PharmacyQueue() {
           "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, administered_at, created_at, ordering_physician, facility_name",
         )
         .eq("facility_name", facility)
-        .in("status", ["Administered", "ADMINISTERED"])
+        .in("status", ["Administered", "ADMINISTERED", "REJECTED", "REJECTED_SAFETY_ALERT"])
         .order("administered_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false, nullsFirst: false })
         .limit(15);
