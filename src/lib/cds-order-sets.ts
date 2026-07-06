@@ -73,15 +73,29 @@ export const ORDER_SETS: Record<string, OrderSet> = {
   },
 };
 
-const ACS_CODES = new Set([
-  "57054005",
-  "413444003",
-  "194828000",
-  "425677008",
-  "4568003",
-  "59139008",
-  "29857009",
-]);
+/**
+ * ACS trigger codes are sourced from the published "Acute Coronary
+ * Syndrome Presentations" value set (see `value_set_dependencies` /
+ * `custom_value_sets`). This module keeps a mutable Set that starts
+ * empty and is populated by `setAcsCodes()` on app boot from
+ * `useCdsSuggestionsWatcher`. Preserves prior `matchTriggers` /
+ * `firstTriggerCode` behavior.
+ */
+const ACS_CODES: Set<string> = new Set<string>();
+
+/** Replace the ACS trigger code set (called from the CDS watcher hook). */
+export function setAcsCodes(codes: Iterable<string>): void {
+  ACS_CODES.clear();
+  for (const c of codes) {
+    const s = String(c ?? "").trim();
+    if (s) ACS_CODES.add(s);
+  }
+}
+
+/** Read-only view for debugging / tests. */
+export function getAcsCodes(): ReadonlySet<string> {
+  return ACS_CODES;
+}
 const INFECTION_CODES = new Set(["5758002", "91302008"]);
 const SEPTIC_SHOCK_CODE = "76571007";
 

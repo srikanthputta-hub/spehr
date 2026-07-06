@@ -145,30 +145,18 @@ export function detectBanned(text: string): BannedAbbrev[] {
 /* ------------------------------------------------------------------ */
 
 /**
- * Cross-reactivity map. Each entry: an allergy keyword → list of drug
- * keywords (RxNorm display strings or order text) that should halt
- * auto-commit and surface in the Safety Queue.
+ * Allergy↔drug cross-reactivity and drug↔drug interaction detection is
+ * now driven by two governed tables — `cross_reactivity_rules` and
+ * `drug_interaction_rules` — that reference published `custom_value_sets`.
+ *
+ * The legacy hardcoded `CROSS_REACT` and `DDI_RULES` regex arrays were
+ * removed in the Phase 3 consolidation. If a value set referenced by a
+ * rule is deleted or renamed, the missing FK is now visible in the rule
+ * table instead of silently short-circuiting detection.
+ *
+ * The `Latex → Latex` case is still handled below as a direct name
+ * comparison because latex is not a prescribable drug class.
  */
-const CROSS_REACT: Array<{ allergy: RegExp; drugs: RegExp; family: string }> = [
-  { allergy: /penicillin|pcn|amoxicillin|ampicillin/i,
-    drugs:  /amoxicillin|ampicillin|penicillin|piperacillin|nafcillin|oxacillin|dicloxacillin|augmentin/i,
-    family: "Beta-lactam / Penicillin family" },
-  { allergy: /penicillin|cephalosporin|cefazolin/i,
-    drugs:  /cefazolin|cephalexin|ceftriaxone|cefepime|cefuroxime|cefdinir/i,
-    family: "Cephalosporin (β-lactam cross-reactivity)" },
-  { allergy: /sulfa|sulfonamide|bactrim|tmp[- ]?smx/i,
-    drugs:  /sulfamethoxazole|trimethoprim|bactrim|tmp[- ]?smx|sulfadiazine|sulfasalazine/i,
-    family: "Sulfonamide antibiotic" },
-  { allergy: /codeine|opioid|morphine|hydrocodone|oxycodone/i,
-    drugs:  /codeine|morphine|hydrocodone|oxycodone|fentanyl|hydromorphone|tramadol/i,
-    family: "Opioid analgesic" },
-  { allergy: /nsaid|ibuprofen|aspirin|asa|naproxen/i,
-    drugs:  /ibuprofen|naproxen|ketorolac|aspirin|diclofenac|meloxicam/i,
-    family: "NSAID" },
-  { allergy: /latex/i, drugs: /latex/i, family: "Latex exposure" },
-  { allergy: /contrast|iodine/i, drugs: /iohexol|iodixanol|iopamidol|contrast/i, family: "Iodinated contrast" },
-  { allergy: /statin/i, drugs: /atorvastatin|simvastatin|rosuvastatin|pravastatin/i, family: "HMG-CoA reductase inhibitor" },
-];
 
 export type SafetyConflict = {
   id: string;                       // stable: `${mrn}|${drug}`
@@ -188,29 +176,6 @@ export type SafetyConflict = {
   decided_at?: string;
   rationale?: string;
 };
-/* ---- Drug ↔ Drug interactions (clinically significant subset) ----- */
-const DDI_RULES: Array<{ a: RegExp; b: RegExp; severity: "Major" | "Moderate"; summary: string }> = [
-  { a: /warfarin/i, b: /aspirin|ibuprofen|naproxen|ketorolac|clopidogrel/i,
-    severity: "Major", summary: "↑ bleeding risk (antiplatelet + anticoagulant)" },
-  { a: /warfarin/i, b: /sulfamethoxazole|trimethoprim|bactrim|ciprofloxacin|metronidazole|fluconazole/i,
-    severity: "Major", summary: "↑ INR — warfarin potentiation" },
-  { a: /(sertraline|fluoxetine|paroxetine|citalopram|escitalopram)/i,
-    b: /(tramadol|linezolid|maoi|triptan|ondansetron)/i,
-    severity: "Major", summary: "Serotonin syndrome risk" },
-  { a: /metformin/i, b: /iohexol|iodixanol|iopamidol|contrast/i,
-    severity: "Major", summary: "Hold metformin around iodinated contrast (lactic acidosis)" },
-  { a: /clopidogrel/i, b: /omeprazole|esomeprazole/i,
-    severity: "Moderate", summary: "PPI ↓ clopidogrel activation (CYP2C19)" },
-  { a: /simvastatin|atorvastatin/i, b: /clarithromycin|erythromycin|itraconazole|ketoconazole/i,
-    severity: "Major", summary: "↑ statin levels — rhabdomyolysis risk" },
-  { a: /digoxin/i, b: /amiodarone|verapamil|clarithromycin/i,
-    severity: "Major", summary: "↑ digoxin levels — toxicity risk" },
-  { a: /lisinopril|enalapril|losartan|valsartan/i, b: /spironolactone|potassium chloride/i,
-    severity: "Moderate", summary: "Hyperkalemia risk" },
-  { a: /(opioid|morphine|hydrocodone|oxycodone|fentanyl|tramadol)/i,
-    b: /(benzodiazepine|alprazolam|lorazepam|diazepam|midazolam|clonazepam)/i,
-    severity: "Major", summary: "Respiratory depression (opioid + benzodiazepine)" },
-];
 
 /* ---- Queue persistence (decisions only; conflicts are recomputed) ---- */
 type Decision = Pick<SafetyConflict, "status" | "decided_by" | "decided_at" | "rationale">;
@@ -229,10 +194,83 @@ export function decideConflict(id: string, decision: Decision) {
   saveDecisions(all);
 }
 
+/* ---- Value-set + rule loaders (governed tables) ------------------- */
+
+type VsCodeSet = Set<string>;
+
+async function loadVsCodeMap(ids: string[]): Promise<Map<string, VsCodeSet>> {
+  const out = new Map<string, VsCodeSet>();
+  const uniq = Array.from(new Set(ids.filter(Boolean)));
+  if (uniq.length === 0) return out;
+  const { data } = await supabase
+    .from("custom_value_sets")
+    .select("id, codes, status")
+    .in("id", uniq);
+  for (const row of (data ?? []) as any[]) {
+    if (row?.status && row.status !== "published") continue;
+    const set: VsCodeSet = new Set();
+    for (const c of (row?.codes ?? []) as any[]) {
+      const code = String(c?.code ?? "").trim();
+      if (code) set.add(code);
+    }
+    out.set(String(row.id), set);
+  }
+  return out;
+}
+
+type CrossRule = {
+  family_label: string;
+  allergy_vs_id: string | null;
+  drug_vs_id: string | null;
+};
+type DdiRule = {
+  severity: "Major" | "Moderate";
+  summary: string;
+  a_vs_id: string | null;
+  b_vs_id: string | null;
+  a_single_code: string | null;
+  b_single_code: string | null;
+};
+
+async function loadRules(): Promise<{ cross: CrossRule[]; ddi: DdiRule[]; vsIds: string[] }> {
+  const [crossRes, ddiRes] = await Promise.all([
+    supabase
+      .from("cross_reactivity_rules")
+      .select("family_label, allergy_value_set_id, drug_value_set_id"),
+    supabase
+      .from("drug_interaction_rules")
+      .select(
+        "severity, summary, drug_a_value_set_id, drug_b_value_set_id, drug_a_single_code, drug_b_single_code",
+      ),
+  ]);
+  const cross: CrossRule[] = ((crossRes.data ?? []) as any[]).map((r) => ({
+    family_label: String(r?.family_label ?? ""),
+    allergy_vs_id: r?.allergy_value_set_id ?? null,
+    drug_vs_id: r?.drug_value_set_id ?? null,
+  }));
+  const ddi: DdiRule[] = ((ddiRes.data ?? []) as any[]).map((r) => ({
+    severity: (r?.severity === "Major" ? "Major" : "Moderate") as "Major" | "Moderate",
+    summary: String(r?.summary ?? ""),
+    a_vs_id: r?.drug_a_value_set_id ?? null,
+    b_vs_id: r?.drug_b_value_set_id ?? null,
+    a_single_code: r?.drug_a_single_code ?? null,
+    b_single_code: r?.drug_b_single_code ?? null,
+  }));
+  const vsIds = [
+    ...cross.flatMap((r) => [r.allergy_vs_id, r.drug_vs_id]),
+    ...ddi.flatMap((r) => [r.a_vs_id, r.b_vs_id]),
+  ].filter((x): x is string => !!x);
+  return { cross, ddi, vsIds };
+}
+
 /**
  * Detect drug↔allergy conflicts across the most recent N patients.
- * Pulls intake records from localStorage (auto-filled at admission) and
- * cross-references medication_orders.
+ *
+ * Rules are loaded from `cross_reactivity_rules` / `drug_interaction_rules`
+ * (single source of truth), then evaluated by RxNorm/SNOMED code membership
+ * against the joined `custom_value_sets`. Allergy display + reaction still
+ * come from the localStorage intake record so the queue UI shape is
+ * unchanged.
  */
 export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
   const { data: patients, error } = await supabase
@@ -245,76 +283,181 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
   const mrns = patients.map((p: any) => p.mrn).filter(Boolean);
   if (mrns.length === 0) return [];
 
-  const { data: meds } = await supabase
-    .from("medication_orders")
-    .select("patient_mrn, medication_name, drug_name, ordered_at, created_at")
-    .in("patient_mrn", mrns);
+  const { rules, vsCodeMap, medsByMrn, allergiesByMrn } = await (async () => {
+    const [{ cross, ddi, vsIds }, medsRes, allergiesRes] = await Promise.all([
+      loadRules(),
+      supabase
+        .from("medication_orders")
+        .select("patient_mrn, medication_name, drug_name, rxnorm_code, ordered_at, created_at")
+        .in("patient_mrn", mrns),
+      supabase
+        .from("allergies")
+        .select("mrn, substance, substance_rxcui, substance_snomed")
+        .in("mrn", mrns),
+    ]);
+    const vsCodeMap = await loadVsCodeMap(vsIds);
 
-  const medsByMrn = new Map<string, string[]>();
-  for (const m of (meds ?? []) as any[]) {
-    const drug = (m.medication_name || m.drug_name || "").trim();
-    if (!drug || !m.patient_mrn) continue;
-    const list = medsByMrn.get(m.patient_mrn) ?? [];
-    if (!list.includes(drug)) list.push(drug);
-    medsByMrn.set(m.patient_mrn, list);
-  }
+    type MedRec = { name: string; rxcui: string | null };
+    const medsByMrn = new Map<string, MedRec[]>();
+    for (const m of (medsRes.data ?? []) as any[]) {
+      const name = (m.medication_name || m.drug_name || "").trim();
+      if (!name || !m.patient_mrn) continue;
+      const rxcui = m.rxnorm_code ? String(m.rxnorm_code).trim() : null;
+      const list = medsByMrn.get(m.patient_mrn) ?? [];
+      const key = `${(rxcui ?? "").toLowerCase()}|${name.toLowerCase()}`;
+      if (!list.some((x) => `${(x.rxcui ?? "").toLowerCase()}|${x.name.toLowerCase()}` === key)) {
+        list.push({ name, rxcui });
+      }
+      medsByMrn.set(m.patient_mrn, list);
+    }
+
+    type AllergyRec = { substance: string; rxcui: string | null; snomed: string | null };
+    const allergiesByMrn = new Map<string, AllergyRec[]>();
+    for (const a of (allergiesRes.data ?? []) as any[]) {
+      if (!a?.mrn || !a?.substance) continue;
+      const list = allergiesByMrn.get(a.mrn) ?? [];
+      list.push({
+        substance: String(a.substance),
+        rxcui: a.substance_rxcui ? String(a.substance_rxcui).trim() : null,
+        snomed: a.substance_snomed ? String(a.substance_snomed).trim() : null,
+      });
+      allergiesByMrn.set(a.mrn, list);
+    }
+
+    return { rules: { cross, ddi }, vsCodeMap, medsByMrn, allergiesByMrn };
+  })();
 
   const decisions = loadDecisions();
   const out: SafetyConflict[] = [];
 
   for (const p of patients as any[]) {
     const intake = loadIntake(p.mrn);
-    const allergies = intake?.drugAllergies ?? [];
+    const intakeAllergies = intake?.drugAllergies ?? [];
+    const codedAllergies = allergiesByMrn.get(p.mrn) ?? [];
     const drugs = medsByMrn.get(p.mrn) ?? [];
-    if (allergies.length === 0 && drugs.length < 2) continue;
+    if (intakeAllergies.length === 0 && codedAllergies.length === 0 && drugs.length < 2) continue;
 
-    // ---- Allergy ↔ Drug
+    const patientName = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—";
+    const facility = p.facility_name ?? null;
+
+    // Build an intake-allergy lookup by lowercased substance for display/reaction
+    const intakeByName = new Map<string, IntakeAllergy>();
+    for (const a of intakeAllergies) intakeByName.set((a.name ?? "").toLowerCase(), a);
+
+    const pushed = new Set<string>();
+
+    // ---- Allergy ↔ Drug (governed cross_reactivity_rules) ----
     for (const drug of drugs) {
-      for (const allergy of allergies) {
-        for (const rule of CROSS_REACT) {
-          if (rule.allergy.test(allergy.name) && rule.drugs.test(drug)) {
-            const id = `${p.mrn}|${drug.toLowerCase()}`;
-            const dec = decisions[id];
-            out.push({
-              id,
-              mrn: p.mrn,
-              patient_name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—",
-              facility_name: p.facility_name ?? null,
-              detected_at: new Date().toISOString(),
-              kind: "allergy",
-              drug,
-              drug_source: "order",
-              allergy,
-              family: rule.family,
-              status: dec?.status ?? "Pending",
-              decided_by: dec?.decided_by,
-              decided_at: dec?.decided_at,
-              rationale: dec?.rationale,
-            });
-            break; // first matching rule per (allergy, drug) pair
-          }
-        }
+      if (!drug.rxcui) continue;
+      for (const rule of rules.cross) {
+        const drugVs = rule.drug_vs_id ? vsCodeMap.get(rule.drug_vs_id) : null;
+        if (!drugVs || !drugVs.has(drug.rxcui)) continue;
+        const allergyVs = rule.allergy_vs_id ? vsCodeMap.get(rule.allergy_vs_id) : null;
+        // Find any patient allergy whose coded substance is in the allergy VS
+        const match = codedAllergies.find((a) => {
+          if (!allergyVs) return false;
+          if (a.snomed && allergyVs.has(a.snomed)) return true;
+          if (a.rxcui && allergyVs.has(a.rxcui)) return true;
+          return false;
+        });
+        if (!match) continue;
+        const id = `${p.mrn}|${drug.name.toLowerCase()}`;
+        if (pushed.has(id)) continue;
+        pushed.add(id);
+        const dec = decisions[id];
+        const intake = intakeByName.get(match.substance.toLowerCase()) ?? {
+          name: match.substance,
+          reaction: "",
+        };
+        out.push({
+          id,
+          mrn: p.mrn,
+          patient_name: patientName,
+          facility_name: facility,
+          detected_at: new Date().toISOString(),
+          kind: "allergy",
+          drug: drug.name,
+          drug_source: "order",
+          allergy: intake,
+          family: rule.family_label,
+          status: dec?.status ?? "Pending",
+          decided_by: dec?.decided_by,
+          decided_at: dec?.decided_at,
+          rationale: dec?.rationale,
+        });
+        break;
       }
     }
 
-    // ---- Drug ↔ Drug interactions
+    // ---- Latex → Latex direct-string check (not a prescribable class) ----
+    for (const drug of drugs) {
+      if (!/latex/i.test(drug.name)) continue;
+      const latexAllergy =
+        intakeAllergies.find((a) => /latex/i.test(a.name)) ??
+        codedAllergies.find((a) => /latex/i.test(a.substance));
+      if (!latexAllergy) continue;
+      const id = `${p.mrn}|${drug.name.toLowerCase()}`;
+      if (pushed.has(id)) continue;
+      pushed.add(id);
+      const dec = decisions[id];
+      const intake: IntakeAllergy =
+        "reaction" in (latexAllergy as any)
+          ? (latexAllergy as IntakeAllergy)
+          : { name: (latexAllergy as any).substance, reaction: "" };
+      out.push({
+        id,
+        mrn: p.mrn,
+        patient_name: patientName,
+        facility_name: facility,
+        detected_at: new Date().toISOString(),
+        kind: "allergy",
+        drug: drug.name,
+        drug_source: "order",
+        allergy: intake,
+        family: "Latex exposure",
+        status: dec?.status ?? "Pending",
+        decided_by: dec?.decided_by,
+        decided_at: dec?.decided_at,
+        rationale: dec?.rationale,
+      });
+    }
+
+    // ---- Drug ↔ Drug interactions (governed drug_interaction_rules) ----
+    const drugMatchesSide = (drug: { rxcui: string | null }, vsId: string | null, single: string | null): boolean => {
+      if (!drug.rxcui) return false;
+      if (single && drug.rxcui === single) return true;
+      if (vsId) {
+        const vs = vsCodeMap.get(vsId);
+        if (vs && vs.has(drug.rxcui)) return true;
+      }
+      return false;
+    };
     for (let i = 0; i < drugs.length; i++) {
       for (let j = i + 1; j < drugs.length; j++) {
         const da = drugs[i], db = drugs[j];
-        for (const r of DDI_RULES) {
-          const match = (r.a.test(da) && r.b.test(db)) || (r.a.test(db) && r.b.test(da));
-          if (!match) continue;
-          const id = `${p.mrn}|ddi|${[da, db].sort().join("+").toLowerCase()}`;
+        for (const r of rules.ddi) {
+          const straight =
+            drugMatchesSide(da, r.a_vs_id, r.a_single_code) &&
+            drugMatchesSide(db, r.b_vs_id, r.b_single_code);
+          const swapped =
+            drugMatchesSide(db, r.a_vs_id, r.a_single_code) &&
+            drugMatchesSide(da, r.b_vs_id, r.b_single_code);
+          if (!straight && !swapped) continue;
+          // Guard: don't self-fire when both sides collapse to the same drug
+          if (da.rxcui && db.rxcui && da.rxcui === db.rxcui) continue;
+          const id = `${p.mrn}|ddi|${[da.name, db.name].sort().join("+").toLowerCase()}`;
+          if (pushed.has(id)) continue;
+          pushed.add(id);
           const dec = decisions[id];
           out.push({
             id,
             mrn: p.mrn,
-            patient_name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—",
-            facility_name: p.facility_name ?? null,
+            patient_name: patientName,
+            facility_name: facility,
             detected_at: new Date().toISOString(),
             kind: "ddi",
-            drug: da,
-            drug_b: db,
+            drug: da.name,
+            drug_b: db.name,
             drug_source: "order",
             family: r.summary,
             severity: r.severity,

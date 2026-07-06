@@ -851,6 +851,54 @@ export type Database = {
         }
         Relationships: []
       }
+      cross_reactivity_rules: {
+        Row: {
+          allergy_value_set_id: string | null
+          allergy_value_set_name: string | null
+          created_at: string
+          drug_value_set_id: string | null
+          drug_value_set_name: string | null
+          family_label: string
+          id: string
+          notes: string | null
+        }
+        Insert: {
+          allergy_value_set_id?: string | null
+          allergy_value_set_name?: string | null
+          created_at?: string
+          drug_value_set_id?: string | null
+          drug_value_set_name?: string | null
+          family_label: string
+          id?: string
+          notes?: string | null
+        }
+        Update: {
+          allergy_value_set_id?: string | null
+          allergy_value_set_name?: string | null
+          created_at?: string
+          drug_value_set_id?: string | null
+          drug_value_set_name?: string | null
+          family_label?: string
+          id?: string
+          notes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cross_reactivity_rules_allergy_value_set_id_fkey"
+            columns: ["allergy_value_set_id"]
+            isOneToOne: false
+            referencedRelation: "custom_value_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cross_reactivity_rules_drug_value_set_id_fkey"
+            columns: ["drug_value_set_id"]
+            isOneToOne: false
+            referencedRelation: "custom_value_sets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       custom_value_sets: {
         Row: {
           author: string | null
@@ -958,6 +1006,72 @@ export type Database = {
           table_name?: string
         }
         Relationships: []
+      }
+      drug_interaction_rules: {
+        Row: {
+          created_at: string
+          drug_a_single_code: string | null
+          drug_a_single_display: string | null
+          drug_a_single_vocabulary: string | null
+          drug_a_value_set_id: string | null
+          drug_a_value_set_name: string | null
+          drug_b_single_code: string | null
+          drug_b_single_display: string | null
+          drug_b_single_vocabulary: string | null
+          drug_b_value_set_id: string | null
+          drug_b_value_set_name: string | null
+          id: string
+          severity: string
+          summary: string
+        }
+        Insert: {
+          created_at?: string
+          drug_a_single_code?: string | null
+          drug_a_single_display?: string | null
+          drug_a_single_vocabulary?: string | null
+          drug_a_value_set_id?: string | null
+          drug_a_value_set_name?: string | null
+          drug_b_single_code?: string | null
+          drug_b_single_display?: string | null
+          drug_b_single_vocabulary?: string | null
+          drug_b_value_set_id?: string | null
+          drug_b_value_set_name?: string | null
+          id?: string
+          severity?: string
+          summary: string
+        }
+        Update: {
+          created_at?: string
+          drug_a_single_code?: string | null
+          drug_a_single_display?: string | null
+          drug_a_single_vocabulary?: string | null
+          drug_a_value_set_id?: string | null
+          drug_a_value_set_name?: string | null
+          drug_b_single_code?: string | null
+          drug_b_single_display?: string | null
+          drug_b_single_vocabulary?: string | null
+          drug_b_value_set_id?: string | null
+          drug_b_value_set_name?: string | null
+          id?: string
+          severity?: string
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drug_interaction_rules_drug_a_value_set_id_fkey"
+            columns: ["drug_a_value_set_id"]
+            isOneToOne: false
+            referencedRelation: "custom_value_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drug_interaction_rules_drug_b_value_set_id_fkey"
+            columns: ["drug_b_value_set_id"]
+            isOneToOne: false
+            referencedRelation: "custom_value_sets"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       fhir_appointments: {
         Row: {
