@@ -108,35 +108,75 @@ async function pickCandidates(admin: any): Promise<string[]> {
 }
 
 /**
- * Fetch the full clinical context for a single MRN and hand it to
- * `buildDischargeMarkdown`. The mapping here MUST stay consistent with the
- * physician-board client flow so both discharge paths generate the same
- * summary shape.
+ * Fetch the raw per-encounter clinical context for a single MRN. Consumed
+ * both by `buildSummaryForMrn` (narrative markdown) and by the FHIR
+ * discharge Composition push (real drug/lab names).
  */
-async function buildSummaryForMrn(admin: any, mrn: string): Promise<{
-  summary: string | null;
+async function fetchClinicalContext(admin: any, mrn: string): Promise<{
   patient: any | null;
+  meds: any[];
+  labs: any[];
+  allergies: any[];
 }> {
   const [pRes, mRes, lRes, lrRes, aRes] = await Promise.all([
     admin.from("patients").select("*").eq("mrn", mrn).maybeSingle(),
     admin.from("medication_orders")
-      .select("drug_name, medication_name, dose, route, status, ordered_by, ordering_physician, administered_at, rxnorm_code, rxnorm_display, frequency")
+      .select("id, drug_name, medication_name, dose, route, status, ordered_by, ordering_physician, administered_at, rxnorm_code, rxnorm_display, frequency")
       .eq("patient_mrn", mrn),
     admin.from("lab_orders")
-      .select("test_type, status, result_value, collected_at, loinc_code")
+      .select("id, test_type, status, result_value, collected_at, loinc_code")
       .eq("patient_mrn", mrn),
     admin.from("lab_results")
-      .select("test_name, result_value, unit, flag, reference_range, created_at")
+      .select("id, test_name, result_value, unit, flag, reference_range, created_at")
       .eq("mrn", mrn),
     admin.from("allergies")
       .select("substance, reaction, severity")
       .eq("mrn", mrn),
   ]);
+  const patient = (pRes as any)?.data ?? null;
+  const meds = ((mRes as any)?.data ?? []) as any[];
+  const labOrders = ((lRes as any)?.data ?? []) as any[];
+  const labResults = ((lrRes as any)?.data ?? []) as any[];
+  const allergies = ((aRes as any)?.data ?? []) as any[];
+  const labs = [
+    ...labOrders.map((l) => ({
+      id: l.id,
+      test_type: l.test_type ?? null,
+      test_name: l.test_type ?? null,
+      status: l.status ?? null,
+      result_value: l.result_value ?? null,
+      collected_at: l.collected_at ?? null,
+      loinc_code: l.loinc_code ?? null,
+      flag: null,
+      unit: null,
+    })),
+    ...labResults.map((r) => ({
+      id: r.id,
+      test_type: r.test_name ?? null,
+      test_name: r.test_name ?? null,
+      status: "Reported",
+      result_value: r.result_value ?? null,
+      collected_at: r.created_at ?? null,
+      loinc_code: null,
+      flag: r.flag ?? null,
+      unit: r.unit ?? null,
+    })),
+  ];
+  return { patient, meds, labs, allergies };
+}
 
-  const patient = (pRes as any)?.data;
+/**
+ * Turn the raw clinical context into the narrative markdown consumed by
+ * `clinical_notes` / DocumentReference.
+ */
+async function buildSummaryForMrn(admin: any, mrn: string): Promise<{
+  summary: string | null;
+  patient: any | null;
+}> {
+  const { patient, meds: rawMeds, labs: rawLabs, allergies: rawAllergies } = await fetchClinicalContext(admin, mrn);
   if (!patient) return { summary: null, patient: null };
 
-  const meds: NarrativeMed[] = (((mRes as any)?.data ?? []) as any[]).map((m) => ({
+  const meds: NarrativeMed[] = rawMeds.map((m: any) => ({
     medication_name: m.medication_name ?? m.drug_name ?? null,
     drug_name: m.drug_name ?? null,
     dose: m.dose ?? null,
@@ -149,28 +189,18 @@ async function buildSummaryForMrn(admin: any, mrn: string): Promise<{
     frequency: m.frequency ?? null,
   }));
 
-  const labs: NarrativeLab[] = [
-    ...(((lRes as any)?.data ?? []) as any[]).map((l) => ({
-      test_type: l.test_type ?? null,
-      status: l.status ?? null,
-      result_value: l.result_value ?? null,
-      collected_at: l.collected_at ?? null,
-      loinc_code: l.loinc_code ?? null,
-      display_name: l.test_type ?? null,
-    })),
-    ...(((lrRes as any)?.data ?? []) as any[]).map((r) => ({
-      test_type: r.test_name ?? null,
-      status: "Reported",
-      result_value: r.result_value ?? null,
-      collected_at: r.created_at ?? null,
-      loinc_code: null,
-      display_name: r.test_name ?? null,
-      unit: r.unit ?? null,
-      abnormal_flag: r.flag ?? null,
-    })),
-  ];
+  const labs: NarrativeLab[] = rawLabs.map((l: any) => ({
+    test_type: l.test_type ?? null,
+    status: l.status ?? null,
+    result_value: l.result_value ?? null,
+    collected_at: l.collected_at ?? null,
+    loinc_code: l.loinc_code ?? null,
+    display_name: l.test_name ?? l.test_type ?? null,
+    unit: l.unit ?? null,
+    abnormal_flag: l.flag ?? null,
+  }));
 
-  const allergies: NarrativeAllergy[] = (((aRes as any)?.data ?? []) as any[]).map((a) => ({
+  const allergies: NarrativeAllergy[] = rawAllergies.map((a: any) => ({
     substance: a.substance ?? null,
     reaction: a.reaction ?? null,
     severity: a.severity ?? null,
