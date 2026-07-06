@@ -22,8 +22,6 @@ import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react
 import { FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
-import { PatientReportedVitals } from "@/components/PatientReportedVitals";
-import { PatientCommsInbox } from "@/components/PatientCommsInbox";
 import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
 import { autoCodeLab } from "@/lib/auto-code";
 import {
@@ -101,6 +99,7 @@ function ChartPage() {
   const [given, setGiven] = useState<Record<string, string>>({});
   const [dbPatient, setDbPatient] = useState<any>(null);
   const [lookupDone, setLookupDone] = useState(false);
+  const [liveMeds, setLiveMeds] = useState<MedOrder[] | null>(null);
   const [administering, setAdministering] = useState<string | null>(null);
   const [shiftNotes, setShiftNotes] = useState<any[]>([]);
   const [noteText, setNoteText] = useState("");
