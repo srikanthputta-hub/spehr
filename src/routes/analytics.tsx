@@ -114,7 +114,25 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
     }));
   }, [patients]);
 
-  const feed = useMemo(() => patients.slice(0, 50), [patients]);
+  const feed = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    let rows = patients.slice(0, 150);
+    if (term) {
+      rows = rows.filter((p) => {
+        const name = fullName(p).toLowerCase();
+        const mrn = (p.mrn ?? "").toLowerCase();
+        const complaint = (p.chief_complaint ?? "").toLowerCase();
+        const facility = (p.facility_name ?? "").toLowerCase();
+        return (
+          name.includes(term) ||
+          mrn.includes(term) ||
+          complaint.includes(term) ||
+          facility.includes(term)
+        );
+      });
+    }
+    return rows;
+  }, [patients, searchTerm]);
 
   const Wrapper: any = embedded ? "div" : "main";
   return (
