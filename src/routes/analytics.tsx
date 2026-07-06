@@ -11,7 +11,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { Activity, Users, LogOut as LogOutIcon, Loader2 } from "lucide-react";
+import { Activity, Users, LogOut as LogOutIcon, Loader2, Search } from "lucide-react";
 import { PopulationHealth } from "@/components/admin/PopulationHealth";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
