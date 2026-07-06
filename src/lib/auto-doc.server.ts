@@ -844,6 +844,8 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     })),
   );
 
+  const invoiceNo = makeInvoiceNo(mrn, p.discharge_time);
+
   // Coverage-gap detection: any ICD-10 code on this patient with no match
   // in a published Billing value set means the invoice is being charged
   // without a governed risk-adjustment/coverage mapping. File (or extend)
@@ -917,7 +919,6 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   };
   const charges = composeCharges(input);
   const { subtotal, tax, total } = summarizeCharges(charges);
-  const invoiceNo = makeInvoiceNo(mrn, p.discharge_time);
 
   // Idempotency: replace previous invoice for this discharge if it exists
   const { data: existing } = await sb
