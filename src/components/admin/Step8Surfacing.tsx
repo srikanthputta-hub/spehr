@@ -265,6 +265,9 @@ type CdsRow = {
   condition_snomed?: string | null;
   fired_at?: string | null;
   decision?: string | null;
+  patient_name?: string | null;
+  facility_name?: string | null;
+  risk_score?: number | null;
 };
 
 export function CdsOverridesFeed() {
@@ -277,7 +280,7 @@ export function CdsOverridesFeed() {
       const { data } = await supabase
         .from("cds_overrides")
         .select(
-          "id, created_at, mrn, alert_type, severity, drug_name, condition_name, reason, physician_name, physician_id, drug_rxnorm, condition_snomed, fired_at, decision",
+          "id, created_at, mrn, alert_type, severity, drug_name, condition_name, reason, physician_name, physician_id, drug_rxnorm, condition_snomed, fired_at, decision, patient_name, facility_name, risk_score",
         )
         .order("created_at", { ascending: false })
         .limit(25);
@@ -340,6 +343,9 @@ export function CdsOverridesFeed() {
                   <div className="col-span-1 font-mono text-[10px] text-slate-700">
                     {r.mrn}
                   </div>
+                  <div className="col-span-1 truncate text-[10px] text-slate-800 font-semibold">
+                    {r.patient_name ?? "—"}
+                  </div>
                   <div className="col-span-2">
                     <span className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase bg-orange-50 text-orange-700 border-orange-200">
                       {r.alert_type}
@@ -352,7 +358,7 @@ export function CdsOverridesFeed() {
                       {r.decision ?? "—"}
                     </span>
                   </div>
-                  <div className="col-span-2 truncate text-slate-800">
+                  <div className="col-span-1 truncate text-slate-800">
                     {r.drug_name ?? "—"} {r.condition_name ? `× ${r.condition_name}` : ""}
                   </div>
                   <div className="col-span-2 truncate text-slate-600 italic">
@@ -366,9 +372,16 @@ export function CdsOverridesFeed() {
                   <div className="ml-4 mb-3 mt-1 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-2">
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                       <DetailField label="MRN" value={r.mrn} mono />
+                      <DetailField label="Patient Name" value={r.patient_name ?? "—"} />
+                      <DetailField label="Hospital / Facility" value={r.facility_name ?? "—"} />
                       <DetailField label="Alert Type" value={r.alert_type} />
                       <DetailField label="Severity" value={r.severity} />
                       <DetailField label="Decision" value={r.decision ?? "—"} />
+                      <DetailField
+                        label="Risk Score"
+                        value={r.risk_score != null ? `${r.risk_score}/100 (${r.risk_score >= 70 ? "≥70 → auto-Reject band" : "<70 → auto-Override band"})` : "—"}
+                        mono
+                      />
                       <DetailField label="Drug" value={r.drug_name ?? "—"} />
                       <DetailField label="Drug RxNorm" value={r.drug_rxnorm ?? "—"} mono />
                       <DetailField label="Condition" value={r.condition_name ?? "—"} />
