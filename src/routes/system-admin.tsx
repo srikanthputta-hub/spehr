@@ -1841,6 +1841,21 @@ function SafetyQueue({ facility }: { facility: string }) {
                 </div>
                 {c.status === "Pending Review" ? (
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    {(() => {
+                      const score = c.risk_score ?? 50;
+                      const willReject = score >= 70;
+                      const tone = willReject
+                        ? "border-red-300 bg-red-50 text-red-700"
+                        : "border-emerald-300 bg-emerald-50 text-emerald-700";
+                      return (
+                        <span
+                          className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tone}`}
+                          title="Auto-decision band: score ≥ 70 = Reject, < 70 = Override"
+                        >
+                          Risk {score}/100 — will auto-{willReject ? "reject" : "override"} if unactioned
+                        </span>
+                      );
+                    })()}
                     <SlaCountdown
                       autoResolveAt={c.auto_resolve_at}
                       createdAt={c.created_at}
