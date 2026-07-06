@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CalendarClock, Wallet, RefreshCw, Smartphone } from "lucide-react";
+import { InfoHint } from "@/components/ui/info-hint";
 
 /**
  * MySPEHR Portal Activity feed. Renders the most recent Appointment and
@@ -112,13 +113,13 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
         <div className="flex items-center gap-2">
           <Smartphone className="h-4 w-4 text-indigo-700" />
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">
+            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
               MySPEHR Portal Activity
+              <InfoHint
+                className="ml-1"
+                text="Appointments booked and invoice payments made by patients through the MySPEHR portal, delivered here in real time via FHIR Subscription."
+              />
             </h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Appointments booked and invoice payments made by patients in the
-              MySPEHR portal, delivered via FHIR Subscription.
-            </p>
           </div>
         </div>
         <button
