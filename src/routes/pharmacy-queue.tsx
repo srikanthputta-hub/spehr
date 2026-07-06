@@ -181,7 +181,6 @@ function PharmacyQueue() {
       "PENDING_VERIFICATION",
       "DISPENSED",
       "HELD_SAFETY_REVIEW",
-      "REJECTED_SAFETY_ALERT",
     ];
     (async () => {
       const { data, error } = await fetchWithTimeout(
@@ -256,7 +255,7 @@ function PharmacyQueue() {
           "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, administered_at, created_at, ordering_physician, facility_name",
         )
         .eq("facility_name", facility)
-        .in("status", ["Administered", "ADMINISTERED"])
+        .in("status", ["Administered", "ADMINISTERED", "REJECTED", "REJECTED_SAFETY_ALERT"])
         .order("administered_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false, nullsFirst: false })
         .limit(15);
@@ -314,7 +313,8 @@ function PharmacyQueue() {
     const rows: DispensedFeedRow[] = [];
     for (const o of dispensed) {
       if ((o.facility_name ?? facility) !== facility) continue;
-      if ((o.status ?? "").toUpperCase() !== "ADMINISTERED") continue;
+      const s = (o.status ?? "").toUpperCase();
+      if (!["ADMINISTERED", "REJECTED", "REJECTED_SAFETY_ALERT"].includes(s)) continue;
       const mrn = o.patient_mrn ?? o.mrn;
       if (!mrn) continue;
       rows.push({
@@ -451,18 +451,15 @@ function PharmacyQueue() {
               {visibleOrders.map((o) => {
                 const active = o.id === selectedId;
                 const isHeld = (o.status ?? "").toUpperCase() === "HELD_SAFETY_REVIEW";
-                const isRejected = (o.status ?? "").toUpperCase() === "REJECTED_SAFETY_ALERT";
                 return (
                   <button
                     key={o.id}
-                    onClick={() => { if (!isHeld && !isRejected) setSelectedId(o.id); }}
-                    disabled={isHeld || isRejected}
+                    onClick={() => { if (!isHeld) setSelectedId(o.id); }}
+                    disabled={isHeld}
                     className={`w-full text-left px-3 py-2.5 transition ${
                       isHeld
                         ? "bg-slate-100 text-slate-500 cursor-not-allowed"
-                        : isRejected
-                          ? "bg-rose-50 text-rose-800 cursor-not-allowed"
-                          : active ? "bg-[#0c2340] text-white" : "hover:bg-slate-50"
+                        : active ? "bg-[#0c2340] text-white" : "hover:bg-slate-50"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -476,13 +473,6 @@ function PharmacyQueue() {
                           return (
                             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 border border-slate-300">
                               ⏸ On Hold — Safety Review
-                            </span>
-                          );
-                        }
-                        if (s === "REJECTED_SAFETY_ALERT") {
-                          return (
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300">
-                              🚫 Rejected — Safety Alert{o.ordering_physician ? ` (${o.ordering_physician})` : ""}
                             </span>
                           );
                         }
@@ -683,7 +673,14 @@ function PharmacyQueue() {
                           {[m?.drug_name, m?.dose, m?.route, m?.frequency].filter(Boolean).join(" ") || "Unknown"}
                         </td>
                         <td className="px-3 py-2">
-                          <StatusPill tone="good">{(m.status ?? "Administered").toUpperCase()}</StatusPill>
+                          {(() => {
+                            const s = (m.status ?? "").toUpperCase();
+                            if (s === "ADMINISTERED") {
+                              return <StatusPill tone="good">ADMINISTERED</StatusPill>;
+                            }
+                            const label = s === "REJECTED_SAFETY_ALERT" ? "REJECTED (Safety Alert)" : "REJECTED";
+                            return <StatusPill tone="bad">{label}</StatusPill>;
+                          })()}
                         </td>
                         <td className="px-3 py-2 text-slate-700">
                           {m.pharmacist}
