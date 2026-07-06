@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Bot, RefreshCw, CheckCircle2, AlertTriangle, Pause, Clock, Inbox } from "lucide-react";
+import { InfoHint } from "@/components/ui/info-hint";
 
 type LogRow = {
   id: string;
@@ -164,18 +165,11 @@ export function AutoTerminologistActivity() {
           <div className="flex items-center gap-2 text-[#0c2340]">
             <Bot className="h-5 w-5" />
             <h3 className="text-lg font-semibold">Auto Terminologist · Activity</h3>
+            <InfoHint
+              className="ml-1.5"
+              text="Autonomous agent that scans the last 36 hours of patient data every 10 minutes, groups uncovered clinical concepts by theme, and drafts a new value set for genuine recurring gaps — exactly as a human terminologist would in the Authoring Workbench. It never submits for review or publishes on its own; promoting a draft always requires a human action in the Value Set Library. It also fulfills governed change requests filed by other SPEHR consumers on demand (Safety Alerts Engine, Billing Engine, Auto Doc, Auto Admin, Auto IT), subject to the same draft-only quality gate."
+            />
           </div>
-          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Autonomous agent that scans the last 36 h of patient data every
-            10 minutes, groups uncovered clinical concepts by theme, and — for
-            genuine recurring gaps — drafts a new value set itself, exactly
-            as a human would in the Authoring Workbench. It never submits
-            for review and never publishes: promoting a draft always
-            requires a human action in the Value Set Library. It also
-            fulfills terminology requests from other SPEHR consumers
-            (Auto Doc, Auto Admin, Auto IT) on demand, subject to the same
-            draft-only quality gate.
-          </p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
