@@ -2250,6 +2250,121 @@ function DischargeDialog({
     </div>
   );
 }
+
+function WorkloadDialog({
+  patient, onClose,
+}: {
+  patient: PatientRecord;
+  onClose: () => void;
+}) {
+  const fullName = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown Patient";
+  const [loading, setLoading] = useState(true);
+  const [labs, setLabs] = useState<Array<{ id: string; test_type: string | null; status: string | null }>>([]);
+  const [meds, setMeds] = useState<Array<{ id: string; name: string | null; dose: string | null; status: string | null }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const [labsRes, medsRes] = await Promise.all([
+        supabase
+          .from("lab_orders")
+          .select("id, test_type, status")
+          .eq("patient_mrn", patient.mrn)
+          .in("status", ["Ordered", "Processing", "ORDERED", "PROCESSING"])
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("medication_orders")
+          .select("id, medication_name, drug_name, drug, name, dose, status")
+          .eq("patient_mrn", patient.mrn)
+          .in("status", ["Ordered", "Pending Verification", "Dispensed", "ORDERED", "PENDING_VERIFICATION", "DISPENSED"])
+          .order("created_at", { ascending: false }),
+      ]);
+      if (cancelled) return;
+      setLabs(((labsRes.data ?? []) as any[]).map((r) => ({
+        id: r.id, test_type: r.test_type ?? null, status: r.status ?? null,
+      })));
+      setMeds(((medsRes.data ?? []) as any[]).map((r) => ({
+        id: r.id,
+        name: r.medication_name ?? r.drug_name ?? r.drug ?? r.name ?? null,
+        dose: r.dose ?? null,
+        status: r.status ?? null,
+      })));
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [patient.mrn]);
+
+  const total = labs.length + meds.length;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 grid place-items-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="text-sm font-semibold text-slate-900">
+            Current Workload — {fullName}
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          {loading ? (
+            <div className="grid place-items-center py-8"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+          ) : total === 0 ? (
+            <div className="text-center py-6 text-sm text-slate-500 italic">No pending items</div>
+          ) : (
+            <>
+              <section>
+                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">
+                  Pending Labs · {labs.length}
+                </div>
+                {labs.length === 0 ? (
+                  <div className="text-xs text-slate-400 italic px-1">None</div>
+                ) : (
+                  <ul className="divide-y divide-slate-200 border border-slate-200 rounded">
+                    {labs.map((l) => (
+                      <li key={l.id} className="px-3 py-1.5 flex items-center justify-between text-xs">
+                        <span className="text-slate-800">{l.test_type ?? "—"}</span>
+                        <span className="inline-flex rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 ring-1 ring-amber-300">
+                          {l.status}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+              <section>
+                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">
+                  Pending Medications · {meds.length}
+                </div>
+                {meds.length === 0 ? (
+                  <div className="text-xs text-slate-400 italic px-1">None</div>
+                ) : (
+                  <ul className="divide-y divide-slate-200 border border-slate-200 rounded">
+                    {meds.map((m) => (
+                      <li key={m.id} className="px-3 py-1.5 flex items-center justify-between text-xs">
+                        <span className="text-slate-800">
+                          <span className="font-medium">{m.name ?? "—"}</span>
+                          {m.dose ? <span className="text-slate-500 ml-1">· {m.dose}</span> : null}
+                        </span>
+                        <span className="inline-flex rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 ring-1 ring-amber-300">
+                          {m.status}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t bg-slate-50">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs rounded border border-slate-300 bg-white hover:bg-slate-100">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================ */
 /* Admission Case History — hospital-style intake recap          */
 /* Reads the structured IntakeRecord saved by the Admit modal    */
