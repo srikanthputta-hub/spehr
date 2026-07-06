@@ -1755,18 +1755,11 @@ function SafetyQueue({ facility }: { facility: string }) {
         <div>
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <ShieldAlert className="h-4 w-4 text-red-600" /> Intervention & Safety Queue
+            <InfoHint
+              className="ml-1.5"
+              text="Fires whenever an order or NLP-extracted code conflicts with a documented patient allergy or a dangerous drug-drug interaction, checked against the published Safety value sets (Penicillin Class Drugs, Anticoagulants, NSAIDs, etc). A clinician can manually Override or Reject within 45 seconds; after that, the SLA auto-resolves it using a computed risk score — 70/100 or higher auto-Rejects, below 70 auto-Overrides. Showing the latest 15 alerts for the selected facility scope."
+            />
           </h2>
-          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Auto-commit halts whenever the NLP engine or an order maps an
-            RxNorm drug that cross-reacts with a documented patient allergy.
-            Pharmacy or an EHR specialist may Override / Reject manually —
-            otherwise the <span className="font-semibold">AI Safety Engine</span>{" "}
-            auto-resolves any Pending Review alert after a 45-second SLA.
-            Showing latest 15 for{" "}
-            <span className="font-semibold">
-              {facility && facility !== "all" ? facility : "all facilities"}
-            </span>.
-          </p>
         </div>
         <Button variant="outline" onClick={refresh}>
           <Loader2 className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
