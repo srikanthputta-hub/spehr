@@ -2954,6 +2954,68 @@ export type Database = {
         }
         Relationships: []
       }
+      terminology_requests: {
+        Row: {
+          clinical_application: string | null
+          id: string
+          justification: string
+          priority: string
+          quality_gate_notes: string | null
+          related_mrn: string | null
+          requested_at: string
+          requested_name: string
+          requesting_consumer: string
+          resolved_at: string | null
+          seed_codes: Json
+          status: string
+          updated_at: string
+          value_set_id: string | null
+          vocabulary: string | null
+        }
+        Insert: {
+          clinical_application?: string | null
+          id?: string
+          justification: string
+          priority?: string
+          quality_gate_notes?: string | null
+          related_mrn?: string | null
+          requested_at?: string
+          requested_name: string
+          requesting_consumer: string
+          resolved_at?: string | null
+          seed_codes?: Json
+          status?: string
+          updated_at?: string
+          value_set_id?: string | null
+          vocabulary?: string | null
+        }
+        Update: {
+          clinical_application?: string | null
+          id?: string
+          justification?: string
+          priority?: string
+          quality_gate_notes?: string | null
+          related_mrn?: string | null
+          requested_at?: string
+          requested_name?: string
+          requesting_consumer?: string
+          resolved_at?: string | null
+          seed_codes?: Json
+          status?: string
+          updated_at?: string
+          value_set_id?: string | null
+          vocabulary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "terminology_requests_value_set_id_fkey"
+            columns: ["value_set_id"]
+            isOneToOne: false
+            referencedRelation: "custom_value_sets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       umls_cache: {
         Row: {
           cache_key: string
