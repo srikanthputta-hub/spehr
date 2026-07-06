@@ -1,0 +1,15 @@
+DELETE FROM lab_results WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM lab_orders WHERE patient_mrn='MRN-DEMO3TEST';
+DELETE FROM medication_orders WHERE patient_mrn='MRN-DEMO3TEST';
+DELETE FROM clinical_notes WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM conditions WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM allergies WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM mar_logs WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM cds_suggestions WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM cds_overrides WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM safety_alerts WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM clinical_safety_alerts WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM vitals WHERE mrn='MRN-DEMO3TEST';
+UPDATE bed_management SET status='Available', current_patient_mrn=NULL WHERE current_patient_mrn='MRN-DEMO3TEST';
+DELETE FROM patients WHERE mrn='MRN-DEMO3TEST';
+DELETE FROM medication_orders WHERE drug_name='Metoprolol tartrate 25 mg' AND status IN ('PENDING_PHARMACY','PENDING_VERIFICATION');
