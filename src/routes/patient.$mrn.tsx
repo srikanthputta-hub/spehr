@@ -2275,7 +2275,7 @@ function WorkloadDialog({
           .order("created_at", { ascending: false }),
         supabase
           .from("medication_orders")
-          .select("id, medication_name, drug_name, drug, name, dose, status")
+          .select("*")
           .eq("patient_mrn", patient.mrn)
           .in("status", ["Ordered", "Pending Verification", "Dispensed", "ORDERED", "PENDING_VERIFICATION", "DISPENSED"])
           .order("created_at", { ascending: false }),
