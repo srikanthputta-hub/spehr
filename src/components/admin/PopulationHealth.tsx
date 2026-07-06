@@ -140,8 +140,8 @@ export function PopulationHealth() {
               AUTO API · Population Health
             </div>
             <div className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1">
-              Cohort Query (SNOMED / LOINC + Facility filter)
-              <InfoHint text="SNOMED CT = Systematized Nomenclature of Medicine (condition/diagnosis codes). LOINC = Logical Observation Identifiers (lab test codes). This query filters patients whose diagnoses/labs match the entered keywords or a published value set, scoped to the selected facilities and time window." />
+              Cohort Query (Multi-Terminology + Facility Filter)
+              <InfoHint text="Choose a code system (SNOMED CT for conditions, ICD-10 for billing diagnoses, LOINC for lab tests, or RxNorm for medications), then type a keyword — the field autosuggests real coded terms actually present in the database for that system, each with its code and patient count. Alternatively, filter by a published value set instead of a single code. Results are scoped to the selected facilities and time window (as fine as the last 6 hours, since this environment's clinical data only spans about 36 hours)." />
             </div>
           </div>
         </div>
