@@ -196,6 +196,8 @@ interface PatientRecord {
   spo2: number | null;
   admission_time: string | null;
   facility_name: string | null;
+  allergies: string | null;
+  environmental_allergies: string | null;
 }
 
 function mockAgeFromName(first: string | null | undefined, fallback: number | null): number {
@@ -214,11 +216,23 @@ function mockDobFromAge(age: number): string {
   return `${String(m).padStart(2, "0")}/${String(d).padStart(2, "0")}/${year}`;
 }
 
-function mockAllergy(mrn: string): string {
-  let h = 0;
-  for (let i = 0; i < mrn.length; i++) h = (h * 31 + mrn.charCodeAt(i)) >>> 0;
-  const options = ["NKDA", "Penicillin", "Sulfa", "Latex", "NKDA"];
-  return options[h % options.length];
+/**
+ * Parse the `patients.allergies` free-text field.
+ * Expected shapes: "DrugName (Reaction)" | "NKDA" | null | "".
+ * Returns a structured result usable by every allergy widget.
+ */
+function parseDrugAllergy(raw: string | null | undefined): {
+  isNkda: boolean;
+  name: string | null;
+  reaction: string | null;
+} {
+  const s = (raw ?? "").trim();
+  if (!s || /^nkda$/i.test(s) || /no known/i.test(s)) {
+    return { isNkda: true, name: null, reaction: null };
+  }
+  const m = s.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (m) return { isNkda: false, name: m[1].trim(), reaction: m[2].trim() };
+  return { isNkda: false, name: s, reaction: null };
 }
 
 function baselineVitals(dx: string | null | undefined) {
