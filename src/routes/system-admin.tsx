@@ -3698,14 +3698,11 @@ function FhirInteroperability({ facility }: { facility: string }) {
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <FileJson className="h-5 w-5 text-[#0c2340]" />
             FHIR Interoperability
+            <InfoHint
+              className="ml-1.5"
+              text="Final staging area for the unified FHIR R4 encounter Bundle. Each row is one admission encounter — opening the JSON shows the complete longitudinal record (Patient, Encounter, Observations, MedicationRequest/Administration, DocumentReference, CarePlan, Appointment) exactly as pushed to the external Medblocks FHIR server, with deterministic idempotent IDs so re-syncing a patient never creates duplicates."
+            />
           </h2>
-          <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Final staging area for the unified FHIR R4 encounter Bundle. Each row
-            represents one admission encounter; opening the JSON shows the full
-            longitudinal record (Patient · Encounter · Observations · Medication
-            Requests &amp; Administrations · DocumentReference · CarePlan ·
-            Appointment) ready to be pushed to the external FHIR server.
-          </p>
         </div>
         <div className="text-xs text-slate-500">{rows.length} encounters</div>
       </div>
