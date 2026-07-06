@@ -3002,12 +3002,11 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         <div>
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <Grid3x3 className="h-4 w-4 text-[#0c2340]" /> Live Terminology Matrix
+            <InfoHint
+              className="ml-1.5"
+              text="Last 15 admissions mapped to SNOMED CT, ICD-10, LOINC, and RxNorm — click any pill for its canonical display and value-set category. (The CPT column is reserved for future procedure-coding support; Auto Doc doesn't assign CPT codes yet, so it will always read empty today.)"
+            />
           </h2>
-          <p className="text-sm text-slate-600 mt-0.5">
-            Last 15 admissions{facility !== "all" ? ` at ${facility}` : " across the network"} mapped to
-            SNOMED-CT, ICD-10, CPT, LOINC, and RxNorm. Click any pill for the canonical
-            display and value-set category.
-          </p>
         </div>
         <div className="text-xs text-slate-500">{rows.length} patients</div>
       </div>
