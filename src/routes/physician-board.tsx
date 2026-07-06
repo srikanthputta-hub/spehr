@@ -1137,116 +1137,15 @@ function PhysicianBoard() {
                           const mrn = p.mrn;
                           setDischargeLoading(true);
                           try {
-                            // Aggregate MAR + labs in parallel
-                            const [marRes, labRes] = await Promise.all([
-                              supabase
-                                .from("mar_logs")
-                                .select("medication_name, administered_at")
-                                .or(`mrn.eq.${mrn},patient_mrn.eq.${mrn}`)
-                                .order("administered_at", { ascending: false })
-                                .limit(5),
-                              supabase
-                                .from("lab_orders")
-                                .select("test_type, status, result_value")
-                                .eq("patient_mrn", mrn)
-                                .order("created_at", { ascending: false })
-                                .limit(5),
-                            ]);
-
-                            // Build the fully-populated patient: physician board
-                            // rows come from the `patients` table and don't carry
-                            // meds/labs arrays. Enrich from (1) the seed census in
-                            // src/lib/patients.ts (exact keys: `meds`, `labs`),
-                            // then (2) the deterministic catalog fallback.
-                            const seed = getSeedPatient(mrn);
-                            const fullPatient = {
-                              ...p,
-                              meds:
-                                Array.isArray(seed?.meds) && seed!.meds.length > 0
-                                  ? seed!.meds
-                                  : fallbackMedsFor(mrn),
-                              labs:
-                                Array.isArray(seed?.labs) && seed!.labs.length > 0
-                                  ? seed!.labs
-                                  : fallbackLabsFor(mrn),
-                            };
-
-                            const medsList: string[] = (
-                              Array.isArray(fullPatient.meds) && fullPatient.meds.length > 0
-                                ? fullPatient.meds.map((m: any) => `${m.name} (${m.dose})`)
-                                : (marRes.data ?? [])
-                                    .map((m: any) => m.medication_name)
-                                    .filter(Boolean)
-                            );
-
-                            const labsList: string[] = (
-                              Array.isArray(fullPatient.labs) && fullPatient.labs.length > 0
-                                ? fullPatient.labs.map((l: any) => l.name)
-                                : (labRes.data ?? [])
-                                    .map((l: any) => String(l.test_type ?? "").split(" (")[0])
-                                    .filter(Boolean)
-                            );
-
-                            const complaint =
-                              p.chief_complaint || p.diagnosis || "clinical evaluation";
-
-                            // 2-second simulated AI generation
-                            await new Promise((r) => setTimeout(r, 2000));
-
-                            const { buildDischargeMarkdown } = await import("@/lib/discharge-narrative");
-                            const adminMeds = (Array.isArray(fullPatient.meds) ? fullPatient.meds : []).map((m: any) => ({
-                              medication_name: m.name,
-                              dose: m.dose,
-                              route: m.route,
-                              status: "Administered",
-                            }));
-                            const resultedLabs = (Array.isArray(fullPatient.labs) ? fullPatient.labs : []).map((l: any) => ({
-                              test_type: l.name,
-                              status: "Reported",
-                              result_value: l.resultExample ?? l.result ?? null,
-                            }));
-                            const summary = buildDischargeMarkdown(
-                              {
-                                first_name: (p as any).first_name ?? null,
-                                last_name: (p as any).last_name ?? null,
-                                name: (p as any).name ?? null,
-                                mrn,
-                                age: (p as any).age ?? null,
-                                gender: (p as any).gender ?? null,
-                                chief_complaint: complaint,
-                                admission_time: (p as any).admission_time ?? null,
-                                discharge_time: new Date().toISOString(),
-                                icd10_codes: (p as any).icd10_codes ?? null,
-                                snomed_codes: (p as any).snomed_codes ?? null,
-                              },
-                              adminMeds,
-                              resultedLabs,
-                            );
-                            // Silence unused locals retained for diagnostic logging.
-                            void medsList; void labsList;
-
-                            const { error: insertErr } = await supabase
-                              .from("clinical_notes")
-                              .insert({
-                                mrn,
-                                note_type: "DISCHARGE_SUMMARY",
-                                author: "Ghost AI - Auto Discharge",
-                                content: summary,
-                              });
-                            if (insertErr) {
-                              console.log("Discharge Summary Error: ", insertErr);
-                            }
-                            // Persist discharge so realtime refetch doesn't resurrect the patient
-                            const { error: updateErr } = await supabase
-                              .from("patients")
-                              .update({
-                                status: "Discharged",
-                                discharge_time: new Date().toISOString(),
-                                discharge_summary: summary,
-                              })
-                              .eq("mrn", mrn);
-                            if (updateErr) {
-                              console.log("Discharge Status Update Error: ", updateErr);
+                            // Delegate to ghost-discharge-worker: builds the
+                            // rich narrative from real medication_orders /
+                            // lab_orders, inserts the DISCHARGE_SUMMARY note,
+                            // updates patients + bed_management, and rebuilds
+                            // + pushes the FHIR Composition/DocumentReference
+                            // to Medblocks. No forked client-side narrative.
+                            const result = await dischargePatientViaWorker({ mrn });
+                            if (!result.ok) {
+                              console.log("Discharge worker failed: ", result.reason);
                             }
                           } catch (error) {
                             console.log("Discharge Summary Error: ", error);
