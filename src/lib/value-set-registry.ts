@@ -62,37 +62,7 @@ export async function requestTerminologyUpdate(req: {
   related_mrn?: string | null;
 }): Promise<void> {
   try {
-    const { data: existing } = await supabase
-      .from("terminology_requests" as any)
-      .select("id, seed_codes")
-      .eq("requesting_consumer", req.requesting_consumer)
-      .eq("requested_name", req.requested_name)
-      .eq("status", "pending")
-      .maybeSingle();
-
-    if (existing) {
-      const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(
-        (existing as any).seed_codes,
-      )
-        ? (existing as any).seed_codes
-        : [];
-      const seen = new Set(prevCodes.map((c) => String(c?.code ?? "")));
-      const merged = [...prevCodes];
-      for (const c of req.seed_codes) {
-        const code = String(c?.code ?? "").trim();
-        if (!code || seen.has(code)) continue;
-        seen.add(code);
-        merged.push(c);
-      }
-      if (merged.length === prevCodes.length) return; // nothing new to add
-      await supabase
-        .from("terminology_requests" as any)
-        .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
-        .eq("id", (existing as any).id);
-      return;
-    }
-
-    await supabase.from("terminology_requests" as any).insert({
+    const { error: insertErr } = await supabase.from("terminology_requests" as any).insert({
       requesting_consumer: req.requesting_consumer,
       requested_name: req.requested_name,
       justification: req.justification,
@@ -103,6 +73,43 @@ export async function requestTerminologyUpdate(req: {
       related_mrn: req.related_mrn ?? null,
       status: "pending",
     } as any);
+
+    if (!insertErr) return; // fresh pending request created
+    if ((insertErr as any).code !== "23505") {
+      // eslint-disable-next-line no-console
+      console.warn("[value-set-registry] requestTerminologyUpdate insert failed", insertErr.message);
+      return;
+    }
+
+    // Unique-violation: a pending request for this (consumer, name) already
+    // exists — merge our seed codes into it instead of creating a duplicate.
+    const { data: existing } = await supabase
+      .from("terminology_requests" as any)
+      .select("id, seed_codes")
+      .eq("requesting_consumer", req.requesting_consumer)
+      .eq("requested_name", req.requested_name)
+      .eq("status", "pending")
+      .maybeSingle();
+    if (!existing) return; // resolved/processed between our insert attempt and this read
+
+    const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(
+      (existing as any).seed_codes,
+    )
+      ? (existing as any).seed_codes
+      : [];
+    const seen = new Set(prevCodes.map((c) => String(c?.code ?? "")));
+    const merged = [...prevCodes];
+    for (const c of req.seed_codes) {
+      const code = String(c?.code ?? "").trim();
+      if (!code || seen.has(code)) continue;
+      seen.add(code);
+      merged.push(c);
+    }
+    if (merged.length === prevCodes.length) return; // nothing new to add
+    await supabase
+      .from("terminology_requests" as any)
+      .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
+      .eq("id", (existing as any).id);
   } catch (e) {
     // eslint-disable-next-line no-console
     console.warn("[value-set-registry] requestTerminologyUpdate failed", (e as Error)?.message);
