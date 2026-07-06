@@ -262,20 +262,12 @@ function ChartPage() {
     })();
   }, [activeTab, mrn]);
 
-  // Ensure there's always at least one med to administer (mock fallback)
+  // Real active medication orders for this MRN (excludes historical
+  // Administered rows and REJECTED / REJECTED_SAFETY_ALERT). If the DB
+  // has none, render an honest empty state — showing a fake drug on a
+  // patient chart is unacceptable.
   const medsList: MedOrder[] =
-    patient.meds.length > 0
-      ? patient.meds
-      : [
-          {
-            id: "mock-1",
-            name: "Furosemide (Lasix)",
-            dose: "40 mg",
-            route: "PO",
-            freq: "Q12H",
-            due: "Now",
-          },
-        ];
+    liveMeds ?? (patient.meds.length > 0 ? patient.meds : []);
 
   if (!ready) {
     return (
@@ -923,17 +915,11 @@ function ChartPage() {
         {/* RIGHT — MAR */}
         <div className="lg:col-span-2">
           <div className="space-y-4 sticky top-[88px]">
-          <PatientReportedVitals mrn={patient.mrn} />
-          <PatientCommsInbox
-            mrn={patient.mrn}
-            facility={facility}
-            providerLabel={nurse?.name ?? "Care Team"}
-          />
           <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader
               icon={Pill}
               title="MAR — Due Now"
-              subtitle={`${patient.meds.length} active orders`}
+              subtitle={`${medsList.length} active order${medsList.length === 1 ? "" : "s"}`}
               right={
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--teal-soft)] text-[var(--teal)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
                   <span className="h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
@@ -941,17 +927,23 @@ function ChartPage() {
                 </span>
               }
             />
-            <ul className="divide-y divide-border">
-              {medsList.map((m) => (
-                <MedRow
-                  key={m.id}
-                  med={m}
-                  givenAt={given[m.id]}
-                  busy={administering === m.id}
-                  onAdminister={() => handleAdminister(m)}
-                />
-              ))}
-            </ul>
+            {medsList.length === 0 ? (
+              <div className="px-4 py-6 text-xs text-muted-foreground italic">
+                No active medications on file for this patient.
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {medsList.map((m) => (
+                  <MedRow
+                    key={m.id}
+                    med={m}
+                    givenAt={given[m.id]}
+                    busy={administering === m.id}
+                    onAdminister={() => handleAdminister(m)}
+                  />
+                ))}
+              </ul>
+            )}
           </section>
           </div>
         </div>
