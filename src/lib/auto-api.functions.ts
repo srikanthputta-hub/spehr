@@ -405,11 +405,12 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
 
     if (data.loinc_keyword) {
       const k = data.loinc_keyword.trim();
-      const { data: lab } = await sb
+      const { data: lab, error: labErr } = await sb
         .from("lab_orders")
         .select("patient_mrn, loinc_code, loinc_display")
         .or(`loinc_display.ilike.%${k}%,loinc_code.ilike.%${k}%,test_type.ilike.%${k}%`)
         .limit(2000);
+      if (labErr) console.error("[population-query] lab_orders keyword failed", labErr.message);
       labMrns = new Set();
       for (const r of (lab as any[]) ?? []) {
         if (r.patient_mrn) labMrns.add(r.patient_mrn);
