@@ -818,13 +818,13 @@ function SystemAdminPage() {
         {tab === "feature_controls" && (
           <div className="space-y-6">
             <div>
-              <h1 className="text-xl font-semibold text-slate-900">
+              <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-1.5">
                 🎛️ UI &amp; Feature Controls
+                <InfoHint
+                  className="ml-1.5"
+                  text="Master switches for in-app actions, scoped per facility. Toggling a switch instantly changes button visibility for every user with that clinical role at the selected facility — no redeploy required."
+                />
               </h1>
-              <p className="text-sm text-slate-600 mt-1">
-                Master switches for in-app actions, scoped per hospital. Toggling a switch
-                instantly updates button visibility for users of that role at the selected facility.
-              </p>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-5 py-4">
