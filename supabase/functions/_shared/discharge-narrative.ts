@@ -284,7 +284,16 @@ export function buildDischargeMarkdown(
     const s = (l.status ?? "").toLowerCase();
     return s === "resulted" || s === "reported";
   });
-  const abnormalLabs = pickAbnormalLabs(resulted);
+  // Show every lab actually resulted during the stay (abnormal-first ordering),
+  // not just the abnormal subset — normal results are clinically relevant too.
+  const isAbnormal = (l: NarrativeLab) =>
+    (l.abnormal_flag && l.abnormal_flag.trim() !== "" && l.abnormal_flag !== "N") ||
+    ABNORMAL_RE.test(l.result_value ?? "");
+  const allResultedLabs = [...resulted].sort((a, b) => {
+    const av = isAbnormal(a) ? 0 : 1;
+    const bv = isAbnormal(b) ? 0 : 1;
+    return av - bv;
+  });
 
   const lines: string[] = [];
 
@@ -380,11 +389,11 @@ export function buildDischargeMarkdown(
   lines.push("- No major surgical or interventional procedures were performed during this admission.");
   lines.push("");
 
-  lines.push("**Pertinent Laboratory & Imaging Findings**");
-  if (abnormalLabs.length === 0) {
+  lines.push("**Laboratory & Imaging Findings**");
+  if (allResultedLabs.length === 0) {
     lines.push("- All diagnostic studies within reference ranges; no critical results.");
   } else {
-    for (const l of abnormalLabs) {
+    for (const l of allResultedLabs) {
       const name = l.display_name ?? l.test_type ?? "Observation";
       const loinc = l.loinc_code ? ` _(LOINC ${l.loinc_code})_` : "";
       const flag = l.abnormal_flag && l.abnormal_flag !== "N" ? ` [${l.abnormal_flag}]` : "";
