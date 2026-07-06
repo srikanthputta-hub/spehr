@@ -11,7 +11,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { Activity, Users, LogOut as LogOutIcon, Loader2 } from "lucide-react";
+import { Activity, Users, LogOut as LogOutIcon, Loader2, Search } from "lucide-react";
 import { PopulationHealth } from "@/components/admin/PopulationHealth";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
@@ -65,6 +65,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const load = async () => {
     const { data, error } = await fetchWithTimeout(
@@ -113,7 +114,25 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
     }));
   }, [patients]);
 
-  const feed = useMemo(() => patients.slice(0, 50), [patients]);
+  const feed = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    let rows = patients.slice(0, 150);
+    if (term) {
+      rows = rows.filter((p) => {
+        const name = fullName(p).toLowerCase();
+        const mrn = (p.mrn ?? "").toLowerCase();
+        const complaint = (p.chief_complaint ?? "").toLowerCase();
+        const facility = (p.facility_name ?? "").toLowerCase();
+        return (
+          name.includes(term) ||
+          mrn.includes(term) ||
+          complaint.includes(term) ||
+          facility.includes(term)
+        );
+      });
+    }
+    return rows;
+  }, [patients, searchTerm]);
 
   const Wrapper: any = embedded ? "div" : "main";
   return (
@@ -234,6 +253,18 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               </span>
               Updating every 10s
+            </div>
+          </div>
+          <div className="px-5 py-3 border-b border-slate-100">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by patient, MRN, complaint, or facility…"
+                className="w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
+              />
             </div>
           </div>
           <div className="max-h-[480px] overflow-auto">
