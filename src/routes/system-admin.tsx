@@ -1387,6 +1387,9 @@ async function resolveAlertSideEffects(
       physician_name: physicianName,
       fired_at: decidedAt,
       decision: status,
+      patient_name: c.patient_name,
+      facility_name: c.facility_name,
+      risk_score: c.risk_score,
     } as any);
   } catch (e: any) {
     console.warn("[safety] cds_overrides insert failed", e?.message);
@@ -1656,7 +1659,7 @@ function SafetyQueue({ facility }: { facility: string }) {
         const status: "Overridden" | "Rejected" = score >= 70 ? "Rejected" : "Overridden";
         const physicianName = await lookupOrderingPhysician(c.medication_order_id);
         const base = buildSafetyRationale(c, status, "AI Safety Engine");
-        const rationale = `[SLA auto-resolved on behalf of ${physicianName} — 45s review window expired] ${base}`;
+        const rationale = `Risk score ${score}/100 (threshold: score >= 70 = auto-Reject, < 70 = auto-Override) → ${status}. [SLA auto-resolved on behalf of ${physicianName} — 45s review window expired] ${base}`;
 
         setItems((prev) =>
           prev.map((row) =>
@@ -1706,7 +1709,8 @@ function SafetyQueue({ facility }: { facility: string }) {
   }, [items]);
 
   const act = async (c: DbSafetyAlert, status: "Overridden" | "Rejected") => {
-    const defaultRationale = buildSafetyRationale(c, status, "Pharmacist");
+    const score = c.risk_score ?? 50;
+    const defaultRationale = `Risk score ${score}/100 (auto-decision threshold: >= 70 = Reject, < 70 = Override) — manually set to ${status} by clinician. ${buildSafetyRationale(c, status, "Pharmacist")}`;
     const rationale =
       status === "Overridden"
         ? window.prompt(
@@ -1837,6 +1841,21 @@ function SafetyQueue({ facility }: { facility: string }) {
                 </div>
                 {c.status === "Pending Review" ? (
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    {(() => {
+                      const score = c.risk_score ?? 50;
+                      const willReject = score >= 70;
+                      const tone = willReject
+                        ? "border-red-300 bg-red-50 text-red-700"
+                        : "border-emerald-300 bg-emerald-50 text-emerald-700";
+                      return (
+                        <span
+                          className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tone}`}
+                          title="Auto-decision band: score ≥ 70 = Reject, < 70 = Override"
+                        >
+                          Risk {score}/100 — will auto-{willReject ? "reject" : "override"} if unactioned
+                        </span>
+                      );
+                    })()}
                     <SlaCountdown
                       autoResolveAt={c.auto_resolve_at}
                       createdAt={c.created_at}

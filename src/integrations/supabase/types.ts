@@ -443,12 +443,15 @@ export type Database = {
           decision: string | null
           drug_name: string | null
           drug_rxnorm: string | null
+          facility_name: string | null
           fired_at: string
           id: string
           mrn: string
+          patient_name: string | null
           physician_id: string | null
           physician_name: string | null
           reason: string
+          risk_score: number | null
           severity: string
         }
         Insert: {
@@ -459,12 +462,15 @@ export type Database = {
           decision?: string | null
           drug_name?: string | null
           drug_rxnorm?: string | null
+          facility_name?: string | null
           fired_at?: string
           id?: string
           mrn: string
+          patient_name?: string | null
           physician_id?: string | null
           physician_name?: string | null
           reason: string
+          risk_score?: number | null
           severity: string
         }
         Update: {
@@ -475,12 +481,15 @@ export type Database = {
           decision?: string | null
           drug_name?: string | null
           drug_rxnorm?: string | null
+          facility_name?: string | null
           fired_at?: string
           id?: string
           mrn?: string
+          patient_name?: string | null
           physician_id?: string | null
           physician_name?: string | null
           reason?: string
+          risk_score?: number | null
           severity?: string
         }
         Relationships: []
