@@ -5,6 +5,7 @@ import { checkDrugDisease, checkDrugDiseaseFromValueSets, type CdsHit } from "@/
 import { logCdsOverride } from "@/lib/auto-api.functions";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
 import { toast } from "sonner";
+import { InfoHint } from "@/components/ui/info-hint";
 
 interface Props {
   drugName: string;
@@ -112,8 +113,9 @@ export function CdsHookAlert({
             <div className="flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 text-rose-700 mt-0.5" />
               <div className="flex-1">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-rose-800">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-rose-800 inline-flex items-center gap-1">
                   Drug-Allergy Alert · CONTRAINDICATION
+                  <InfoHint text="CDS Hook = Clinical Decision Support hook — an automated real-time check fired at order entry against the patient's documented allergies (mapped RxNorm → allergen family). CONTRAINDICATION = clinically prohibited combination, distinct from a WARNING (elevated risk, monitoring required)." />
                 </div>
                 <div className="text-[13px] text-rose-900 mt-0.5">
                   Patient has documented allergy to <span className="font-semibold">{a}</span>.
@@ -148,6 +150,7 @@ export function CdsHookAlert({
               >
                 Override with reason →
               </button>
+              <InfoHint className="ml-2 align-middle" text="Overriding is not silent — it writes a permanent audit row to cds_overrides with your name, the drug (RxNorm), the condition/allergy, and your justification. Reviewable in System Admin → CDS Hook Decisions." />
             )}
           </div>
         );
@@ -172,8 +175,9 @@ export function CdsHookAlert({
             <div className="flex items-start gap-2">
               <AlertTriangle className={`h-4 w-4 mt-0.5 ${isContra ? "text-rose-700" : "text-amber-700"}`} />
               <div className="flex-1">
-                <div className="text-[11px] font-bold uppercase tracking-wider">
+                <div className="text-[11px] font-bold uppercase tracking-wider inline-flex items-center gap-1">
                   Drug-Disease · {h.rule.severity}
+                  <InfoHint text="CDS Hook drug-disease check. CONTRAINDICATION = clinically prohibited combination, override strongly discouraged. WARNING = elevated risk requiring monitoring but not an absolute prohibition — either can be overridden with a logged justification." />
                 </div>
                 <div className="text-[13px] mt-0.5">
                   Matched condition: <span className="font-semibold">{h.matched_condition}</span>

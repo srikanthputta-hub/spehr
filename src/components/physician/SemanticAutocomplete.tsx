@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
+import { InfoHint } from "@/components/ui/info-hint";
 
 /**
  * Semantic Autocomplete — debounced UMLS-backed dropdown for CPOE inputs.
@@ -135,8 +136,9 @@ export function SemanticAutocomplete({
         </div>
       )}
       {!autoApi && (
-        <div className="mt-1 text-[10px] text-amber-700">
+        <div className="mt-1 text-[10px] text-amber-700 inline-flex items-center gap-1">
           AUTO API off — manual entry (no UMLS lookup).
+          <InfoHint text="UMLS = Unified Medical Language System — the US National Library of Medicine terminology server used to validate and standardize what you type against canonical vocabularies (RxNorm for drugs, SNOMED CT for conditions, LOINC for labs). With AUTO API off, no live lookup runs and the field falls back to free-text." />
         </div>
       )}
     </div>
