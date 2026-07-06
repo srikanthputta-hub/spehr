@@ -2,14 +2,11 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Activity,
-  CheckCircle2,
   ChevronRight,
   Database,
-  Languages,
   Layers,
   ShieldAlert,
   Sparkles,
-  XCircle,
 } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 
@@ -18,11 +15,8 @@ import { InfoHint } from "@/components/ui/info-hint";
 /* ------------------------------------------------------------------ */
 
 type Metrics = {
-  resolved24h: number;
-  rejected24h: number;
   auditTotal: number;
   valueSets: number;
-  chv: number;
   cds24h: number;
 };
 
@@ -33,23 +27,12 @@ export function TerminologyMetricsStrip() {
     let cancelled = false;
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     (async () => {
-      const [r1, r2, r3, r4, r5, r6] = await Promise.all([
-        supabase
-          .from("terminology_audit")
-          .select("id", { count: "exact", head: true })
-          .eq("action", "resolved")
-          .gte("created_at", since),
-        supabase
-          .from("terminology_audit")
-          .select("id", { count: "exact", head: true })
-          .eq("action", "rejected")
-          .gte("created_at", since),
+      const [r3, r4, r6] = await Promise.all([
         supabase.from("terminology_audit").select("id", { count: "exact", head: true }),
         supabase
           .from("custom_value_sets")
           .select("id", { count: "exact", head: true })
           .eq("status", "published"),
-        supabase.from("chv_translations").select("id", { count: "exact", head: true }),
         supabase
           .from("cds_overrides")
           .select("id", { count: "exact", head: true })
@@ -57,11 +40,8 @@ export function TerminologyMetricsStrip() {
       ]);
       if (cancelled) return;
       setM({
-        resolved24h: r1.count ?? 0,
-        rejected24h: r2.count ?? 0,
         auditTotal: r3.count ?? 0,
         valueSets: r4.count ?? 0,
-        chv: r5.count ?? 0,
         cds24h: r6.count ?? 0,
       });
     })();
@@ -71,20 +51,6 @@ export function TerminologyMetricsStrip() {
   }, []);
 
   const items = [
-    {
-      icon: CheckCircle2,
-      label: "UMLS Resolved · 24h",
-      value: m?.resolved24h ?? "—",
-      cls: "text-emerald-700 bg-emerald-50 border-emerald-200",
-      info: "Free-text inputs (drugs, conditions, lab names) the UMLS resolver mapped to a canonical code in the last 24h across all facilities.",
-    },
-    {
-      icon: XCircle,
-      label: "Rejected · 24h",
-      value: m?.rejected24h ?? "—",
-      cls: "text-rose-700 bg-rose-50 border-rose-200",
-      info: "Terms the resolver rejected in the last 24h — confidence below the NLP gate threshold or no matching UMLS concept. Rejects go to the NLP Approval Trail for manual review.",
-    },
     {
       icon: Database,
       label: "Audit Trail · Total",
@@ -98,13 +64,6 @@ export function TerminologyMetricsStrip() {
       value: m?.valueSets ?? "—",
       cls: "text-indigo-700 bg-indigo-50 border-indigo-200",
       info: "Custom value sets in status = published — the only ones visible to consumers (physician order panels, CDS engine, billing, population health).",
-    },
-    {
-      icon: Languages,
-      label: "CHV Translations",
-      value: m?.chv ?? "—",
-      cls: "text-amber-700 bg-amber-50 border-amber-200",
-      info: 'CHV = Consumer Health Vocabulary — plain-language equivalents of clinical terms (e.g. "myocardial infarction" → "heart attack"). Used by MySPEHR patient portal to render readable explanations.',
     },
     {
       icon: ShieldAlert,
@@ -126,7 +85,7 @@ export function TerminologyMetricsStrip() {
           Live from UMLS resolver, value-set library & CHV cache
         </span>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
         {items.map(({ icon: Icon, label, value, cls, info }) => (
           <div key={label} className={`rounded-lg border px-3 py-2 ${cls}`}>
             <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold opacity-80">
