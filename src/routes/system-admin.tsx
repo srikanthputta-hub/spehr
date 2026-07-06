@@ -977,10 +977,13 @@ function UserDirectory() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">👥 User Directory</h1>
-        <p className="text-sm text-slate-600 mt-1">
-          Network-wide staff accounts with assigned clinical role, primary facility, and current access status.
-        </p>
+        <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-1.5">
+          👥 User Directory
+          <InfoHint
+            className="ml-1.5"
+            text="Network-wide staff directory with each person's clinical role, primary facility, and access status. Use Edit Access to suspend or reinstate an account."
+          />
+        </h1>
       </div>
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <table className="w-full text-sm">
