@@ -65,6 +65,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const load = async () => {
     const { data, error } = await fetchWithTimeout(
