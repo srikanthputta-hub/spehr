@@ -535,7 +535,7 @@ function buildDischargeMedRequest(patientId: string, encounterId: string, m: Dis
       resourceType: "MedicationRequest",
       id,
       status: "active",
-      intent: "discharge",
+      intent: "order",
       medicationCodeableConcept: {
         coding: m.rxnorm ? [{ system: RXNORM, code: m.rxnorm, display: name }] : undefined,
         text: `${name}${m.dose ? ` ${m.dose}` : ""}`,
