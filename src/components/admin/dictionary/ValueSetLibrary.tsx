@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ExpandCard } from "@/components/admin/dictionary/FhirOpCards";
+import { InfoHint } from "@/components/ui/info-hint";
 
 type ValueSet = {
   id: string;
@@ -277,11 +278,11 @@ export function ValueSetLibrary() {
           <div>
             <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
               📚 Value Set Library
+              <InfoHint
+                className="ml-1.5"
+                text="VSAC-aligned value set repository — browse, author, and publish extensional and intensional value sets. Currently spans SNOMED CT, ICD-10-CM, LOINC, and RxNorm (CPT and MedDRA are supported vocabularies for future value sets, none published yet). Every row here has a real, resolvable FHIR OID and is what Safety Alerts, CDS, Billing, and Population Health actually query against."
+              />
             </h3>
-            <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-              VSAC-aligned value set repository. Browse, author, and publish extensional
-              and intensional value sets across SNOMED CT, ICD-10-CM, LOINC, RxNorm, CPT, and MedDRA.
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => window.dispatchEvent(new CustomEvent("spehr:switch-tab", { detail: { tab: "authoring" } }))}>
