@@ -71,8 +71,11 @@ async function pushDischargeBundleToFhir(bundle: unknown): Promise<{ ok: boolean
     headers,
     body: JSON.stringify(bundle),
   });
-  // drain
-  try { await res.text(); } catch { /* ignore */ }
+  let bodyText = "";
+  try { bodyText = await res.text(); } catch { /* ignore */ }
+  if (!res.ok) {
+    console.error(`[ghost-discharge-worker] FHIR push ${res.status}:`, bodyText.slice(0, 800));
+  }
   return { ok: res.ok, status: res.status };
 }
 
