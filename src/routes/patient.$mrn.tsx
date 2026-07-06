@@ -1046,16 +1046,11 @@ function ClinicalSummary({
 
           <section className={widgetBox}>
             <WidgetHeader title="Allergies" />
-            <div className="px-2.5 py-2 text-[12px] space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-800 font-semibold">cefazolin (From Ancef)</span>
-                <span className="text-slate-500">Diarrhea</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-800 font-semibold">penicillin G</span>
-                <span className="text-slate-500">Rash</span>
-              </div>
-            </div>
+            <AllergiesWidget
+              allergies={patient.allergies}
+              environmentalAllergies={patient.environmental_allergies}
+              showEnvironmental
+            />
           </section>
 
           <section className={widgetBox}>
