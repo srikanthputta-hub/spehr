@@ -33,6 +33,7 @@ import {
   resolveAlertSideEffects,
   type DbSafetyAlert,
 } from "@/lib/safety-alert-resolution";
+import { SlaCountdown } from "@/components/patient/SlaCountdown";
 import {
   lookupTerminology,
   toFhirCodeSystem,
