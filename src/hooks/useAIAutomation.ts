@@ -12,6 +12,7 @@ import {
 import { routeDepartment } from "@/lib/chief-complaints";
 import { templateForDepartment } from "@/lib/auto-doc-catalog";
 import { runAutoDoc } from "@/lib/auto-doc.functions";
+import { autoCodeMedication } from "@/lib/auto-code";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -384,14 +385,18 @@ async function cascadeLab(
     const result_value = numericMatch ? Number(numericMatch[0]) : null;
 
     const flagMatch = sample.match(/\[([^\]]+)\]/);
-    const flagUpper = flagMatch ? flagMatch[1].toUpperCase() : "";
-    const flag = flagUpper.includes("CRITICAL")
+    const flagCode = flagMatch ? flagMatch[1].toUpperCase() : "";
+    // flagCode is the raw single-letter code ("L"/"H"/"C"/"N"), not a spelled-out
+    // word — match on the code itself. (Previous version compared this against
+    // "LOW"/"HIGH"/"CRITICAL" substrings, which a single letter can never contain,
+    // so every result silently fell through to NORMAL.)
+    const flag = flagCode === "C"
       ? "CRITICAL"
-      : flagUpper.includes("HIGH")
+      : flagCode === "H"
         ? "HIGH"
-        : flagUpper.includes("LOW")
+        : flagCode === "L"
           ? "LOW"
-          : flagUpper.includes("ABNORMAL")
+          : flagCode === "A"
             ? "ABNORMAL"
             : result_value === null
               ? null
@@ -603,6 +608,7 @@ export async function seedAdmission(
         .select("id")
         .single();
       if (error || !data) return; // unique-index collision → another client wins
+      autoCodeMedication(m.name, { resourceId: data.id, mrn, resolver: "auto-doc-cascade" });
       cascadeMed(mrn, data.id).catch((e) =>
         console.warn("[cascadeMed] failed", e),
       );

@@ -11,6 +11,7 @@ import {
   resolveConcept,
   type Vocabulary,
 } from "@/lib/terminology-resolver";
+import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
 
 interface AutoCodeContext {
   resourceId: string;
@@ -114,6 +115,21 @@ export function autoCodeMedication(text: string, ctx: AutoCodeContext): void {
       coding_source: c.source,
       coded_at: new Date().toISOString(),
     });
+    // Safety-critical: re-run the drug-allergy/interaction check now that this
+    // order has a resolved RxNorm code. The realtime INSERT watcher fires at
+    // row-creation time, before this code exists, so without this call the
+    // check never re-fires once the code is actually available.
+    try {
+      await runMedicationOrderRules({
+        mrn: ctx.mrn ?? "",
+        rxnorm_code: c.code,
+        rxnorm_display: c.display,
+        medication_name: text,
+        medication_order_id: ctx.resourceId,
+      });
+    } catch (e) {
+      console.warn("[auto-code] post-coding safety check failed", e);
+    }
   })();
 }
 
