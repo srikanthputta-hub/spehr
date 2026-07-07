@@ -40,6 +40,7 @@ import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplet
 import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
 import { InfoHint } from "@/components/ui/info-hint";
 import { OrderPanelPicker } from "@/components/physician/OrderPanelPicker";
+import { PatientSafetyAlertQueue } from "@/components/physician/PatientSafetyAlertQueue";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
