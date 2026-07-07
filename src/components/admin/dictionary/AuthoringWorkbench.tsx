@@ -13,11 +13,11 @@ type Hit = { ui: string; name: string; rootSource?: string };
 type Picked = { code: string; display: string; vocabulary: string; excluded?: boolean };
 
 const VOCABS = [
-  { label: "SNOMED CT", value: "SNOMEDCT_US", action: "snomed" },
-  { label: "ICD-10-CM", value: "ICD10CM", action: "icd10" },
-  { label: "LOINC", value: "LNC", action: "loinc" },
-  { label: "RxNorm", value: "RXNORM", action: "rxnorm" },
-  { label: "MedDRA", value: "MDR", action: "meddra" },
+  { label: "SNOMED CT", value: "SNOMEDCT_US" },
+  { label: "ICD-10-CM", value: "ICD10CM" },
+  { label: "LOINC", value: "LNC" },
+  { label: "RxNorm", value: "RXNORM" },
+  { label: "MedDRA", value: "MDR" },
 ];
 
 export function AuthoringWorkbench() {
@@ -25,6 +25,7 @@ export function AuthoringWorkbench() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Hit[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [type, setType] = useState<"extensional" | "intensional">("extensional");
@@ -76,11 +77,28 @@ export function AuthoringWorkbench() {
   const runSearch = useCallback(async (q: string, v = vocab) => {
     if (!q || q.length < 2) { setResults([]); return; }
     setSearching(true);
+    setSearchErr(null);
     try {
-      const { data } = await supabase.functions.invoke("umls-proxy", {
-        body: { action: v.action, params: { string: q, sabs: v.value, pageSize: 15 } },
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: {
+          action: "search",
+          params: {
+            string: q,
+            sabs: v.value,
+            returnIdType: "code",
+            pageSize: 15,
+          },
+        },
       });
-      setResults(data?.result?.results ?? []);
+      if (error) {
+        setSearchErr(error.message ?? "Terminology server unavailable");
+        setResults([]);
+      } else {
+        const hits = ((data as any)?.result?.results ?? []).filter(
+          (r: any) => r?.ui && r.ui !== "NONE",
+        );
+        setResults(hits);
+      }
     } finally { setSearching(false); }
   }, [vocab]);
 
@@ -206,6 +224,9 @@ export function AuthoringWorkbench() {
             />
             {searching && <Loader2 className="absolute right-2 top-2 h-4 w-4 animate-spin text-slate-400" />}
           </div>
+          {searchErr && (
+            <div className="text-[11px] text-rose-600">{searchErr}</div>
+          )}
 
           <div className="border border-slate-200 rounded max-h-[28rem] overflow-y-auto divide-y divide-slate-100">
             {results.length === 0 && !searching && (
