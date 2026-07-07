@@ -32,13 +32,11 @@ type VsRow = {
 };
 
 const VS_NAMES = [
-  "Penicillin Class Drugs",
   "Allergy Substances",
   "Anticoagulants",
   "High-Acuity ED Presentations",
   "Sepsis Indicators",
   "NSAIDs",
-  "Penicillin/Beta-Lactam Allergens",
 ] as const;
 
 type VsName = (typeof VS_NAMES)[number];
@@ -75,6 +73,66 @@ export async function ensureValueSetsLoaded(): Promise<Map<VsName, VsRow>> {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Drug-Allergy pair registry (data-driven, no hardcoded pair)        */
+/* ------------------------------------------------------------------ */
+
+export type DrugAllergyPair = {
+  pairId: string;             // e.g. "penicillin"
+  allergenSets: VsRow[];      // union of published SNOMED allergen value sets
+  drugSets: VsRow[];          // union of published RxNorm drug value sets
+  allergenNames: string[];    // registered names (published or not) for gap reports
+  drugNames: string[];
+};
+
+let pairCache: DrugAllergyPair[] = [];
+let pairLoadedAt = 0;
+let pairLoadPromise: Promise<void> | null = null;
+
+export async function loadDrugAllergyPairs(): Promise<DrugAllergyPair[]> {
+  const fresh = Date.now() - pairLoadedAt < VS_TTL_MS && pairCache.length > 0;
+  if (fresh) return pairCache;
+  if (pairLoadPromise) {
+    await pairLoadPromise;
+    return pairCache;
+  }
+  pairLoadPromise = (async () => {
+    const { data, error } = await supabase
+      .from("value_set_dependencies")
+      .select(
+        "purpose, lookup_mode, value_set_name, custom_value_sets:value_set_id ( id, name, oid, vocabulary, type, codes, intensional_rule, status )",
+      )
+      .eq("consumer", "Safety Alerts Engine · Drug-Allergy");
+    if (error || !data) {
+      pairCache = [];
+      pairLoadedAt = Date.now();
+      return;
+    }
+    const byPair = new Map<string, DrugAllergyPair>();
+    for (const row of data as any[]) {
+      const pairId = String(row?.purpose ?? "").trim();
+      const mode = String(row?.lookup_mode ?? "").trim();
+      if (!pairId || (mode !== "allergen" && mode !== "drug")) continue;
+      let entry = byPair.get(pairId);
+      if (!entry) {
+        entry = { pairId, allergenSets: [], drugSets: [], allergenNames: [], drugNames: [] };
+        byPair.set(pairId, entry);
+      }
+      const name = String(row?.value_set_name ?? "").trim();
+      if (name) (mode === "allergen" ? entry.allergenNames : entry.drugNames).push(name);
+      const vs = row?.custom_value_sets;
+      if (!vs || vs.status !== "published") continue;
+      (mode === "allergen" ? entry.allergenSets : entry.drugSets).push(vs as VsRow);
+    }
+    pairCache = Array.from(byPair.values());
+    pairLoadedAt = Date.now();
+  })().finally(() => {
+    pairLoadPromise = null;
+  });
+  await pairLoadPromise;
+  return pairCache;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Membership checks                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -83,6 +141,10 @@ function extensionalContains(vs: VsRow | undefined, code: string): boolean {
   const c = String(code).trim();
   if (!c) return false;
   return vs.codes.some((r) => String(r?.code ?? "").trim() === c);
+}
+
+function anyContains(sets: VsRow[], code: string): boolean {
+  return sets.some((s) => extensionalContains(s, code));
 }
 
 /* ------------------------------------------------------------------ */
