@@ -208,21 +208,6 @@ async function fireAlert(input: FireInput): Promise<void> {
   } as any);
 }
 
-async function logProxyFailure(mrn: string, ruleKey: string, note: string) {
-  try {
-    await supabase.from("auto_doc_logs").insert({
-      mrn,
-      stage: "safety-alert",
-      level: "error",
-      message: `Safety alert value-set validation unavailable (${ruleKey}) — failing open`,
-      meta: { ruleKey, note },
-      created_by_type: "automation",
-    } as any);
-  } catch {
-    /* ignore */
-  }
-}
-
 /* ------------------------------------------------------------------ */
 /*  RULE 1 & 2 — Medication order triggers                             */
 /* ------------------------------------------------------------------ */
