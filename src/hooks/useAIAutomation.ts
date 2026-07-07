@@ -252,29 +252,42 @@ async function startBedCleaningCycle(mrn: string) {
     .eq("id", bed.id);
 }
 
+// Per-phase duration for the post-discharge turnover cycle:
+// Cleaning → Disinfecting → Making Bed → Available (3 × BED_PHASE_MS total).
+export const BED_PHASE_MS = 45_000;
+
 async function sweepBedCleaningCycles() {
   const now = Date.now();
-  const cutoff60 = new Date(now - 60_000).toISOString();
-  const cutoff120 = new Date(now - 120_000).toISOString();
-  // Cleaning → Disinfecting (60s elapsed)
+  const cutoff = new Date(now - BED_PHASE_MS).toISOString();
+  const nowIso = new Date().toISOString();
+  // Cleaning → Disinfecting
   await supabase
     .from("bed_management")
     .update({
       status: "Disinfecting",
-      status_updated_at: new Date().toISOString(),
+      status_updated_at: nowIso,
     } as any)
     .in("status", ["Cleaning", "Discharged - Deep Cleaning In Progress", "Discharged"])
-    .lt("status_updated_at", cutoff60);
-  // Disinfecting → Available (another 60s elapsed = 120s total since discharge)
+    .lt("status_updated_at", cutoff);
+  // Disinfecting → Making Bed
+  await supabase
+    .from("bed_management")
+    .update({
+      status: "Making Bed",
+      status_updated_at: nowIso,
+    } as any)
+    .eq("status", "Disinfecting")
+    .lt("status_updated_at", cutoff);
+  // Making Bed → Available
   await supabase
     .from("bed_management")
     .update({
       status: "Available",
       current_patient_mrn: null,
-      status_updated_at: new Date().toISOString(),
+      status_updated_at: nowIso,
     } as any)
-    .eq("status", "Disinfecting")
-    .lt("status_updated_at", cutoff120);
+    .eq("status", "Making Bed")
+    .lt("status_updated_at", cutoff);
 }
 
 
