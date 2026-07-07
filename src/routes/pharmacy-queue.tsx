@@ -16,6 +16,16 @@ import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
+import { SlaCountdown } from "@/components/patient/SlaCountdown";
+import { SAFETY_AUTO_REJECT_THRESHOLD } from "@/lib/safety-alert-resolution";
+
+type HeldAlert = {
+  id: string;
+  medication_order_id: string | null;
+  auto_resolve_at: string | null;
+  risk_score: number | null;
+  created_at: string;
+};
 
 type Order = {
   id: string;
