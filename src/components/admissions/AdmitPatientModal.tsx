@@ -425,7 +425,7 @@ export function AdmitPatientModal({
                             ),
                           })
                         }
-                        sabs="SNOMEDCT_US"
+                        sabs="RXNORM"
                         placeholder="Penicillin"
                       />
                       <Input
