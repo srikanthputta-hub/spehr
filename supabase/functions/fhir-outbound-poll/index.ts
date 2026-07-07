@@ -814,40 +814,65 @@ async function pollClinical(admin: any) {
   // boundaries within a tied ts bucket are safe: the next tick resumes
   // from the last-processed (newest, mrn) and picks up strictly later
   // MRNs in the same bucket via `mrn > cursor.mrn`.
+  const failCounts = await readFailCounts(admin);
+  let failCountsDirty = false;
   let lastAdvanced: ClinicalCursor | null = null;
   let hardStop = false;
   for (const row of selected) {
     if (hardStop) break;
     const mrn = row.mrn;
     let built: { entries: any[]; skipped: string | null } | null = null;
+    let failureReason: string | null = null;
     try {
       built = await buildEntriesForMrn(admin, mrn);
     } catch (e) {
+      failureReason = `build_error: ${(e as Error).message}`;
+    }
+    if (!failureReason && built && !built.skipped && built.entries.length > 0) {
+      stats.entries += built.entries.length;
+      const result = await pushBundle(built.entries);
+      if (!result.ok) {
+        failureReason = `push_${result.status}: ${typeof result.body === "string" ? result.body : JSON.stringify(result.body).slice(0, 400)}`;
+      }
+    }
+
+    if (failureReason) {
       stats.failed += 1;
-      stats.skipped.push({ mrn, reason: `build_error: ${(e as Error).message}` });
-      // Do NOT advance past a build failure — next tick retries this MRN.
+      stats.skipped.push({ mrn, reason: failureReason });
+      const n = (failCounts[mrn] ?? 0) + 1;
+      failCounts[mrn] = n;
+      failCountsDirty = true;
+      if (n >= FAILCOUNT_THRESHOLD) {
+        // Force-advance past this MRN so a single unbuildable/unsyncable
+        // patient can't freeze the entire cursor forever.
+        await logEvent(admin, {
+          mrn,
+          stage: "fhir-outbound-poll:clinical",
+          level: "warn",
+          message: `Force-advancing cursor past ${mrn} after ${n} consecutive failures: ${failureReason}`,
+          meta: { mrn, consecutive_failures: n, cursor_ts: row.newest, reason: failureReason },
+        });
+        delete failCounts[mrn];
+        lastAdvanced = { ts: row.newest, mrn: row.mrn };
+        continue;
+      }
       hardStop = true;
       continue;
     }
-    if (built.skipped || built.entries.length === 0) {
-      stats.skipped.push({ mrn, reason: built.skipped ?? "no_entries" });
-      // Nothing to push — safe to advance past this MRN.
+
+    if (built?.skipped || (built && built.entries.length === 0)) {
+      stats.skipped.push({ mrn, reason: built?.skipped ?? "no_entries" });
+      if (failCounts[mrn]) { delete failCounts[mrn]; failCountsDirty = true; }
       lastAdvanced = { ts: row.newest, mrn: row.mrn };
       continue;
     }
-    stats.entries += built.entries.length;
-    const result = await pushBundle(built.entries);
-    if (!result.ok) {
-      stats.failed += 1;
-      stats.skipped.push({ mrn, reason: `push_${result.status}`, body: result.body });
-      // Freeze cursor at the last success so the failed MRN is retried
-      // on the next tick without skipping over it.
-      hardStop = true;
-      continue;
-    }
+
     stats.pushed += 1;
+    if (failCounts[mrn]) { delete failCounts[mrn]; failCountsDirty = true; }
     lastAdvanced = { ts: row.newest, mrn: row.mrn };
   }
+  if (failCountsDirty) await writeFailCounts(admin, failCounts);
+  stats.failCounts = failCounts;
 
   const newCursor: ClinicalCursor = lastAdvanced ?? cursor;
   // Never regress the cursor.
