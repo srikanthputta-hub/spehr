@@ -283,16 +283,10 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
       .select("substance, substance_snomed")
       .eq("mrn", mrn);
     let matched: { substance: string; snomed: string } | null = null;
-    let anyUnavailable = false;
     for (const a of (allergyRows ?? []) as any[]) {
       const snomed = String(a?.substance_snomed ?? "").trim();
       if (!snomed) continue;
-      const res = await intensionalContains(penicillinAllergens, "http://snomed.info/sct", snomed);
-      if (res.unavailable) {
-        anyUnavailable = true;
-        continue;
-      }
-      if (res.valid) {
+      if (extensionalContains(penicillinAllergens, snomed)) {
         matched = { substance: String(a?.substance ?? ""), snomed };
         break;
       }
@@ -315,8 +309,6 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           medication_order_id: evt.medication_order_id ?? null,
         });
       }
-    } else if (anyUnavailable) {
-      await logProxyFailure(mrn, "rule1-drug-allergy", "UMLS ancestor lookup unavailable");
     }
   } else if (name) {
     // Coverage-gap detection: the drug name looks like a penicillin/beta-
