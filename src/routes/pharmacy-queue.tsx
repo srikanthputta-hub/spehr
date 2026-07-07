@@ -109,6 +109,8 @@ function PharmacyQueue() {
     }[]
   >([]);
   const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
+  const [heldAlerts, setHeldAlerts] = useState<HeldAlert[]>([]);
+  const [nowTs, setNowTs] = useState<number>(Date.now());
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
