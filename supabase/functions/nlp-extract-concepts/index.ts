@@ -16,8 +16,9 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-2.5-flash";
+// OpenAI Responses API. All AI features use OPENAI_API_KEY.
+const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const MODEL = "gpt-5-mini";
 
 const SYSTEM_PROMPT = `You are a clinical NLP extractor. Read the patient's
 Chief Complaint and HPI and split it into atomic, codeable SNOMED CT
@@ -36,9 +37,9 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
   try {
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) {
-      return json({ concepts: [], error: "Missing LOVABLE_API_KEY" }, 500);
+      return json({ concepts: [], error: "Missing OPENAI_API_KEY" }, 500);
     }
     const body = await req.json().catch(() => ({}));
     const cc = String(body?.cc ?? "").trim();
@@ -50,7 +51,7 @@ Deno.serve(async (req) => {
       `HPI: ${hpi || "(none)"}\n\n` +
       `Return JSON only in the shape {"concepts":[{"term":string,"negated":boolean}]}.`;
 
-    const gwRes = await fetch(GATEWAY_URL, {
+    const gwRes = await fetch(OPENAI_RESPONSES_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -58,20 +59,14 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model: MODEL,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMsg },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.1,
+        instructions: SYSTEM_PROMPT,
+        input: userMsg,
+        text: { format: { type: "json_object" } },
       }),
     });
 
     if (gwRes.status === 429) {
       return json({ concepts: [], error: "rate_limited" }, 429);
-    }
-    if (gwRes.status === 402) {
-      return json({ concepts: [], error: "credits_exhausted" }, 402);
     }
     if (!gwRes.ok) {
       const text = await gwRes.text().catch(() => "");
@@ -80,7 +75,18 @@ Deno.serve(async (req) => {
     }
 
     const payload = await gwRes.json();
-    const raw = payload?.choices?.[0]?.message?.content ?? "{}";
+    // Responses API: prefer `output_text` convenience field; fall back to
+    // walking `output[].content[].text` for older/newer shapes.
+    let raw: string = payload?.output_text ?? "";
+    if (!raw && Array.isArray(payload?.output)) {
+      for (const item of payload.output) {
+        const parts = Array.isArray(item?.content) ? item.content : [];
+        for (const p of parts) {
+          if (typeof p?.text === "string") raw += p.text;
+        }
+      }
+    }
+    if (!raw) raw = "{}";
     let parsed: any = {};
     try {
       parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
