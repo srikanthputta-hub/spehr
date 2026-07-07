@@ -665,6 +665,12 @@ function PhysicianBoard() {
                 </form>
               </div>
 
+              {/* Inline per-patient safety alerts — renders nothing when queue is clear */}
+              <PatientSafetyAlertQueue
+                mrn={selected.mrn}
+                physicianName={md.name}
+              />
+
               {/* Value-set–driven physician order panels */}
               <OrderPanelPicker
                 mrn={selected.mrn}
