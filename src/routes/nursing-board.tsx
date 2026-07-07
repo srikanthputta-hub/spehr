@@ -745,8 +745,7 @@ function Dashboard() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-6">
-        <CohortCountsStrip facilityName={facility} />
-        <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard
             icon={Users}
             label="Total Patients"
