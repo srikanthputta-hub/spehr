@@ -1,41 +1,21 @@
 ## Goal
-Cap the **ghost/auto-admitter** so the "Currently Active Census" (patients with `status = 'Admitted'`) settles at ~85 across the network. Manual admissions from any UI (Nurse board, Admissions/Reception, Admit Patient modal) are **never blocked** — they can always push the census above 85; the ghost stream simply pauses until the census drops back under the cap.
+Make the Finance & Accounts dashboard table scrollable so only 25 patients are visible at once and staff scroll down to see older invoices.
 
-## Root cause
-`public.auto_admit_ghost_patient()` (called every 5 min by pg_cron) unconditionally inserts a batch of 3–4 ghost patients per tick. There's no census-aware guard, so the pool climbs to ~100. Manual admits go through `src/lib/admit-patient.ts` → direct `patients` INSERT and never touch this function, so gating the function is safe.
+## What we'll change
+1. In `src/routes/finance-board.tsx`, wrap the existing `<table>` in a scrollable container.
+2. Set a fixed max-height on the container that fits roughly 25 data rows plus the sticky header.
+3. Make the `<thead>` sticky so column labels remain visible while scrolling.
+4. Keep the existing search, tabs, KPI strip, and realtime sync unchanged.
 
-## Change (single DB migration, no frontend edits)
+## Implementation details
+- Use Tailwind classes on the wrapper: `overflow-y-auto max-h-[some-px]`.
+- Add `sticky top-0 z-10` to the `<thead>` and a background color so it does not become transparent over rows.
+- No pagination or "Load more" button — the full filtered list still renders, just inside a scroll viewport.
+- No backend or data-fetch changes.
 
-`CREATE OR REPLACE FUNCTION public.auto_admit_ghost_patient()` — same body as the current version, with one guard block added at the top, right after the `automation_enabled` short-circuit and the orphan-bed reconciliation:
-
-```sql
-SELECT COUNT(*) INTO active_census
-  FROM public.patients
- WHERE lower(status) = 'admitted';
-
-headroom := 85 - active_census;
-IF headroom <= 0 THEN
-  RETURN;  -- at/over cap: skip this ghost tick, natural discharges drain
-END IF;
-
-batch_n := 3 + (CASE WHEN random() < 0.47 THEN 1 ELSE 0 END);
-IF batch_n > headroom THEN batch_n := headroom; END IF;
-```
-
-Everything else (patient generation, bed claim, safety-demo counter, chronic/med seeding, `set_target_discharge_at` trigger, `ghost-discharge-worker` cadence) is left untouched.
-
-## Behavior after change
-- **Ghost auto-admits**: pause when census ≥ 85; resume automatically the next tick after discharges drain it below 85. Self-balancing at ≈85.
-- **Manual admits** (Nurse board "Admit Patient", Admissions/Reception, any UI flow): **fully unaffected** — they call `admit-patient.ts` directly and the census can legitimately exceed 85 when staff admit real patients. The ghost stream just holds off until census drops again.
-- **Cold start with 100 admitted**: ghost admits pause; ghost-discharge-worker keeps draining ~3–4 per 5-min tick; census walks down to 85 within ~15–20 min and holds.
-- **`automation_enabled = false`**: unchanged (still returns immediately).
-
-## Files touched
-- `supabase/migrations/<new-timestamp>_cap_ghost_census_at_85.sql` — the `CREATE OR REPLACE FUNCTION` above.
-
-No frontend, hook, edge-function, or UI code is modified. No admit path is disabled or restricted.
+## Files affected
+- `src/routes/finance-board.tsx` only.
 
 ## Verification
-- Run migration via DB migration tool.
-- `SELECT COUNT(*) FROM patients WHERE lower(status)='admitted'` a few minutes later — trends toward ≤ 85.
-- Confirm manual admit from the Admissions board still succeeds when census = 85 (it will; the guard lives only in the ghost function).
+- Typecheck (`bunx tsc --noEmit` or `tsgo`) after the edit.
+- Visual check in preview that the Active/Settled table scrolls and the header stays fixed.

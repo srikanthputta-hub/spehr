@@ -343,9 +343,9 @@ function FinanceBoard() {
               Auto Doc generates a FHIR Invoice for a discharged encounter.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-auto max-h-[1100px]">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                <thead className="bg-slate-50 sticky top-0 z-10 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                   <tr>
                     <th className="text-left px-4 py-2.5">Invoice #</th>
                     <th className="text-left px-4 py-2.5">MRN</th>
