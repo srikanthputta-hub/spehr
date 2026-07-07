@@ -97,6 +97,9 @@ function FinanceBoard() {
   const { facility } = useFacility();
   const officer = useActiveStaff("Finance");
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [patientTimes, setPatientTimes] = useState<
+    Record<string, { admission_time: string | null; discharge_time: string | null }>
+  >({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<InvoiceRow | null>(null);
@@ -120,7 +123,25 @@ function FinanceBoard() {
       { data: [], error: null } as any,
     );
     if (error) toast.error(`Unable to load invoices: ${error.message}`);
-    else setInvoices((data ?? []) as InvoiceRow[]);
+    else {
+      const rows = (data ?? []) as InvoiceRow[];
+      setInvoices(rows);
+      const mrns = Array.from(new Set(rows.map((r) => r.mrn))).filter(Boolean);
+      if (mrns.length > 0) {
+        const { data: pts } = await (supabase as any)
+          .from("patients")
+          .select("mrn,admission_time,discharge_time")
+          .in("mrn", mrns);
+        const map: Record<string, { admission_time: string | null; discharge_time: string | null }> = {};
+        for (const p of ((pts ?? []) as any[])) {
+          map[String(p.mrn)] = {
+            admission_time: p.admission_time ?? null,
+            discharge_time: p.discharge_time ?? null,
+          };
+        }
+        setPatientTimes(map);
+      }
+    }
     setLoading(false);
     initialLoadRef.current = false;
   };
