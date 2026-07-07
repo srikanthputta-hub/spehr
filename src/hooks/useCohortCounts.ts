@@ -47,21 +47,33 @@ async function loadHighAcuityCodes(): Promise<string[]> {
   return codesPromise;
 }
 
-async function countAdmittedHighAcuity(): Promise<number | null> {
-  const codes = await loadHighAcuityCodes();
-  if (codes.length === 0) return 0;
+export interface HighAcuityPatient {
+  mrn: string;
+  first_name: string | null;
+  last_name: string | null;
+  name: string | null;
+  room: string | null;
+}
 
-  // 1) Currently-admitted MRNs (small set — ~100s).
-  const { data: admitted, error: aerr } = await supabase
+async function loadAdmittedHighAcuity(
+  facilityName?: string,
+): Promise<HighAcuityPatient[] | null> {
+  const codes = await loadHighAcuityCodes();
+  if (codes.length === 0) return [];
+
+  // 1) Currently-admitted patients (optionally facility-scoped).
+  let q = supabase
     .from("patients")
-    .select("mrn")
+    .select("mrn, first_name, last_name, name, room")
     .eq("status", "Admitted");
+  if (facilityName) q = q.eq("facility_name", facilityName);
+  const { data: admitted, error: aerr } = await q;
   if (aerr) return null;
-  const admittedMrns = new Set<string>();
-  for (const r of (admitted ?? []) as Array<{ mrn: string | null }>) {
-    if (r.mrn) admittedMrns.add(r.mrn);
+  const byMrn = new Map<string, HighAcuityPatient>();
+  for (const r of (admitted ?? []) as Array<HighAcuityPatient & { mrn: string | null }>) {
+    if (r.mrn) byMrn.set(r.mrn, { ...r, mrn: r.mrn });
   }
-  if (admittedMrns.size === 0) return 0;
+  if (byMrn.size === 0) return [];
 
   // 2) Distinct admitted MRNs with an active high-acuity condition.
   const { data: conds, error: cerr } = await supabase
@@ -69,17 +81,28 @@ async function countAdmittedHighAcuity(): Promise<number | null> {
     .select("mrn")
     .in("snomed_code", codes)
     .eq("clinical_status", "active")
-    .in("mrn", Array.from(admittedMrns));
+    .in("mrn", Array.from(byMrn.keys()));
   if (cerr) return null;
-  const matched = new Set<string>();
+  const matched: HighAcuityPatient[] = [];
+  const seen = new Set<string>();
   for (const r of (conds ?? []) as Array<{ mrn: string | null }>) {
-    if (r.mrn && admittedMrns.has(r.mrn)) matched.add(r.mrn);
+    if (!r.mrn || seen.has(r.mrn)) continue;
+    const p = byMrn.get(r.mrn);
+    if (p) {
+      seen.add(r.mrn);
+      matched.push(p);
+    }
   }
-  return matched.size;
+  matched.sort((a, b) => {
+    const an = (a.last_name || a.name || "").toLowerCase();
+    const bn = (b.last_name || b.name || "").toLowerCase();
+    return an.localeCompare(bn);
+  });
+  return matched;
 }
 
-export function useHighAcuityCount(refreshMs = 60_000) {
-  const [count, setCount] = useState<number | null>(null);
+export function useHighAcuityCohort(facilityName?: string, refreshMs = 60_000) {
+  const [patients, setPatients] = useState<HighAcuityPatient[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const mounted = useRef(true);
@@ -88,9 +111,9 @@ export function useHighAcuityCount(refreshMs = 60_000) {
     mounted.current = true;
     const tick = async () => {
       try {
-        const v = await countAdmittedHighAcuity();
+        const v = await loadAdmittedHighAcuity(facilityName);
         if (!mounted.current) return;
-        setCount(v);
+        setPatients(v);
         setLastRefreshed(new Date());
       } catch {
         /* keep previous */
@@ -104,7 +127,14 @@ export function useHighAcuityCount(refreshMs = 60_000) {
       mounted.current = false;
       clearInterval(id);
     };
-  }, [refreshMs]);
+  }, [facilityName, refreshMs]);
 
+  const count = patients === null ? null : patients.length;
+  return { count, patients, loading, lastRefreshed };
+}
+
+/** @deprecated use useHighAcuityCohort */
+export function useHighAcuityCount(refreshMs = 60_000) {
+  const { count, loading, lastRefreshed } = useHighAcuityCohort(undefined, refreshMs);
   return { count, loading, lastRefreshed };
 }

@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import {
   Users,
   PillBottle,
-  AlertTriangle,
   Loader2,
   ShieldCheck,
   ShieldAlert,
@@ -31,6 +30,7 @@ import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
+import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -375,12 +375,6 @@ function AdminDashboard() {
   // (see `rosterCards` below). Kept here to preserve memo ordering for
   // downstream dependent memos.
 
-  const acuity = useMemo(
-    () =>
-      facilityPatients.filter((p) => (p.hr ?? 0) > 100 || (p.spo2 ?? 100) < 92).length,
-    [facilityPatients],
-  );
-
   // ============ Real-Time 12-hour Shift Rotation ============
   // Recompute the wall-clock shift state every 30s. When the 12h block
   // index rolls forward, fire a handoff toast for every role.
@@ -494,15 +488,7 @@ function AdminDashboard() {
             sub="Orders pending verification"
             info={`Orders at ${facility} with status = "PENDING_PHARMACY". PENDING_VERIFICATION and HELD_SAFETY_REVIEW orders are NOT included in this count.`}
           />
-          <MetricCard
-            icon={<AlertTriangle className="h-5 w-5" />}
-            label="Unit Acuity Flag"
-            value={loading ? "…" : acuity}
-            tint="bg-red-50 text-red-700"
-            sub="HR >100 or SpO₂ <92%"
-            alert={acuity > 0}
-            info="Threshold: HR > 100 bpm OR SpO₂ < 92% only. Blood pressure, respiratory rate, and temperature are not incorporated in this indicator today."
-          />
+          <CohortCountsStrip variant="card" facilityName={facility} />
         </div>
 
         <FacilityAnalytics patients={facilityPatients} facility={facility} loading={loading} />
