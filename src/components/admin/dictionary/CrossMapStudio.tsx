@@ -41,9 +41,11 @@ const REFERENCE_CROSSWALKS = [
 
 type MapMatch = {
   equivalence: string;
+  mapType: string;
   code: string;
   display: string;
   system: string;
+  cui: string;
 };
 
 export function CrossMapStudio() {
@@ -51,7 +53,17 @@ export function CrossMapStudio() {
   const [tgt, setTgt] = useState(VOCABS[1]);
   const [code, setCode] = useState("");
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ matches: MapMatch[]; conceptMap: any } | null>(null);
+  const [result, setResult] = useState<
+    | {
+        matches: MapMatch[];
+        conceptMap: any;
+        sourceCode: string;
+        sourceName: string;
+        sourceVocab: string;
+        targetVocab: string;
+      }
+    | null
+  >(null);
 
   const [batchText, setBatchText] = useState("");
   const [batchRunning, setBatchRunning] = useState(false);
@@ -125,14 +137,9 @@ export function CrossMapStudio() {
       });
       if (error) throw error;
       const raw = Array.isArray(data?.matches) ? data.matches : (data?.result ? [data.result] : []);
-      const matches: MapMatch[] = raw.map((m: any) => ({
-        equivalence: "equivalent",
-        code: m.code,
-        display: m.name,
-        system: tgt.uri,
-      }));
-      // Resolve source display name (validate against source vocab)
+      // Resolve source display name + CUI (validate against source vocab)
       let sourceDisplayName = code.trim();
+      let sourceCui = "";
       try {
         const { data: vd } = await supabase.functions.invoke("umls-proxy", {
           body: {
@@ -146,8 +153,28 @@ export function CrossMapStudio() {
           (Array.isArray(vd?.matches) ? vd.matches[0]?.name : null) ||
           null;
         if (resolvedName) sourceDisplayName = resolvedName;
+        sourceCui =
+          vd?.result?.ui ||
+          vd?.result?.cui ||
+          (Array.isArray(vd?.matches) ? vd.matches[0]?.ui || vd.matches[0]?.cui : "") ||
+          "";
         console.log("[CrossMap] validate →", { code: code.trim(), sab: vocabToSab(src.label), resolvedName, raw: vd });
       } catch { /* fall back to code */ }
+
+      const matches: MapMatch[] = raw.map((m: any) => {
+        const rawMap = m.mapType || m.relation || m.rela || "";
+        const mapType = rawMap
+          ? String(rawMap).charAt(0).toUpperCase() + String(rawMap).slice(1)
+          : "Equivalent";
+        return {
+          equivalence: "equivalent",
+          mapType,
+          code: m.code,
+          display: m.name,
+          system: tgt.uri,
+          cui: m.cui || m.ui || sourceCui || "",
+        };
+      });
 
       const conceptMapId = `${src.label}-to-${tgt.label}-${code.trim()}`
         .toLowerCase()
@@ -167,7 +194,14 @@ export function CrossMapStudio() {
           }],
         }],
       };
-      setResult({ matches, conceptMap });
+      setResult({
+        matches,
+        conceptMap,
+        sourceCode: code.trim(),
+        sourceName: sourceDisplayName || code.trim(),
+        sourceVocab: src.label,
+        targetVocab: tgt.label,
+      });
       toast.success(`${matches.length} match(es)`);
       logActivity("translated", `Translated ${code.trim()} (${src.label} → ${tgt.label}) — ${matches.length} match(es)`);
     } catch (e: any) { toast.error(e.message); }
@@ -264,24 +298,36 @@ export function CrossMapStudio() {
               {result.matches.length === 0 ? (
                 <div className="text-xs text-amber-700">No crosswalk found in UMLS Metathesaurus.</div>
               ) : (
-                <table className="w-full text-[11px]">
-                  <thead className="text-slate-600 border-b border-slate-200">
-                    <tr>
-                      <th className="text-left py-1 font-semibold">Target Code</th>
-                      <th className="text-left py-1 font-semibold">Display Name</th>
-                      <th className="text-left py-1 font-semibold">Equivalence</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {result.matches.map((m, i) => (
-                      <tr key={i}>
-                        <td className="py-1 font-mono">{m.code}</td>
-                        <td className="py-1">{m.display}</td>
-                        <td className="py-1 capitalize">{m.equivalence}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px] border border-slate-200">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th className="text-left px-2 py-1.5 font-semibold">Source Code</th>
+                        <th className="text-left px-2 py-1.5 font-semibold">Source Name</th>
+                        <th className="text-left px-2 py-1.5 font-semibold">Vocab</th>
+                        <th className="text-left px-2 py-1.5 font-semibold">CUI</th>
+                        <th className="text-left px-2 py-1.5 font-semibold">Target Code</th>
+                        <th className="text-left px-2 py-1.5 font-semibold">Target Name</th>
+                        <th className="text-left px-2 py-1.5 font-semibold">Vocab</th>
+                        <th className="text-left px-2 py-1.5 font-semibold">Map Type</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {result.matches.map((m, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="px-2 py-1 font-mono">{result.sourceCode}</td>
+                          <td className="px-2 py-1">{result.sourceName}</td>
+                          <td className="px-2 py-1 text-slate-600">{result.sourceVocab}</td>
+                          <td className="px-2 py-1 font-mono text-slate-600">{m.cui || "—"}</td>
+                          <td className="px-2 py-1 font-mono">{m.code}</td>
+                          <td className="px-2 py-1">{m.display}</td>
+                          <td className="px-2 py-1 text-slate-600">{result.targetVocab}</td>
+                          <td className="px-2 py-1">{m.mapType}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
 

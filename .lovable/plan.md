@@ -1,83 +1,41 @@
-## Problem
+# Expand Crosswalk Results table
 
-In **Medical Dictionary → Authoring Workbench**, the "UMLS Concept Search" input silently returns nothing for many queries (e.g. numeric codes like `723`, or any RxNorm term), while the **Search Terminology** modal on the same page returns results correctly for the identical query.
+Make the single-translate "Crosswalk Results — SNOMED CT → ICD-10-CM" table render the same 8 columns as the Pre-populated Crosswalk Library:
 
-## Root cause
+`Source Code · Source Name · Vocab · CUI · Target Code · Target Name · Vocab · Map Type`
 
-`src/components/admin/dictionary/AuthoringWorkbench.tsx` (`runSearch`) invokes the `umls-proxy` edge function using **per-vocabulary actions**:
+## Scope
 
-```ts
-supabase.functions.invoke("umls-proxy", {
-  body: { action: v.action, params: { string: q, sabs: v.value, pageSize: 15 } },
-});
+- File: `src/components/admin/dictionary/CrossMapStudio.tsx`
+- Component: results table inside `translate()`'s `result` render block only.
+- No schema, no edge function, no other UI changes.
+
+## Data changes in `translate()`
+
+Currently we only capture `matches[].code/display` and a source display name. Extend the shape so each row has everything the table needs.
+
+1. **Source Name** — already resolved via the `umls-proxy` `validate` call (`sourceDisplayName`). Keep it and pass into result state.
+2. **Source Vocab** — `src.label` (already in scope).
+3. **CUI** — capture from the crosswalk response. `umls-proxy` `crosswalk` returns matches that include the bridging CUI (commonly `m.cui` or `m.ui`); read whichever is present per match and fall back to the source `validate` response's CUI (`vd.result.ui` / `vd.result.cui`) when a match omits it. Store on each match.
+4. **Target Code / Target Name / Target Vocab** — already have `code`, `display`, and `tgt.label`.
+5. **Map Type** — `umls-proxy` crosswalk matches carry a relation/mapType field (e.g. `m.relation`, `m.mapType`, or `m.rela`); use it when present, otherwise default to `Equivalent` (matches the current hardcoded `equivalence: "equivalent"` behavior). Display capitalized.
+
+Extend the `MapMatch` type to:
 ```
+{ code, display, targetSystem, cui, mapType }
+```
+and add `sourceCode`, `sourceName`, `sourceVocab`, `targetVocab` to the outer `result` object so the render doesn't have to recompute per row.
 
-where `v.action` is one of `snomed | icd10 | loinc | rxnorm | meddra`. Two things break:
+## Render changes
 
-1. **`rxnorm` action is not a UMLS search** — it hits RxNav `/rxcui.json?name=…&search=1`, expects the `drugName` param (not `string`), and returns `{ idGroup: { rxnormId: [...] } }` — not `result.results`. So `setResults(data?.result?.results ?? [])` is always `[]` for the RxNorm vocabulary regardless of input.
-2. **`snomed | icd10 | loinc | meddra` actions** are hardcoded to `returnIdType: "sourceUi"` and small `pageSize`, and don't accept the caller's `sabs`. Numeric-looking queries and code lookups don't match by `sourceUi` and often return nothing.
+Replace the current 3-column `<table>` (Target Code / Display / Equivalence) with an 8-column table using the same styling as the Pre-populated Crosswalk Library table (`text-[11px]`, `border-slate-200`, `bg-slate-50` header, hover rows). Every row repeats the resolved source columns (Source Code, Source Name, Source Vocab, CUI) alongside its per-match target columns.
 
-Meanwhile, `Search Terminology` (and `SemanticAutocomplete`, `useTerminologySearch`) all use the generic `action: "search"` with `returnIdType: "code"` — which works uniformly for every vocabulary and for both text and code queries. That's why the modal works and the workbench doesn't.
+Keep the existing "Source: {code}" line above the table and the "No crosswalk found" empty state.
 
-## Fix
+The FHIR ConceptMap JSON block below the table stays unchanged (it already carries display + equivalence).
 
-Switch `AuthoringWorkbench.runSearch` to the same unified `search` action other components use.
+## Non-goals
 
-### Changes — `src/components/admin/dictionary/AuthoringWorkbench.tsx`
-
-1. Drop the `action` field from `VOCABS` (no longer needed; sabs alone identifies the vocabulary):
-
-   ```ts
-   const VOCABS = [
-     { label: "SNOMED CT", value: "SNOMEDCT_US" },
-     { label: "ICD-10-CM", value: "ICD10CM" },
-     { label: "LOINC",     value: "LNC" },
-     { label: "RxNorm",    value: "RXNORM" },
-     { label: "MedDRA",    value: "MDR" },
-   ];
-   ```
-
-2. Update `runSearch` to call the unified `search` action:
-
-   ```ts
-   const { data } = await supabase.functions.invoke("umls-proxy", {
-     body: {
-       action: "search",
-       params: {
-         string: q,
-         sabs: v.value,
-         returnIdType: "code",
-         pageSize: 15,
-       },
-     },
-   });
-   const hits = (data?.result?.results ?? []).filter(
-     (r: any) => r?.ui && r.ui !== "NONE"
-   );
-   setResults(hits);
-   ```
-
-3. Surface upstream errors so a failed lookup is visible instead of "no results":
-   - Destructure `{ data, error }` from `functions.invoke`; on `error` set a small `err` state and render a one-line "Terminology server unavailable" hint below the input (same UX pattern as `SemanticAutocomplete`).
-   - Reset `err` at the start of each search.
-
-### System-wide audit (no other changes needed)
-
-Verified the three other call sites that hit `umls-proxy` for search-style lookups already use the correct pattern:
-
-- `src/hooks/useTerminologySearch.ts` → `action: "search"` with `returnIdType: "code"` ✓
-- `src/lib/terminology-search.ts` → same ✓
-- `src/components/physician/SemanticAutocomplete.tsx` → `/api/public/umls-search` route, which itself uses `search` + `returnIdType: "code"` ✓
-- `SearchTerminology` modal → same ✓
-
-Only the Authoring Workbench was on the broken path.
-
-## Verification
-
-1. Typecheck (`bunx tsc --noEmit`).
-2. In preview: open Medical Dictionary → Authoring Workbench, pick RxNorm, type `723` → expect result `amoxicillin` (same as Search Terminology modal). Repeat with SNOMED (`22298006` → myocardial infarction), ICD-10-CM (`E11.9`), LOINC (`718-7` hemoglobin). All should return results.
-3. Confirm existing prefill flow (`spehr:authoring-prefill` custom event) still works — no change to that path.
-
-## Out of scope
-
-No backend / edge-function / schema changes. No changes to the Search Terminology modal, autocompletes, or other consumers.
+- Batch Crosswalk table (already fine, out of scope).
+- Reference library table (unchanged).
+- Activity log, FHIR op card (unchanged).
