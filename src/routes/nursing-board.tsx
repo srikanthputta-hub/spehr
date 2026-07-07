@@ -761,6 +761,7 @@ function Dashboard() {
             sub="SpO₂ < 90% or HR > 115 bpm"
             info="Currently defined as SpO₂ < 90% OR HR > 115 bpm only — blood pressure, temperature, and respiratory rate thresholds are NOT included in this tile today."
           />
+          <CohortCountsStrip facilityName={facility} variant="card" />
           <StatCard
             icon={BedDouble}
             label="Available Beds"
