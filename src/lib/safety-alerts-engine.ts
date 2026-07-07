@@ -85,32 +85,6 @@ function extensionalContains(vs: VsRow | undefined, code: string): boolean {
   return vs.codes.some((r) => String(r?.code ?? "").trim() === c);
 }
 
-/**
- * Intensional membership via the existing UMLS validate-code proxy.
- * Returns { valid, unavailable } — on network / upstream failure the caller
- * MUST fail open (skip the rule) and log an error.
- */
-async function intensionalContains(
-  vs: VsRow | undefined,
-  system: string,
-  code: string,
-): Promise<{ valid: boolean; unavailable: boolean }> {
-  if (!vs || !vs.oid) return { valid: false, unavailable: false };
-  try {
-    const r = await fetch("/api/public/umls-validate-code", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system, code, valueSetOid: vs.oid }),
-    });
-    if (!r.ok) return { valid: false, unavailable: true };
-    const j = (await r.json()) as { ok?: boolean; valid?: boolean; error?: string };
-    if (!j.ok) return { valid: false, unavailable: true };
-    return { valid: !!j.valid, unavailable: false };
-  } catch {
-    return { valid: false, unavailable: true };
-  }
-}
-
 /* ------------------------------------------------------------------ */
 /*  NSAID membership — governed via the published "NSAIDs" value set   */
 /* ------------------------------------------------------------------ */
@@ -234,21 +208,6 @@ async function fireAlert(input: FireInput): Promise<void> {
   } as any);
 }
 
-async function logProxyFailure(mrn: string, ruleKey: string, note: string) {
-  try {
-    await supabase.from("auto_doc_logs").insert({
-      mrn,
-      stage: "safety-alert",
-      level: "error",
-      message: `Safety alert value-set validation unavailable (${ruleKey}) — failing open`,
-      meta: { ruleKey, note },
-      created_by_type: "automation",
-    } as any);
-  } catch {
-    /* ignore */
-  }
-}
-
 /* ------------------------------------------------------------------ */
 /*  RULE 1 & 2 — Medication order triggers                             */
 /* ------------------------------------------------------------------ */
@@ -309,16 +268,10 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
       .select("substance, substance_snomed")
       .eq("mrn", mrn);
     let matched: { substance: string; snomed: string } | null = null;
-    let anyUnavailable = false;
     for (const a of (allergyRows ?? []) as any[]) {
       const snomed = String(a?.substance_snomed ?? "").trim();
       if (!snomed) continue;
-      const res = await intensionalContains(penicillinAllergens, "http://snomed.info/sct", snomed);
-      if (res.unavailable) {
-        anyUnavailable = true;
-        continue;
-      }
-      if (res.valid) {
+      if (extensionalContains(penicillinAllergens, snomed)) {
         matched = { substance: String(a?.substance ?? ""), snomed };
         break;
       }
@@ -341,8 +294,6 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           medication_order_id: evt.medication_order_id ?? null,
         });
       }
-    } else if (anyUnavailable) {
-      await logProxyFailure(mrn, "rule1-drug-allergy", "UMLS ancestor lookup unavailable");
     }
   } else if (name) {
     // Coverage-gap detection: the drug name looks like a penicillin/beta-
