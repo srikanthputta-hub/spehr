@@ -21,7 +21,7 @@ type PatientNameMap = Record<string, string>;
 // Phase 4 — Auto Admin isolation precaution flag. Non-blocking: badge only.
 type PrecautionMap = Record<string, string>; // mrn -> precaution type label
 
-const CLEAN_PHASE_MS = 60_000;
+const CLEAN_PHASE_MS = 45_000;
 
 function bedTone(status: string): { wrap: string; label: string; dot: string } {
   const s = status.toLowerCase();
@@ -32,7 +32,9 @@ function bedTone(status: string): { wrap: string; label: string; dot: string } {
   if (s.startsWith("cleaning") || s.includes("deep cleaning") || s.startsWith("discharged"))
     return { wrap: "bg-amber-50 border-amber-300", label: "text-amber-900", dot: "bg-amber-500 animate-pulse" };
   if (s.startsWith("disinfecting"))
-    return { wrap: "bg-indigo-50 border-indigo-300", label: "text-indigo-800", dot: "bg-indigo-500 animate-pulse" };
+    return { wrap: "bg-violet-50 border-violet-300", label: "text-violet-800", dot: "bg-violet-500 animate-pulse" };
+  if (s.startsWith("making bed"))
+    return { wrap: "bg-teal-50 border-teal-300", label: "text-teal-800", dot: "bg-teal-500 animate-pulse" };
   return { wrap: "bg-slate-50 border-slate-300", label: "text-slate-700", dot: "bg-slate-400" };
 }
 
@@ -49,14 +51,17 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
   const s = status.toLowerCase();
   const isClean = s.startsWith("cleaning") || s.includes("deep cleaning") || s.startsWith("discharged");
   const isDis = s.startsWith("disinfecting");
-  if (!isClean && !isDis) return null;
+  const isMaking = s.startsWith("making bed");
+  if (!isClean && !isDis && !isMaking) return null;
+  const barColor = isClean ? "bg-amber-500" : isDis ? "bg-violet-500" : "bg-teal-500";
+  const label = isClean ? "Cleaning" : isDis ? "Disinfecting" : "Making Bed";
   return (
     <div className="mt-2">
       <div className="h-1.5 w-full bg-white/60 rounded overflow-hidden">
-        <div className={`h-full transition-all ${isClean ? "bg-amber-500" : "bg-indigo-500"}`} style={{ width: `${pct}%` }} />
+        <div className={`h-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
       </div>
       <div className="mt-1 text-[10px] font-mono tabular-nums text-slate-600">
-        {isClean ? "Cleaning" : "Disinfecting"} · {remain}s remaining
+        {label} · {remain}s remaining
       </div>
     </div>
   );
@@ -141,13 +146,15 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
   }, [facility]);
 
   const counts = useMemo(() => {
-    const c = { available: 0, occupied: 0, cleaning: 0, disinfecting: 0 };
+    const c = { available: 0, occupied: 0, cleaning: 0, disinfecting: 0, makingBed: 0 };
     for (const b of beds) {
       const s = b.status.toLowerCase();
       if (s.startsWith("available")) c.available++;
       else if (s.startsWith("occupied")) c.occupied++;
-      else if (s.includes("deep cleaning") || s.startsWith("discharged")) c.cleaning++;
+      else if (s.startsWith("cleaning") || s.includes("deep cleaning") || s.startsWith("discharged"))
+        c.cleaning++;
       else if (s.startsWith("disinfecting")) c.disinfecting++;
+      else if (s.startsWith("making bed")) c.makingBed++;
     }
     return c;
   }, [beds]);
@@ -164,11 +171,15 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" /> Occupied {counts.occupied}</span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-amber-400" /> Cleaning {counts.cleaning}
-            <InfoHint text="Standard 60-second terminal clean after a routine discharge. Bed auto-flips back to Available when the cleaning cycle timer expires." />
+            <InfoHint text="Phase 1 of the 3-phase turnover cycle (45 seconds). Terminal wipe-down of high-touch surfaces immediately after discharge before the bed can be disinfected." />
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-indigo-400" /> Disinfecting {counts.disinfecting}
-            <InfoHint text="Extended decontamination protocol triggered when the prior occupant had an isolation-precaution diagnosis (matched against the Isolation Precautions value set). Takes longer than a standard clean before the bed returns to Available." />
+            <span className="h-2 w-2 rounded-full bg-violet-400" /> Disinfecting {counts.disinfecting}
+            <InfoHint text="Phase 2 of the 3-phase turnover cycle (45 seconds). Hospital-grade disinfectant applied to the mattress, rails and equipment surfaces (extended protocol for isolation-precaution patients)." />
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-teal-400" /> Making Bed {counts.makingBed}
+            <InfoHint text="Phase 3 of the 3-phase turnover cycle (45 seconds). Fresh linens, pillows and privacy curtain are set up. Bed auto-flips to Available when this phase completes." />
           </span>
           <button onClick={onClose} className="ml-2 inline-flex items-center gap-1 rounded-md bg-white/10 hover:bg-white/20 px-3 h-8 text-xs font-semibold">
             <X className="h-3.5 w-3.5" /> Close
