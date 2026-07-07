@@ -901,15 +901,37 @@ function subtractOneMicrosecond(ts: string): string {
 
 /* ---------------- Entry point ------------------------------------------- */
 
+// auto_doc_logs columns: mrn, stage, level, message, meta, created_by_type.
+// (Previous shape used run_id/step/status/payload — none of which exist on
+// this table — so every log write silently failed.)
 async function logEvent(admin: any, payload: any) {
   try {
+    const mrn = typeof payload?.mrn === "string" && payload.mrn.length ? payload.mrn : "n/a";
+    const stage = typeof payload?.stage === "string" ? payload.stage : "fhir-outbound-poll";
+    const level =
+      typeof payload?.level === "string"
+        ? payload.level
+        : payload?.ok === false || payload?.error
+          ? "error"
+          : "info";
+    const message =
+      typeof payload?.message === "string"
+        ? payload.message
+        : payload?.error
+          ? String(payload.error)
+          : "fhir-outbound-poll tick";
+    const meta = payload?.meta ?? payload;
     await admin.from("auto_doc_logs").insert({
-      run_id: `fhir-outbound-poll-${Date.now()}`,
-      step: "fhir-outbound-poll",
-      status: payload.ok ? "success" : "error",
-      payload,
+      mrn,
+      stage,
+      level,
+      message,
+      meta,
+      created_by_type: "automation",
     });
-  } catch { /* best-effort */ }
+  } catch (e) {
+    console.warn("[fhir-outbound-poll] logEvent failed", e);
+  }
 }
 
 Deno.serve(async (req) => {
