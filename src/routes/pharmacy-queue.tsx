@@ -176,6 +176,62 @@ function PharmacyQueue() {
     };
   }, [facility]);
 
+  // Live SLA countdown for HELD_SAFETY_REVIEW rows — pulls the linked
+  // clinical_safety_alerts (Pending Review) for the currently-visible
+  // held orders so the row shows time-until-auto-decision instead of a
+  // static "On Hold" badge. 1s ticker drives countdown re-render.
+  useEffect(() => {
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const heldOrderIds = useMemo(
+    () =>
+      orders
+        .filter((o) => (o.status ?? "").toUpperCase() === "HELD_SAFETY_REVIEW")
+        .map((o) => o.id),
+    [orders],
+  );
+  const heldOrderIdsKey = heldOrderIds.join(",");
+
+  useEffect(() => {
+    if (heldOrderIds.length === 0) {
+      setHeldAlerts([]);
+      return;
+    }
+    let active = true;
+    const load = async () => {
+      const { data } = await supabase
+        .from("clinical_safety_alerts")
+        .select("id, medication_order_id, auto_resolve_at, risk_score, created_at")
+        .eq("status", "Pending Review")
+        .in("medication_order_id", heldOrderIds);
+      if (!active) return;
+      setHeldAlerts((data ?? []) as HeldAlert[]);
+    };
+    load();
+    const channel = supabase
+      .channel(`pharmacy-held-alerts-${heldOrderIdsKey}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "clinical_safety_alerts" },
+        () => load(),
+      )
+      .subscribe();
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [heldOrderIdsKey]);
+
+  const heldAlertByOrderId = useMemo(() => {
+    const m = new Map<string, HeldAlert>();
+    for (const a of heldAlerts) {
+      if (a.medication_order_id) m.set(a.medication_order_id, a);
+    }
+    return m;
+  }, [heldAlerts]);
+
   // Load pending queue — includes every in-flight status so users watch
   // each order transition Ordered → Pending → Dispensed live (then it
   // drops off once the bedside RN marks it Administered).
