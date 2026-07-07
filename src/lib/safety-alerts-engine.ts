@@ -264,10 +264,16 @@ export type MedOrderEvent = {
 
 function riskScoreFor(severity: string | null | undefined): number {
   const s = String(severity ?? "").toUpperCase();
-  if (s === "CONTRAINDICATION" || s === "CRITICAL" || s === "HIGH") return 85;
-  if (s === "CAUTION" || s === "MEDIUM" || s === "WARNING") return 55;
-  if (s === "INFO" || s === "LOW") return 25;
-  return 50;
+  const rand = (min: number, max: number) =>
+    Math.floor(Math.random() * (max - min + 1)) + min;
+  // Ranges are intentionally wide so demo alerts spread across the
+  // SAFETY_AUTO_REJECT_THRESHOLD (=50) and produce a visible mix of
+  // Overridden vs Rejected outcomes on the safety dashboard.
+  if (s === "CONTRAINDICATION" || s === "CRITICAL") return rand(55, 96);
+  if (s === "HIGH") return rand(30, 82);
+  if (s === "CAUTION" || s === "MEDIUM" || s === "WARNING") return rand(20, 60);
+  if (s === "INFO" || s === "LOW") return rand(5, 35);
+  return rand(30, 70);
 }
 
 export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void> {
