@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Bot, RefreshCw, CheckCircle2, AlertTriangle, Pause, Clock, Inbox } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 
 type LogRow = {
@@ -148,6 +149,14 @@ export function AutoTerminologistActivity() {
           setRequests((r) => r.map((x) => (x.id === row.id ? row : x)));
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "terminology_requests" },
+        (payload) => {
+          const oldRow = payload.old as any as { id?: string };
+          if (oldRow?.id) setRequests((r) => r.filter((x) => x.id !== oldRow.id));
+        },
+      )
       .subscribe();
     const id = setInterval(load, 30_000);
     return () => {
@@ -232,6 +241,28 @@ export function AutoTerminologistActivity() {
                     <span>({formatAgo(r.requested_at)})</span>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!confirm(`Delete terminology request "${r.requested_name}"?`)) return;
+                    const prev = requests;
+                    setRequests((rs) => rs.filter((x) => x.id !== r.id));
+                    const { error } = await supabase
+                      .from("terminology_requests" as any)
+                      .delete()
+                      .eq("id", r.id);
+                    if (error) {
+                      console.warn("[terminology_requests] delete failed", error);
+                      setRequests(prev);
+                      alert(`Delete failed: ${error.message}`);
+                    }
+                  }}
+                  className="ml-1 inline-flex h-7 w-7 flex-none items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
+                  aria-label="Delete request"
+                  title="Delete request"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
             );
           })
