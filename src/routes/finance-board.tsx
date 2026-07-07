@@ -351,6 +351,8 @@ function FinanceBoard() {
                     <th className="text-left px-4 py-2.5">MRN</th>
                     <th className="text-left px-4 py-2.5">Patient</th>
                     <th className="text-left px-4 py-2.5">Issued</th>
+                    <th className="text-left px-4 py-2.5">Admitted</th>
+                    <th className="text-left px-4 py-2.5">Discharged</th>
                     <th className="text-left px-4 py-2.5">Status</th>
                     <th className="text-right px-4 py-2.5">Total</th>
                     <th className="text-right px-4 py-2.5">Action</th>
@@ -363,6 +365,8 @@ function FinanceBoard() {
                       <td className="px-4 py-3 font-mono text-xs text-slate-700">{i.mrn}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{i.patient_name ?? "—"}</td>
                       <td className="px-4 py-3 text-xs font-mono text-slate-600">{fmtTs(i.issued_at)}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-slate-600">{fmtTs(patientTimes[i.mrn]?.admission_time ?? null)}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-slate-600">{fmtTs(patientTimes[i.mrn]?.discharge_time ?? null)}</td>
                       <td className="px-4 py-3">
                         {i.status === "balanced" ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
