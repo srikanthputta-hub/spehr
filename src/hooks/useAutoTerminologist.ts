@@ -714,40 +714,51 @@ async function runAutoTerminologistCycle() {
       const now = new Date().toISOString();
       const nameSlug = slugify(themeName);
 
-      const { data: upserted, error: upsertErr } = await supabase
-        .from("custom_value_sets")
-        .upsert(
-          {
-            name: themeName,
-            system: dominantVocab.replace(" ", "-"),
-            vocabulary: dominantVocab,
-            type: "extensional",
-            codes,
-            status: "draft",
-            description:
-              "Auto-drafted by Auto Terminologist from a recurring coverage gap detected in the last 36h scan.",
-            clinical_application,
-            fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
-            oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
-            change_history: [
-              { at: now, actor: "Auto Terminologist", change: "Drafted from coverage-gap detection" },
-            ],
-          } as any,
-          { onConflict: "name" },
-        )
-        .select("id")
-        .maybeSingle();
-
-      if (upsertErr) throw upsertErr;
-      const valueSetId = (upserted as any)?.id ?? null;
+      const outcome = await safeUpsertValueSet({
+        name: themeName,
+        system: dominantVocab.replace(" ", "-"),
+        vocabulary: dominantVocab,
+        type: "extensional",
+        codes,
+        description:
+          "Auto-drafted by Auto Terminologist from a recurring coverage gap detected in the last 36h scan.",
+        clinical_application,
+        fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
+        oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
+        changeEntry: {
+          at: now,
+          actor: "Auto Terminologist",
+          change: "Extended from coverage-gap detection",
+        },
+      });
+      const valueSetId = outcome.id;
 
       touchedCount += 1;
       const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' — ${group.length} uncovered ${dominantVocab} concept(s) across ${totalFreq} occurrences (last 36h). Drafted as new value set (status: draft — awaiting human review).`;
+      let draftedMsg: string;
+      let activityAction = "drafted";
+      let logFeatureAction = "drafted_value_set";
+      let logFeatureMsg = `Drafted value set "${themeName}" (${codes.length} ${dominantVocab} concept(s)) from coverage-gap detection.`;
+      if (outcome.mode === "merged") {
+        activityAction = "extended";
+        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' already ${outcome.existingStatus} — merged ${outcome.addedCount} new ${dominantVocab} concept(s) into the existing value set (status preserved).`;
+        logFeatureAction = "extended_value_set";
+        logFeatureMsg = `Extended value set "${themeName}" with ${outcome.addedCount} new ${dominantVocab} concept(s); existing ${outcome.existingStatus} status preserved.`;
+      } else if (outcome.mode === "replaced-draft") {
+        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' — merged ${outcome.addedCount} new ${dominantVocab} concept(s) into existing draft value set.`;
+        logFeatureMsg = `Merged ${outcome.addedCount} new ${dominantVocab} concept(s) into existing draft "${themeName}".`;
+      } else if (outcome.mode === "noop") {
+        activityAction = "extended";
+        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' already ${outcome.existingStatus} and every gap code was already present — no changes made.`;
+        logFeatureAction = "extended_value_set";
+        logFeatureMsg = `No-op for "${themeName}": all gap codes already present in the ${outcome.existingStatus} value set.`;
+      } else {
+        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' — ${group.length} uncovered ${dominantVocab} concept(s) across ${totalFreq} occurrences (last 36h). Drafted as new value set (status: draft — awaiting human review).`;
+      }
 
       await logActivity({
         message: draftedMsg,
-        action: "drafted",
+        action: activityAction,
         theme: themeName,
         codes_count: group.length,
         value_set_id: valueSetId,
@@ -756,8 +767,8 @@ async function runAutoTerminologistCycle() {
       await supabase.from("terminology_activity_log" as any).insert({
         feature: "authoring",
         actor: "Auto Terminologist",
-        action: "drafted_value_set",
-        message: `Drafted value set "${themeName}" (${codes.length} ${dominantVocab} concept(s)) from coverage-gap detection.`,
+        action: logFeatureAction,
+        message: logFeatureMsg,
         ref_id: valueSetId,
       });
     } catch (e) {
