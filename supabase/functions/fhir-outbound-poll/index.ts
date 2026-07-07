@@ -125,6 +125,27 @@ async function writeClinicalCursor(admin: any, cursor: ClinicalCursor) {
     );
 }
 
+// Per-MRN consecutive-failure counter. Persisted in fhir_sync_state under
+// the single key `clinical_failcounts` as `{ counts: { [mrn]: n } }` so we
+// can force-advance the cursor past an MRN that repeatedly fails (previously
+// a single unbuildable MRN — e.g. deleted/orphaned patient — would set
+// hardStop=true forever and freeze ALL downstream clinical sync).
+const FAILCOUNT_KEY = "clinical_failcounts";
+const FAILCOUNT_THRESHOLD = 3;
+
+async function readFailCounts(admin: any): Promise<Record<string, number>> {
+  const { data } = await admin
+    .from("fhir_sync_state").select("value").eq("key", FAILCOUNT_KEY).maybeSingle();
+  const c = (data?.value?.counts ?? {}) as Record<string, number>;
+  return typeof c === "object" && c ? c : {};
+}
+
+async function writeFailCounts(admin: any, counts: Record<string, number>) {
+  await admin
+    .from("fhir_sync_state")
+    .upsert({ key: FAILCOUNT_KEY, value: { counts } }, { onConflict: "key" });
+}
+
 // Strict lexicographic > on (ts, mrn) pairs. Ties on ts are broken by mrn.
 function cursorGt(a: { ts: string; mrn: string }, b: { ts: string; mrn: string }): boolean {
   if (a.ts !== b.ts) return a.ts > b.ts;
