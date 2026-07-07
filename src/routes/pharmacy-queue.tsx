@@ -540,12 +540,37 @@ function PharmacyQueue() {
                       {(() => {
                         const s = (o.status ?? "").toUpperCase();
                         if (s === "HELD_SAFETY_REVIEW") {
+                          const alert = heldAlertByOrderId.get(o.id);
+                          if (alert) {
+                            const score = alert.risk_score ?? 50;
+                            const willReject = score >= SAFETY_AUTO_REJECT_THRESHOLD;
+                            const bandTone = willReject
+                              ? "border-red-300 bg-red-50 text-red-700"
+                              : "border-emerald-300 bg-emerald-50 text-emerald-700";
+                            return (
+                              <span className="inline-flex items-center gap-1 flex-wrap justify-end">
+                                <span
+                                  className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${bandTone}`}
+                                  title={`Auto-decision band: score ≥ ${SAFETY_AUTO_REJECT_THRESHOLD} = Reject, < ${SAFETY_AUTO_REJECT_THRESHOLD} = Override`}
+                                >
+                                  Risk {score}/100 — will auto-{willReject ? "reject" : "override"}
+                                </span>
+                                <SlaCountdown
+                                  autoResolveAt={alert.auto_resolve_at}
+                                  createdAt={alert.created_at}
+                                  nowTs={nowTs}
+                                  compact
+                                />
+                                <InfoHint text="Frozen because clinical_safety_alerts fired a drug-allergy or drug-drug conflict for this order. The linked alert auto-resolves within 45 s: risk ≥ SAFETY_AUTO_REJECT_THRESHOLD flips the order to REJECTED_SAFETY_ALERT (with an auto-substituted alternate); lower risk releases it back to PENDING_PHARMACY. A clinician can act sooner from the Physician Dashboard or System Admin → Safety Alerts." />
+                              </span>
+                            );
+                          }
                           return (
                             <span className="inline-flex items-center gap-1">
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 border border-slate-300">
                                 ⏸ On Hold — Safety Review
                               </span>
-                              <InfoHint text="Frozen because clinical_safety_alerts fired a drug-allergy or drug-disease conflict for this order. The row is unclickable until an admin resolves the linked alert (manually or via the 45s SLA) in System Admin → Medical Dictionary → Safety Alerts." />
+                              <InfoHint text="Frozen because clinical_safety_alerts fired a drug-allergy or drug-drug conflict for this order. The row is unclickable until the linked alert resolves (manually or via the 45s SLA)." />
                             </span>
                           );
                         }
