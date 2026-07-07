@@ -27,6 +27,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
 import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
 import {
+  SAFETY_AUTO_REJECT_THRESHOLD,
+  buildSafetyRationale,
+  buildAlternateMed as _buildAlternateMed,
+  lookupOrderingPhysician,
+  resolveAlertSideEffects,
+  type DbSafetyAlert,
+} from "@/lib/safety-alert-resolution";
+void _buildAlternateMed;
+import {
   lookupTerminology,
   toFhirCodeSystem,
   DEFAULT_CATEGORY,
