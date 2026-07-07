@@ -870,15 +870,17 @@ function medRequest(mrn: string, m: EncounterMed) {
   const status =
     raw === "administered" || raw === "completed" || raw === "given"
       ? "completed"
-      : raw === "pending verification" || raw === "draft" || raw === "pending"
-        ? "draft"
-        : raw === "cancelled" || raw === "canceled"
-          ? "cancelled"
-          : raw === "on-hold" || raw === "held"
-            ? "on-hold"
-            : raw === "stopped" || raw === "discontinued"
-              ? "stopped"
-              : "active";
+      : raw.includes("rejected")
+        ? "stopped"
+        : raw === "pending verification" || raw === "draft" || raw === "pending"
+          ? "draft"
+          : raw === "cancelled" || raw === "canceled"
+            ? "cancelled"
+            : raw === "on-hold" || raw === "held"
+              ? "on-hold"
+              : raw === "stopped" || raw === "discontinued"
+                ? "stopped"
+                : "active";
   // FHIR R4 mandates a coding array for machine-readable interoperability.
   // Use the RxNorm code emitted by AUTO API when available; fall back to
   // text-only when AUTO API hasn't (yet) resolved this drug.
@@ -898,6 +900,9 @@ function medRequest(mrn: string, m: EncounterMed) {
     resourceType: "MedicationRequest",
     id: stableIds.medRequest(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
     status,
+    ...(raw.includes("rejected")
+      ? { statusReason: { text: "Rejected — safety/allergy conflict" } }
+      : {}),
     intent: "order",
     medicationCodeableConcept: medCC,
     subject: { reference: `Patient/${mrn}` },

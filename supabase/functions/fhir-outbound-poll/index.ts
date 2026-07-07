@@ -125,6 +125,27 @@ async function writeClinicalCursor(admin: any, cursor: ClinicalCursor) {
     );
 }
 
+// Per-MRN consecutive-failure counter. Persisted in fhir_sync_state under
+// the single key `clinical_failcounts` as `{ counts: { [mrn]: n } }` so we
+// can force-advance the cursor past an MRN that repeatedly fails (previously
+// a single unbuildable MRN — e.g. deleted/orphaned patient — would set
+// hardStop=true forever and freeze ALL downstream clinical sync).
+const FAILCOUNT_KEY = "clinical_failcounts";
+const FAILCOUNT_THRESHOLD = 3;
+
+async function readFailCounts(admin: any): Promise<Record<string, number>> {
+  const { data } = await admin
+    .from("fhir_sync_state").select("value").eq("key", FAILCOUNT_KEY).maybeSingle();
+  const c = (data?.value?.counts ?? {}) as Record<string, number>;
+  return typeof c === "object" && c ? c : {};
+}
+
+async function writeFailCounts(admin: any, counts: Record<string, number>) {
+  await admin
+    .from("fhir_sync_state")
+    .upsert({ key: FAILCOUNT_KEY, value: { counts } }, { onConflict: "key" });
+}
+
 // Strict lexicographic > on (ts, mrn) pairs. Ties on ts are broken by mrn.
 function cursorGt(a: { ts: string; mrn: string }, b: { ts: string; mrn: string }): boolean {
   if (a.ts !== b.ts) return a.ts > b.ts;
@@ -324,13 +345,15 @@ function buildMedRequest(mrn: string, m: any) {
   const status =
     raw === "administered" || raw === "completed" || raw === "given"
       ? "completed"
-      : raw === "pending" || raw === "draft" || raw === "pending verification" || raw === "pending_pharmacy"
-        ? "draft"
-        : raw === "cancelled" || raw === "canceled"
-          ? "cancelled"
-          : raw === "stopped" || raw === "discontinued"
-            ? "stopped"
-            : "active";
+      : raw.includes("rejected")
+        ? "stopped"
+        : raw === "pending" || raw === "draft" || raw === "pending verification" || raw === "pending_pharmacy"
+          ? "draft"
+          : raw === "cancelled" || raw === "canceled"
+            ? "cancelled"
+            : raw === "stopped" || raw === "discontinued"
+              ? "stopped"
+              : "active";
   const medCC = m.rxnorm_code
     ? {
         coding: [{ system: "http://www.nlm.nih.gov/research/umls/rxnorm", code: m.rxnorm_code, display: m.rxnorm_display ?? drug }],
@@ -341,6 +364,9 @@ function buildMedRequest(mrn: string, m: any) {
     resourceType: "MedicationRequest",
     id: stableIds.medRequest(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
     status,
+    ...(raw.includes("rejected")
+      ? { statusReason: { text: "Rejected — safety/allergy conflict" } }
+      : {}),
     intent: "order",
     medicationCodeableConcept: medCC,
     subject: { reference: `Patient/${mrn}` },
@@ -788,40 +814,65 @@ async function pollClinical(admin: any) {
   // boundaries within a tied ts bucket are safe: the next tick resumes
   // from the last-processed (newest, mrn) and picks up strictly later
   // MRNs in the same bucket via `mrn > cursor.mrn`.
+  const failCounts = await readFailCounts(admin);
+  let failCountsDirty = false;
   let lastAdvanced: ClinicalCursor | null = null;
   let hardStop = false;
   for (const row of selected) {
     if (hardStop) break;
     const mrn = row.mrn;
     let built: { entries: any[]; skipped: string | null } | null = null;
+    let failureReason: string | null = null;
     try {
       built = await buildEntriesForMrn(admin, mrn);
     } catch (e) {
+      failureReason = `build_error: ${(e as Error).message}`;
+    }
+    if (!failureReason && built && !built.skipped && built.entries.length > 0) {
+      stats.entries += built.entries.length;
+      const result = await pushBundle(built.entries);
+      if (!result.ok) {
+        failureReason = `push_${result.status}: ${typeof result.body === "string" ? result.body : JSON.stringify(result.body).slice(0, 400)}`;
+      }
+    }
+
+    if (failureReason) {
       stats.failed += 1;
-      stats.skipped.push({ mrn, reason: `build_error: ${(e as Error).message}` });
-      // Do NOT advance past a build failure — next tick retries this MRN.
+      stats.skipped.push({ mrn, reason: failureReason });
+      const n = (failCounts[mrn] ?? 0) + 1;
+      failCounts[mrn] = n;
+      failCountsDirty = true;
+      if (n >= FAILCOUNT_THRESHOLD) {
+        // Force-advance past this MRN so a single unbuildable/unsyncable
+        // patient can't freeze the entire cursor forever.
+        await logEvent(admin, {
+          mrn,
+          stage: "fhir-outbound-poll:clinical",
+          level: "warn",
+          message: `Force-advancing cursor past ${mrn} after ${n} consecutive failures: ${failureReason}`,
+          meta: { mrn, consecutive_failures: n, cursor_ts: row.newest, reason: failureReason },
+        });
+        delete failCounts[mrn];
+        lastAdvanced = { ts: row.newest, mrn: row.mrn };
+        continue;
+      }
       hardStop = true;
       continue;
     }
-    if (built.skipped || built.entries.length === 0) {
-      stats.skipped.push({ mrn, reason: built.skipped ?? "no_entries" });
-      // Nothing to push — safe to advance past this MRN.
+
+    if (built?.skipped || (built && built.entries.length === 0)) {
+      stats.skipped.push({ mrn, reason: built?.skipped ?? "no_entries" });
+      if (failCounts[mrn]) { delete failCounts[mrn]; failCountsDirty = true; }
       lastAdvanced = { ts: row.newest, mrn: row.mrn };
       continue;
     }
-    stats.entries += built.entries.length;
-    const result = await pushBundle(built.entries);
-    if (!result.ok) {
-      stats.failed += 1;
-      stats.skipped.push({ mrn, reason: `push_${result.status}`, body: result.body });
-      // Freeze cursor at the last success so the failed MRN is retried
-      // on the next tick without skipping over it.
-      hardStop = true;
-      continue;
-    }
+
     stats.pushed += 1;
+    if (failCounts[mrn]) { delete failCounts[mrn]; failCountsDirty = true; }
     lastAdvanced = { ts: row.newest, mrn: row.mrn };
   }
+  if (failCountsDirty) await writeFailCounts(admin, failCounts);
+  stats.failCounts = failCounts;
 
   const newCursor: ClinicalCursor = lastAdvanced ?? cursor;
   // Never regress the cursor.
@@ -850,15 +901,37 @@ function subtractOneMicrosecond(ts: string): string {
 
 /* ---------------- Entry point ------------------------------------------- */
 
+// auto_doc_logs columns: mrn, stage, level, message, meta, created_by_type.
+// (Previous shape used run_id/step/status/payload — none of which exist on
+// this table — so every log write silently failed.)
 async function logEvent(admin: any, payload: any) {
   try {
+    const mrn = typeof payload?.mrn === "string" && payload.mrn.length ? payload.mrn : "n/a";
+    const stage = typeof payload?.stage === "string" ? payload.stage : "fhir-outbound-poll";
+    const level =
+      typeof payload?.level === "string"
+        ? payload.level
+        : payload?.ok === false || payload?.error
+          ? "error"
+          : "info";
+    const message =
+      typeof payload?.message === "string"
+        ? payload.message
+        : payload?.error
+          ? String(payload.error)
+          : "fhir-outbound-poll tick";
+    const meta = payload?.meta ?? payload;
     await admin.from("auto_doc_logs").insert({
-      run_id: `fhir-outbound-poll-${Date.now()}`,
-      step: "fhir-outbound-poll",
-      status: payload.ok ? "success" : "error",
-      payload,
+      mrn,
+      stage,
+      level,
+      message,
+      meta,
+      created_by_type: "automation",
     });
-  } catch { /* best-effort */ }
+  } catch (e) {
+    console.warn("[fhir-outbound-poll] logEvent failed", e);
+  }
 }
 
 Deno.serve(async (req) => {
