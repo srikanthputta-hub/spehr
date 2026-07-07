@@ -1158,38 +1158,11 @@ function UserDirectory() {
 /* ============================================================ */
 /*  Safety Alerts — drug↔allergy conflict queue                 */
 /* ============================================================ */
-type DbSafetyAlert = {
-  id: string;
-  mrn: string;
-  patient_name: string | null;
-  facility_name: string | null;
-  kind: "Drug-Allergy" | "Drug-Drug";
-  drug: string;
-  drug_b: string | null;
-  allergy_name: string | null;
-  family: string;
-  severity: string | null;
-  status: "Pending Review" | "Overridden" | "Rejected";
-  decided_by: string | null;
-  decided_at: string | null;
-  rationale: string | null;
-  created_at: string;
-  auto_resolve_at: string | null;
-  resolved_by: string | null;
-  resolution_rationale: string | null;
-  risk_score: number | null;
-  medication_order_id: string | null;
-};
-
-/* ------------------------------------------------------------------ */
-/*  Genuine clinical rationale generator                              */
-/*                                                                    */
-/*  Produces interaction-specific, drug-aware reasoning text instead  */
-/*  of canned boilerplate. Mirrors the structure a pharmacist would   */
-/*  document in an Epic / Cerner alert override (drug pair, mechanism,*/
-/*  monitoring plan or substitution).                                 */
-/* ------------------------------------------------------------------ */
-function buildSafetyRationale(
+/* DbSafetyAlert, buildSafetyRationale, buildAlternateMed,
+ * lookupOrderingPhysician and resolveAlertSideEffects moved to
+ * src/lib/safety-alert-resolution.ts so the auto-decision threshold
+ * (SAFETY_AUTO_REJECT_THRESHOLD) lives in one canonical spot. */
+function _unused_buildSafetyRationale_removed(
   c: Pick<DbSafetyAlert, "kind" | "drug" | "drug_b" | "allergy_name" | "family" | "severity">,
   decision: "Overridden" | "Rejected",
   actor: "AI Safety Engine" | "Pharmacist" = "AI Safety Engine",
