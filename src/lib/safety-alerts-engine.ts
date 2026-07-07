@@ -85,32 +85,6 @@ function extensionalContains(vs: VsRow | undefined, code: string): boolean {
   return vs.codes.some((r) => String(r?.code ?? "").trim() === c);
 }
 
-/**
- * Intensional membership via the existing UMLS validate-code proxy.
- * Returns { valid, unavailable } — on network / upstream failure the caller
- * MUST fail open (skip the rule) and log an error.
- */
-async function intensionalContains(
-  vs: VsRow | undefined,
-  system: string,
-  code: string,
-): Promise<{ valid: boolean; unavailable: boolean }> {
-  if (!vs || !vs.oid) return { valid: false, unavailable: false };
-  try {
-    const r = await fetch("/api/public/umls-validate-code", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system, code, valueSetOid: vs.oid }),
-    });
-    if (!r.ok) return { valid: false, unavailable: true };
-    const j = (await r.json()) as { ok?: boolean; valid?: boolean; error?: string };
-    if (!j.ok) return { valid: false, unavailable: true };
-    return { valid: !!j.valid, unavailable: false };
-  } catch {
-    return { valid: false, unavailable: true };
-  }
-}
-
 /* ------------------------------------------------------------------ */
 /*  NSAID membership — governed via the published "NSAIDs" value set   */
 /* ------------------------------------------------------------------ */
