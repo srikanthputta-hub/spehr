@@ -294,7 +294,14 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
     await admin
       .from("bed_management")
       .update({
-        status: "Available",
+        // Kick the just-freed bed into the 3-phase turnover cycle
+        // (Cleaning → Disinfecting → Making Bed → Available) driven by the
+        // client-side sweepBedCleaningCycles() sweep in useAIAutomation.ts.
+        // Setting status directly to "Available" here would bypass the
+        // turnover entirely and let the bed be re-assigned immediately,
+        // which mismatches both the ghost-discharge SQL path and the
+        // manual nurse discharge flow.
+        status: "Cleaning",
         current_patient_mrn: null,
         status_updated_at: new Date().toISOString(),
       })
