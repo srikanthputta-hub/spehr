@@ -376,12 +376,6 @@ function AdminDashboard() {
   // (see `rosterCards` below). Kept here to preserve memo ordering for
   // downstream dependent memos.
 
-  const acuity = useMemo(
-    () =>
-      facilityPatients.filter((p) => (p.hr ?? 0) > 100 || (p.spo2 ?? 100) < 92).length,
-    [facilityPatients],
-  );
-
   // ============ Real-Time 12-hour Shift Rotation ============
   // Recompute the wall-clock shift state every 30s. When the 12h block
   // index rolls forward, fire a handoff toast for every role.
