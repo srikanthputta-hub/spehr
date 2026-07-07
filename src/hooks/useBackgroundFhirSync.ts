@@ -78,7 +78,7 @@ function persistPushed(mrn: string, outcome: "ok" | "err") {
  * clinical fact. Successful cleanups are remembered in localStorage so
  * we never replay the sweep for the same MRN.
  */
-const OLD_ID_RE = /^(?:cond|allergy|medreq|medadmin|lab|vital|obs)-mrn-/i;
+const OLD_ID_RE = /^(?:cond|allergy|medreq|medadmin|lab|vital|obs|composition)-mrn-/i;
 const CLEAN_KEY = "fhir.cleanedOldIds";
 
 function alreadyCleaned(mrn: string): boolean {
@@ -122,6 +122,7 @@ async function cleanupOldFormatIds(mrn: string) {
     "MedicationRequest",
     "MedicationAdministration",
     "Observation",
+    "Composition",
   ];
   for (const t of types) {
     try {
