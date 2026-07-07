@@ -345,13 +345,15 @@ function buildMedRequest(mrn: string, m: any) {
   const status =
     raw === "administered" || raw === "completed" || raw === "given"
       ? "completed"
-      : raw === "pending" || raw === "draft" || raw === "pending verification" || raw === "pending_pharmacy"
-        ? "draft"
-        : raw === "cancelled" || raw === "canceled"
-          ? "cancelled"
-          : raw === "stopped" || raw === "discontinued"
-            ? "stopped"
-            : "active";
+      : raw.includes("rejected")
+        ? "stopped"
+        : raw === "pending" || raw === "draft" || raw === "pending verification" || raw === "pending_pharmacy"
+          ? "draft"
+          : raw === "cancelled" || raw === "canceled"
+            ? "cancelled"
+            : raw === "stopped" || raw === "discontinued"
+              ? "stopped"
+              : "active";
   const medCC = m.rxnorm_code
     ? {
         coding: [{ system: "http://www.nlm.nih.gov/research/umls/rxnorm", code: m.rxnorm_code, display: m.rxnorm_display ?? drug }],
@@ -362,6 +364,9 @@ function buildMedRequest(mrn: string, m: any) {
     resourceType: "MedicationRequest",
     id: stableIds.medRequest(`${drug}${m.dose ? `-${m.dose}` : ""}`, mrn),
     status,
+    ...(raw.includes("rejected")
+      ? { statusReason: { text: "Rejected — safety/allergy conflict" } }
+      : {}),
     intent: "order",
     medicationCodeableConcept: medCC,
     subject: { reference: `Patient/${mrn}` },
