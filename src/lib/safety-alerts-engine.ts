@@ -305,9 +305,8 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
   if (!code && !name) return;
 
   const vs = await ensureValueSetsLoaded();
-  const penicillins = vs.get("Penicillin Class Drugs");
-  const penicillinAllergens = vs.get("Penicillin/Beta-Lactam Allergens");
   const anticoags = vs.get("Anticoagulants");
+  const pairs = await loadDrugAllergyPairs();
 
   // Patient meta for anchoring & row display
   const { data: pRow } = await supabase
@@ -322,60 +321,59 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
   const facility_name = (pRow as any)?.facility_name ?? null;
   const sinceIso = (pRow as any)?.admission_time ?? null;
 
-  /* ---- RULE 1: Drug-Allergy Conflict ---- */
-  const isPenicillin = !!code && extensionalContains(penicillins, code);
-  if (isPenicillin) {
-    const { data: rows } = await supabase
+  /* ---- RULE 1: Drug-Allergy Conflict (data-driven pair registry) ---- */
+  if (code || name) {
+    // Fetch chart allergies once; reused across every pair.
+    const { data: allergyRows } = await supabase
       .from("allergies")
       .select("substance, substance_snomed")
       .eq("mrn", mrn);
-    let matched: { substance: string; snomed: string } | null = null;
-    for (const a of (rows ?? []) as any[]) {
-      const snomed = String(a?.substance_snomed ?? "").trim();
-      if (!snomed) continue;
-      if (extensionalContains(penicillinAllergens, snomed)) {
-        matched = { substance: String(a?.substance ?? ""), snomed };
-        break;
-      }
-    }
-    if (matched) {
-      const ruleKey = "rule1-drug-allergy";
-      if (!(await alreadyFired(mrn, ruleKey, code, sinceIso))) {
-        await fireAlert({
-          mrn,
-          patient_name,
-          facility_name,
-          ruleKey,
-          kind: "Drug-Allergy",
-          severity: "HIGH",
-          message: `⚠ Allergy Conflict — ${name || code} belongs to a drug class the patient is allergic to`,
-          triggerCode: code,
-          triggerDisplay: name || code,
-          drug: name || code,
-          allergy_name: matched.substance,
-          medication_order_id: evt.medication_order_id ?? null,
+    const chartAllergies = (allergyRows ?? []) as Array<{
+      substance: string | null;
+      substance_snomed: string | null;
+    }>;
+
+    for (const pair of pairs) {
+      const drugHit = !!code && anyContains(pair.drugSets, code);
+      if (drugHit) {
+        const matched = chartAllergies.find((a) => {
+          const snomed = String(a?.substance_snomed ?? "").trim();
+          return !!snomed && anyContains(pair.allergenSets, snomed);
+        });
+        if (matched) {
+          const ruleKey = `rule1-drug-allergy:${pair.pairId}`;
+          if (!(await alreadyFired(mrn, ruleKey, code, sinceIso))) {
+            await fireAlert({
+              mrn,
+              patient_name,
+              facility_name,
+              ruleKey,
+              kind: "Drug-Allergy",
+              severity: "HIGH",
+              message: `⚠ Allergy Conflict — ${name || code} matches the "${pair.pairId}" allergy class documented for this patient`,
+              triggerCode: code,
+              triggerDisplay: name || code,
+              drug: name || code,
+              allergy_name: String(matched.substance ?? ""),
+              medication_order_id: evt.medication_order_id ?? null,
+            });
+          }
+        }
+      } else if (name && pair.drugSets.length === 0 && pair.drugNames.length > 0) {
+        // Coverage gap: pair is registered but no published drug value set
+        // is wired yet. File a governed terminology request so the
+        // terminologist knows Rule 1 can't evaluate this pair.
+        await requestTerminologyUpdate({
+          requesting_consumer: "Safety Alerts Engine",
+          requested_name: pair.drugNames[0]!,
+          justification: `Drug-Allergy pair "${pair.pairId}" has no published drug value set (registered: ${pair.drugNames.join(", ")}) — order "${name}"${code ? ` (RxNorm ${code})` : ""} could not be evaluated against this pair.`,
+          priority: "normal",
+          vocabulary: "RxNorm",
+          seed_codes: code ? [{ code, display: name }] : [],
+          clinical_application: "CDS",
+          related_mrn: mrn,
         });
       }
-    }
-  } else if (name) {
-    // Coverage-gap detection: the drug name looks like a penicillin/beta-
-    // lactam agent but its RxNorm code isn't in the published "Penicillin
-    // Class Drugs" value set, so Rule 1 could not evaluate it. File a
-    // governed change request to Auto Terminologist instead of silently
-    // skipping the safety check.
-    const betaLactamPattern =
-      /(penicillin|amoxicillin|ampicillin|piperacillin|ticarcillin|nafcillin|oxacillin|cloxacillin|dicloxacillin|methicillin)/i;
-    if (betaLactamPattern.test(name)) {
-      await requestTerminologyUpdate({
-        requesting_consumer: "Safety Alerts Engine",
-        requested_name: "Penicillin Class Drugs",
-        justification: `Order for "${name}"${code ? ` (RxNorm ${code})` : " (no RxNorm code captured)"} matches a penicillin/beta-lactam naming pattern but is not present in the published Penicillin Class Drugs value set — Rule 1 (Drug-Allergy Conflict) could not evaluate this order for allergy risk.`,
-        priority: "high",
-        vocabulary: "RxNorm",
-        seed_codes: code ? [{ code, display: name }] : [],
-        clinical_application: "CDS",
-        related_mrn: mrn,
-      });
     }
   }
 
