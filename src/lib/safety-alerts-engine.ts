@@ -262,13 +262,15 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
 
   /* ---- RULE 1: Drug-Allergy Conflict ---- */
   const isPenicillin = !!code && extensionalContains(penicillins, code);
+  let allergyRows: any[] | null = null;
+  let matched: { substance: string; snomed: string } | null = null;
   if (isPenicillin) {
-    const { data: allergyRows } = await supabase
+    const { data: rows } = await supabase
       .from("allergies")
       .select("substance, substance_snomed")
       .eq("mrn", mrn);
-    let matched: { substance: string; snomed: string } | null = null;
-    for (const a of (allergyRows ?? []) as any[]) {
+    allergyRows = (rows ?? []) as any[];
+    for (const a of allergyRows as any[]) {
       const snomed = String(a?.substance_snomed ?? "").trim();
       if (!snomed) continue;
       if (extensionalContains(penicillinAllergens, snomed)) {
@@ -316,6 +318,28 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
       });
     }
   }
+
+  // Temporary debug instrumentation for Rule 1
+  await supabase.from("auto_doc_logs").insert({
+    mrn,
+    stage: "safety-alert-debug",
+    level: "info",
+    message: "Rule 1 diagnostic",
+    meta: {
+      code,
+      name,
+      penicillinsFound: !!penicillins,
+      penicillinsCodeCount: penicillins?.codes?.length ?? null,
+      isPenicillin,
+      penicillinAllergensFound: !!penicillinAllergens,
+      penicillinAllergensCodeCount: penicillinAllergens?.codes?.length ?? null,
+      allergyRowCount: (allergyRows ?? []).length,
+      allergySnomeds: (allergyRows ?? []).map((a: any) => a?.substance_snomed ?? null),
+      matched,
+    },
+    created_by_type: "automation",
+  } as any);
+
 
   /* ---- RULE 2: Anticoagulant Bleeding Risk ---- */
   const isAnticoag = !!code && extensionalContains(anticoags, code);
