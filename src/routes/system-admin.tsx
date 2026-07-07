@@ -1348,8 +1348,8 @@ function SafetyQueue({ facility }: { facility: string }) {
    * Score-based Auto-Resolver — every Pending Review alert is
    * auto-decided the moment its `auto_resolve_at` SLA expires
    * (45-second window). Decision is derived from risk_score:
-   *   risk_score >= 70 → auto-Reject (protect patient)
-   *   risk_score <  70 → auto-Override (safe to proceed)
+  *   risk_score >= SAFETY_AUTO_REJECT_THRESHOLD → auto-Reject (protect patient)
+  *   risk_score <  SAFETY_AUTO_REJECT_THRESHOLD → auto-Override (safe to proceed)
    * Attribution follows the ordering physician on the linked
    * medication order, not "AI Safety Engine".
    * ---------------------------------------------------------------- */
@@ -1370,10 +1370,11 @@ function SafetyQueue({ facility }: { facility: string }) {
       for (const c of due) {
         inflight.add(c.id);
         const score = c.risk_score ?? 50;
-        const status: "Overridden" | "Rejected" = score >= 70 ? "Rejected" : "Overridden";
+        const status: "Overridden" | "Rejected" =
+          score >= SAFETY_AUTO_REJECT_THRESHOLD ? "Rejected" : "Overridden";
         const physicianName = await lookupOrderingPhysician(c.medication_order_id);
         const base = buildSafetyRationale(c, status, "AI Safety Engine");
-        const rationale = `Risk score ${score}/100 (threshold: score >= 70 = auto-Reject, < 70 = auto-Override) → ${status}. [SLA auto-resolved on behalf of ${physicianName} — 45s review window expired] ${base}`;
+        const rationale = `Risk score ${score}/100 (threshold: score >= ${SAFETY_AUTO_REJECT_THRESHOLD} = auto-Reject, < ${SAFETY_AUTO_REJECT_THRESHOLD} = auto-Override) → ${status}. [SLA auto-resolved on behalf of ${physicianName} — 45s review window expired] ${base}`;
 
         setItems((prev) =>
           prev.map((row) =>
@@ -1424,7 +1425,7 @@ function SafetyQueue({ facility }: { facility: string }) {
 
   const act = async (c: DbSafetyAlert, status: "Overridden" | "Rejected") => {
     const score = c.risk_score ?? 50;
-    const defaultRationale = `Risk score ${score}/100 (auto-decision threshold: >= 70 = Reject, < 70 = Override) — manually set to ${status} by clinician. ${buildSafetyRationale(c, status, "Pharmacist")}`;
+    const defaultRationale = `Risk score ${score}/100 (auto-decision threshold: >= ${SAFETY_AUTO_REJECT_THRESHOLD} = Reject, < ${SAFETY_AUTO_REJECT_THRESHOLD} = Override) — manually set to ${status} by clinician. ${buildSafetyRationale(c, status, "Pharmacist")}`;
     const rationale =
       status === "Overridden"
         ? window.prompt(
@@ -1467,7 +1468,7 @@ function SafetyQueue({ facility }: { facility: string }) {
             <ShieldAlert className="h-4 w-4 text-red-600" /> Intervention & Safety Queue
             <InfoHint
               className="ml-1.5"
-              text="Fires whenever an order or NLP-extracted code conflicts with a documented patient allergy or a dangerous drug-drug interaction, checked against the published Safety value sets (Penicillin Class Drugs, Anticoagulants, NSAIDs, etc). A clinician can manually Override or Reject within 45 seconds; after that, the SLA auto-resolves it using a computed risk score — 70/100 or higher auto-Rejects, below 70 auto-Overrides. Showing the latest 15 alerts for the selected facility scope."
+              text={`Fires whenever an order or NLP-extracted code conflicts with a documented patient allergy or a dangerous drug-drug interaction, checked against the published Safety value sets (Penicillin Class Drugs, Anticoagulants, NSAIDs, etc). A clinician can manually Override or Reject within 45 seconds; after that, the SLA auto-resolves it using a computed risk score — ${SAFETY_AUTO_REJECT_THRESHOLD}/100 or higher auto-Rejects, below ${SAFETY_AUTO_REJECT_THRESHOLD} auto-Overrides. Showing the latest 15 alerts for the selected facility scope.`}
             />
           </h2>
         </div>
@@ -1550,14 +1551,14 @@ function SafetyQueue({ facility }: { facility: string }) {
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
                     {(() => {
                       const score = c.risk_score ?? 50;
-                      const willReject = score >= 70;
+                      const willReject = score >= SAFETY_AUTO_REJECT_THRESHOLD;
                       const tone = willReject
                         ? "border-red-300 bg-red-50 text-red-700"
                         : "border-emerald-300 bg-emerald-50 text-emerald-700";
                       return (
                         <span
                           className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tone}`}
-                          title="Auto-decision band: score ≥ 70 = Reject, < 70 = Override"
+                          title={`Auto-decision band: score ≥ ${SAFETY_AUTO_REJECT_THRESHOLD} = Reject, < ${SAFETY_AUTO_REJECT_THRESHOLD} = Override`}
                         >
                           Risk {score}/100 — will auto-{willReject ? "reject" : "override"} if unactioned
                         </span>
