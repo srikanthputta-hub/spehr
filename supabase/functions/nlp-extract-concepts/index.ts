@@ -66,7 +66,9 @@ Deno.serve(async (req) => {
     });
 
     if (gwRes.status === 429) {
-      return json({ concepts: [], error: "rate_limited" }, 429);
+      // Return 200 so the supabase-js client doesn't throw FunctionsHttpError;
+      // Stream A falls back to its lexical ladder on empty concepts.
+      return json({ concepts: [], error: "rate_limited" }, 200);
     }
     if (!gwRes.ok) {
       const text = await gwRes.text().catch(() => "");
