@@ -40,6 +40,7 @@ import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplet
 import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
 import { InfoHint } from "@/components/ui/info-hint";
 import { OrderPanelPicker } from "@/components/physician/OrderPanelPicker";
+import { PatientSafetyAlertQueue } from "@/components/physician/PatientSafetyAlertQueue";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
@@ -663,6 +664,12 @@ function PhysicianBoard() {
                   )}
                 </form>
               </div>
+
+              {/* Inline per-patient safety alerts — renders nothing when queue is clear */}
+              <PatientSafetyAlertQueue
+                mrn={selected.mrn}
+                physicianName={md.name}
+              />
 
               {/* Value-set–driven physician order panels */}
               <OrderPanelPicker

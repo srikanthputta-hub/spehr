@@ -16,6 +16,16 @@ import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
+import { SlaCountdown } from "@/components/patient/SlaCountdown";
+import { SAFETY_AUTO_REJECT_THRESHOLD } from "@/lib/safety-alert-resolution";
+
+type HeldAlert = {
+  id: string;
+  medication_order_id: string | null;
+  auto_resolve_at: string | null;
+  risk_score: number | null;
+  created_at: string;
+};
 
 type Order = {
   id: string;
@@ -99,6 +109,8 @@ function PharmacyQueue() {
     }[]
   >([]);
   const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
+  const [heldAlerts, setHeldAlerts] = useState<HeldAlert[]>([]);
+  const [nowTs, setNowTs] = useState<number>(Date.now());
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
@@ -163,6 +175,62 @@ function PharmacyQueue() {
       supabase.removeChannel(channel);
     };
   }, [facility]);
+
+  // Live SLA countdown for HELD_SAFETY_REVIEW rows — pulls the linked
+  // clinical_safety_alerts (Pending Review) for the currently-visible
+  // held orders so the row shows time-until-auto-decision instead of a
+  // static "On Hold" badge. 1s ticker drives countdown re-render.
+  useEffect(() => {
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const heldOrderIds = useMemo(
+    () =>
+      orders
+        .filter((o) => (o.status ?? "").toUpperCase() === "HELD_SAFETY_REVIEW")
+        .map((o) => o.id),
+    [orders],
+  );
+  const heldOrderIdsKey = heldOrderIds.join(",");
+
+  useEffect(() => {
+    if (heldOrderIds.length === 0) {
+      setHeldAlerts([]);
+      return;
+    }
+    let active = true;
+    const load = async () => {
+      const { data } = await supabase
+        .from("clinical_safety_alerts")
+        .select("id, medication_order_id, auto_resolve_at, risk_score, created_at")
+        .eq("status", "Pending Review")
+        .in("medication_order_id", heldOrderIds);
+      if (!active) return;
+      setHeldAlerts((data ?? []) as HeldAlert[]);
+    };
+    load();
+    const channel = supabase
+      .channel(`pharmacy-held-alerts-${heldOrderIdsKey}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "clinical_safety_alerts" },
+        () => load(),
+      )
+      .subscribe();
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [heldOrderIdsKey]);
+
+  const heldAlertByOrderId = useMemo(() => {
+    const m = new Map<string, HeldAlert>();
+    for (const a of heldAlerts) {
+      if (a.medication_order_id) m.set(a.medication_order_id, a);
+    }
+    return m;
+  }, [heldAlerts]);
 
   // Load pending queue — includes every in-flight status so users watch
   // each order transition Ordered → Pending → Dispensed live (then it
@@ -472,12 +540,37 @@ function PharmacyQueue() {
                       {(() => {
                         const s = (o.status ?? "").toUpperCase();
                         if (s === "HELD_SAFETY_REVIEW") {
+                          const alert = heldAlertByOrderId.get(o.id);
+                          if (alert) {
+                            const score = alert.risk_score ?? 50;
+                            const willReject = score >= SAFETY_AUTO_REJECT_THRESHOLD;
+                            const bandTone = willReject
+                              ? "border-red-300 bg-red-50 text-red-700"
+                              : "border-emerald-300 bg-emerald-50 text-emerald-700";
+                            return (
+                              <span className="inline-flex items-center gap-1 flex-wrap justify-end">
+                                <span
+                                  className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${bandTone}`}
+                                  title={`Auto-decision band: score ≥ ${SAFETY_AUTO_REJECT_THRESHOLD} = Reject, < ${SAFETY_AUTO_REJECT_THRESHOLD} = Override`}
+                                >
+                                  Risk {score}/100 — will auto-{willReject ? "reject" : "override"}
+                                </span>
+                                <SlaCountdown
+                                  autoResolveAt={alert.auto_resolve_at}
+                                  createdAt={alert.created_at}
+                                  nowTs={nowTs}
+                                  compact
+                                />
+                                <InfoHint text="Frozen because clinical_safety_alerts fired a drug-allergy or drug-drug conflict for this order. The linked alert auto-resolves within 45 s: risk ≥ SAFETY_AUTO_REJECT_THRESHOLD flips the order to REJECTED_SAFETY_ALERT (with an auto-substituted alternate); lower risk releases it back to PENDING_PHARMACY. A clinician can act sooner from the Physician Dashboard or System Admin → Safety Alerts." />
+                              </span>
+                            );
+                          }
                           return (
                             <span className="inline-flex items-center gap-1">
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 border border-slate-300">
                                 ⏸ On Hold — Safety Review
                               </span>
-                              <InfoHint text="Frozen because clinical_safety_alerts fired a drug-allergy or drug-disease conflict for this order. The row is unclickable until an admin resolves the linked alert (manually or via the 45s SLA) in System Admin → Medical Dictionary → Safety Alerts." />
+                              <InfoHint text="Frozen because clinical_safety_alerts fired a drug-allergy or drug-drug conflict for this order. The row is unclickable until the linked alert resolves (manually or via the 45s SLA)." />
                             </span>
                           );
                         }
