@@ -218,6 +218,128 @@ function slugify(s: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Safe upsert — never downgrade published/review value sets          */
+/* ------------------------------------------------------------------ */
+
+type ValueSetPayload = {
+  name: string;
+  system: string;
+  vocabulary: string;
+  type: string;
+  codes: Array<{ code: string; display: string; vocabulary: string }>;
+  description: string;
+  clinical_application: string;
+  fhir_url: string;
+  oid: string;
+  changeEntry: { at: string; actor: string; change: string };
+};
+
+type SafeUpsertOutcome = {
+  id: string | null;
+  mode: "created" | "merged" | "replaced-draft" | "noop";
+  addedCount: number;
+  existingStatus: string | null;
+};
+
+/**
+ * Upsert a value set WITHOUT ever downgrading an existing `published` or
+ * `review` row back to `draft`. Behavior by existing state:
+ *   - none         → insert as new draft (original behavior).
+ *   - draft        → merge incoming codes into existing codes (dedupe by
+ *                    code), keep status draft, append change_history.
+ *   - review/published → keep status untouched, merge new codes only,
+ *                    append change_history noting extension.
+ */
+async function safeUpsertValueSet(payload: ValueSetPayload): Promise<SafeUpsertOutcome> {
+  const { data: existing, error: fetchErr } = await supabase
+    .from("custom_value_sets")
+    .select("id, status, codes, change_history")
+    .eq("name", payload.name)
+    .maybeSingle();
+
+  if (fetchErr) throw fetchErr;
+
+  // No existing row — insert fresh draft.
+  if (!existing) {
+    const { data: inserted, error: insErr } = await supabase
+      .from("custom_value_sets")
+      .insert({
+        name: payload.name,
+        system: payload.system,
+        vocabulary: payload.vocabulary,
+        type: payload.type,
+        codes: payload.codes,
+        status: "draft",
+        description: payload.description,
+        clinical_application: payload.clinical_application,
+        fhir_url: payload.fhir_url,
+        oid: payload.oid,
+        change_history: [payload.changeEntry],
+      } as any)
+      .select("id")
+      .maybeSingle();
+    if (insErr) throw insErr;
+    return {
+      id: (inserted as any)?.id ?? null,
+      mode: "created",
+      addedCount: payload.codes.length,
+      existingStatus: null,
+    };
+  }
+
+  const existingRow = existing as any;
+  const existingStatus: string = String(existingRow.status ?? "draft");
+  const existingCodes: Array<{ code?: string; display?: string; vocabulary?: string; system?: string }> =
+    Array.isArray(existingRow.codes) ? existingRow.codes : [];
+  const existingHistory: any[] = Array.isArray(existingRow.change_history) ? existingRow.change_history : [];
+
+  // Merge codes (dedupe by trimmed `code`).
+  const haveCodes = new Set(existingCodes.map((c) => String(c?.code ?? "").trim()).filter(Boolean));
+  const additions = payload.codes.filter((c) => {
+    const k = String(c.code ?? "").trim();
+    return k && !haveCodes.has(k);
+  });
+
+  // Nothing new AND row is already published/review → don't even bump
+  // updated_at, and don't add a noisy change_history entry.
+  if (additions.length === 0 && (existingStatus === "published" || existingStatus === "review")) {
+    return {
+      id: existingRow.id ?? null,
+      mode: "noop",
+      addedCount: 0,
+      existingStatus,
+    };
+  }
+
+  const mergedCodes = additions.length > 0 ? [...existingCodes, ...additions] : existingCodes;
+  const mergedHistory = [...existingHistory, payload.changeEntry];
+
+  const updatePatch: Record<string, unknown> = {
+    codes: mergedCodes,
+    change_history: mergedHistory,
+    updated_at: new Date().toISOString(),
+  };
+
+  // CRITICAL: never write `status` for published/review rows — that's the
+  // whole point of this helper. For drafts we also don't need to touch it
+  // (already "draft").
+  const { data: updated, error: updErr } = await supabase
+    .from("custom_value_sets")
+    .update(updatePatch as any)
+    .eq("id", existingRow.id)
+    .select("id")
+    .maybeSingle();
+  if (updErr) throw updErr;
+
+  return {
+    id: (updated as any)?.id ?? existingRow.id ?? null,
+    mode: existingStatus === "draft" ? "replaced-draft" : "merged",
+    addedCount: additions.length,
+    existingStatus,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  Demand mode — terminology_requests quality gate + drafting         */
 /* ------------------------------------------------------------------ */
 
@@ -392,40 +514,32 @@ async function processPendingTerminologyRequests(
       const now = new Date().toISOString();
       const nameSlug = slugify(requestedName);
 
-      const { data: upserted, error: upsertErr } = await supabase
-        .from("custom_value_sets")
-        .upsert(
-          {
-            name: requestedName,
-            system: dominantVocab.replace(" ", "-"),
-            vocabulary: dominantVocab,
-            type: "extensional",
-            codes,
-            status: "draft",
-            description: `Drafted in response to a terminology request from ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
-            clinical_application,
-            fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
-            oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
-            change_history: [
-              {
-                at: now,
-                actor: "Auto Terminologist",
-                change: `Drafted from terminology request by ${req.requesting_consumer}`,
-              },
-            ],
-          } as any,
-          { onConflict: "name" },
-        )
-        .select("id")
-        .maybeSingle();
+      const outcome = await safeUpsertValueSet({
+        name: requestedName,
+        system: dominantVocab.replace(" ", "-"),
+        vocabulary: dominantVocab,
+        type: "extensional",
+        codes,
+        description: `Drafted in response to a terminology request from ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+        clinical_application,
+        fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
+        oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
+        changeEntry: {
+          at: now,
+          actor: "Auto Terminologist",
+          change:
+            `Extended by Auto Terminologist from a terminology_requests gap by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+        },
+      });
+      const valueSetId = outcome.id;
 
-      if (upsertErr) throw upsertErr;
-      const valueSetId = (upserted as any)?.id ?? null;
-
+      // Reflect outcome on the request row.
+      const nextRequestStatus =
+        outcome.mode === "merged" ? "extended" : "drafted";
       await supabase
         .from("terminology_requests" as any)
         .update({
-          status: "drafted",
+          status: nextRequestStatus,
           value_set_id: valueSetId,
           resolved_at: now,
           updated_at: now,
@@ -433,9 +547,26 @@ async function processPendingTerminologyRequests(
         } as any)
         .eq("id", req.id);
 
+      let activityAction = "drafted";
+      let activityMessage =
+        `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — drafted as new value set (status: draft — awaiting human review). ${req.justification ?? ""}`.trim();
+      if (outcome.mode === "merged") {
+        activityAction = "extended";
+        activityMessage =
+          `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} — merged ${outcome.addedCount} new code(s) into the existing value set instead of re-drafting it.`;
+      } else if (outcome.mode === "noop") {
+        activityAction = "extended";
+        activityMessage =
+          `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} and every requested code was already present — no changes made.`;
+      } else if (outcome.mode === "replaced-draft") {
+        activityAction = "drafted";
+        activityMessage =
+          `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — merged ${outcome.addedCount} new code(s) into existing draft value set.`;
+      }
+
       await logActivity({
-        action: "drafted",
-        message: `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — drafted as new value set (status: draft — awaiting human review). ${req.justification ?? ""}`.trim(),
+        action: activityAction,
+        message: activityMessage,
         theme: requestedName,
         codes_count: codes.length,
         value_set_id: valueSetId,
@@ -583,40 +714,51 @@ async function runAutoTerminologistCycle() {
       const now = new Date().toISOString();
       const nameSlug = slugify(themeName);
 
-      const { data: upserted, error: upsertErr } = await supabase
-        .from("custom_value_sets")
-        .upsert(
-          {
-            name: themeName,
-            system: dominantVocab.replace(" ", "-"),
-            vocabulary: dominantVocab,
-            type: "extensional",
-            codes,
-            status: "draft",
-            description:
-              "Auto-drafted by Auto Terminologist from a recurring coverage gap detected in the last 36h scan.",
-            clinical_application,
-            fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
-            oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
-            change_history: [
-              { at: now, actor: "Auto Terminologist", change: "Drafted from coverage-gap detection" },
-            ],
-          } as any,
-          { onConflict: "name" },
-        )
-        .select("id")
-        .maybeSingle();
-
-      if (upsertErr) throw upsertErr;
-      const valueSetId = (upserted as any)?.id ?? null;
+      const outcome = await safeUpsertValueSet({
+        name: themeName,
+        system: dominantVocab.replace(" ", "-"),
+        vocabulary: dominantVocab,
+        type: "extensional",
+        codes,
+        description:
+          "Auto-drafted by Auto Terminologist from a recurring coverage gap detected in the last 36h scan.",
+        clinical_application,
+        fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
+        oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
+        changeEntry: {
+          at: now,
+          actor: "Auto Terminologist",
+          change: "Extended from coverage-gap detection",
+        },
+      });
+      const valueSetId = outcome.id;
 
       touchedCount += 1;
       const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' — ${group.length} uncovered ${dominantVocab} concept(s) across ${totalFreq} occurrences (last 36h). Drafted as new value set (status: draft — awaiting human review).`;
+      let draftedMsg: string;
+      let activityAction = "drafted";
+      let logFeatureAction = "drafted_value_set";
+      let logFeatureMsg = `Drafted value set "${themeName}" (${codes.length} ${dominantVocab} concept(s)) from coverage-gap detection.`;
+      if (outcome.mode === "merged") {
+        activityAction = "extended";
+        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' already ${outcome.existingStatus} — merged ${outcome.addedCount} new ${dominantVocab} concept(s) into the existing value set (status preserved).`;
+        logFeatureAction = "extended_value_set";
+        logFeatureMsg = `Extended value set "${themeName}" with ${outcome.addedCount} new ${dominantVocab} concept(s); existing ${outcome.existingStatus} status preserved.`;
+      } else if (outcome.mode === "replaced-draft") {
+        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' — merged ${outcome.addedCount} new ${dominantVocab} concept(s) into existing draft value set.`;
+        logFeatureMsg = `Merged ${outcome.addedCount} new ${dominantVocab} concept(s) into existing draft "${themeName}".`;
+      } else if (outcome.mode === "noop") {
+        activityAction = "extended";
+        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' already ${outcome.existingStatus} and every gap code was already present — no changes made.`;
+        logFeatureAction = "extended_value_set";
+        logFeatureMsg = `No-op for "${themeName}": all gap codes already present in the ${outcome.existingStatus} value set.`;
+      } else {
+        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' — ${group.length} uncovered ${dominantVocab} concept(s) across ${totalFreq} occurrences (last 36h). Drafted as new value set (status: draft — awaiting human review).`;
+      }
 
       await logActivity({
         message: draftedMsg,
-        action: "drafted",
+        action: activityAction,
         theme: themeName,
         codes_count: group.length,
         value_set_id: valueSetId,
@@ -625,8 +767,8 @@ async function runAutoTerminologistCycle() {
       await supabase.from("terminology_activity_log" as any).insert({
         feature: "authoring",
         actor: "Auto Terminologist",
-        action: "drafted_value_set",
-        message: `Drafted value set "${themeName}" (${codes.length} ${dominantVocab} concept(s)) from coverage-gap detection.`,
+        action: logFeatureAction,
+        message: logFeatureMsg,
         ref_id: valueSetId,
       });
     } catch (e) {
