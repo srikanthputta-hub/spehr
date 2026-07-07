@@ -1469,7 +1469,7 @@ function SafetyQueue({ facility }: { facility: string }) {
             <ShieldAlert className="h-4 w-4 text-red-600" /> Intervention & Safety Queue
             <InfoHint
               className="ml-1.5"
-              text={`Fires whenever an order or NLP-extracted code conflicts with a documented patient allergy or a dangerous drug-drug interaction, checked against the published Safety value sets (Penicillin Class Drugs, Anticoagulants, NSAIDs, etc). A clinician can manually Override or Reject within 45 seconds; after that, the SLA auto-resolves it using a computed risk score — ${SAFETY_AUTO_REJECT_THRESHOLD}/100 or higher auto-Rejects, below ${SAFETY_AUTO_REJECT_THRESHOLD} auto-Overrides. Showing the latest 15 alerts for the selected facility scope.`}
+              text={`Fires whenever an order or NLP-extracted code conflicts with a documented patient allergy or a dangerous drug-drug interaction. Drug-Allergy checks are governed by the Drug-Allergy pair registry (see Value Set Library → any pair under "Safety Alerts Engine · Drug-Allergy" — Penicillin, Sulfa, Cephalosporin, NSAID-hypersensitivity, Iodine-contrast, …). Other rules use published Safety value sets (Anticoagulants, NSAIDs, High-Acuity, Sepsis). A clinician can manually Override or Reject within 45 seconds; after that, the SLA auto-resolves it using a computed risk score — ${SAFETY_AUTO_REJECT_THRESHOLD}/100 or higher auto-Rejects, below ${SAFETY_AUTO_REJECT_THRESHOLD} auto-Overrides. Showing the latest 15 alerts for the selected facility scope.`}
             />
           </h2>
         </div>
