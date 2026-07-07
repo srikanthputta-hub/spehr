@@ -29,12 +29,10 @@ import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
 import {
   SAFETY_AUTO_REJECT_THRESHOLD,
   buildSafetyRationale,
-  buildAlternateMed as _buildAlternateMed,
   lookupOrderingPhysician,
   resolveAlertSideEffects,
   type DbSafetyAlert,
 } from "@/lib/safety-alert-resolution";
-void _buildAlternateMed;
 import {
   lookupTerminology,
   toFhirCodeSystem,
