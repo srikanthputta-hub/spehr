@@ -4,13 +4,16 @@ import { Sparkles, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AuditCard, type AuditRow } from "./AuditCard";
 import { InfoHint } from "@/components/ui/info-hint";
+import { auditRowsEqual, sortAuditRows } from "./auditRows";
 
 let cachedApprovalRows: AuditRow[] = [];
+
+type AuditQueryResult = { data: any[] | null; error?: unknown; timedOut?: boolean };
 
 export default function NlpApprovalTrail() {
   const [rows, setRows] = useState<AuditRow[]>(cachedApprovalRows);
   const [loading, setLoading] = useState(cachedApprovalRows.length === 0);
-  const initialLoadRef = useRef(true);
+  const initialLoadRef = useRef(cachedApprovalRows.length === 0);
 
   const refresh = async () => {
     if (initialLoadRef.current) setLoading(true);
@@ -20,21 +23,20 @@ export default function NlpApprovalTrail() {
         .select("id, patient_mrn, raw_text, extraction_mapping, standardized_output, confidence_score, status, created_at, updated_at, approved_by")
         .eq("status", "approved")
         .order("updated_at", { ascending: false })
+        .order("id", { ascending: false })
         .limit(50);
-      const timeout = new Promise<{ data: any[] }>((resolve) =>
-        setTimeout(() => resolve({ data: [] }), 10_000),
+      const timeout = new Promise<AuditQueryResult>((resolve) =>
+        setTimeout(() => resolve({ data: null, timedOut: true }), 10_000),
       );
-      const { data } = (await Promise.race([query, timeout])) as { data: any[] | null };
-      const fetched = (data ?? []) as AuditRow[];
+      const result = (await Promise.race([query, timeout])) as AuditQueryResult;
+      if (result.timedOut) return;
+      if (result.error) throw result.error;
+
+      const fetched = sortAuditRows((result.data ?? []) as AuditRow[], "updated_at");
       setRows((prev) => {
-        const existingIds = new Set(prev.map((r) => r.id));
-        const newOnes = fetched.filter((r) => !existingIds.has(r.id));
-        // Prepend new approvals (server order = newest first), keep existing
-        // rows in-place so the visible list never reshuffles. Cap at 50 —
-        // oldest fall off the tail.
-        const merged = [...newOnes, ...prev].slice(0, 50);
-        cachedApprovalRows = merged;
-        return merged;
+        if (auditRowsEqual(prev, fetched)) return prev;
+        cachedApprovalRows = fetched;
+        return fetched;
       });
     } catch {
       // Leave existing rows in place on transient error — no flicker.

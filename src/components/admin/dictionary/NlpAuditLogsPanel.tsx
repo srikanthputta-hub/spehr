@@ -6,16 +6,19 @@ import { toast } from "sonner";
 import { runSixStreamPipeline, approveMrnCoding } from "@/lib/coding-pipeline";
 import { AuditCard, type AuditRow } from "./AuditCard";
 import { InfoHint } from "@/components/ui/info-hint";
+import { admissionMapsEqual, auditRowsEqual, sortAuditRows } from "./auditRows";
 
 let cachedAuditRows: AuditRow[] = [];
 let cachedAdmissionMap: Record<string, string> = {};
+
+type AuditQueryResult = { data: any[] | null; error?: unknown; timedOut?: boolean };
 
 export default function NlpAuditLogsPanel() {
   const [rows, setRows] = useState<AuditRow[]>(cachedAuditRows);
   const [admissionMap, setAdmissionMap] = useState<Record<string, string>>(cachedAdmissionMap);
   const [loading, setLoading] = useState(cachedAuditRows.length === 0);
   const [busy, setBusy] = useState<string | null>(null);
-  const initialLoadRef = useRef(true);
+  const initialLoadRef = useRef(cachedAuditRows.length === 0);
   const firedIdsRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Set<string>>(new Set());
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -28,14 +31,21 @@ export default function NlpAuditLogsPanel() {
         .select("id, patient_mrn, raw_text, extraction_mapping, standardized_output, confidence_score, status, created_at, updated_at, approved_by")
         .in("status", ["pending", "needs_review"])
         .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
         .limit(20);
-      const timeout = new Promise<{ data: any[] }>((resolve) =>
-        setTimeout(() => resolve({ data: [] }), 10_000),
+      const timeout = new Promise<AuditQueryResult>((resolve) =>
+        setTimeout(() => resolve({ data: null, timedOut: true }), 10_000),
       );
-      const { data } = (await Promise.race([query, timeout])) as { data: any[] | null };
-      const list = (data ?? []) as any[];
-      setRows(list);
-      cachedAuditRows = list;
+      const result = (await Promise.race([query, timeout])) as AuditQueryResult;
+      if (result.timedOut) return;
+      if (result.error) throw result.error;
+
+      const list = sortAuditRows((result.data ?? []) as AuditRow[], "created_at");
+      setRows((prev) => {
+        if (auditRowsEqual(prev, list)) return prev;
+        cachedAuditRows = list;
+        return list;
+      });
       const mrns = Array.from(new Set(list.map((r) => r.patient_mrn).filter(Boolean)));
       if (mrns.length) {
         const { data: pts } = await supabase
@@ -46,15 +56,20 @@ export default function NlpAuditLogsPanel() {
         for (const p of (pts ?? []) as any[]) {
           if (p?.mrn && p?.admission_time) map[p.mrn] = p.admission_time;
         }
-        setAdmissionMap(map);
-        cachedAdmissionMap = map;
+        setAdmissionMap((prev) => {
+          if (admissionMapsEqual(prev, map)) return prev;
+          cachedAdmissionMap = map;
+          return map;
+        });
       } else {
-        setAdmissionMap({});
-        cachedAdmissionMap = {};
+        setAdmissionMap((prev) => {
+          if (admissionMapsEqual(prev, {})) return prev;
+          cachedAdmissionMap = {};
+          return {};
+        });
       }
     } catch {
-      setRows([]);
-      cachedAuditRows = [];
+      // Keep the current list in place on transient errors/timeouts to avoid flicker.
     } finally {
       setLoading(false);
       initialLoadRef.current = false;
@@ -73,6 +88,9 @@ export default function NlpAuditLogsPanel() {
     refresh();
     // Intentional: one-shot fetch on mount + manual Refresh button.
     // Realtime subscription removed to prevent re-render flicker.
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
   }, []);
 
   const handleApprove = async (r: AuditRow, approvedBy: "human" | "ai") => {
@@ -87,8 +105,12 @@ export default function NlpAuditLogsPanel() {
         toast.success("Approved — codes published to Live Terminology Matrix");
       }
       // Optimistically remove from local list so auto-approve doesn't refire.
-      setRows((prev) => prev.filter((x) => x.patient_mrn !== r.patient_mrn));
-      cachedAuditRows = cachedAuditRows.filter((x) => x.patient_mrn !== r.patient_mrn);
+      setRows((prev) => {
+        const next = prev.filter((x) => x.patient_mrn !== r.patient_mrn);
+        if (auditRowsEqual(prev, next)) return prev;
+        cachedAuditRows = next;
+        return next;
+      });
       // Notify the Approval Trail to refresh immediately.
       try { window.dispatchEvent(new CustomEvent("nlp:approved", { detail: { mrn: r.patient_mrn } })); } catch {}
       scheduleRefresh();
