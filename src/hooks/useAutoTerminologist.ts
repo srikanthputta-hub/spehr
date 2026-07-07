@@ -514,40 +514,32 @@ async function processPendingTerminologyRequests(
       const now = new Date().toISOString();
       const nameSlug = slugify(requestedName);
 
-      const { data: upserted, error: upsertErr } = await supabase
-        .from("custom_value_sets")
-        .upsert(
-          {
-            name: requestedName,
-            system: dominantVocab.replace(" ", "-"),
-            vocabulary: dominantVocab,
-            type: "extensional",
-            codes,
-            status: "draft",
-            description: `Drafted in response to a terminology request from ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
-            clinical_application,
-            fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
-            oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
-            change_history: [
-              {
-                at: now,
-                actor: "Auto Terminologist",
-                change: `Drafted from terminology request by ${req.requesting_consumer}`,
-              },
-            ],
-          } as any,
-          { onConflict: "name" },
-        )
-        .select("id")
-        .maybeSingle();
+      const outcome = await safeUpsertValueSet({
+        name: requestedName,
+        system: dominantVocab.replace(" ", "-"),
+        vocabulary: dominantVocab,
+        type: "extensional",
+        codes,
+        description: `Drafted in response to a terminology request from ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+        clinical_application,
+        fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
+        oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
+        changeEntry: {
+          at: now,
+          actor: "Auto Terminologist",
+          change:
+            outcomeChangeLabelForRequest(req.requesting_consumer, req.justification),
+        },
+      });
+      const valueSetId = outcome.id;
 
-      if (upsertErr) throw upsertErr;
-      const valueSetId = (upserted as any)?.id ?? null;
-
+      // Reflect outcome on the request row.
+      const nextRequestStatus =
+        outcome.mode === "merged" ? "extended" : "drafted";
       await supabase
         .from("terminology_requests" as any)
         .update({
-          status: "drafted",
+          status: nextRequestStatus,
           value_set_id: valueSetId,
           resolved_at: now,
           updated_at: now,
@@ -555,9 +547,26 @@ async function processPendingTerminologyRequests(
         } as any)
         .eq("id", req.id);
 
+      let activityAction = "drafted";
+      let activityMessage =
+        `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — drafted as new value set (status: draft — awaiting human review). ${req.justification ?? ""}`.trim();
+      if (outcome.mode === "merged") {
+        activityAction = "extended";
+        activityMessage =
+          `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} — merged ${outcome.addedCount} new code(s) into the existing value set instead of re-drafting it.`;
+      } else if (outcome.mode === "noop") {
+        activityAction = "extended";
+        activityMessage =
+          `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} and every requested code was already present — no changes made.`;
+      } else if (outcome.mode === "replaced-draft") {
+        activityAction = "drafted";
+        activityMessage =
+          `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — merged ${outcome.addedCount} new code(s) into existing draft value set.`;
+      }
+
       await logActivity({
-        action: "drafted",
-        message: `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — drafted as new value set (status: draft — awaiting human review). ${req.justification ?? ""}`.trim(),
+        action: activityAction,
+        message: activityMessage,
         theme: requestedName,
         codes_count: codes.length,
         value_set_id: valueSetId,
