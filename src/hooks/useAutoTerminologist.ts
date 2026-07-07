@@ -528,7 +528,7 @@ async function processPendingTerminologyRequests(
           at: now,
           actor: "Auto Terminologist",
           change:
-            outcomeChangeLabelForRequest(req.requesting_consumer, req.justification),
+            `Extended by Auto Terminologist from a terminology_requests gap by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
         },
       });
       const valueSetId = outcome.id;
