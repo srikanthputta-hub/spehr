@@ -64,7 +64,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     Reception: { name: "Aisha Bennett", role: "Reception", roleLabel: "Admissions / Reception", facility: "County Health Pavilion", ward: "Patient Access Office" },
   },
   "Srik Health Clinic": {
-    RN: { name: "Priya Shah, RN", role: "RN", roleLabel: "Registered Nurse", facility: "Srik Health Clinic", ward: "Pediatrics - Wing C" },
+    RN: { name: "Priya Shah, RN", role: "RN", roleLabel: "Registered Nurse", facility: "Srik Health Clinic", ward: "Wing C" },
     MD: { name: "Dr. William Bradshaw", role: "MD", roleLabel: "Attending Physician", facility: "Srik Health Clinic", ward: "Pediatrics" },
     PharmD: { name: "Xavier Dupont, PharmD", role: "PharmD", roleLabel: "Clinical Pharmacist", facility: "Srik Health Clinic", ward: "Pediatric Pharmacy" },
     Finance: { name: "Kenji Aoyama, CPA", role: "Finance", roleLabel: "Corporate Finance & Accounts", facility: "Srik Health Clinic", ward: "Revenue Cycle Office" },
@@ -107,7 +107,7 @@ export const NURSES_BY_FACILITY: Record<Facility, NurseProfile> = {
   "Srik Health Clinic": {
     name: "Priya Shah, RN",
     facility: "Srik Health Clinic",
-    ward: "Pediatrics - Wing C",
+    ward: "Wing C",
   },
 };
 
