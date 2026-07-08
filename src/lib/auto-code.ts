@@ -98,8 +98,8 @@ export function autoCodeLab(text: string, ctx: AutoCodeContext): void {
 }
 
 /** Resolve a drug name → RxNorm RxCUI, write back to medication_orders.id. */
-export function autoCodeMedication(text: string, ctx: AutoCodeContext): void {
-  void (async () => {
+export function autoCodeMedication(text: string, ctx: AutoCodeContext): Promise<void> {
+  return (async () => {
     const c = await resolveConcept(text, "RXNORM", {
       resourceType: "medication_orders",
       resourceId: ctx.resourceId,
