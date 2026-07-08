@@ -46,7 +46,8 @@ async function fetchSnomedAncestors(code: string, apiKey: string): Promise<Set<s
   if (cached) return cached;
   const set = new Set<string>();
   const pageSize = 50;
-  for (let pageNumber = 1; pageNumber <= 10; pageNumber++) {
+  // Cap pagination to keep CPU well under Worker limits; ancestor chains rarely exceed a few hundred concepts.
+  for (let pageNumber = 1; pageNumber <= 4; pageNumber++) {
     const url = new URL(
       `https://uts-ws.nlm.nih.gov/rest/content/current/source/SNOMEDCT_US/${encodeURIComponent(code)}/ancestors`,
     );
@@ -54,6 +55,8 @@ async function fetchSnomedAncestors(code: string, apiKey: string): Promise<Set<s
     url.searchParams.set("pageSize", String(pageSize));
     url.searchParams.set("pageNumber", String(pageNumber));
     const r = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+    // 404 = code has no ancestors on this page (common for leaf/invalid codes). Treat as end-of-list.
+    if (r.status === 404) break;
     if (!r.ok) throw new Error(`UMLS ${r.status}`);
     const j: any = await r.json();
     const results: any[] = j?.result ?? [];
@@ -116,7 +119,8 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
             const valid = ancestors.has(root);
             return json({ ok: true, valid, reason: valid ? undefined : `not a descendant of ${root}` });
           } catch (err: any) {
-            return json({ ok: false, error: String(err?.message ?? err) }, 502);
+            // Fail-open with 200 so callers treat as "errored" (valid=true) instead of surfacing a 502 runtime error.
+            return json({ ok: false, error: String(err?.message ?? err) });
           }
         }
 
