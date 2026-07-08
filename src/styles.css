@@ -107,3 +107,27 @@
   100% { background-color: #ef4444; }
 }
 
+@utility scroll-feed {
+  max-height: 560px;
+  overflow-y: auto;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 0.6) transparent;
+
+  &::-webkit-scrollbar { width: 8px; height: 8px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb {
+    background: rgb(148 163 184 / 0.55);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: rgb(100 116 139 / 0.75);
+    background-clip: padding-box;
+  }
+}
+
