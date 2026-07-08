@@ -295,13 +295,27 @@ async function sweepBedCleaningCycles() {
 async function cascadeMed(mrn: string, orderId: string) {
   // Ordered → Pending Verification → Dispensed → Administered (final).
   // The chart only surfaces the order once status === "Administered".
+  // Safety-critical: if the Safety Alerts Engine has flipped this order to
+  // HELD_SAFETY_REVIEW (or any non-forward state), abort the cascade so an
+  // allergy-conflicting med never marches to Administered behind the alert.
+  const isHeld = async (): Promise<boolean> => {
+    const { data } = await supabase
+      .from("medication_orders")
+      .select("status")
+      .eq("id", orderId)
+      .maybeSingle();
+    const s = String((data as any)?.status ?? "").toUpperCase();
+    return s === "HELD_SAFETY_REVIEW" || s === "REJECTED" || s === "CANCELLED";
+  };
   await trackedDelay(mrn, TRANSITION_GAP_MS);
+  if (await isHeld()) return;
   const approvedAt = new Date().toISOString();
   await supabase
     .from("medication_orders")
     .update({ status: "Pending Verification", approved_at: approvedAt })
     .eq("id", orderId);
   await trackedDelay(mrn, TRANSITION_GAP_MS);
+  if (await isHeld()) return;
   const dispensedAt = new Date().toISOString();
   await supabase
     .from("medication_orders")
@@ -311,6 +325,7 @@ async function cascadeMed(mrn: string, orderId: string) {
     } as any)
     .eq("id", orderId);
   await trackedDelay(mrn, TRANSITION_GAP_MS);
+  if (await isHeld()) return;
   const administeredAt = new Date().toISOString();
   await supabase
     .from("medication_orders")
