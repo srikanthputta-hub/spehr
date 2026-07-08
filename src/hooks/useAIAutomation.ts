@@ -623,7 +623,15 @@ export async function seedAdmission(
         .select("id")
         .single();
       if (error || !data) return; // unique-index collision → another client wins
-      autoCodeMedication(m.name, { resourceId: data.id, mrn, resolver: "auto-doc-cascade" });
+      // Await RxNorm resolution + Safety Alerts Engine BEFORE starting the
+      // status cascade. Otherwise cascadeMed can flip the order to
+      // Administered before Rule 1 has a chance to hold it for a documented
+      // allergy conflict.
+      try {
+        await autoCodeMedication(m.name, { resourceId: data.id, mrn, resolver: "auto-doc-cascade" });
+      } catch (e) {
+        console.warn("[autoCodeMedication] failed", e);
+      }
       cascadeMed(mrn, data.id).catch((e) =>
         console.warn("[cascadeMed] failed", e),
       );
