@@ -604,7 +604,7 @@ export async function seedAdmission(
   // coding. Anything missing a code is skipped, never ordered.
   const finalMeds = tpl.meds
     .filter((m) => !existingMedNames.has(norm(m.name)))
-    .filter((m) => !!m.rxnorm_code)
+    .filter((m) => !!m.rxnorm)
     .slice(0, 3);
   const finalLabs = tpl.labs.filter((l) => !existingLabNames.has(norm(l.name))).slice(0, 2);
 
@@ -625,9 +625,9 @@ export async function seedAdmission(
           dose: m.dose,
           route: m.route,
           frequency: m.frequency,
-          rxnorm_code: m.rxnorm_code,
-          rxnorm_display: m.rxnorm_display,
-          ingredient_rxcui: m.rxnorm_code,
+          rxnorm_code: m.rxnorm,
+          rxnorm_display: m.name,
+          ingredient_rxcui: m.rxnorm,
           coding_source: "protocol",
           coded_at: new Date().toISOString(),
           status: "Ordered",
@@ -643,8 +643,8 @@ export async function seedAdmission(
       try {
         await runMedicationOrderRules({
           mrn,
-          rxnorm_code: m.rxnorm_code,
-          rxnorm_display: m.rxnorm_display,
+          rxnorm_code: m.rxnorm,
+          rxnorm_display: m.name,
           medication_name: m.name,
           medication_order_id: data.id,
         });
