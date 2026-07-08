@@ -1,42 +1,31 @@
-## Problem
+## Goal
 
-Manual orders trigger the Drug-Allergy Safety Alert correctly, but automation-created orders (Auto Doc cascade) march straight to **Administered** without ever being held for review.
+Automation must only order medications that carry an RxNorm code, and the code has to be present on the row **at insert time** — never resolved later. This closes the last window where a med can slip past the Safety Alerts Engine because `rxnorm_code` is still `null` on the initial `INSERT`.
 
-## Root cause
+## Root cause today
 
-In `src/hooks/useAIAutomation.ts` the automation seed does three things in fire-and-forget sequence:
+`useAIAutomation.seedAdmission` inserts each protocol medication with only free-text `medication_name` / `drug_name`. `autoCodeMedication` resolves the RxNorm code via UMLS **after** the insert. Even with the previous fix that awaits coding before the cascade, the row spends a brief window in `medication_orders` without `rxnorm_code`, and any med the resolver can't map ends up ordered without a code at all.
 
-1. `INSERT` into `medication_orders` with `status: "Ordered"` — no `rxnorm_code` yet.
-2. `autoCodeMedication(...)` — resolves RxNorm asynchronously (UMLS round-trip) and, only after the code lands, calls `runMedicationOrderRules(...)`.
-3. `cascadeMed(...)` — waits `TRANSITION_GAP_MS` (3s) and unconditionally writes `Pending Verification → Dispensed → Administered`.
+## Fix
 
-Two failure modes result:
+### 1. `src/lib/complaint-protocols.ts`
+- Extend `ProtocolMed` with required fields: `rxnorm_code: string; rxnorm_display: string;`.
+- Fill in verified RxCUIs for every medication in every protocol (Aspirin 1191, Nitroglycerin 4917, Morphine 7052, Albuterol 435, Methylprednisolone 6902, Furosemide 4603, Atorvastatin 83367, Labetalol 6185, Ondansetron 26225, Ketorolac 35827, Piperacillin-Tazobactam 33533, Vancomycin 11124, Acetaminophen 161, Pantoprazole 40790, Ceftriaxone 2193, Ibuprofen 5640, Regular Insulin 253182, Sodium Chloride 313002, Potassium Chloride 8591, Thiamine 10454, Dextrose 4850, Lisinopril 29046, Famotidine 4278, plus the DEFAULT set).
 
-- The realtime `INSERT` handler in `useSafetyAlertsWatcher` fires immediately with `rxnorm_code = null`, so Rule 1 sees no code and does nothing.
-- Even when `autoCodeMedication` later re-runs `runMedicationOrderRules` and the engine sets `status = "HELD_SAFETY_REVIEW"`, `cascadeMed` has already queued blind updates that overwrite the hold — the order flips to `Administered` a few seconds later.
+### 2. `src/hooks/useAIAutomation.ts` (`seedAdmission`)
+- Filter `finalMeds` to drop any entry without `rxnorm_code` (defensive — the type change already enforces it, but skip anything falsy so a future protocol edit can't regress).
+- Include `rxnorm_code`, `rxnorm_display`, `ingredient_rxcui`, and `coding_source: "protocol"` in the initial `medication_orders` insert.
+- Immediately after the insert, fire `runMedicationOrderRules(...)` with the seeded code so Rule 1 evaluates on this insert path even before `autoCodeMedication` re-runs.
+- Keep the existing `await autoCodeMedication(...)` call: it now becomes a no-op patch (values already match) plus a redundant safety re-check, which is cheap and stays consistent with manual CPOE.
 
-Manual orders don't hit this because the physician CPOE form writes `rxnorm_code` at insert time and does not run a status cascade.
+### 3. Non-goals
+- No changes to manual CPOE flow, physician board UI, or the Safety Alerts Engine rules.
+- No new tables or schema changes.
+- No changes to lab orders.
+- No change to `drug-rxnorm-map.ts` (protocol codes are declared inline; the map still serves other resolvers).
 
-## Fix (behavior-only, no schema changes)
-
-### 1. `src/hooks/useAIAutomation.ts`
-
-- Change `autoCodeMedication` invocation in `seedAdmission` to **await** completion before starting `cascadeMed`, so the RxNorm code is populated and Rule 1 has already fired (or not) by the time the cascade begins. Convert `autoCodeMedication` to return its inner promise (currently `void`-wrapped).
-- In `cascadeMed`, before every transition update, re-read the order's current `status`. If it is `HELD_SAFETY_REVIEW` (or anything other than the expected prior state), **abort the cascade** — no further updates, no `Administered`.
-- Guard `sweepOrphans` the same way: its `.in("status", [...])` list already excludes `HELD_SAFETY_REVIEW`, so held rows won't be auto-finalized — leave as-is, just add a comment noting the invariant.
-
-### 2. `src/lib/auto-code.ts`
-
-- Have `autoCodeMedication` return `Promise<void>` (still callable fire-and-forget for existing callers) so the automation cascade can await it. No signature change for other callers.
-
-### 3. Verification
-
-- Admit MRN-989807 (srik Smith, penicillin allergy) via automation. When Auto Doc tries to order amoxicillin/penicillin, the safety alert must appear on the physician board AND the order must remain in `HELD_SAFETY_REVIEW` (never reach `Administered`) until a clinician resolves it — mirroring the manual-order behavior in your first screenshot.
-- Regression: order a non-penicillin med via automation → cascade completes to `Administered` as before.
-- Typecheck with `tsgo`.
-
-## Non-goals
-
-- No changes to the pair registry, value sets, or Rules 2/3/4.
-- No new tables, no schema/RLS changes.
-- No UI changes.
+## Verification
+- Admit a penicillin-allergic patient whose complaint routes to the "fever" protocol (Ceftriaxone is a cephalosporin, not penicillin, so this is a regression check) → cascade completes normally.
+- Admit a patient whose complaint routes to a protocol where you temporarily swap in Amoxicillin (RxCUI 723) for testing, with a penicillin allergy on file → the alert fires immediately on the `INSERT` (not after coding) and the order is held.
+- Inspect a freshly seeded `medication_orders` row: `rxnorm_code`, `rxnorm_display`, and `coding_source = 'protocol'` are all populated at insert time.
+- `tsgo` clean.
