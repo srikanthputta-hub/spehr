@@ -328,7 +328,7 @@ function PharmacyQueue() {
         .in("status", ["Administered", "ADMINISTERED", "REJECTED", "REJECTED_SAFETY_ALERT"])
         .order("updated_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false, nullsFirst: false })
-        .limit(15);
+        .limit(150);
       if (!active) return;
       setDispensed((data ?? []) as any);
     };
@@ -730,8 +730,9 @@ function PharmacyQueue() {
                 subtitle="Auto-Updating · Newest first"
                 right={<span className="font-mono">LIVE</span>}
               />
+              <div className="scroll-feed">
               <table className="w-full text-xs">
-                <thead className="bg-[#0c2340] text-slate-100">
+                <thead className="bg-[#0c2340] text-slate-100 sticky top-0 z-10">
                   <tr>
                     <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Timestamp</th>
                     <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Patient</th>
