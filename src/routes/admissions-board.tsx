@@ -197,7 +197,7 @@ function RosterTab({ facility }: { facility: string }) {
           .select("mrn, first_name, last_name, dob, address, status, admission_time, discharge_time, room")
           .eq("facility_name", facility)
           .order("admission_time", { ascending: false })
-          .limit(50),
+          .limit(150),
       { data: [], error: null } as any,
     );
     const mapped: EncounterRow[] = ((data ?? []) as any[]).map((p) => ({
@@ -279,9 +279,9 @@ function RosterTab({ facility }: { facility: string }) {
           </button>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="scroll-feed">
         <table className="w-full text-[12.5px]">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-slate-600 bg-slate-100 border-b border-slate-300">
               <th className="px-3 py-2 font-bold">MRN</th>
               <th className="px-3 py-2 font-bold">Patient</th>

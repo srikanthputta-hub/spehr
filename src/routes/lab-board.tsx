@@ -161,7 +161,7 @@ function LabBoard() {
             .in("status", ["Reported", "Resulted", "Completed"])
             .order("resulted_at", { ascending: false, nullsFirst: false })
             .order("created_at", { ascending: false, nullsFirst: false })
-            .limit(15),
+            .limit(150),
           supabase
             .from("patients")
             .select("mrn, first_name, last_name, name, admission_time")
@@ -533,8 +533,9 @@ function LabBoard() {
               subtitle={`Auto-Updating · Newest first · ${recentResulted.length} entries`}
               right={<span className="font-mono">LIVE</span>}
             />
+            <div className="scroll-feed">
             <table className="w-full text-xs">
-              <thead className="bg-[#0c2340] text-slate-100">
+              <thead className="bg-[#0c2340] text-slate-100 sticky top-0 z-10">
                 <tr>
                   <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Timestamp</th>
                   <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Patient</th>
@@ -586,6 +587,7 @@ function LabBoard() {
                 )}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       </section>

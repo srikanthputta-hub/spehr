@@ -558,7 +558,7 @@ export function PatientFlowCensusLog() {
         )
         .eq("facility_name", facility)
         .order("admission_time", { ascending: false })
-        .limit(50);
+        .limit(150);
       if (!cancelled && !error && data) setRows(data as PatientRow[]);
       if (!cancelled) setLoading(false);
     };
@@ -598,7 +598,7 @@ export function PatientFlowCensusLog() {
             />
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Last 50 admissions · {facility} · Realtime
+            Last 150 admissions · {facility} · Realtime
           </p>
         </div>
         <div className="flex items-center gap-2 text-[11px]">
@@ -614,9 +614,9 @@ export function PatientFlowCensusLog() {
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="scroll-feed">
           <table className="w-full text-[12px] font-mono">
-            <thead className="bg-slate-100 text-slate-600">
+            <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10">
               <tr className="border-b border-slate-200">
                 <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">MRN</th>
                 <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">Patient Name</th>
