@@ -13,6 +13,7 @@ import { routeDepartment } from "@/lib/chief-complaints";
 import { templateForDepartment } from "@/lib/auto-doc-catalog";
 import { runAutoDoc } from "@/lib/auto-doc.functions";
 import { autoCodeMedication } from "@/lib/auto-code";
+import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
