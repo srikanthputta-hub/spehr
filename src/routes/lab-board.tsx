@@ -298,7 +298,7 @@ function LabBoard() {
       const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
       return tb - ta;
     });
-    return rows.slice(0, 15);
+    return rows.slice(0, 150);
   }, [completedOrders, facility]);
 
   // Pending count for header still reflects real pending orders.
