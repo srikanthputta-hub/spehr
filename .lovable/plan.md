@@ -1,31 +1,46 @@
-## Goal
+## Problem
 
-Automation must only order medications that carry an RxNorm code, and the code has to be present on the row **at insert time** — never resolved later. This closes the last window where a med can slip past the Safety Alerts Engine because `rxnorm_code` is still `null` on the initial `INSERT`.
+The Pharmacy → Pending Verification queue keeps growing because the ghost-admission RPC (`auto_admit_ghost_patient`, runs every 5 min via pg_cron) inserts meds directly at `PENDING_VERIFICATION` on the server, then nothing advances them. The client-side cascade in `useAIAutomation.cascadeMed` only runs for orders the current tab seeds itself (`seedAdmission` skips patients that already have orders), so server-inserted orders never move.
 
-## Root cause today
-
-`useAIAutomation.seedAdmission` inserts each protocol medication with only free-text `medication_name` / `drug_name`. `autoCodeMedication` resolves the RxNorm code via UMLS **after** the insert. Even with the previous fix that awaits coding before the cascade, the row spends a brief window in `medication_orders` without `rxnorm_code`, and any med the resolver can't map ends up ordered without a code at all.
+The only thing that eventually clears them is the minute-tick `sweep_stalled_clinical_orders()` job, which force-jumps anything older than **10 minutes** straight to `Administered`. Effect: every batch of ghost admits parks 5–15 rows in Pending Verification for up to 10 minutes each cycle, and the queue looks perpetually backed up.
 
 ## Fix
 
-### 1. `src/lib/complaint-protocols.ts`
-- Extend `ProtocolMed` with required fields: `rxnorm_code: string; rxnorm_display: string;`.
-- Fill in verified RxCUIs for every medication in every protocol (Aspirin 1191, Nitroglycerin 4917, Morphine 7052, Albuterol 435, Methylprednisolone 6902, Furosemide 4603, Atorvastatin 83367, Labetalol 6185, Ondansetron 26225, Ketorolac 35827, Piperacillin-Tazobactam 33533, Vancomycin 11124, Acetaminophen 161, Pantoprazole 40790, Ceftriaxone 2193, Ibuprofen 5640, Regular Insulin 253182, Sodium Chloride 313002, Potassium Chloride 8591, Thiamine 10454, Dextrose 4850, Lisinopril 29046, Famotidine 4278, plus the DEFAULT set).
+Update the existing `sweep_stalled_clinical_orders()` Postgres function (already scheduled every minute) to walk orders through the normal state machine on short time thresholds, instead of only doing the 10-minute force-finalize. The client cascade for tab-seeded orders keeps working exactly as today; this only picks up rows that no client is driving.
 
-### 2. `src/hooks/useAIAutomation.ts` (`seedAdmission`)
-- Filter `finalMeds` to drop any entry without `rxnorm_code` (defensive — the type change already enforces it, but skip anything falsy so a future protocol edit can't regress).
-- Include `rxnorm_code`, `rxnorm_display`, `ingredient_rxcui`, and `coding_source: "protocol"` in the initial `medication_orders` insert.
-- Immediately after the insert, fire `runMedicationOrderRules(...)` with the seeded code so Rule 1 evaluates on this insert path even before `autoCodeMedication` re-runs.
-- Keep the existing `await autoCodeMedication(...)` call: it now becomes a no-op patch (values already match) plus a redundant safety re-check, which is cheap and stays consistent with manual CPOE.
+### Cascade rules added to the sweep
 
-### 3. Non-goals
-- No changes to manual CPOE flow, physician board UI, or the Safety Alerts Engine rules.
-- No new tables or schema changes.
-- No changes to lab orders.
-- No change to `drug-rxnorm-map.ts` (protocol codes are declared inline; the map still serves other resolvers).
+Medications (skip rows with `status IN ('HELD_SAFETY_REVIEW','REJECTED','CANCELLED','REJECTED_SAFETY_ALERT')` or any linked `clinical_safety_alerts` with `status = 'Pending Review'`):
+
+```text
+Ordered / ORDERED              older than  30s  → Pending Verification (approved_at = now)
+PENDING_VERIFICATION /         older than  45s  → Dispensed            (dispensed_at = now)
+  Pending Verification /
+  PENDING_PHARMACY
+Dispensed / DISPENSED          older than  90s  → Administered         (administered_at = now)
+```
+
+Labs:
+
+```text
+Ordered / ORDERED              older than  30s  → Processing (collected_at = now)
+Processing / PROCESSING        older than  90s  → Reported   (resulted_at = now, default result_value if null)
+```
+
+Keep the existing 10-minute catch-all `UPDATE`s at the bottom of the function as a final safety net, and keep the safety-alert SLA loop and HELD_SAFETY_REVIEW recovery untouched.
+
+### Why this works
+
+- Runs server-side every 60s → all ghost-admit meds drain in ≤ ~3 minutes end-to-end.
+- Rows with active safety alerts are excluded, so allergy-triggered holds still surface correctly and can be Rejected/Overridden by the alert engine before this cascade touches them.
+- No changes to `auto_admit_ghost_patient`, client automation, physician CPOE, pharmacy UI, or the safety engine. Existing tab-driven cascades still finish first (3s gaps) — this only catches orphaned server-inserted rows.
+
+## Files changed
+
+- `supabase/migrations/<new>.sql` — `CREATE OR REPLACE FUNCTION public.sweep_stalled_clinical_orders()` with the cascade blocks above prepended to the current body.
 
 ## Verification
-- Admit a penicillin-allergic patient whose complaint routes to the "fever" protocol (Ceftriaxone is a cephalosporin, not penicillin, so this is a regression check) → cascade completes normally.
-- Admit a patient whose complaint routes to a protocol where you temporarily swap in Amoxicillin (RxCUI 723) for testing, with a penicillin allergy on file → the alert fires immediately on the `INSERT` (not after coding) and the order is held.
-- Inspect a freshly seeded `medication_orders` row: `rxnorm_code`, `rxnorm_display`, and `coding_source = 'protocol'` are all populated at insert time.
-- `tsgo` clean.
+
+- Run the migration, wait ~2 minutes, then `SELECT status, count(*) FROM medication_orders WHERE status ILIKE '%pending%' OR status ILIKE '%dispensed%' GROUP BY 1` — Pending Verification count should drop to only rows < ~45s old.
+- Trigger a safety-demo ghost admit (Amoxicillin + Penicillin allergy) and confirm that order stays `HELD_SAFETY_REVIEW` until the alert is resolved instead of being cascaded to Administered.
+- Watch `/pharmacy-queue` for ~2 minutes: rows should visibly transition Pending Verification → Dispensed → drop off, matching how tab-seeded orders already behave.
