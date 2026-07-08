@@ -386,6 +386,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       keyword?: string;
       facilities?: string[];
       since_iso?: string;
+      until_iso?: string;
       value_set_id?: string;
     }) => d,
   )
@@ -412,6 +413,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
           .ilike("snomed_display", `%${k}%`)
           .limit(5000);
         if (data.since_iso) q = q.gte("created_at", data.since_iso);
+        if (data.until_iso) q = q.lte("created_at", data.until_iso);
         const { data: rows, error } = await q;
         if (error) console.error("[population-query] SNOMED keyword failed", error.message);
         for (const r of (rows as any[]) ?? []) {
@@ -426,6 +428,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
           .ilike("icd10_display", `%${k}%`)
           .limit(5000);
         if (data.since_iso) q = q.gte("created_at", data.since_iso);
+        if (data.until_iso) q = q.lte("created_at", data.until_iso);
         const { data: rows, error } = await q;
         if (error) console.error("[population-query] ICD10 keyword failed", error.message);
         for (const r of (rows as any[]) ?? []) {
@@ -440,6 +443,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
           .ilike("loinc_display", `%${k}%`)
           .limit(5000);
         if (data.since_iso) q = q.gte("created_at", data.since_iso);
+        if (data.until_iso) q = q.lte("created_at", data.until_iso);
         const { data: rows, error } = await q;
         if (error) console.error("[population-query] LOINC keyword failed", error.message);
         for (const r of (rows as any[]) ?? []) {
@@ -454,6 +458,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
           .ilike("rxnorm_display", `%${k}%`)
           .limit(5000);
         if (data.since_iso) q = q.gte("created_at", data.since_iso);
+        if (data.until_iso) q = q.lte("created_at", data.until_iso);
         const { data: rows, error } = await q;
         if (error) console.error("[population-query] RXNORM keyword failed", error.message);
         for (const r of (rows as any[]) ?? []) {
@@ -553,6 +558,9 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
           if (data.since_iso) {
             bq = bq.gte("admission_time", data.since_iso);
           }
+          if (data.until_iso) {
+            bq = bq.lte("admission_time", data.until_iso);
+          }
           const { data: br, error: bErr } = await bq;
           if (bErr) {
             patientBatchErrors.push(bErr.message);
@@ -576,6 +584,9 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       }
       if (data.since_iso) {
         q = q.gte("admission_time", data.since_iso);
+      }
+      if (data.until_iso) {
+        q = q.lte("admission_time", data.until_iso);
       }
       const { data: qr, error: qErr } = await q;
       if (qErr)
