@@ -406,7 +406,7 @@ function PharmacyQueue() {
       const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
       return tb - ta;
     });
-    return rows.slice(0, 15);
+    return rows.slice(0, 150);
   }, [dispensed, facility, pharm?.name]);
 
   const selected = useMemo(
