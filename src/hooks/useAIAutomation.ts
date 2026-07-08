@@ -597,7 +597,14 @@ export async function seedAdmission(
   );
 
   // First 3 meds, first 2 labs — same shape as the legacy cascade.
-  const finalMeds = tpl.meds.filter((m) => !existingMedNames.has(norm(m.name))).slice(0, 3);
+  // Automation-only invariant: every ordered med MUST carry an RxNorm code at
+  // insert time so the Safety Alerts Engine (which reads `rxnorm_code` on the
+  // realtime INSERT event) can evaluate Rule 1 without waiting for async
+  // coding. Anything missing a code is skipped, never ordered.
+  const finalMeds = tpl.meds
+    .filter((m) => !existingMedNames.has(norm(m.name)))
+    .filter((m) => !!m.rxnorm_code)
+    .slice(0, 3);
   const finalLabs = tpl.labs.filter((l) => !existingLabNames.has(norm(l.name))).slice(0, 2);
 
   finalMeds.forEach((m, i) => {
@@ -617,18 +624,36 @@ export async function seedAdmission(
           dose: m.dose,
           route: m.route,
           frequency: m.frequency,
+          rxnorm_code: m.rxnorm_code,
+          rxnorm_display: m.rxnorm_display,
+          ingredient_rxcui: m.rxnorm_code,
+          coding_source: "protocol",
+          coded_at: new Date().toISOString(),
           status: "Ordered",
           ordered_by: "Auto Doc",
         })
         .select("id")
         .single();
       if (error || !data) return; // unique-index collision → another client wins
-      // Await RxNorm resolution + Safety Alerts Engine BEFORE starting the
-      // status cascade. Otherwise cascadeMed can flip the order to
-      // Administered before Rule 1 has a chance to hold it for a documented
-      // allergy conflict.
+      // Fire the Safety Alerts Engine synchronously with the RxNorm code that
+      // was seeded at insert time — do not wait on UMLS. If Rule 1 fires,
+      // cascadeMed will observe HELD_SAFETY_REVIEW and abort before the med
+      // ever reaches Administered.
       try {
-        await autoCodeMedication(m.name, { resourceId: data.id, mrn, resolver: "auto-doc-cascade" });
+        await runMedicationOrderRules({
+          mrn,
+          rxnorm_code: m.rxnorm_code,
+          rxnorm_display: m.rxnorm_display,
+          medication_name: m.name,
+          medication_order_id: data.id,
+        });
+      } catch (e) {
+        console.warn("[safety-alerts] auto-order rule failed", e);
+      }
+      // Fire-and-forget UMLS re-resolution for audit parity with manual CPOE;
+      // it's a no-op patch since the row already carries the protocol code.
+      try {
+        autoCodeMedication(m.name, { resourceId: data.id, mrn, resolver: "auto-doc-cascade" });
       } catch (e) {
         console.warn("[autoCodeMedication] failed", e);
       }
