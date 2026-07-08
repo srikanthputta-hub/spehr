@@ -17,9 +17,6 @@ const WINDOWS = [
   { label: "Last 6h", hours: 6 },
   { label: "Last 12h", hours: 12 },
   { label: "Last 24h", hours: 24 },
-  { label: "Last 7d", hours: 24 * 7 },
-  { label: "Last 30d", hours: 24 * 30 },
-  { label: "All time", hours: 0 },
 ];
 
 type CodeSystem = "SNOMED" | "ICD10" | "LOINC" | "RXNORM";
@@ -42,6 +39,8 @@ export function PopulationHealth() {
   const suggestReq = useRef(0);
   const [facilities, setFacilities] = useState<string[]>([]);
   const [windowHours, setWindowHours] = useState(24 * 7);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [valueSetId, setValueSetId] = useState<string>("");
@@ -98,13 +97,20 @@ export function PopulationHealth() {
   const submit = async () => {
     setLoading(true);
     try {
-      const since = windowHours > 0 ? new Date(Date.now() - windowHours * 3600_000).toISOString() : undefined;
+      const useRange = Boolean(fromDate || toDate);
+      const since = useRange
+        ? (fromDate ? new Date(fromDate + "T00:00:00.000Z").toISOString() : undefined)
+        : (windowHours > 0 ? new Date(Date.now() - windowHours * 3600_000).toISOString() : undefined);
+      const until = useRange && toDate
+        ? new Date(toDate + "T23:59:59.999Z").toISOString()
+        : undefined;
       const r = await run({
         data: {
           code_system: keyword.trim() ? codeSystem : undefined,
           keyword: keyword.trim() || undefined,
           facilities: facilities.length > 0 ? facilities : undefined,
           since_iso: since,
+          until_iso: until,
           value_set_id: valueSetId || undefined,
         },
       });
@@ -248,17 +254,49 @@ export function PopulationHealth() {
         </div>
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Time window</div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {WINDOWS.map((w) => (
               <button
                 key={w.label}
                 type="button"
-                onClick={() => setWindowHours(w.hours)}
-                className={`text-[11px] px-2 py-1 rounded border ${windowHours === w.hours ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-700 border-slate-300"}`}
+                onClick={() => {
+                  setWindowHours(w.hours);
+                  setFromDate("");
+                  setToDate("");
+                }}
+                className={`text-[11px] px-2 py-1 rounded border ${!fromDate && !toDate && windowHours === w.hours ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-700 border-slate-300"}`}
               >
                 {w.label}
               </button>
             ))}
+            <span className="mx-1 text-[11px] text-slate-400">or</span>
+            <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+              From
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="rounded border border-slate-300 px-2 py-1 text-[11px]"
+              />
+            </label>
+            <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+              To
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="rounded border border-slate-300 px-2 py-1 text-[11px]"
+              />
+            </label>
+            {(fromDate || toDate) && (
+              <button
+                type="button"
+                onClick={() => { setFromDate(""); setToDate(""); }}
+                className="text-[11px] px-2 py-1 rounded border border-slate-300 bg-white text-slate-600"
+              >
+                Clear
+              </button>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
