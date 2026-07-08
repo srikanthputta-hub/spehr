@@ -1,29 +1,17 @@
-# Population Health — Custom date range
+## Apply scroll-feed pattern to Step8Surfacing feeds
 
-In `src/components/admin/PopulationHealth.tsx`, replace the `Last 7d`, `Last 30d`, and `All time` preset buttons with a custom From / To date range. Short-window presets stay.
+In `src/components/admin/Step8Surfacing.tsx`, apply the same treatment used on the other dashboards to the two feeds rendered on the System Admin page.
 
-## Changes
+### 1. CDS Hook Decisions · Overrides & Rejections (`CdsOverridesFeed`)
+- Raise the query cap from `.limit(25)` to `.limit(150)`.
+- Wrap the `divide-y divide-slate-100` rows container in a `scroll-feed` div so ~15 rows are visible and the rest scroll smoothly with the slim scrollbar.
+- Keep expand/collapse behavior intact.
 
-**1. Time window row**
-- Keep preset buttons: `Last 6h`, `Last 12h`, `Last 24h`.
-- Remove: `Last 7d`, `Last 30d`, `All time` entries from the `WINDOWS` array.
-- Add two `<input type="date">` fields labeled **From** and **To**, aligned inline with the preset buttons.
-- Selecting a preset clears the from/to dates; typing in from/to clears the active preset (mutually exclusive).
+### 2. AUTO API · Event Stream (`AutoApiEventsFeed`)
+- Raise `.limit(15)` to `.limit(150)`.
+- Wrap rows container in `scroll-feed`.
+- Update the header caption from `Last 15 · live · cross-loop telemetry` to `Last 150 · live · cross-loop telemetry`.
 
-**2. State**
-- Add `fromDate: string` and `toDate: string` (ISO `YYYY-MM-DD`, empty = unset).
-- Keep existing `windowHours` for the presets.
-
-**3. Query submit logic (`submit` handler)**
-- If `fromDate` or `toDate` is set: send `since_iso = new Date(fromDate).toISOString()` (start of day UTC) and add a new `until_iso = new Date(toDate + "T23:59:59.999Z").toISOString()` when `toDate` is set.
-- Else fall back to current `windowHours` logic.
-- One end of the range being empty is allowed (open-ended on that side).
-
-**4. Server function `runPopulationQuery`** (`src/lib/auto-api.functions.ts`)
-- Extend input validator to accept optional `until_iso: string`.
-- In the handler, apply `.lte(<timestamp column>, until_iso)` alongside the existing `.gte(..., since_iso)` filter, using the same column already used for `since_iso`.
-
-## Out of scope
-- No visual redesign of the panel.
-- No changes to facilities, code system, keyword, or value set controls.
-- No changes to result table or CSV export.
+### Out of scope
+- No visual redesign, no column changes, no realtime channel changes.
+- No changes to other components on the page.

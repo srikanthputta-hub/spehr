@@ -250,7 +250,7 @@ export function CdsOverridesFeed() {
           "id, created_at, mrn, alert_type, severity, drug_name, condition_name, reason, physician_name, physician_id, drug_rxnorm, condition_snomed, fired_at, decision, patient_name, facility_name, risk_score",
         )
         .order("created_at", { ascending: false })
-        .limit(25);
+        .limit(150);
       if (!cancelled) setRows((data ?? []) as CdsRow[]);
     };
     load();
@@ -288,7 +288,7 @@ export function CdsOverridesFeed() {
           drug↔allergy or drug↔condition warning, the override is logged here.
         </p>
       ) : (
-        <div className="divide-y divide-slate-100">
+        <div className="scroll-feed divide-y divide-slate-100">
           {rows.map((r) => {
             const isOpen = expandedId === r.id;
             const decisionTone =
@@ -449,7 +449,7 @@ export function AutoApiEventsFeed() {
         .from("auto_api_events")
         .select("id, created_at, event_type, mrn, actor, facility_name")
         .order("created_at", { ascending: false })
-        .limit(15);
+        .limit(150);
       if (!cancelled) setRows((data ?? []) as EventRow[]);
     };
     load();
@@ -474,13 +474,13 @@ export function AutoApiEventsFeed() {
           <Activity className="h-4 w-4 text-[#0c2340]" /> AUTO API · Event Stream
         </h3>
         <span className="text-[10px] uppercase tracking-wider text-slate-500">
-          Last 15 · live · cross-loop telemetry
+          Last 150 · live · cross-loop telemetry
         </span>
       </div>
       {rows.length === 0 ? (
         <p className="text-xs text-slate-500 px-1 py-3">No AUTO API events yet.</p>
       ) : (
-        <div className="divide-y divide-slate-100">
+        <div className="scroll-feed divide-y divide-slate-100">
           {rows.map((r) => (
             <div key={r.id} className="grid grid-cols-12 gap-2 py-2 text-xs">
               <div className="col-span-2 font-mono text-[10px] text-slate-500">
