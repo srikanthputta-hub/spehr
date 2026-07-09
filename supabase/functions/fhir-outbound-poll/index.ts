@@ -840,14 +840,6 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
   const latestNote = (((notesRes as any)?.data ?? []) as any[])[0];
   if (latestNote) entries.push(entryFor(buildDocRef(mrn, latestNote)));
 
-  // TEMP trace so we can see exactly which resource types are being pushed.
-  const counts: Record<string, number> = {};
-  for (const e of entries) {
-    const rt = e?.resource?.resourceType ?? "unknown";
-    counts[rt] = (counts[rt] ?? 0) + 1;
-  }
-  console.log(`[buildEntriesForMrn] ${mrn} entries=${entries.length}`, JSON.stringify(counts));
-
   return { entries, skipped: null };
 }
 
