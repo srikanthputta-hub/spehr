@@ -7,7 +7,7 @@ import {
   ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X,
   CheckCircle2, Brain, Home, ClipboardList, FileText, FlaskConical,
   LogOut, PenLine, Settings, Power, ChevronUp, RefreshCw, Info, Search,
-  TrendingUp, Calendar, Pill, Printer, Users,
+  TrendingUp, Calendar, Pill, Printer, Users, Scan,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
