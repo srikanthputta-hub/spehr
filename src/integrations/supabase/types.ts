@@ -1601,7 +1601,9 @@ export type Database = {
           result_value: string | null
           resulted_at: string | null
           results_data: Json | null
+          source: string
           status: string | null
+          svcreq_fhir_id: string | null
           term_status: string | null
           test_type: string
           umls_cui: string | null
@@ -1626,7 +1628,9 @@ export type Database = {
           result_value?: string | null
           resulted_at?: string | null
           results_data?: Json | null
+          source?: string
           status?: string | null
+          svcreq_fhir_id?: string | null
           term_status?: string | null
           test_type: string
           umls_cui?: string | null
@@ -1651,7 +1655,9 @@ export type Database = {
           result_value?: string | null
           resulted_at?: string | null
           results_data?: Json | null
+          source?: string
           status?: string | null
+          svcreq_fhir_id?: string | null
           term_status?: string | null
           test_type?: string
           umls_cui?: string | null

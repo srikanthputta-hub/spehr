@@ -437,6 +437,40 @@ function buildLabObservation(mrn: string, l: any) {
   });
 }
 
+// ServiceRequest for the placer→filler pattern. Emitted for every lab order,
+// regardless of whether a result is already present. Cross-account Labs
+// accounts key their result Observations to this ServiceRequest via
+// `basedOn`, so the id MUST be stable (see stableIds.lab) and identical to
+// the Observation id family the filler references. `status` flips to
+// "completed" once a result_value exists locally so cross-account listeners
+// can distinguish outstanding vs. fulfilled orders.
+function buildLabServiceRequest(mrn: string, l: any) {
+  const loinc = l.loinc_code ?? loincForLabName(l.test_type ?? l.test_name);
+  const baseId = stableIds.lab(l.test_type ?? l.test_name ?? l.id ?? "unknown", mrn, loinc);
+  const id = `svcreq-${baseId.replace(/^lab-/, "")}`;
+  const requester = l.requested_by || l.ordered_by;
+  return tagged({
+    resourceType: "ServiceRequest",
+    id,
+    status: l.result_value ? "completed" : "active",
+    intent: "order",
+    category: [
+      {
+        coding: [
+          { system: "http://snomed.info/sct", code: "108252007", display: "Laboratory procedure" },
+        ],
+      },
+    ],
+    code: loinc
+      ? { coding: [{ system: "http://loinc.org", code: loinc, display: l.test_type ?? l.test_name ?? undefined }], text: l.test_type ?? l.test_name ?? "Lab" }
+      : { text: l.test_type ?? l.test_name ?? "Lab" },
+    subject: { reference: `Patient/${mrn}` },
+    encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
+    authoredOn: l.created_at ?? undefined,
+    ...(requester ? { requester: { display: requester } } : {}),
+  });
+}
+
 function buildCondition(mrn: string, c: any, opts: { type: string; verification: "provisional" | "confirmed"; recordedDate?: string | null }) {
   const coding: any[] = [];
   if (c.snomed_code)
@@ -695,7 +729,7 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
       .select("id, drug_name, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, created_at, updated_at, rxnorm_code, rxnorm_display")
       .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(200),
     admin.from("lab_orders")
-      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
+      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code, requested_by, ordered_by")
       .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(80),
     admin.from("lab_results")
       .select("id, test_name, result_value, unit, reference_range, flag, created_at")
@@ -761,6 +795,9 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
     const key = `${(l.test_type ?? "").toLowerCase()}|${l.loinc_code ?? ""}`;
     if (seenLab.has(key)) continue;
     seenLab.add(key);
+    // Placer intent — every order gets a ServiceRequest, whether resulted or not.
+    entries.push(entryFor(buildLabServiceRequest(mrn, l)));
+    // Filler result — Observation still emitted exactly as before.
     entries.push(entryFor(buildLabObservation(mrn, l)));
   }
   for (const r of ((resultsRes as any)?.data ?? []) as any[]) {
