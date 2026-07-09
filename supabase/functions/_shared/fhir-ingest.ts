@@ -304,6 +304,132 @@ async function handleLabObservation(admin: any, resource: any): Promise<IngestOu
   return { ok: true, action: "inserted", localId: ins.data?.id, mrn: subjectMrn };
 }
 
+// ---- DiagnosticReport (radiology) ingestion ----
+//
+// Accepts inbound DiagnosticReport resources written by the partner
+// Imaging/Radiology account (`urn:spehr:source|labs-pharm-rad`). Matches to
+// a local `radiology_orders` row by `basedOn` ServiceRequest reference
+// (svcreq_fhir_id) with a fallback to (patient_mrn + exam_type). Category
+// detection is intentionally permissive — HL7 uses "RAD", DICOM often
+// uses "imaging", some senders use "radiology" — we accept any of them
+// case-insensitively in either code or text.
+
+function isImagingReport(resource: any): boolean {
+  const cats = resource?.category;
+  if (!Array.isArray(cats)) return false;
+  const needle = /(imag|radiolog|rad|dxi)/i;
+  for (const c of cats) {
+    if (typeof c?.text === "string" && needle.test(c.text)) return true;
+    for (const coding of c?.coding ?? []) {
+      if (typeof coding?.code === "string" && needle.test(coding.code)) return true;
+      if (typeof coding?.display === "string" && needle.test(coding.display)) return true;
+    }
+  }
+  return false;
+}
+
+function base64DecodeSafe(input: string | null | undefined): string | null {
+  if (!input) return null;
+  try {
+    // Deno + browsers both expose atob; DiagnosticReport.presentedForm.data is base64.
+    return atob(input);
+  } catch {
+    return null;
+  }
+}
+
+async function handleRadiologyReport(admin: any, resource: any): Promise<IngestOutcome> {
+  const fhirId = String(resource?.id ?? "");
+  if (!fhirId) return { ok: false, reason: "missing_id" };
+
+  const src = tagCode(resource, "urn:spehr:source");
+  if (src === "spehr") return { ok: true, skipped: "self-tagged" };
+  if (src !== "labs-pharm-rad") return { ok: true, skipped: "unsupported_source" };
+  if (!isImagingReport(resource)) {
+    return { ok: true, skipped: "not_imaging_category" };
+  }
+
+  const subjectMrn = refIdOf(resource?.subject?.reference);
+  if (!subjectMrn) return { ok: false, reason: "missing_subject" };
+
+  const svcReqRef = (resource?.basedOn ?? [])
+    .map((b: any) => b?.reference)
+    .find((r: string | undefined) => typeof r === "string" && r.startsWith("ServiceRequest/"));
+  const svcReqId = refIdOf(svcReqRef);
+
+  const codeText =
+    resource?.code?.text ??
+    resource?.code?.coding?.[0]?.display ??
+    "Imaging study";
+  const snomedHit = (resource?.code?.coding ?? []).find(
+    (c: any) => typeof c?.system === "string" && c.system.toLowerCase().includes("snomed"),
+  );
+  const snomedCode = snomedHit?.code ?? null;
+
+  const conclusion: string | null = resource?.conclusion ?? null;
+  const presentedB64: string | null = resource?.presentedForm?.[0]?.data ?? null;
+  const reportText = conclusion ?? base64DecodeSafe(presentedB64);
+
+  // 1) Prefer match by svcreq_fhir_id.
+  let matched: any = null;
+  if (svcReqId) {
+    const q = await admin
+      .from("radiology_orders")
+      .select("id")
+      .eq("svcreq_fhir_id", svcReqId)
+      .maybeSingle();
+    matched = q.data ?? null;
+  }
+
+  // 2) Fallback: (patient_mrn + exam_type).
+  if (!matched) {
+    const res = await admin
+      .from("radiology_orders")
+      .select("id")
+      .eq("patient_mrn", subjectMrn)
+      .eq("exam_type", codeText)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    matched = res.data ?? null;
+  }
+
+  const patch: Record<string, unknown> = {
+    status: "resulted",
+    resulted_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (reportText) patch.report_text = reportText;
+  if (conclusion) patch.impression = conclusion;
+  if (svcReqId) patch.svcreq_fhir_id = svcReqId;
+
+  if (matched) {
+    const { error } = await admin.from("radiology_orders").update(patch).eq("id", matched.id);
+    if (error) return { ok: false, reason: error.message };
+    return { ok: true, action: "updated", localId: matched.id, mrn: subjectMrn };
+  }
+
+  const insertRow: Record<string, unknown> = {
+    patient_mrn: subjectMrn,
+    patient_name: "External Imaging Result",
+    facility_name: "Health Hub Suite",
+    requested_by: "labs-pharm-rad",
+    exam_type: codeText,
+    snomed_code: snomedCode,
+    snomed_display: snomedHit?.display ?? codeText,
+    status: "resulted",
+    report_text: reportText,
+    impression: conclusion,
+    svcreq_fhir_id: svcReqId,
+    source: "labs-pharm-rad",
+    resulted_at: new Date().toISOString(),
+    created_by_type: "system",
+  };
+  const ins = await admin.from("radiology_orders").insert(insertRow).select("id").maybeSingle();
+  if (ins.error) return { ok: false, reason: ins.error.message };
+  return { ok: true, action: "inserted", localId: ins.data?.id, mrn: subjectMrn };
+}
+
 export async function ingestFhirResource(admin: any, resource: any): Promise<{
   outcome: IngestOutcome;
   resourceType: string | null;
