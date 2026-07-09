@@ -863,6 +863,38 @@ function labObservation(mrn: string, l: EncounterLab) {
   };
 }
 
+// Placer intent for the cross-account Labs handoff. Every ordered lab is
+// pushed as a ServiceRequest with a stable id derived from the same
+// LOINC/name key as the Observation, so the Labs account can key its
+// result Observations back via `basedOn: ServiceRequest/svcreq-...`.
+function labServiceRequest(mrn: string, l: EncounterLab) {
+  const loinc = l.loinc_code ?? loincForLabName(l.test_type);
+  const baseId = stableIds.lab(l.test_type ?? l.id ?? "unknown", mrn, loinc);
+  const id = `svcreq-${baseId.replace(/^lab-/, "")}`;
+  return {
+    resourceType: "ServiceRequest",
+    id,
+    status: l.result_value ? "completed" : "active",
+    intent: "order",
+    category: [
+      {
+        coding: [
+          { system: "http://snomed.info/sct", code: "108252007", display: "Laboratory procedure" },
+        ],
+      },
+    ],
+    code: loinc
+      ? {
+          coding: [{ system: "http://loinc.org", code: loinc, display: l.test_type ?? undefined }],
+          text: l.test_type ?? "Lab",
+        }
+      : { text: l.test_type ?? "Lab" },
+    subject: { reference: `Patient/${mrn}` },
+    encounter: { reference: `Encounter/enc-${mrn}` },
+    authoredOn: l.created_at ?? undefined,
+  };
+}
+
 function medRequest(mrn: string, m: EncounterMed) {
   const drug = m.drug_name ?? m.drug ?? m.medication_name ?? "medication";
   const raw = (m.status ?? "").toLowerCase();
@@ -1172,6 +1204,13 @@ export function buildEncounterBundle(opts: {
     "lab",
     patient.mrn,
   );
+  // Placer ServiceRequest per lab — additive, mirrors the Observation.
+  const labRequests = safeMap(
+    Array.from(labsByTest.values()),
+    (l) => labServiceRequest(patient.mrn, l),
+    "lab service request",
+    patient.mrn,
+  );
 
   // Meds collapse: keep latest per stable id for both requests and admins.
   const medTime = (m: EncounterMed) =>
@@ -1270,6 +1309,7 @@ export function buildEncounterBundle(opts: {
     encounterRes,
     ...conditions,
     ...vitals,
+    ...labRequests,
     ...labs,
     ...medReqs,
     ...medAdms,
