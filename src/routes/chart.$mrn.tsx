@@ -602,10 +602,31 @@ function ChartPage() {
                 </span>
               )}
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("radiology")}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 h-8 text-xs font-semibold transition ${
+                activeTab === "radiology"
+                  ? "bg-[var(--navy)] text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Scan className="h-3.5 w-3.5" />
+              Radiology
+              {radStudies.length > 0 && (
+                <span className={`ml-1 inline-flex items-center justify-center rounded-full px-1.5 h-4 text-[10px] font-bold tabular-nums ${
+                  activeTab === "radiology" ? "bg-white/20 text-white" : "bg-cyan-100 text-cyan-700"
+                }`}>
+                  {radStudies.length}
+                </span>
+              )}
+            </button>
           </div>
 
           {activeTab === "labs" ? (
             <LabReportsPanel reports={completedLabs} />
+          ) : activeTab === "radiology" ? (
+            <RadiologyPanel studies={radStudies} />
           ) : (
           <>
           {/* Live Vitals */}
