@@ -478,6 +478,42 @@ function buildLabServiceRequest(mrn: string, l: any) {
   });
 }
 
+// ServiceRequest for radiology (placer → filler pattern, imaging category).
+// The partner Radiology/Imaging account keys its DiagnosticReport back to
+// this ServiceRequest via `basedOn`, so the id MUST be stable across ticks.
+function buildRadiologyServiceRequest(mrn: string, r: any) {
+  const id = radStableId(r, mrn);
+  const requester = r.requested_by;
+  const hasReport = !!(r.report_text || r.impression);
+  return tagged({
+    resourceType: "ServiceRequest",
+    id,
+    status: hasReport ? "completed" : "active",
+    intent: "order",
+    category: [
+      {
+        coding: [
+          { system: "http://snomed.info/sct", code: "363679005", display: "Imaging" },
+        ],
+      },
+    ],
+    code: r.snomed_code
+      ? {
+          coding: [
+            { system: "http://snomed.info/sct", code: r.snomed_code, display: r.snomed_display ?? r.exam_type ?? undefined },
+          ],
+          text: r.exam_type ?? r.snomed_display ?? "Imaging exam",
+        }
+      : { text: r.exam_type ?? "Imaging exam" },
+    subject: { reference: `Patient/${mrn}` },
+    encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
+    authoredOn: r.ordered_at ?? r.created_at ?? undefined,
+    ...(r.body_part ? { bodySite: [{ text: r.body_part }] } : {}),
+    ...(r.clinical_indication ? { reasonCode: [{ text: r.clinical_indication }] } : {}),
+    ...(requester ? { requester: { display: requester } } : {}),
+  });
+}
+
 function buildCondition(mrn: string, c: any, opts: { type: string; verification: "provisional" | "confirmed"; recordedDate?: string | null }) {
   const coding: any[] = [];
   if (c.snomed_code)
