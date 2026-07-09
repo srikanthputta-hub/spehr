@@ -171,6 +171,139 @@ async function handlePaymentNotice(admin: any, resource: any): Promise<IngestOut
   };
 }
 
+function categoryIncludes(resource: any, wantedCode: string): boolean {
+  const cats = resource?.category;
+  if (!Array.isArray(cats)) return false;
+  for (const c of cats) {
+    const coding = c?.coding;
+    if (!Array.isArray(coding)) continue;
+    if (coding.some((x: any) => x?.code === wantedCode)) return true;
+  }
+  return false;
+}
+
+function loincFromResource(resource: any): string | null {
+  const coding = resource?.code?.coding;
+  if (!Array.isArray(coding)) return null;
+  const hit = coding.find(
+    (c: any) => typeof c?.system === "string" && c.system.toLowerCase().includes("loinc"),
+  );
+  return hit?.code ?? null;
+}
+
+function deriveFlag(resource: any): string | null {
+  const value = Number(resource?.valueQuantity?.value);
+  const ranges = resource?.referenceRange;
+  if (!Number.isFinite(value) || !Array.isArray(ranges) || ranges.length === 0) return null;
+  const rr = ranges[0] ?? {};
+  const low = Number(rr?.low?.value);
+  const high = Number(rr?.high?.value);
+  if (Number.isFinite(low) && value < low) return "Low";
+  if (Number.isFinite(high) && value > high) return "High";
+  return "Normal";
+}
+
+function extractLabValueText(resource: any): string | null {
+  const vq = resource?.valueQuantity;
+  if (vq && (vq.value !== undefined && vq.value !== null)) {
+    const unit = vq.unit ? ` ${vq.unit}` : "";
+    return `${vq.value}${unit}`.trim();
+  }
+  if (typeof resource?.valueString === "string") return resource.valueString;
+  if (resource?.valueCodeableConcept?.text) return String(resource.valueCodeableConcept.text);
+  return null;
+}
+
+// Handle Observation resources written back by the Labs/Pharmacy/Radiology
+// account (`urn:spehr:source|labs-pharm-rad`). Matches to a local lab_orders
+// row via the ServiceRequest id SPEHR pushed as `basedOn`, falling back to
+// (patient_mrn + LOINC/test_type). Inserts a new lab_orders row when no
+// match exists so labs originated entirely by the partner account still
+// appear in SPEHR (tagged `source = 'labs-pharm-rad'`).
+async function handleLabObservation(admin: any, resource: any): Promise<IngestOutcome> {
+  const fhirId = String(resource?.id ?? "");
+  if (!fhirId) return { ok: false, reason: "missing_id" };
+
+  // Only ingest labs written by the partner Labs account.
+  const src = tagCode(resource, "urn:spehr:source");
+  if (src === "spehr") return { ok: true, skipped: "self-tagged" };
+  if (src !== "labs-pharm-rad") return { ok: true, skipped: "unsupported_source" };
+  if (!categoryIncludes(resource, "laboratory")) {
+    return { ok: true, skipped: "not_lab_category" };
+  }
+
+  const subjectMrn = refIdOf(resource?.subject?.reference);
+  if (!subjectMrn) return { ok: false, reason: "missing_subject" };
+
+  const svcReqRef = (resource?.basedOn ?? [])
+    .map((b: any) => b?.reference)
+    .find((r: string | undefined) => typeof r === "string" && r.startsWith("ServiceRequest/"));
+  const svcReqId = refIdOf(svcReqRef);
+
+  const loinc = loincFromResource(resource);
+  const testText =
+    resource?.code?.text ??
+    resource?.code?.coding?.[0]?.display ??
+    "Lab result";
+  const resultText = extractLabValueText(resource);
+  const unit = resource?.valueQuantity?.unit ?? null;
+  const flag = deriveFlag(resource);
+
+  // 1) Prefer match by svcreq_fhir_id.
+  let matched: any = null;
+  if (svcReqId) {
+    const q = await admin
+      .from("lab_orders")
+      .select("id")
+      .eq("svcreq_fhir_id", svcReqId)
+      .maybeSingle();
+    matched = q.data ?? null;
+  }
+
+  // 2) Fall back to (patient_mrn + LOINC) or (patient_mrn + test_type).
+  if (!matched) {
+    let q = admin.from("lab_orders").select("id").eq("patient_mrn", subjectMrn);
+    if (loinc) q = q.eq("loinc_code", loinc);
+    else q = q.eq("test_type", testText);
+    const res = await q.order("created_at", { ascending: false }).limit(1).maybeSingle();
+    matched = res.data ?? null;
+  }
+
+  const patch: Record<string, unknown> = {
+    result_value: resultText,
+    status: "resulted",
+    resulted_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (svcReqId) patch.svcreq_fhir_id = svcReqId;
+  if (flag) patch.results_data = { flag, referenceRange: resource?.referenceRange ?? null };
+
+  if (matched) {
+    const { error } = await admin.from("lab_orders").update(patch).eq("id", matched.id);
+    if (error) return { ok: false, reason: error.message };
+    return { ok: true, action: "updated", localId: matched.id, mrn: subjectMrn };
+  }
+
+  // 3) No match — insert a new row so partner-originated labs show up.
+  const insertRow: Record<string, unknown> = {
+    patient_mrn: subjectMrn,
+    patient_name: "External Lab Result",
+    facility_name: "Health Hub Suite",
+    requested_by: "labs-pharm-rad",
+    test_type: testText,
+    status: "resulted",
+    result_value: resultText,
+    loinc_code: loinc,
+    svcreq_fhir_id: svcReqId,
+    source: "labs-pharm-rad",
+    resulted_at: new Date().toISOString(),
+    created_by_type: "system",
+  };
+  const ins = await admin.from("lab_orders").insert(insertRow).select("id").maybeSingle();
+  if (ins.error) return { ok: false, reason: ins.error.message };
+  return { ok: true, action: "inserted", localId: ins.data?.id, mrn: subjectMrn };
+}
+
 export async function ingestFhirResource(admin: any, resource: any): Promise<{
   outcome: IngestOutcome;
   resourceType: string | null;
