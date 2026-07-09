@@ -754,6 +754,7 @@ async function collectChangedMrns(
   const [meds, labs, results, notes, conds, pats] = await Promise.all([
     admin.from("medication_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("lab_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("radiology_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("lab_results").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("clinical_notes").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("conditions").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
