@@ -291,6 +291,69 @@ export const stableIds = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Radiology ServiceRequest (placer → filler)                         */
+/*  Emitted for every radiology_orders row so the partner Imaging      */
+/*  account can key its inbound DiagnosticReport back via `basedOn`.   */
+/*  IDs are stable, tagged `urn:spehr:source|spehr`, and follow the    */
+/*  same shape used by the server-side outbound poll.                  */
+/* ------------------------------------------------------------------ */
+
+export type RadiologyOrderRow = {
+  id?: string | null;
+  patient_mrn: string;
+  exam_type: string;
+  modality?: string | null;
+  body_part?: string | null;
+  clinical_indication?: string | null;
+  snomed_code?: string | null;
+  snomed_display?: string | null;
+  report_text?: string | null;
+  impression?: string | null;
+  requested_by?: string | null;
+  ordered_at?: string | null;
+  created_at?: string | null;
+};
+
+export function radiologyStableId(r: RadiologyOrderRow, mrn: string): string {
+  const seed = r.snomed_code
+    ? String(r.snomed_code).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 20)
+    : slugify(r.exam_type ?? r.id ?? "exam");
+  return `svcreq-rad-${seed || "exam"}-${mrn}`;
+}
+
+export function buildRadiologyServiceRequest(mrn: string, r: RadiologyOrderRow) {
+  const id = radiologyStableId(r, mrn);
+  const hasReport = !!(r.report_text || r.impression);
+  return withSpehrSource({
+    resourceType: "ServiceRequest",
+    id,
+    status: hasReport ? "completed" : "active",
+    intent: "order",
+    category: [
+      {
+        coding: [
+          { system: "http://snomed.info/sct", code: "363679005", display: "Imaging" },
+        ],
+      },
+    ],
+    code: r.snomed_code
+      ? {
+          coding: [
+            { system: "http://snomed.info/sct", code: r.snomed_code, display: r.snomed_display ?? r.exam_type },
+          ],
+          text: r.exam_type ?? r.snomed_display ?? "Imaging exam",
+        }
+      : { text: r.exam_type ?? "Imaging exam" },
+    subject: { reference: `Patient/${mrn}` },
+    encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
+    authoredOn: r.ordered_at ?? r.created_at ?? undefined,
+    ...(r.body_part ? { bodySite: [{ text: r.body_part }] } : {}),
+    ...(r.clinical_indication ? { reasonCode: [{ text: r.clinical_indication }] } : {}),
+    ...(r.requested_by ? { requester: { display: r.requested_by } } : {}),
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /*  Billing + real Appointment resource builders (Part A push)         */
 /*                                                                     */
 /*  Every resource is tagged `urn:spehr:source|spehr` so the reverse    */

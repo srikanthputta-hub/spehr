@@ -19,7 +19,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react";
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, Scan } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
 import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
@@ -108,8 +108,9 @@ function ChartPage() {
   const [savingNote, setSavingNote] = useState(false);
   const [labTest, setLabTest] = useState<string>("CBC Pack");
   const [orderingLab, setOrderingLab] = useState(false);
-  const [activeTab, setActiveTab] = useState<"clinical" | "labs">("clinical");
+  const [activeTab, setActiveTab] = useState<"clinical" | "labs" | "radiology">("clinical");
   const [completedLabs, setCompletedLabs] = useState<any[]>([]);
+  const [radStudies, setRadStudies] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -281,6 +282,33 @@ function ChartPage() {
       cancelled = true;
     };
   }, [mrn, activeTab]);
+
+  // Radiology studies (ordered + resulted). Refreshes when the tab opens
+  // and via realtime so newly-resulted reports appear without a reload.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("radiology_orders")
+        .select("*")
+        .eq("patient_mrn", mrn)
+        .order("created_at", { ascending: false });
+      if (!cancelled && data) setRadStudies(data as any[]);
+    };
+    load();
+    const channel = supabase
+      .channel(`radiology-orders-${mrn}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "radiology_orders", filter: `patient_mrn=eq.${mrn}` },
+        load,
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [mrn]);
 
   // Re-clear alert when clinician opens the Lab Reports tab
   useEffect(() => {
@@ -574,10 +602,31 @@ function ChartPage() {
                 </span>
               )}
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("radiology")}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 h-8 text-xs font-semibold transition ${
+                activeTab === "radiology"
+                  ? "bg-[var(--navy)] text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Scan className="h-3.5 w-3.5" />
+              Radiology
+              {radStudies.length > 0 && (
+                <span className={`ml-1 inline-flex items-center justify-center rounded-full px-1.5 h-4 text-[10px] font-bold tabular-nums ${
+                  activeTab === "radiology" ? "bg-white/20 text-white" : "bg-cyan-100 text-cyan-700"
+                }`}>
+                  {radStudies.length}
+                </span>
+              )}
+            </button>
           </div>
 
           {activeTab === "labs" ? (
             <LabReportsPanel reports={completedLabs} />
+          ) : activeTab === "radiology" ? (
+            <RadiologyPanel studies={radStudies} />
           ) : (
           <>
           {/* Live Vitals */}
@@ -1289,6 +1338,98 @@ function LabReportCard({ report }: { report: any }) {
               })}
             </tbody>
           </table>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function RadiologyPanel({ studies }: { studies: any[] }) {
+  return (
+    <section className="rounded-xl border border-border bg-card overflow-hidden">
+      <SectionHeader
+        icon={Scan}
+        title="Radiology / Imaging"
+        subtitle={`${studies.length} stud${studies.length === 1 ? "y" : "ies"} on file · newest first`}
+      />
+      <div className="p-5 space-y-3">
+        {studies.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            No imaging studies ordered yet.
+          </div>
+        ) : (
+          studies.map((s) => <RadiologyStudyCard key={s.id} study={s} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RadiologyStudyCard({ study }: { study: any }) {
+  const ordered = study.ordered_at || study.created_at;
+  const orderedTs = ordered
+    ? new Date(ordered).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "—";
+  const resultedTs = study.resulted_at
+    ? new Date(study.resulted_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : null;
+  const status = String(study.status ?? "ordered").toLowerCase();
+  const isResulted = status === "resulted";
+  return (
+    <article className="rounded-lg border border-border bg-secondary/20 overflow-hidden">
+      <header className="flex flex-wrap items-start justify-between gap-2 px-4 py-3 bg-background border-b border-border">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Scan className="h-4 w-4 text-cyan-600" />
+            <h4 className="text-sm font-bold tracking-tight text-foreground">{study.exam_type}</h4>
+            {study.modality && (
+              <span className="inline-flex items-center rounded-md bg-slate-100 text-slate-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
+                {study.modality}
+              </span>
+            )}
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ${
+              isResulted
+                ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
+                : "bg-amber-50 text-amber-700 ring-amber-600/20"
+            }`}>
+              {status}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-3 w-3" /> Ordered: {orderedTs}
+            </span>
+            {study.body_part && <span>Body site: <span className="font-medium text-foreground">{study.body_part}</span></span>}
+            {study.requested_by && (
+              <span className="inline-flex items-center gap-1">
+                <FileSignature className="h-3 w-3" /> By {study.requested_by}
+              </span>
+            )}
+            {resultedTs && <span>Resulted: {resultedTs}</span>}
+          </div>
+        </div>
+      </header>
+      <div className="p-4 space-y-2 text-sm">
+        {study.clinical_indication && (
+          <div className="text-xs">
+            <span className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Indication:</span>{" "}
+            <span className="text-foreground">{study.clinical_indication}</span>
+          </div>
+        )}
+        {study.impression && (
+          <div className="text-xs">
+            <span className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Impression:</span>{" "}
+            <span className="text-foreground">{study.impression}</span>
+          </div>
+        )}
+        {study.report_text ? (
+          <pre className="whitespace-pre-wrap text-xs text-foreground bg-background border border-border rounded-md p-3 leading-relaxed">
+            {study.report_text}
+          </pre>
+        ) : (
+          <div className="text-xs text-muted-foreground italic">
+            Report pending — imaging center has not returned a read yet.
+          </div>
         )}
       </div>
     </article>

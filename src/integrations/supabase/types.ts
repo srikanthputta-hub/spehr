@@ -2813,6 +2813,78 @@ export type Database = {
         }
         Relationships: []
       }
+      radiology_orders: {
+        Row: {
+          body_part: string | null
+          clinical_indication: string | null
+          created_at: string
+          created_by_type: Database["public"]["Enums"]["provenance_origin"]
+          exam_type: string
+          facility_name: string | null
+          id: string
+          impression: string | null
+          modality: string | null
+          ordered_at: string
+          patient_mrn: string
+          patient_name: string | null
+          report_text: string | null
+          requested_by: string | null
+          resulted_at: string | null
+          snomed_code: string | null
+          snomed_display: string | null
+          source: string
+          status: string
+          svcreq_fhir_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          body_part?: string | null
+          clinical_indication?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          exam_type: string
+          facility_name?: string | null
+          id?: string
+          impression?: string | null
+          modality?: string | null
+          ordered_at?: string
+          patient_mrn: string
+          patient_name?: string | null
+          report_text?: string | null
+          requested_by?: string | null
+          resulted_at?: string | null
+          snomed_code?: string | null
+          snomed_display?: string | null
+          source?: string
+          status?: string
+          svcreq_fhir_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          body_part?: string | null
+          clinical_indication?: string | null
+          created_at?: string
+          created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          exam_type?: string
+          facility_name?: string | null
+          id?: string
+          impression?: string | null
+          modality?: string | null
+          ordered_at?: string
+          patient_mrn?: string
+          patient_name?: string | null
+          report_text?: string | null
+          requested_by?: string | null
+          resulted_at?: string | null
+          snomed_code?: string | null
+          snomed_display?: string | null
+          source?: string
+          status?: string
+          svcreq_fhir_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       role_permissions: {
         Row: {
           author_id: string | null

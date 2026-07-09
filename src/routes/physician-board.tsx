@@ -40,6 +40,7 @@ import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplet
 import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
 import { InfoHint } from "@/components/ui/info-hint";
 import { OrderPanelPicker } from "@/components/physician/OrderPanelPicker";
+import { RadiologyOrderPanel } from "@/components/physician/RadiologyOrderPanel";
 import { PatientSafetyAlertQueue } from "@/components/physician/PatientSafetyAlertQueue";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { fetchWithTimeout } from "@/lib/async-timeout";
@@ -673,6 +674,15 @@ function PhysicianBoard() {
 
               {/* Value-set–driven physician order panels */}
               <OrderPanelPicker
+                mrn={selected.mrn}
+                patientName={`${selected.first_name ?? ""} ${selected.last_name ?? ""}`.trim() || null}
+                facility={selected.facility_name}
+                diagnosis={selected.diagnosis || selected.chief_complaint}
+                physicianName={md.name}
+              />
+
+              {/* Radiology / imaging order entry (placer → filler pattern) */}
+              <RadiologyOrderPanel
                 mrn={selected.mrn}
                 patientName={`${selected.first_name ?? ""} ${selected.last_name ?? ""}`.trim() || null}
                 facility={selected.facility_name}

@@ -299,6 +299,13 @@ const stableIds = {
   docRef: (mrn: string) => `docref-${mrn}`,
 };
 
+function radStableId(r: any, mrn: string): string {
+  const seed = r.snomed_code
+    ? String(r.snomed_code).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 20)
+    : slugify(r.exam_type ?? r.id ?? "exam");
+  return `svcreq-rad-${seed || "exam"}-${mrn}`;
+}
+
 function buildPatientResource(p: any) {
   const name = p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ");
   const [given, ...rest] = String(name ?? "").split(" ");
@@ -467,6 +474,42 @@ function buildLabServiceRequest(mrn: string, l: any) {
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
     authoredOn: l.created_at ?? undefined,
+    ...(requester ? { requester: { display: requester } } : {}),
+  });
+}
+
+// ServiceRequest for radiology (placer → filler pattern, imaging category).
+// The partner Radiology/Imaging account keys its DiagnosticReport back to
+// this ServiceRequest via `basedOn`, so the id MUST be stable across ticks.
+function buildRadiologyServiceRequest(mrn: string, r: any) {
+  const id = radStableId(r, mrn);
+  const requester = r.requested_by;
+  const hasReport = !!(r.report_text || r.impression);
+  return tagged({
+    resourceType: "ServiceRequest",
+    id,
+    status: hasReport ? "completed" : "active",
+    intent: "order",
+    category: [
+      {
+        coding: [
+          { system: "http://snomed.info/sct", code: "363679005", display: "Imaging" },
+        ],
+      },
+    ],
+    code: r.snomed_code
+      ? {
+          coding: [
+            { system: "http://snomed.info/sct", code: r.snomed_code, display: r.snomed_display ?? r.exam_type ?? undefined },
+          ],
+          text: r.exam_type ?? r.snomed_display ?? "Imaging exam",
+        }
+      : { text: r.exam_type ?? "Imaging exam" },
+    subject: { reference: `Patient/${mrn}` },
+    encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
+    authoredOn: r.ordered_at ?? r.created_at ?? undefined,
+    ...(r.body_part ? { bodySite: [{ text: r.body_part }] } : {}),
+    ...(r.clinical_indication ? { reasonCode: [{ text: r.clinical_indication }] } : {}),
     ...(requester ? { requester: { display: requester } } : {}),
   });
 }
@@ -708,9 +751,10 @@ async function collectChangedMrns(
   };
 
   const since = cursor.ts;
-  const [meds, labs, results, notes, conds, pats] = await Promise.all([
+  const [meds, labs, rads, results, notes, conds, pats] = await Promise.all([
     admin.from("medication_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("lab_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("radiology_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("lab_results").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("clinical_notes").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("conditions").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
@@ -719,6 +763,7 @@ async function collectChangedMrns(
 
   if (meds.error) throw new Error(`meds change scan: ${meds.error.message}`);
   if (labs.error) throw new Error(`labs change scan: ${labs.error.message}`);
+  if (rads.error) throw new Error(`radiology change scan: ${rads.error.message}`);
   if (results.error) throw new Error(`lab_results change scan: ${results.error.message}`);
   if (notes.error) throw new Error(`notes change scan: ${notes.error.message}`);
   if (conds.error) throw new Error(`conditions change scan: ${conds.error.message}`);
@@ -726,6 +771,7 @@ async function collectChangedMrns(
 
   bump((meds.data ?? []) as any[]);
   bump((labs.data ?? []) as any[]);
+  bump((rads.data ?? []) as any[]);
   bump((results.data ?? []) as any[]);
   bump((notes.data ?? []) as any[]);
   bump((conds.data ?? []) as any[]);
@@ -751,13 +797,16 @@ async function collectChangedMrns(
 // Build the full FHIR entry list for a single MRN by fetching all of its
 // active clinical rows and mapping them through the builders above.
 async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: any[]; skipped: string | null }> {
-  const [patientRes, medsRes, labsRes, resultsRes, notesRes, condsRes] = await Promise.all([
+  const [patientRes, medsRes, labsRes, radsRes, resultsRes, notesRes, condsRes] = await Promise.all([
     admin.from("patients").select("mrn, name, first_name, last_name, dob, gender, biological_sex, phone, address, facility_name, admission_time, discharge_time, status, chief_complaint, diagnosis").eq("mrn", mrn).maybeSingle(),
     admin.from("medication_orders")
       .select("id, drug_name, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, created_at, updated_at, rxnorm_code, rxnorm_display")
       .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(200),
     admin.from("lab_orders")
       .select("id, test_type, result_value, status, collected_at, created_at, loinc_code, requested_by, ordered_by")
+      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(80),
+    admin.from("radiology_orders")
+      .select("id, exam_type, modality, body_part, clinical_indication, status, snomed_code, snomed_display, report_text, impression, requested_by, ordered_at, created_at")
       .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(80),
     admin.from("lab_results")
       .select("id, test_name, result_value, unit, reference_range, flag, created_at")
@@ -833,6 +882,15 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
     if (seenLab.has(key)) continue;
     seenLab.add(key);
     entries.push(entryFor(buildLabObservation(mrn, r)));
+  }
+
+  // Radiology — placer ServiceRequest per row (imaging category, SNOMED code).
+  const seenRad = new Set<string>();
+  for (const r of ((radsRes as any)?.data ?? []) as any[]) {
+    const key = `${(r.exam_type ?? "").toLowerCase()}|${r.snomed_code ?? ""}`;
+    if (seenRad.has(key)) continue;
+    seenRad.add(key);
+    entries.push(entryFor(buildRadiologyServiceRequest(mrn, r)));
   }
 
   // Notes: the client hook writes a single DocumentReference keyed
