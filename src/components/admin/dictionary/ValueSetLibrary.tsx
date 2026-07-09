@@ -303,9 +303,9 @@ export function ValueSetLibrary() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded border border-slate-200">
+        <div className="scroll-feed rounded border border-slate-200">
           <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-slate-600">
+            <thead className="bg-slate-50 text-slate-600 sticky top-0">
               <tr>
                 <th className="text-left px-3 py-2 font-semibold">Value Set Name</th>
                 <th className="text-left px-3 py-2 font-semibold">OID / Identifier</th>
