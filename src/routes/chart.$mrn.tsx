@@ -283,6 +283,33 @@ function ChartPage() {
     };
   }, [mrn, activeTab]);
 
+  // Radiology studies (ordered + resulted). Refreshes when the tab opens
+  // and via realtime so newly-resulted reports appear without a reload.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase
+        .from("radiology_orders")
+        .select("*")
+        .eq("patient_mrn", mrn)
+        .order("created_at", { ascending: false });
+      if (!cancelled && data) setRadStudies(data as any[]);
+    };
+    load();
+    const channel = supabase
+      .channel(`radiology-orders-${mrn}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "radiology_orders", filter: `patient_mrn=eq.${mrn}` },
+        load,
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [mrn]);
+
   // Re-clear alert when clinician opens the Lab Reports tab
   useEffect(() => {
     if (activeTab !== "labs") return;
