@@ -217,17 +217,26 @@ export function AutoTerminologistActivity() {
         </div>
       )}
 
-      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 pt-1 flex items-center gap-1.5">
-        <Inbox className="h-3.5 w-3.5" />
-        Terminology Requests
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+          <Inbox className="h-3.5 w-3.5" />
+          Terminology Requests
+        </div>
+        <input
+          type="text"
+          placeholder="Search requests…"
+          value={requestQuery}
+          onChange={(e) => setRequestQuery(e.target.value)}
+          className="h-7 w-56 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"
+        />
       </div>
-      <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
-        {requests.length === 0 ? (
+      <div className="scroll-feed rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
+        {filteredRequests.length === 0 ? (
           <div className="px-4 py-6 text-sm text-slate-500">
-            No terminology requests submitted yet.
+            {requests.length === 0 ? "No terminology requests submitted yet." : "No matches for your search."}
           </div>
         ) : (
-          requests.map((r) => {
+          filteredRequests.map((r) => {
             const time = new Date(r.requested_at).toLocaleString([], {
               month: "short",
               day: "2-digit",
@@ -292,18 +301,27 @@ export function AutoTerminologistActivity() {
         )}
       </div>
 
-      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 pt-1">
-        Value Sets Drafted
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          Value Sets Drafted
+        </div>
+        <input
+          type="text"
+          placeholder="Search drafts…"
+          value={draftedQuery}
+          onChange={(e) => setDraftedQuery(e.target.value)}
+          className="h-7 w-56 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"
+        />
       </div>
-      <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
+      <div className="scroll-feed rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
         {loading ? (
           <div className="px-4 py-6 text-sm text-slate-500">Loading activity…</div>
-        ) : rows.length === 0 ? (
+        ) : filteredDrafted.length === 0 ? (
           <div className="px-4 py-6 text-sm text-slate-500">
-            No value sets drafted yet.
+            {rows.length === 0 ? "No value sets drafted yet." : "No matches for your search."}
           </div>
         ) : (
-          rows.map((r) => {
+          filteredDrafted.map((r) => {
             const { Icon, cls } = actionTone(r.action);
             const time = new Date(r.run_at).toLocaleString([], {
               month: "short",
