@@ -448,7 +448,7 @@ function buildLabServiceRequest(mrn: string, l: any) {
   const loinc = l.loinc_code ?? loincForLabName(l.test_type ?? l.test_name);
   const baseId = stableIds.lab(l.test_type ?? l.test_name ?? l.id ?? "unknown", mrn, loinc);
   const id = `svcreq-${baseId.replace(/^lab-/, "")}`;
-  const requester = l.ordering_physician || l.ordered_by;
+  const requester = l.requested_by || l.ordered_by;
   return tagged({
     resourceType: "ServiceRequest",
     id,
