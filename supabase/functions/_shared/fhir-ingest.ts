@@ -316,6 +316,7 @@ export async function ingestFhirResource(admin: any, resource: any): Promise<{
     if (rt === "Appointment") outcome = await handleAppointment(admin, resource);
     else if (rt === "PaymentNotice") outcome = await handlePaymentNotice(admin, resource);
     else if (rt === "Observation") outcome = await handleLabObservation(admin, resource);
+    else if (rt === "DiagnosticReport") outcome = await handleRadiologyReport(admin, resource);
   } catch (e) {
     outcome = { ok: false, reason: (e as Error).message };
   }
