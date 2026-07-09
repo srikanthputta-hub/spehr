@@ -38,6 +38,7 @@ const POLL_TARGETS: PollTarget[] = [
   { resourceType: "PaymentNotice",  tag: "urn:spehr:source|myspehr",         stateKey: "paymentnotice_last_polled_at",     label: "paymentNotice" },
   { resourceType: "Observation",    tag: "urn:spehr:source|labs-pharm-rad",  stateKey: "labs_observation_last_polled_at",  label: "labObservation" },
   { resourceType: "Medication",     tag: "urn:spehr:source|labs-pharm-rad",  stateKey: "medication_formulary_last_polled_at", label: "medicationFormulary" },
+  { resourceType: "DiagnosticReport", tag: "urn:spehr:source|labs-pharm-rad", stateKey: "radiology_report_last_polled_at", label: "radiologyReport" },
 ];
 
 const corsHeaders = {
