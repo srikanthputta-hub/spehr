@@ -751,7 +751,7 @@ async function collectChangedMrns(
   };
 
   const since = cursor.ts;
-  const [meds, labs, results, notes, conds, pats] = await Promise.all([
+  const [meds, labs, rads, results, notes, conds, pats] = await Promise.all([
     admin.from("medication_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("lab_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
     admin.from("radiology_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
@@ -763,6 +763,7 @@ async function collectChangedMrns(
 
   if (meds.error) throw new Error(`meds change scan: ${meds.error.message}`);
   if (labs.error) throw new Error(`labs change scan: ${labs.error.message}`);
+  if (rads.error) throw new Error(`radiology change scan: ${rads.error.message}`);
   if (results.error) throw new Error(`lab_results change scan: ${results.error.message}`);
   if (notes.error) throw new Error(`notes change scan: ${notes.error.message}`);
   if (conds.error) throw new Error(`conditions change scan: ${conds.error.message}`);
@@ -770,6 +771,7 @@ async function collectChangedMrns(
 
   bump((meds.data ?? []) as any[]);
   bump((labs.data ?? []) as any[]);
+  bump((rads.data ?? []) as any[]);
   bump((results.data ?? []) as any[]);
   bump((notes.data ?? []) as any[]);
   bump((conds.data ?? []) as any[]);
