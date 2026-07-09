@@ -19,7 +19,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { ChevronDown, ChevronUp, FileSignature, Clock, User } from "lucide-react";
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, Scan } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
 import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
@@ -108,8 +108,9 @@ function ChartPage() {
   const [savingNote, setSavingNote] = useState(false);
   const [labTest, setLabTest] = useState<string>("CBC Pack");
   const [orderingLab, setOrderingLab] = useState(false);
-  const [activeTab, setActiveTab] = useState<"clinical" | "labs">("clinical");
+  const [activeTab, setActiveTab] = useState<"clinical" | "labs" | "radiology">("clinical");
   const [completedLabs, setCompletedLabs] = useState<any[]>([]);
+  const [radStudies, setRadStudies] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
