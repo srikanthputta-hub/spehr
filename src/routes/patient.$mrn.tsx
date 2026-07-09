@@ -1950,9 +1950,15 @@ function PatientChart() {
           {tab === "summary" ? (
             <SummaryView mrn={patient.mrn} patient={patient} />
           ) : tab === "diagnostics" ? (
-            <div className={widgetBox + " overflow-hidden"}>
-              <WidgetHeader title="Laboratory Results" icon={<FlaskConical className="h-3.5 w-3.5" />} />
-              <LabsView mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
+            <div className="space-y-3">
+              <div className={widgetBox + " overflow-hidden"}>
+                <WidgetHeader title="Laboratory Results" icon={<FlaskConical className="h-3.5 w-3.5" />} />
+                <LabsView mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
+              </div>
+              <div className={widgetBox + " overflow-hidden"}>
+                <WidgetHeader title="Radiographs" icon={<Scan className="h-3.5 w-3.5" />} />
+                <RadiologyView mrn={patient.mrn} />
+              </div>
             </div>
           ) : tab === "medications" ? (
             <div className={widgetBox + " overflow-hidden"}>
