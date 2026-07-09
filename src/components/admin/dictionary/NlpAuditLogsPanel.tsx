@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Sparkles, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { runSixStreamPipeline, approveMrnCoding } from "@/lib/coding-pipeline";
@@ -18,6 +19,7 @@ export default function NlpAuditLogsPanel() {
   const [admissionMap, setAdmissionMap] = useState<Record<string, string>>(cachedAdmissionMap);
   const [loading, setLoading] = useState(cachedAuditRows.length === 0);
   const [busy, setBusy] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const initialLoadRef = useRef(cachedAuditRows.length === 0);
   const firedIdsRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Set<string>>(new Set());
@@ -32,7 +34,7 @@ export default function NlpAuditLogsPanel() {
         .in("status", ["pending", "needs_review"])
         .order("created_at", { ascending: false })
         .order("id", { ascending: false })
-        .limit(20);
+        .limit(150);
       const timeout = new Promise<AuditQueryResult>((resolve) =>
         setTimeout(() => resolve({ data: null, timedOut: true }), 10_000),
       );
@@ -75,6 +77,15 @@ export default function NlpAuditLogsPanel() {
       initialLoadRef.current = false;
     }
   };
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      (r.patient_mrn ?? "").toLowerCase().includes(q) ||
+      (r.raw_text ?? "").toLowerCase().includes(q),
+    );
+  }, [rows, query]);
 
   const scheduleRefresh = () => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
@@ -157,15 +168,22 @@ export default function NlpAuditLogsPanel() {
         </Button>
       </div>
 
+      <Input
+        placeholder="Filter by MRN or text…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        className="max-w-md h-8 text-xs"
+      />
+
       {loading ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading…</div>
-      ) : rows.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-          No pending items. Admit a patient (or click Refresh) to populate this log.
+          {rows.length === 0 ? "No pending items. Admit a patient (or click Refresh) to populate this log." : "No matches for your search."}
         </div>
       ) : (
-        <div className="space-y-3">
-          {rows.map((r) => (
+        <div className="scroll-feed space-y-3">
+          {filtered.map((r) => (
             <AuditCard
               key={r.id}
               row={r}

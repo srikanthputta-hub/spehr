@@ -17,6 +17,15 @@ export default function NlpApprovalTrail() {
   const [query, setQuery] = useState("");
   const initialLoadRef = useRef(cachedApprovalRows.length === 0);
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      (r.patient_mrn ?? "").toLowerCase().includes(q) ||
+      (r.raw_text ?? "").toLowerCase().includes(q),
+    );
+  }, [rows, query]);
+
   const refresh = async () => {
     if (initialLoadRef.current) setLoading(true);
     try {
