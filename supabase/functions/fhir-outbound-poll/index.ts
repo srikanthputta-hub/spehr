@@ -884,6 +884,15 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
     entries.push(entryFor(buildLabObservation(mrn, r)));
   }
 
+  // Radiology — placer ServiceRequest per row (imaging category, SNOMED code).
+  const seenRad = new Set<string>();
+  for (const r of ((radsRes as any)?.data ?? []) as any[]) {
+    const key = `${(r.exam_type ?? "").toLowerCase()}|${r.snomed_code ?? ""}`;
+    if (seenRad.has(key)) continue;
+    seenRad.add(key);
+    entries.push(entryFor(buildRadiologyServiceRequest(mrn, r)));
+  }
+
   // Notes: the client hook writes a single DocumentReference keyed
   // `docref-{mrn}` (most recent note wins). Match that.
   const latestNote = (((notesRes as any)?.data ?? []) as any[])[0];
