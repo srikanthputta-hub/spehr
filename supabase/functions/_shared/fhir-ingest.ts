@@ -2,9 +2,12 @@
 //   • supabase/functions/fhir-inbound-webhook  (Medblocks rest-hook push)
 //   • supabase/functions/fhir-inbound-poll     (cron pull fallback)
 //
-// Given a single FHIR resource (Appointment or PaymentNotice tagged
-// `urn:spehr:source|myspehr`), upserts into the local mirror tables and
-// writes an audit row to `auto_doc_logs`. Idempotent on `fhir_id`.
+// Handles resources written by any partner account tagged under
+// `urn:spehr:source`:
+//   • `myspehr`         → Appointment / PaymentNotice
+//   • `labs-pharm-rad`  → Observation (laboratory) result writebacks
+// Upserts into the local mirror tables and writes an audit row to
+// `auto_doc_logs`. Idempotent on `fhir_id` (or lab_orders.svcreq_fhir_id).
 
 export type IngestOutcome =
   | { ok: true; action?: string; skipped?: string; localId?: string; mrn?: string; invoiceNo?: string }
