@@ -299,6 +299,13 @@ const stableIds = {
   docRef: (mrn: string) => `docref-${mrn}`,
 };
 
+function radStableId(r: any, mrn: string): string {
+  const seed = r.snomed_code
+    ? String(r.snomed_code).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 20)
+    : slugify(r.exam_type ?? r.id ?? "exam");
+  return `svcreq-rad-${seed || "exam"}-${mrn}`;
+}
+
 function buildPatientResource(p: any) {
   const name = p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ");
   const [given, ...rest] = String(name ?? "").split(" ");
