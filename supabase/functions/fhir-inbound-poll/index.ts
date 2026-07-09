@@ -22,9 +22,22 @@ const FHIR_SERVER_URL = (Deno.env.get("FHIR_SERVER_URL") ?? "").replace(/\/+$/, 
 const FHIR_BEARER_TOKEN = Deno.env.get("FHIR_BEARER_TOKEN") ?? "";
 const FHIR_APIKEY = Deno.env.get("FHIR_APIKEY") ?? "";
 
-const MYSPEHR_TAG = "urn:spehr:source|myspehr";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 20;
+
+// One entry per (resourceType, source-tag) pair we want to pull inbound.
+// Adding Radiology/Billing later = just append another row here.
+type PollTarget = {
+  resourceType: string;
+  tag: string;      // full `_tag` filter (system|code)
+  stateKey: string; // cursor row key in fhir_sync_state
+  label: string;    // result-object key in the JSON response
+};
+const POLL_TARGETS: PollTarget[] = [
+  { resourceType: "Appointment",    tag: "urn:spehr:source|myspehr",         stateKey: "appointment_last_polled_at",       label: "appointment" },
+  { resourceType: "PaymentNotice",  tag: "urn:spehr:source|myspehr",         stateKey: "paymentnotice_last_polled_at",     label: "paymentNotice" },
+  { resourceType: "Observation",    tag: "urn:spehr:source|labs-pharm-rad",  stateKey: "labs_observation_last_polled_at",  label: "labObservation" },
+];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -99,7 +112,8 @@ function isoMax(a: string, b: string | null | undefined): string {
   return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
 }
 
-async function pollType(admin: any, resourceType: "Appointment" | "PaymentNotice", stateKey: string) {
+async function pollType(admin: any, target: PollTarget) {
+  const { resourceType, tag, stateKey } = target;
   const since = await readState(admin, stateKey);
   // guard against the future — HAPI stores timestamps in server time; use a
   // tiny slack so we don't miss anything written in the same second.
@@ -107,7 +121,7 @@ async function pollType(admin: any, resourceType: "Appointment" | "PaymentNotice
 
   const base = `${FHIR_SERVER_URL}/${resourceType}`;
   const params = new URLSearchParams({
-    _tag: MYSPEHR_TAG,
+    _tag: tag,
     _lastUpdated: `gt${since}`,
     _count: String(PAGE_SIZE),
     _sort: "_lastUpdated",
@@ -146,7 +160,7 @@ async function pollType(admin: any, resourceType: "Appointment" | "PaymentNotice
   const nextCursor = isoMax(cutoff, maxSeen);
   await writeState(admin, stateKey, nextCursor);
 
-  return { resourceType, since, nextCursor, ...stats };
+  return { resourceType, tag, since, nextCursor, ...stats };
 }
 
 Deno.serve(async (req) => {
@@ -164,9 +178,11 @@ Deno.serve(async (req) => {
   });
 
   try {
-    const appt = await pollType(admin, "Appointment", "appointment_last_polled_at");
-    const pay = await pollType(admin, "PaymentNotice", "paymentnotice_last_polled_at");
-    return json({ ok: true, ranAt: new Date().toISOString(), appointment: appt, paymentNotice: pay });
+    const results: Record<string, unknown> = {};
+    for (const target of POLL_TARGETS) {
+      results[target.label] = await pollType(admin, target);
+    }
+    return json({ ok: true, ranAt: new Date().toISOString(), ...results });
   } catch (e) {
     console.error("[fhir-inbound-poll] error", e);
     return json({ ok: false, error: (e as Error).message }, 500);
