@@ -729,7 +729,7 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
       .select("id, drug_name, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, created_at, updated_at, rxnorm_code, rxnorm_display")
       .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(200),
     admin.from("lab_orders")
-      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code, ordering_physician, ordered_by")
+      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code, requested_by, ordered_by")
       .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(80),
     admin.from("lab_results")
       .select("id, test_name, result_value, unit, reference_range, flag, created_at")
