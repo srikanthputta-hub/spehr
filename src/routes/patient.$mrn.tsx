@@ -7,7 +7,7 @@ import {
   ArrowLeft, Loader2, AlertTriangle, Activity, Plus, ShieldCheck, X,
   CheckCircle2, Brain, Home, ClipboardList, FileText, FlaskConical,
   LogOut, PenLine, Settings, Power, ChevronUp, RefreshCw, Info, Search,
-  TrendingUp, Calendar, Pill, Printer, Users,
+  TrendingUp, Calendar, Pill, Printer, Users, Scan,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -631,6 +631,141 @@ function ResultValueCell({ value }: { value: string | null }) {
     );
   }
   return <span className="font-mono text-[11.5px]">{value}</span>;
+}
+
+// ============= Radiology ==============================================
+type RadRow = {
+  id: string;
+  exam_type: string | null;
+  modality: string | null;
+  body_part: string | null;
+  status: string | null;
+  report_text: string | null;
+  impression: string | null;
+  ordered_at: string | null;
+  resulted_at: string | null;
+  requested_by: string | null;
+  created_at: string | null;
+};
+
+function useRadiology(mrn: string) {
+  const [rows, setRows] = useState<RadRow[] | null>(null);
+  useEffect(() => {
+    let c = false;
+    const load = () =>
+      // radiology_orders is not yet in the generated Supabase types
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("radiology_orders") as any)
+        .select(
+          "id, exam_type, modality, body_part, status, report_text, impression, ordered_at, resulted_at, requested_by, created_at",
+        )
+        .eq("patient_mrn", mrn)
+        .order("ordered_at", { ascending: false })
+        .then(({ data }: { data: RadRow[] | null }) => {
+          if (c) return;
+          setRows((data ?? []) as RadRow[]);
+        });
+    load();
+    const channel = supabase
+      .channel(`rad-${mrn}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "radiology_orders", filter: `patient_mrn=eq.${mrn}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => {
+      c = true;
+      supabase.removeChannel(channel);
+    };
+  }, [mrn]);
+  return rows;
+}
+
+function RadStatusBadge({ status }: { status: string | null }) {
+  const s = (status ?? "").toLowerCase();
+  const cls =
+    s === "resulted" || s === "reported" || s === "completed" || s === "final"
+      ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
+      : s === "in-progress" || s.includes("progress") || s.includes("read")
+        ? "bg-blue-100 text-blue-800 ring-blue-300"
+        : "bg-amber-100 text-amber-800 ring-amber-300";
+  return (
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${cls}`}>
+      {status ?? "—"}
+    </span>
+  );
+}
+
+function RadiologyView({ mrn }: { mrn: string }) {
+  const rows = useRadiology(mrn);
+  if (rows === null)
+    return (
+      <div className="p-6 text-center">
+        <Loader2 className="h-4 w-4 animate-spin inline text-slate-400" />
+      </div>
+    );
+  if (rows.length === 0) return emptyMsg;
+  return (
+    <table className="w-full">
+      <thead>
+        <tr>
+          <th className={thClass}>Exam Type</th>
+          <th className={thClass}>Status</th>
+          <th className={thClass}>Report / Impression</th>
+          <th className={thClass}>Ordered By</th>
+          <th className={thClass}>Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => {
+          const s = (r.status ?? "").toLowerCase();
+          const resulted = s === "resulted" || s === "reported" || s === "completed" || s === "final";
+          const hasBody = !!(r.impression || r.report_text);
+          return (
+            <tr key={r.id} className="hover:bg-slate-50">
+              <td className={`${tdClass} font-semibold`}>
+                {r.exam_type ?? "—"}
+                <div className="text-[10px] font-normal text-slate-500 mt-0.5">
+                  {[r.modality, r.body_part].filter(Boolean).join(" · ") || null}
+                </div>
+              </td>
+              <td className={tdClass}>
+                <RadStatusBadge status={r.status} />
+              </td>
+              <td className={tdClass}>
+                {resulted && hasBody ? (
+                  <div className="space-y-1">
+                    {r.impression ? (
+                      <div className="text-[12px] font-semibold text-slate-900">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mr-1">
+                          Impression:
+                        </span>
+                        {r.impression}
+                      </div>
+                    ) : null}
+                    {r.report_text ? (
+                      <div className="text-[11.5px] text-slate-700 whitespace-pre-wrap leading-relaxed">
+                        {r.report_text}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <span className="text-[11.5px] italic text-slate-500">
+                    Awaiting radiologist read
+                  </span>
+                )}
+              </td>
+              <td className={`${tdClass} text-slate-600`}>{r.requested_by ?? "—"}</td>
+              <td className={`${tdClass} font-mono text-[11px] text-slate-600`}>
+                {fmtTime(r.resulted_at ?? r.ordered_at ?? r.created_at)}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
 }
 
 // ============= tab views ===============================================
@@ -1815,9 +1950,15 @@ function PatientChart() {
           {tab === "summary" ? (
             <SummaryView mrn={patient.mrn} patient={patient} />
           ) : tab === "diagnostics" ? (
-            <div className={widgetBox + " overflow-hidden"}>
-              <WidgetHeader title="Laboratory Results" icon={<FlaskConical className="h-3.5 w-3.5" />} />
-              <LabsView mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
+            <div className="space-y-3">
+              <div className={widgetBox + " overflow-hidden"}>
+                <WidgetHeader title="Laboratory Results" icon={<FlaskConical className="h-3.5 w-3.5" />} />
+                <LabsView mrn={patient.mrn} complaint={patient.chief_complaint ?? null} />
+              </div>
+              <div className={widgetBox + " overflow-hidden"}>
+                <WidgetHeader title="Radiographs" icon={<Scan className="h-3.5 w-3.5" />} />
+                <RadiologyView mrn={patient.mrn} />
+              </div>
             </div>
           ) : tab === "medications" ? (
             <div className={widgetBox + " overflow-hidden"}>
