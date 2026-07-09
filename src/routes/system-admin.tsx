@@ -3799,7 +3799,8 @@ function AuditLog() {
 
   const downloadCsv = () => {
     const header = ["Timestamp", "Category", "Actor", "Facility", "Details"];
-    const rows = events.map((e) =>
+    const source = filteredEvents.length ? filteredEvents : events;
+    const rows = source.map((e) =>
       [e.ts, e.category, e.actor, e.facility, e.details]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(","),
@@ -3812,8 +3813,20 @@ function AuditLog() {
     a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Audit log exported", { description: `${events.length} events · CSV` });
+    toast.success("Audit log exported", { description: `${source.length} events · CSV` });
   };
+
+  const filteredEvents = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return events;
+    return events.filter((e) =>
+      e.ts.toLowerCase().includes(q) ||
+      e.category.toLowerCase().includes(q) ||
+      e.actor.toLowerCase().includes(q) ||
+      e.facility.toLowerCase().includes(q) ||
+      e.details.toLowerCase().includes(q),
+    );
+  }, [events, query]);
 
   return (
     <div className="space-y-5">
@@ -3837,10 +3850,17 @@ function AuditLog() {
         </button>
       </div>
 
+      <Input
+        placeholder="Filter by timestamp, category, actor, facility, details…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        className="max-w-md h-8 text-xs"
+      />
+
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="scroll-feed">
           <table className="w-full text-sm">
-            <thead className="bg-slate-900 text-slate-100">
+            <thead className="bg-slate-900 text-slate-100 sticky top-0">
               <tr>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Timestamp</th>
                 <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Category</th>
@@ -3850,21 +3870,21 @@ function AuditLog() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {loading && events.length === 0 && (
+              {loading && filteredEvents.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
                     <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" /> Loading live system events…
                   </td>
                 </tr>
               )}
-              {!loading && events.length === 0 && (
+              {!loading && filteredEvents.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
-                    No system events yet. Activity will stream in as it happens.
+                    {events.length === 0 ? "No system events yet. Activity will stream in as it happens." : "No matches for your search."}
                   </td>
                 </tr>
               )}
-              {events.map((e) => (
+              {filteredEvents.map((e) => (
                 <tr key={e.key} className="hover:bg-slate-50/70 transition-colors">
                   <td className="px-4 py-2.5 font-mono text-[12px] text-slate-700 whitespace-nowrap">{e.ts}</td>
                   <td className="px-4 py-2.5">
