@@ -547,7 +547,35 @@ async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number
   const text = await res.text();
   let body: any = text;
   try { body = JSON.parse(text); } catch { /* keep text */ }
-  return { ok: res.ok, status: res.status, body };
+  // Per-entry inspection: HAPI transaction bundles are atomic, but the
+  // per-entry `response.status` reveals WHICH resources landed as create /
+  // update / error. Aggregate any non-2xx entry into the failure so a
+  // silently-dropped ServiceRequest can no longer masquerade as success.
+  let entryOk = true;
+  const entryFailures: any[] = [];
+  const entryResp = Array.isArray(body?.entry) ? body.entry : [];
+  for (let i = 0; i < entryResp.length; i++) {
+    const status = String(entryResp[i]?.response?.status ?? "");
+    const code = parseInt(status, 10);
+    if (!Number.isFinite(code) || code < 200 || code >= 300) {
+      entryOk = false;
+      entryFailures.push({
+        i,
+        request: entries[i]?.request?.url,
+        status,
+        outcome: entryResp[i]?.response?.outcome,
+      });
+    }
+  }
+  const ok = res.ok && entryOk;
+  if (!ok) {
+    console.error("[pushBundle] failures:", JSON.stringify({
+      httpStatus: res.status,
+      entryCount: entries.length,
+      entryFailures: entryFailures.slice(0, 10),
+    }));
+  }
+  return { ok, status: res.status, body: entryFailures.length > 0 ? { httpStatus: res.status, entryFailures, raw: body } : body };
 }
 
 function entryFor(res: any) {
