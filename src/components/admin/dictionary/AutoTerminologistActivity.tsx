@@ -73,8 +73,31 @@ export function AutoTerminologistActivity() {
   const [loading, setLoading] = useState(true);
   const [nowTick, setNowTick] = useState(0);
   const [requests, setRequests] = useState<RequestRow[]>([]);
+  const [requestQuery, setRequestQuery] = useState("");
+  const [draftedQuery, setDraftedQuery] = useState("");
 
   const lastRunAt = useMemo(() => latest?.run_at, [latest]);
+
+  const filteredRequests = useMemo(() => {
+    const q = requestQuery.trim().toLowerCase();
+    if (!q) return requests;
+    return requests.filter((r) =>
+      (r.requesting_consumer ?? "").toLowerCase().includes(q) ||
+      (r.requested_name ?? "").toLowerCase().includes(q) ||
+      (r.justification ?? "").toLowerCase().includes(q) ||
+      (r.status ?? "").toLowerCase().includes(q),
+    );
+  }, [requests, requestQuery]);
+
+  const filteredDrafted = useMemo(() => {
+    const q = draftedQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      (r.message ?? "").toLowerCase().includes(q) ||
+      (r.theme ?? "").toLowerCase().includes(q) ||
+      (r.action ?? "").toLowerCase().includes(q),
+    );
+  }, [rows, draftedQuery]);
   // Recompute "X minutes ago" every 30s
   useEffect(() => {
     const id = setInterval(() => setNowTick((n) => n + 1), 30_000);
