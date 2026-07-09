@@ -3637,6 +3637,7 @@ const CATEGORY_STYLES: Record<AuditCategory, string> = {
 function AuditLog() {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   const load = async () => {
     const [patientsRes, labsRes, medsRes, permsRes, settingsRes] = await fetchWithTimeout(
@@ -3776,7 +3777,7 @@ function AuditLog() {
     }
 
     out.sort((a, b) => b.tsMs - a.tsMs);
-    setEvents(out.slice(0, 50));
+    setEvents(out.slice(0, 150));
     setLoading(false);
   };
 
