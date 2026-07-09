@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
-import { useEffect, useState, memo } from "react";
+import { useEffect, useMemo, useState, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
