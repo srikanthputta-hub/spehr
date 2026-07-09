@@ -1530,6 +1530,54 @@ export type Database = {
         }
         Relationships: []
       }
+      formulary_catalog: {
+        Row: {
+          created_at: string
+          dose_form: string | null
+          drug_class: string | null
+          drug_name: string | null
+          full_display: string | null
+          id: string
+          is_high_alert: boolean
+          rxnorm_code: string
+          strength: string | null
+          synced_at: string
+          typical_frequency: string | null
+          typical_route: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          dose_form?: string | null
+          drug_class?: string | null
+          drug_name?: string | null
+          full_display?: string | null
+          id?: string
+          is_high_alert?: boolean
+          rxnorm_code: string
+          strength?: string | null
+          synced_at?: string
+          typical_frequency?: string | null
+          typical_route?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          dose_form?: string | null
+          drug_class?: string | null
+          drug_name?: string | null
+          full_display?: string | null
+          id?: string
+          is_high_alert?: boolean
+          rxnorm_code?: string
+          strength?: string | null
+          synced_at?: string
+          typical_frequency?: string | null
+          typical_route?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hospital_staff: {
         Row: {
           assigned_patients: number | null
@@ -3399,6 +3447,21 @@ export type Database = {
       }
     }
     Functions: {
+      _ghost_insert_med_from_class: {
+        Args: {
+          p_classes: string[]
+          p_facility: string
+          p_fallback_dose: string
+          p_fallback_freq: string
+          p_fallback_name: string
+          p_fallback_route: string
+          p_fallback_rxnorm: string
+          p_mrn: string
+          p_ordering_doc: string
+          p_patient_name: string
+        }
+        Returns: undefined
+      }
       auto_admit_ghost_patient: { Args: never; Returns: undefined }
       auto_code_patient_complaint: {
         Args: { _complaint: string; _mrn: string; _name: string }

@@ -37,6 +37,7 @@ const POLL_TARGETS: PollTarget[] = [
   { resourceType: "Appointment",    tag: "urn:spehr:source|myspehr",         stateKey: "appointment_last_polled_at",       label: "appointment" },
   { resourceType: "PaymentNotice",  tag: "urn:spehr:source|myspehr",         stateKey: "paymentnotice_last_polled_at",     label: "paymentNotice" },
   { resourceType: "Observation",    tag: "urn:spehr:source|labs-pharm-rad",  stateKey: "labs_observation_last_polled_at",  label: "labObservation" },
+  { resourceType: "Medication",     tag: "urn:spehr:source|labs-pharm-rad",  stateKey: "medication_formulary_last_polled_at", label: "medicationFormulary" },
 ];
 
 const corsHeaders = {
@@ -112,6 +113,50 @@ function isoMax(a: string, b: string | null | undefined): string {
   return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
 }
 
+// Parse "Acetaminophen 500 MG Oral Tablet" → name "Acetaminophen", strength "500 MG".
+function parseDisplay(display: string | null | undefined): { drugName: string | null; strength: string | null } {
+  if (!display) return { drugName: null, strength: null };
+  const m = display.match(/^(.*?)\s+(\d+(?:\.\d+)?\s*(?:MG|MCG|G|ML|UNIT|%)(?:\/\d+\s*ML)?)/i);
+  if (m) return { drugName: m[1].trim(), strength: m[2].trim() };
+  return { drugName: display.split(" ")[0] || display, strength: null };
+}
+
+function extString(resource: any, url: string): string | null {
+  const hit = (resource?.extension ?? []).find((e: any) => e?.url === url);
+  return hit?.valueString ?? null;
+}
+function extBool(resource: any, url: string): boolean | null {
+  const hit = (resource?.extension ?? []).find((e: any) => e?.url === url);
+  return typeof hit?.valueBoolean === "boolean" ? hit.valueBoolean : null;
+}
+
+async function upsertMedicationResource(admin: any, resource: any): Promise<{ ok: boolean; reason?: string }> {
+  const coding = resource?.code?.coding ?? [];
+  const rxHit = coding.find((c: any) => typeof c?.system === "string" && c.system.toLowerCase().includes("rxnorm")) ?? coding[0];
+  const rxnorm = rxHit?.code ? String(rxHit.code) : null;
+  if (!rxnorm) return { ok: false, reason: "missing_rxnorm" };
+  const fullDisplay = resource?.code?.text ?? rxHit?.display ?? null;
+  const { drugName, strength } = parseDisplay(fullDisplay);
+  const row = {
+    rxnorm_code: rxnorm,
+    drug_name: drugName,
+    strength,
+    dose_form: resource?.form?.text ?? null,
+    full_display: fullDisplay,
+    drug_class: extString(resource, "urn:spehr:drug-class"),
+    typical_route: extString(resource, "urn:spehr:typical-route"),
+    typical_frequency: extString(resource, "urn:spehr:typical-frequency"),
+    is_high_alert: extBool(resource, "urn:spehr:high-alert") ?? false,
+    synced_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await admin
+    .from("formulary_catalog")
+    .upsert(row, { onConflict: "rxnorm_code" });
+  if (error) return { ok: false, reason: error.message };
+  return { ok: true };
+}
+
 async function pollType(admin: any, target: PollTarget) {
   const { resourceType, tag, stateKey } = target;
   const since = await readState(admin, stateKey);
@@ -142,14 +187,26 @@ async function pollType(admin: any, target: PollTarget) {
       const lu = resource?.meta?.lastUpdated;
       if (lu) maxSeen = isoMax(lu, maxSeen);
 
-      const { outcome, resourceType: rt, fhirId } = await ingestFhirResource(admin, resource);
-      if (outcome.ok) {
-        if ((outcome as any).skipped) stats.skipped++;
-        else stats.ingested++;
+      if (resourceType === "Medication") {
+        const res = await upsertMedicationResource(admin, resource);
+        if (res.ok) stats.ingested++;
+        else stats.failed++;
+        await logIngestEvent(admin, {
+          source: "poll",
+          resourceType: "Medication",
+          fhirId: resource?.id ?? null,
+          outcome: res.ok ? { ok: true, action: "upserted" } : { ok: false, reason: res.reason ?? "unknown" },
+        });
       } else {
-        stats.failed++;
+        const { outcome, resourceType: rt, fhirId } = await ingestFhirResource(admin, resource);
+        if (outcome.ok) {
+          if ((outcome as any).skipped) stats.skipped++;
+          else stats.ingested++;
+        } else {
+          stats.failed++;
+        }
+        await logIngestEvent(admin, { source: "poll", resourceType: rt, fhirId, outcome });
       }
-      await logIngestEvent(admin, { source: "poll", resourceType: rt, fhirId, outcome });
     }
     url = nextLink(bundle);
   }
