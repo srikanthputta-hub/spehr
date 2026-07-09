@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Sparkles, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { AuditCard, type AuditRow } from "./AuditCard";
 import { InfoHint } from "@/components/ui/info-hint";
 import { auditRowsEqual, sortAuditRows } from "./auditRows";
@@ -13,6 +14,7 @@ type AuditQueryResult = { data: any[] | null; error?: unknown; timedOut?: boolea
 export default function NlpApprovalTrail() {
   const [rows, setRows] = useState<AuditRow[]>(cachedApprovalRows);
   const [loading, setLoading] = useState(cachedApprovalRows.length === 0);
+  const [query, setQuery] = useState("");
   const initialLoadRef = useRef(cachedApprovalRows.length === 0);
 
   const refresh = async () => {
@@ -24,7 +26,7 @@ export default function NlpApprovalTrail() {
         .eq("status", "approved")
         .order("updated_at", { ascending: false })
         .order("id", { ascending: false })
-        .limit(50);
+        .limit(150);
       const timeout = new Promise<AuditQueryResult>((resolve) =>
         setTimeout(() => resolve({ data: null, timedOut: true }), 10_000),
       );
@@ -64,7 +66,7 @@ export default function NlpApprovalTrail() {
           <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-indigo-600" /> NLP Approval Trail
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700">
-              Last 50 · Approved
+              Last 150 · Approved
             </span>
             <InfoHint
               className="ml-1.5"
@@ -77,15 +79,22 @@ export default function NlpApprovalTrail() {
         </Button>
       </div>
 
+      <Input
+        placeholder="Filter by MRN or text…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        className="max-w-md h-8 text-xs"
+      />
+
       {loading ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading…</div>
-      ) : rows.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-          No approvals yet. Approve an audit card to populate this trail.
+          {rows.length === 0 ? "No approvals yet. Approve an audit card to populate this trail." : "No matches for your search."}
         </div>
       ) : (
-        <div className="space-y-3">
-          {rows.map((r) => (
+        <div className="scroll-feed space-y-3">
+          {filtered.map((r) => (
             <AuditCard key={r.id} row={r} readOnly />
           ))}
         </div>

@@ -127,7 +127,7 @@ export default function LiveTerminologyMatrixPanel() {
       />
 
       <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-        <div className="max-h-[560px] overflow-auto">
+        <div className="scroll-feed">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
               <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500">
