@@ -752,6 +752,53 @@ function ChartPage() {
           </section>
           )}
 
+          {/* Provider Notes (physician/attending documentation) */}
+          <section className="rounded-xl border border-border bg-card overflow-hidden">
+            <SectionHeader
+              icon={FileSignature}
+              title="🩺 Provider Notes"
+              subtitle={`${providerNotes.length} note${providerNotes.length === 1 ? "" : "s"} on file`}
+            />
+            <div className="p-5 space-y-3">
+              {providerNotes.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  No provider notes recorded yet.
+                </div>
+              ) : (
+                <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                  {providerNotes.map((n) => (
+                    <li
+                      key={n.id}
+                      className="rounded-lg border border-border bg-secondary/30 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                          <User className="h-3 w-3" />
+                          {n.author_name}
+                          {n.author_role ? ` · ${n.author_role}` : ""}
+                        </span>
+                        <span className="inline-flex items-center gap-2">
+                          {n.note_type && (
+                            <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground">
+                              {n.note_type}
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {new Date(n.signed_at || n.created_at).toLocaleString()}
+                          </span>
+                        </span>
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+                        {n.content}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
           {/* Shift Handoff & Clinical Documentation */}
           <section className="rounded-xl border border-border bg-card overflow-hidden">
             <SectionHeader
