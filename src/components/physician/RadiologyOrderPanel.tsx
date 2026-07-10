@@ -25,13 +25,17 @@ const RADIOLOGY_CATALOG: Array<{
 }> = [
   { exam: "Chest X-ray",               modality: "XR",  bodyPart: "Chest",        snomed: "399208008", snomedDisplay: "Plain chest X-ray" },
   { exam: "Knee X-ray",                modality: "XR",  bodyPart: "Knee",         snomed: "168731009", snomedDisplay: "Plain X-ray of knee" },
-  { exam: "CT Head (non-contrast)",    modality: "CT",  bodyPart: "Head",         snomed: "303653007", snomedDisplay: "Computed tomography of head" },
-  { exam: "CT Chest",                  modality: "CT",  bodyPart: "Chest",        snomed: "169069000", snomedDisplay: "Computed tomography of chest" },
-  { exam: "CT Abdomen/Pelvis",         modality: "CT",  bodyPart: "Abdomen/Pelvis", snomed: "418023006", snomedDisplay: "Computed tomography of abdomen and pelvis" },
-  { exam: "MRI Brain",                 modality: "MRI", bodyPart: "Brain",        snomed: "816077007", snomedDisplay: "MRI of brain" },
-  { exam: "MRI Spine",                 modality: "MRI", bodyPart: "Spine",        snomed: "241645008", snomedDisplay: "MRI of spine" },
+  { exam: "CT Head",                   modality: "CT",  bodyPart: "Head",         snomed: "169069000", snomedDisplay: "Computed tomography of head" },
+  { exam: "CT Chest",                  modality: "CT",  bodyPart: "Chest",        snomed: "169070004", snomedDisplay: "Computed tomography of chest" },
+  { exam: "CT Abdomen/Pelvis",         modality: "CT",  bodyPart: "Abdomen/Pelvis", snomed: "169071000", snomedDisplay: "Computed tomography of abdomen and pelvis" },
+  { exam: "MRI Brain",                 modality: "MRI", bodyPart: "Brain",        snomed: "241601008", snomedDisplay: "MRI of brain" },
+  { exam: "MRI Spine",                 modality: "MRI", bodyPart: "Spine",        snomed: "241645009", snomedDisplay: "MRI of spine" },
   { exam: "Abdominal Ultrasound",      modality: "US",  bodyPart: "Abdomen",      snomed: "45036003",  snomedDisplay: "Ultrasonography of abdomen" },
 ];
+
+function slugifyExam(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
 
 export function RadiologyOrderPanel({ mrn, patientName, facility, diagnosis, physicianName }: Props) {
   const [open, setOpen] = useState(false);
@@ -70,6 +74,46 @@ export function RadiologyOrderPanel({ mrn, patientName, facility, diagnosis, phy
         .select("id")
         .single();
       if (error) throw error;
+
+      // Push a FHIR ServiceRequest to the shared server so the sibling
+      // Health Hub Suite imaging pipeline receives the order. Stable id
+      // per (mrn, exam) so re-submits idempotently PUT the same resource.
+      const svcId = `radsvc-${mrn}-${slugifyExam(chosen.exam)}`;
+      const svcReq = {
+        resourceType: "ServiceRequest",
+        id: svcId,
+        meta: { tag: [{ system: "urn:spehr:source", code: "spehr" }] },
+        status: "active",
+        intent: "order",
+        category: [{
+          coding: [{ system: "http://snomed.info/sct", code: "363679005", display: "Imaging" }],
+        }],
+        code: {
+          coding: [{ system: "http://snomed.info/sct", code: chosen.snomed, display: chosen.snomedDisplay }],
+          text: chosen.exam,
+        },
+        subject: { reference: `Patient/${mrn}` },
+        reasonCode: [{ text: trimmed }],
+        authoredOn: new Date().toISOString(),
+        requester: { display: physicianName ?? "Physician" },
+      };
+      try {
+        await supabase.functions.invoke("fhir-proxy", {
+          body: {
+            method: "PUT",
+            path: `/ServiceRequest/${svcId}`,
+            body: svcReq,
+          },
+        });
+        // Best-effort: also stamp the FHIR id back onto the row.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from("radiology_orders") as any)
+          .update({ svcreq_fhir_id: svcId })
+          .eq("id", data?.id);
+      } catch (pushErr: any) {
+        console.warn("[radiology] FHIR push failed", pushErr?.message);
+      }
+
       toast.success(`${chosen.exam} ordered`, {
         description: `Routed to imaging queue · order ${data?.id?.slice(0, 8)}`,
       });
