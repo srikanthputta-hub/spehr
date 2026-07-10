@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Upload, Loader2, FileJson, Copy, Play, Save, Check, Trash2 } from "lucide-react";
+import { Plus, Download, Upload, Loader2, FileJson, Copy, Play, Save, Check, Trash2, CloudUpload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ type ValueSet = {
   binding_strength: string | null;
   description: string | null;
   updated_at: string;
+  fhir_published_at?: string | null;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -52,6 +53,7 @@ export function ValueSetLibrary() {
   const [publishTarget, setPublishTarget] = useState<ValueSet | null>(null);
   const [deprecateTarget, setDeprecateTarget] = useState<ValueSet | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ValueSet | null>(null);
+  const [fhirPublishing, setFhirPublishing] = useState<string | null>(null);
   const [vsacOpen, setVsacOpen] = useState(false);
   const [vsacOid, setVsacOid] = useState("");
   const [vsacLoading, setVsacLoading] = useState(false);
