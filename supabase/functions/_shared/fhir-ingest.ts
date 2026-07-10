@@ -54,12 +54,26 @@ async function handleAppointment(admin: any, resource: any): Promise<IngestOutco
   const end = resource?.end ?? resource?.start ?? null;
   if (!start || !end) return { ok: false, reason: "missing_time" };
 
+  let facilityName: string =
+    resource?.location?.[0]?.display ??
+    resource?.location?.[0]?.reference ??
+    "";
+  if (!facilityName && patientMrn) {
+    try {
+      const { data: pat } = await admin
+        .from("patients")
+        .select("facility_name")
+        .eq("mrn", patientMrn)
+        .limit(1)
+        .maybeSingle();
+      if (pat?.facility_name) facilityName = pat.facility_name;
+    } catch (_) { /* ignore */ }
+  }
+  if (!facilityName) facilityName = "MySPEHR Portal";
+
   const row = {
     fhir_id: fhirId,
-    facility_name:
-      resource?.location?.[0]?.display ??
-      resource?.location?.[0]?.reference ??
-      "MySPEHR Portal",
+    facility_name: facilityName,
     patient_mrn: patientMrn,
     patient_name: patientName ?? "MySPEHR Patient",
     practitioner_name: practitionerName,
