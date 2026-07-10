@@ -617,6 +617,24 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
     }, cm, "pharmacy_fee"));
   }
 
+  // Imaging — one ChargeItem per radiology_orders row. Uses real CPT
+  // codes so payer-side adjudication and prior-auth analytics can match.
+  for (const r of input.imagingOrders ?? []) {
+    const hit = lookupImagingCpt(r.snomed, r.exam_type);
+    if (!hit) continue;
+    const unit = IMAGING_PRICE_BY_CPT[hit.cpt] ?? 350;
+    out.push({
+      code: hit.cpt,
+      codeSystem: "CPT",
+      description: `Imaging · ${hit.description}`,
+      category: hit.advanced ? "advanced_imaging" : "imaging",
+      quantity: 1,
+      unitPrice: unit,
+      amount: unit,
+      serviceDate: r.ordered_at ?? undefined,
+    });
+  }
+
   // Standard admin
   out.push({
     code: "HSP-001",
