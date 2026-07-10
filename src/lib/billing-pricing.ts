@@ -342,6 +342,73 @@ export interface BuildChargesInput {
     display: string;
     valueSetName: string;
   }>;
+  /**
+   * Entries from the "Inpatient Revenue & CPT Codes (Charge Master)"
+   * value set — used to replace internal placeholder codes with real
+   * CPT / UB-04 Revenue codes on room/board, nursing, physician time,
+   * pharmacy, and lab charge lines.
+   */
+  chargeMaster?: Array<{
+    code: string;
+    display?: string;
+    system?: string; // "CPT" | "UB-04 Revenue Code" | ...
+    internal_category?: string;
+  }>;
+}
+
+/** Map a LOINC code (or lab name) to a charge-master internal_category. */
+function labInternalCategory(loinc?: string | null, name?: string | null): string {
+  const l = String(loinc ?? "").trim();
+  const n = String(name ?? "");
+  if (l === "33747-0" || /\bbmp\b|basic metabolic/i.test(n)) return "lab_bmp";
+  if (l === "58410-2" || /\bcbc\b|complete blood count/i.test(n)) return "lab_cbc";
+  if (l === "10839-9" || /troponin/i.test(n)) return "lab_troponin";
+  if (l === "2160-0" || /creatinine/i.test(n)) return "lab_creatinine";
+  if (/a1c|glycosylated|hba1c/i.test(n)) return "lab_a1c";
+  return "lab_general";
+}
+
+type CmEntry = { code: string; system: string; display: string };
+function pickChargeMaster(
+  chargeMaster: BuildChargesInput["chargeMaster"] | undefined,
+  internalCategory: string,
+): CmEntry | null {
+  if (!chargeMaster) return null;
+  const hit = chargeMaster.find(
+    (e) => String(e?.internal_category ?? "").trim() === internalCategory,
+  );
+  if (!hit || !hit.code) return null;
+  const sys = String(hit.system ?? "").trim();
+  return {
+    code: String(hit.code),
+    system: sys,
+    display: String(hit.display ?? ""),
+  };
+}
+
+function cmCodeSystem(system: string): PricedCharge["codeSystem"] {
+  if (/cpt/i.test(system)) return "CPT";
+  if (/revenue/i.test(system) || /ub-?04/i.test(system)) return "Revenue Code";
+  return "internal";
+}
+
+/**
+ * Apply a charge-master override to a fallback PricedCharge, replacing
+ * the placeholder internal code with the real CPT/Revenue code while
+ * keeping the human-readable description as-is.
+ */
+function applyChargeMaster(
+  fallback: PricedCharge,
+  chargeMaster: BuildChargesInput["chargeMaster"] | undefined,
+  internalCategory: string,
+): PricedCharge {
+  const cm = pickChargeMaster(chargeMaster, internalCategory);
+  if (!cm) return fallback;
+  return {
+    ...fallback,
+    code: cm.code,
+    codeSystem: cmCodeSystem(cm.system),
+  };
 }
 
 /**
