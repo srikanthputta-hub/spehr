@@ -616,6 +616,10 @@ async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number
       httpStatus: res.status,
       entryCount: entries.length,
       entryFailures: entryFailures.slice(0, 10),
+      rawBodyPreview: typeof body === "string"
+        ? body.slice(0, 1500)
+        : JSON.stringify(body).slice(0, 1500),
+      firstEntryUrls: entries.slice(0, 5).map((e) => e?.request?.url),
     }));
   }
   return { ok, status: res.status, body: entryFailures.length > 0 ? { httpStatus: res.status, entryFailures, raw: body } : body };
