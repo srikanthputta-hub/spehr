@@ -208,7 +208,9 @@ export function buildChargeItemResource(args: {
                   ? "http://www.ama-assn.org/go/cpt"
                   : c.codeSystem === "ICD-10"
                     ? "http://hl7.org/fhir/sid/icd-10-cm"
-                    : "http://spehr.local/charge",
+                    : c.codeSystem === "Revenue Code"
+                      ? "http://terminology.hl7.org/CodeSystem/ex-USNUBC"
+                      : "http://spehr.local/charge",
           code: c.code,
           display: c.description,
         },
