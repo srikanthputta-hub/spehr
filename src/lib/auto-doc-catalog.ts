@@ -33,6 +33,23 @@ export interface ConditionTemplate {
   discharge: string;        // discharge summary template
   meds: MedTemplate[];
   labs: LabTemplate[];
+  /**
+   * Optional imaging studies to auto-order for admissions to this
+   * department. Populated by IMAGING_BY_DEPARTMENT below. Departments
+   * where routine imaging isn't clinically indicated (Dermatology,
+   * Pathology, Psychiatry) intentionally leave this unset.
+   *
+   * The exact examType strings and SNOMED codes must match the sibling
+   * Health Hub Suite app's RADIOLOGY_TEMPLATES / SNOMED_TO_EXAM keys
+   * verbatim — that's how it recognises orders coming from spehr.
+   */
+  imaging?: ImagingTemplate[];
+}
+
+export interface ImagingTemplate {
+  examType: string;
+  snomed: string;
+  snomedDisplay: string;
 }
 
 const rand = (min: number, max: number, decimals = 1) => {
@@ -379,11 +396,57 @@ const CATALOG: Partial<Record<Department, ConditionTemplate>> = {
 };
 
 export function templateForDepartment(d: Department | null | undefined): ConditionTemplate {
-  return (
+  const base =
     (d && CATALOG[d]) ||
-    CATALOG["Family Medicine"]!
-  );
+    CATALOG["Family Medicine"]!;
+  const imaging = IMAGING_BY_DEPARTMENT[(d ?? "Family Medicine") as Department];
+  return imaging && imaging.length > 0 ? { ...base, imaging } : base;
 }
+
+/* ------------------------------------------------------------------
+ * Per-department imaging map. One study per department by default —
+ * the clinically most-common study for the presenting condition. The
+ * examType + SNOMED pairs here MUST match the Health Hub Suite side's
+ * RADIOLOGY_TEMPLATES/SNOMED_TO_EXAM verbatim; changing them here
+ * silently breaks the reactive imaging pipeline on the shared FHIR
+ * server.
+ *
+ * Dermatology, Pathology, and Psychiatry deliberately have no entry —
+ * routine imaging isn't part of their standard presentation.
+ * -----------------------------------------------------------------*/
+const IMG = {
+  chestXray:      { examType: "Chest X-ray",          snomed: "399208008", snomedDisplay: "Plain chest X-ray" },
+  ctHead:         { examType: "CT Head",              snomed: "169069000", snomedDisplay: "Computed tomography of head" },
+  ctChest:        { examType: "CT Chest",             snomed: "169070004", snomedDisplay: "Computed tomography of chest" },
+  ctAbdoPelvis:   { examType: "CT Abdomen/Pelvis",    snomed: "169071000", snomedDisplay: "Computed tomography of abdomen and pelvis" },
+  mriBrain:       { examType: "MRI Brain",            snomed: "241601008", snomedDisplay: "MRI of brain" },
+  mriSpine:       { examType: "MRI Spine",            snomed: "241645009", snomedDisplay: "MRI of spine" },
+  abdoUltrasound: { examType: "Abdominal Ultrasound", snomed: "45036003",  snomedDisplay: "Ultrasonography of abdomen" },
+  kneeXray:       { examType: "Knee X-ray",           snomed: "168731009", snomedDisplay: "Plain X-ray of knee" },
+} as const satisfies Record<string, ImagingTemplate>;
+
+export const IMAGING_BY_DEPARTMENT: Partial<Record<Department, ImagingTemplate[]>> = {
+  Cardiology:                   [IMG.chestXray],
+  Neurology:                    [IMG.ctHead],
+  Pulmonology:                  [IMG.chestXray],
+  Gastroenterology:             [IMG.ctAbdoPelvis],
+  Endocrinology:                [IMG.chestXray],
+  "Intensive Care Unit":        [IMG.chestXray],
+  "Emergency Department":       [IMG.chestXray],
+  Traumatology:                 [IMG.ctAbdoPelvis],
+  "General Surgery":            [IMG.ctAbdoPelvis],
+  "Orthopedic Surgery":         [IMG.kneeXray],
+  Neurosurgery:                 [IMG.ctHead],
+  "Cardiothoracic Surgery":     [IMG.ctChest],
+  "Obstetrics and Gynecology":  [IMG.abdoUltrasound],
+  Pediatrics:                   [IMG.chestXray],
+  "Family Medicine":            [IMG.chestXray],
+  "Internal Medicine":          [IMG.chestXray],
+  Oncology:                     [IMG.ctChest],
+  Radiology:                    [IMG.chestXray],
+  Anesthesiology:               [IMG.chestXray],
+  // Dermatology, Pathology, Psychiatry: no routine imaging (intentional).
+};
 
 /**
  * Flat, case-insensitive lookup of a LabTemplate by test name across every

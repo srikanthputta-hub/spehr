@@ -46,6 +46,16 @@ export const backfillInvoices = createServerFn({ method: "POST" }).handler(async
 });
 
 /**
+ * Backfill: for every patient with no existing radiology_orders row,
+ * derive their imaging order from the department template and push a
+ * FHIR ServiceRequest to the shared imaging network.
+ */
+export const backfillRadiology = createServerFn({ method: "POST" }).handler(async () => {
+  const { backfillMissingRadiologyOrders } = await import("./auto-doc.server");
+  return backfillMissingRadiologyOrders();
+});
+
+/**
  * Patient portal payment action: marks an invoice balanced and records a
  * FHIR PaymentNotice.
  */
