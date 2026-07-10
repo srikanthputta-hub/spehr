@@ -376,6 +376,36 @@ export function ValueSetLibrary() {
                   <td className="px-3 py-2 text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
                   <td className="px-3 py-2 text-right">
                     <div className="inline-flex items-center gap-1">
+                      {r.status === "published" && (
+                        r.fhir_published_at ? (
+                          <span
+                            title={`On FHIR server since ${new Date(r.fhir_published_at).toLocaleString()}`}
+                            className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+                          >
+                            <Check className="h-3 w-3" /> On FHIR · {new Date(r.fhir_published_at).toLocaleDateString()}
+                          </span>
+                        ) : (
+                          <span
+                            title="Local placeholder only — not pushed to real FHIR server"
+                            className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
+                          >
+                            Not on FHIR
+                          </span>
+                        )
+                      )}
+                      {r.status === "published" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={fhirPublishing === r.id}
+                          title="Publish to FHIR server"
+                          onClick={(e) => { e.stopPropagation(); void publishToFhirServer(r); }}
+                        >
+                          {fhirPublishing === r.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <CloudUpload className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelected(r); }}>
                         Open
                       </Button>
