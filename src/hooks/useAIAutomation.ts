@@ -853,9 +853,47 @@ export function useAIAutomation() {
             source.includes("ghost ai") ||
             source.includes("auto doc")
           ) return;
-          cascadeLab(mrn, o.id, `${o.test_type ?? "Lab"}: resulted`).catch((e) =>
-            console.warn("[order-cascadeLab] failed", e),
-          );
+          (async () => {
+            const testType = o.test_type ?? "Lab";
+            const tmpl = findLabTemplateByName(testType);
+            if (tmpl) {
+              const sample = tmpl.gen();
+              const nowIso = new Date().toISOString();
+              await supabase
+                .from("lab_orders")
+                .update({
+                  loinc_code: tmpl.loinc,
+                  loinc_display: tmpl.name,
+                  coding_source: "protocol",
+                  coded_at: nowIso,
+                } as any)
+                .eq("id", o.id);
+              const summary = `${tmpl.name}: ${sample.value} ${tmpl.unit} [${sample.flag}] (ref ${tmpl.ref} ${tmpl.unit})`;
+              await cascadeLab(mrn, o.id, summary, {
+                name: tmpl.name,
+                unit: tmpl.unit,
+                referenceRange: tmpl.ref,
+                resultExample: `${sample.value} ${tmpl.unit} [${sample.flag}]`,
+                numericValue: sample.value,
+                flagCode: sample.flag,
+              });
+              return;
+            }
+            const hit = lookupLabLoinc(testType);
+            if (hit) {
+              const nowIso = new Date().toISOString();
+              await supabase
+                .from("lab_orders")
+                .update({
+                  loinc_code: hit.code,
+                  loinc_display: hit.display,
+                  coding_source: "umls",
+                  coded_at: nowIso,
+                } as any)
+                .eq("id", o.id);
+            }
+            await cascadeLab(mrn, o.id, `${testType}: resulted`);
+          })().catch((e) => console.warn("[order-cascadeLab] failed", e));
         },
       )
       .subscribe();
