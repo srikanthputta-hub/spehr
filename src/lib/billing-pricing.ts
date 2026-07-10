@@ -449,9 +449,10 @@ export function matchBillingValueSets(
 export function composeCharges(input: BuildChargesInput): PricedCharge[] {
   const los = lengthOfStayDays(input.admissionTime, input.dischargeTime);
   const out: PricedCharge[] = [];
+  const cm = input.chargeMaster;
 
   // Room & Board (LOS-driven)
-  out.push({
+  out.push(applyChargeMaster({
     code: "RB-101",
     codeSystem: "internal",
     description: `Inpatient Room & Board · General Ward (Room ${input.room ?? "—"})`,
@@ -459,10 +460,10 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
     quantity: los,
     unitPrice: TARIFF.bed_per_day,
     amount: los * TARIFF.bed_per_day,
-  });
+  }, cm, "room_board"));
 
   // Nursing
-  out.push({
+  out.push(applyChargeMaster({
     code: "NC-220",
     codeSystem: "internal",
     description: "Nursing Care · 24-hour bedside coverage",
@@ -470,10 +471,10 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
     quantity: los,
     unitPrice: TARIFF.nursing_per_day,
     amount: los * TARIFF.nursing_per_day,
-  });
+  }, cm, "nursing"));
 
   // Consultant rounding (daily attending fee)
-  out.push({
+  out.push(applyChargeMaster({
     code: "MD-350",
     codeSystem: "internal",
     description: "Attending Physician · Daily Rounding & Charting",
@@ -481,7 +482,7 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
     quantity: los,
     unitPrice: TARIFF.consultant_per_day,
     amount: los * TARIFF.consultant_per_day,
-  });
+  }, cm, "physician_consult"));
 
   // Medications — one ChargeItem per MedicationAdministration
   for (const m of input.meds) {
@@ -503,7 +504,19 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
   for (const l of input.labs) {
     const codedUnit = l.loinc ? LAB_PRICE_BY_LOINC[String(l.loinc).trim()] : undefined;
     const unit = codedUnit ?? priceForLabByName(l.name);
-    out.push({
+    const labCat = labInternalCategory(l.loinc, l.name);
+    // Prefer CPT/Revenue code from charge master; fall back to LOINC placeholder.
+    const cmHit = pickChargeMaster(cm, labCat);
+    out.push(cmHit ? {
+      code: cmHit.code,
+      codeSystem: cmCodeSystem(cmHit.system),
+      description: `Laboratory · ${l.name ?? "Diagnostic"}`,
+      category: "lab",
+      quantity: 1,
+      unitPrice: unit,
+      amount: unit,
+      serviceDate: l.collected_at ?? undefined,
+    } : {
       code: String(l.loinc ?? "LAB-000"),
       codeSystem: "LOINC",
       description: `Laboratory · ${l.name ?? "Diagnostic"}`,
@@ -517,7 +530,7 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
 
   // Pharmacy handling (only if meds present)
   if (input.meds.length > 0) {
-    out.push({
+    out.push(applyChargeMaster({
       code: "RX-601",
       codeSystem: "internal",
       description: "Pharmacy Dispensing & Handling Fee",
@@ -525,7 +538,7 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
       quantity: 1,
       unitPrice: TARIFF.pharmacy_handling,
       amount: TARIFF.pharmacy_handling,
-    });
+    }, cm, "pharmacy_fee"));
   }
 
   // Standard admin
