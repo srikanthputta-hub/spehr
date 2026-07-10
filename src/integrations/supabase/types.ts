@@ -2825,6 +2825,7 @@ export type Database = {
           exam_type: string
           facility_name: string | null
           id: string
+          image_url: string | null
           impression: string | null
           modality: string | null
           ordered_at: string
@@ -2848,6 +2849,7 @@ export type Database = {
           exam_type: string
           facility_name?: string | null
           id?: string
+          image_url?: string | null
           impression?: string | null
           modality?: string | null
           ordered_at?: string
@@ -2871,6 +2873,7 @@ export type Database = {
           exam_type?: string
           facility_name?: string | null
           id?: string
+          image_url?: string | null
           impression?: string | null
           modality?: string | null
           ordered_at?: string
