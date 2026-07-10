@@ -887,7 +887,7 @@ async function collectChangedMrns(
 // Build the full FHIR entry list for a single MRN by fetching all of its
 // active clinical rows and mapping them through the builders above.
 async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: any[]; skipped: string | null }> {
-  const [patientRes, medsRes, labsRes, radsRes, resultsRes, notesRes, condsRes] = await Promise.all([
+  const [patientRes, medsRes, labsRes, radsRes, resultsRes, notesRes, condsRes, provNotesRes, shiftNotesRes] = await Promise.all([
     admin.from("patients").select("mrn, name, first_name, last_name, dob, gender, biological_sex, phone, address, facility_name, admission_time, discharge_time, status, chief_complaint, diagnosis").eq("mrn", mrn).maybeSingle(),
     admin.from("medication_orders")
       .select("id, drug_name, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, created_at, updated_at, rxnorm_code, rxnorm_display")
@@ -907,6 +907,12 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
     admin.from("conditions")
       .select("display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at, created_at")
       .eq("mrn", mrn).order("coded_at", { ascending: false }).limit(20),
+    admin.from("provider_notes")
+      .select("id, note_type, author_name, author_role, content, signed_at, created_at")
+      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(50),
+    admin.from("shift_notes")
+      .select("id, author_nurse, note_text, sbar_situation, sbar_background, sbar_assessment, sbar_recommendation, esigned_at, created_at")
+      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(50),
   ]);
 
   const patient = (patientRes as any)?.data;
@@ -987,6 +993,19 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
   // `docref-{mrn}` (most recent note wins). Match that.
   const latestNote = (((notesRes as any)?.data ?? []) as any[])[0];
   if (latestNote) entries.push(entryFor(buildDocRef(mrn, latestNote)));
+
+  // Per-row DocumentReferences for provider progress notes (stable id
+  // `docref-provider-note-<id>`) and nurse SBAR shift notes
+  // (`docref-shift-note-<id>`). These are additive to the consolidated H&P
+  // docref above; distinct stable ids keep re-polls idempotent.
+  for (const pn of ((provNotesRes as any)?.data ?? []) as any[]) {
+    if (!pn?.id) continue;
+    entries.push(entryFor(buildProviderNoteDocRef(mrn, pn)));
+  }
+  for (const sn of ((shiftNotesRes as any)?.data ?? []) as any[]) {
+    if (!sn?.id) continue;
+    entries.push(entryFor(buildShiftNoteDocRef(mrn, sn)));
+  }
 
   return { entries, skipped: null };
 }
