@@ -299,6 +299,11 @@ const stableIds = {
   docRef: (mrn: string) => `docref-${mrn}`,
 };
 
+const noteStableIds = {
+  providerNote: (id: string) => `docref-provider-note-${id}`,
+  shiftNote: (id: string) => `docref-shift-note-${id}`,
+};
+
 function radStableId(r: any, mrn: string): string {
   const seed = r.snomed_code
     ? String(r.snomed_code).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 20)
@@ -578,6 +583,64 @@ function buildDocRef(mrn: string, n: any) {
   });
 }
 
+function buildProviderNoteDocRef(mrn: string, n: any) {
+  const noteType = n.note_type ?? "Progress Note";
+  const authorDisplay = [n.author_name, n.author_role].filter(Boolean).join(", ")
+    || n.author_name || "Provider";
+  return tagged({
+    resourceType: "DocumentReference",
+    id: noteStableIds.providerNote(String(n.id)),
+    status: "current",
+    type: { text: noteType },
+    subject: { reference: `Patient/${mrn}` },
+    context: { encounter: [{ reference: `Encounter/${stableIds.encounter(mrn)}` }] },
+    date: n.signed_at ?? n.created_at ?? undefined,
+    author: [{ display: authorDisplay }],
+    content: [
+      {
+        attachment: {
+          contentType: "text/plain",
+          data: b64encode(n.content ?? ""),
+          title: noteType,
+        },
+      },
+    ],
+  });
+}
+
+function buildShiftNoteDocRef(mrn: string, n: any) {
+  const noteType = "Nursing Note (SBAR)";
+  const authorDisplay = n.author_nurse || "Nurse";
+  const sbarParts = [
+    n.sbar_situation ? `S: ${n.sbar_situation}` : null,
+    n.sbar_background ? `B: ${n.sbar_background}` : null,
+    n.sbar_assessment ? `A: ${n.sbar_assessment}` : null,
+    n.sbar_recommendation ? `R: ${n.sbar_recommendation}` : null,
+  ].filter(Boolean);
+  const body = n.note_text && n.note_text.trim().length > 0
+    ? n.note_text
+    : sbarParts.join("\n");
+  return tagged({
+    resourceType: "DocumentReference",
+    id: noteStableIds.shiftNote(String(n.id)),
+    status: "current",
+    type: { text: noteType },
+    subject: { reference: `Patient/${mrn}` },
+    context: { encounter: [{ reference: `Encounter/${stableIds.encounter(mrn)}` }] },
+    date: n.esigned_at ?? n.created_at ?? undefined,
+    author: [{ display: authorDisplay }],
+    content: [
+      {
+        attachment: {
+          contentType: "text/plain",
+          data: b64encode(body ?? ""),
+          title: noteType,
+        },
+      },
+    ],
+  });
+}
+
 /* ---------------- Transaction bundle push -------------------------------- */
 
 async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number; body: any }> {
@@ -794,6 +857,16 @@ async function collectChangedMrns(
   bump((conds.data ?? []) as any[]);
   bump((pats.data ?? []) as any[]);
 
+  // provider_notes / shift_notes use patient_mrn — bump() handles both keys.
+  const [provNotes, shiftNotes] = await Promise.all([
+    admin.from("provider_notes").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("shift_notes").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+  ]);
+  if (provNotes.error) throw new Error(`provider_notes change scan: ${provNotes.error.message}`);
+  if (shiftNotes.error) throw new Error(`shift_notes change scan: ${shiftNotes.error.message}`);
+  bump((provNotes.data ?? []) as any[]);
+  bump((shiftNotes.data ?? []) as any[]);
+
   const totalDiscovered = byMrn.size;
 
   // Strict lex filter on (newest, mrn) > (cursor.ts, cursor.mrn).
@@ -814,7 +887,7 @@ async function collectChangedMrns(
 // Build the full FHIR entry list for a single MRN by fetching all of its
 // active clinical rows and mapping them through the builders above.
 async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: any[]; skipped: string | null }> {
-  const [patientRes, medsRes, labsRes, radsRes, resultsRes, notesRes, condsRes] = await Promise.all([
+  const [patientRes, medsRes, labsRes, radsRes, resultsRes, notesRes, condsRes, provNotesRes, shiftNotesRes] = await Promise.all([
     admin.from("patients").select("mrn, name, first_name, last_name, dob, gender, biological_sex, phone, address, facility_name, admission_time, discharge_time, status, chief_complaint, diagnosis").eq("mrn", mrn).maybeSingle(),
     admin.from("medication_orders")
       .select("id, drug_name, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, created_at, updated_at, rxnorm_code, rxnorm_display")
@@ -834,6 +907,12 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
     admin.from("conditions")
       .select("display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at, created_at")
       .eq("mrn", mrn).order("coded_at", { ascending: false }).limit(20),
+    admin.from("provider_notes")
+      .select("id, note_type, author_name, author_role, content, signed_at, created_at")
+      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(50),
+    admin.from("shift_notes")
+      .select("id, author_nurse, note_text, sbar_situation, sbar_background, sbar_assessment, sbar_recommendation, esigned_at, created_at")
+      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(50),
   ]);
 
   const patient = (patientRes as any)?.data;
@@ -914,6 +993,19 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
   // `docref-{mrn}` (most recent note wins). Match that.
   const latestNote = (((notesRes as any)?.data ?? []) as any[])[0];
   if (latestNote) entries.push(entryFor(buildDocRef(mrn, latestNote)));
+
+  // Per-row DocumentReferences for provider progress notes (stable id
+  // `docref-provider-note-<id>`) and nurse SBAR shift notes
+  // (`docref-shift-note-<id>`). These are additive to the consolidated H&P
+  // docref above; distinct stable ids keep re-polls idempotent.
+  for (const pn of ((provNotesRes as any)?.data ?? []) as any[]) {
+    if (!pn?.id) continue;
+    entries.push(entryFor(buildProviderNoteDocRef(mrn, pn)));
+  }
+  for (const sn of ((shiftNotesRes as any)?.data ?? []) as any[]) {
+    if (!sn?.id) continue;
+    entries.push(entryFor(buildShiftNoteDocRef(mrn, sn)));
+  }
 
   return { entries, skipped: null };
 }
