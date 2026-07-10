@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Upload, Loader2, FileJson, Copy, Play, Save, Check, Trash2 } from "lucide-react";
+import { Plus, Download, Upload, Loader2, FileJson, Copy, Play, Save, Check, Trash2, CloudUpload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ type ValueSet = {
   binding_strength: string | null;
   description: string | null;
   updated_at: string;
+  fhir_published_at?: string | null;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -52,6 +53,7 @@ export function ValueSetLibrary() {
   const [publishTarget, setPublishTarget] = useState<ValueSet | null>(null);
   const [deprecateTarget, setDeprecateTarget] = useState<ValueSet | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ValueSet | null>(null);
+  const [fhirPublishing, setFhirPublishing] = useState<string | null>(null);
   const [vsacOpen, setVsacOpen] = useState(false);
   const [vsacOid, setVsacOid] = useState("");
   const [vsacLoading, setVsacLoading] = useState(false);
@@ -127,6 +129,31 @@ export function ValueSetLibrary() {
       .order("status", { ascending: true })
       .order("name", { ascending: true });
     if (data) setRows(data as any);
+  };
+
+  const publishToFhirServer = async (row: ValueSet) => {
+    setFhirPublishing(row.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("fhir-publish-valueset", {
+        body: { id: row.id },
+      });
+      if (error) {
+        toast.error(`FHIR publish failed: ${error.message}`);
+        return;
+      }
+      const result = Array.isArray((data as any)?.results) ? (data as any).results[0] : null;
+      if (result && !result.ok) {
+        toast.error(`FHIR publish failed: ${result.error ?? "unknown error"}`);
+        return;
+      }
+      toast.success(`Published "${row.name}" to FHIR server`);
+      logActivity("published_to_fhir", `"${row.name}" pushed to FHIR server at ${result?.url ?? "upstream"}`, row.id);
+      await refreshRows();
+    } catch (e: any) {
+      toast.error(`FHIR publish failed: ${e?.message ?? e}`);
+    } finally {
+      setFhirPublishing(null);
+    }
   };
 
   const handleVsacFetch = async () => {
@@ -349,6 +376,36 @@ export function ValueSetLibrary() {
                   <td className="px-3 py-2 text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
                   <td className="px-3 py-2 text-right">
                     <div className="inline-flex items-center gap-1">
+                      {r.status === "published" && (
+                        r.fhir_published_at ? (
+                          <span
+                            title={`On FHIR server since ${new Date(r.fhir_published_at).toLocaleString()}`}
+                            className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+                          >
+                            <Check className="h-3 w-3" /> On FHIR · {new Date(r.fhir_published_at).toLocaleDateString()}
+                          </span>
+                        ) : (
+                          <span
+                            title="Local placeholder only — not pushed to real FHIR server"
+                            className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
+                          >
+                            Not on FHIR
+                          </span>
+                        )
+                      )}
+                      {r.status === "published" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={fhirPublishing === r.id}
+                          title="Publish to FHIR server"
+                          onClick={(e) => { e.stopPropagation(); void publishToFhirServer(r); }}
+                        >
+                          {fhirPublishing === r.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <CloudUpload className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelected(r); }}>
                         Open
                       </Button>

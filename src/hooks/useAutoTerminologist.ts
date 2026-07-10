@@ -436,6 +436,80 @@ function findScanMatchForRequest(
 // every 60s tick — key = request id, value = last log timestamp + notes.
 const requestLogTracker = new Map<string, { loggedAt: number; notes: string }>();
 
+/* ------------------------------------------------------------------ */
+/*  UMLS-first suggestion — check for an existing real value set       */
+/*  before self-authoring a fresh draft from thin air.                 */
+/* ------------------------------------------------------------------ */
+
+function pickSabForRequest(vocabHint: string | null | undefined): {
+  sab: string; vocabLabel: SeedCode["vocabulary"];
+} {
+  const v = String(vocabHint ?? "").toLowerCase();
+  if (v.includes("icd")) return { sab: "ICD10CM", vocabLabel: "ICD-10" };
+  if (v.includes("loinc")) return { sab: "LNC", vocabLabel: "LOINC" };
+  if (v.includes("rxnorm") || v.includes("rx")) return { sab: "RXNORM", vocabLabel: "RxNorm" };
+  return { sab: "SNOMEDCT_US", vocabLabel: "SNOMED CT" };
+}
+
+/**
+ * Search UMLS for concepts matching the requested term. If UMLS returns a
+ * plausible set (≥3 coded matches in a real vocabulary), record the
+ * suggestion on the request row and skip self-authoring — the terminologist
+ * can approve the import from the Auto Terminologist Activity panel.
+ *
+ * Returns true when a suggestion was staged (caller should skip drafting).
+ */
+async function tryUmlsSuggestion(req: any): Promise<boolean> {
+  const requestedName = String(req?.requested_name ?? "").trim();
+  if (!requestedName) return false;
+  const { sab, vocabLabel } = pickSabForRequest(req?.vocabulary);
+
+  try {
+    const { data, error } = await supabase.functions.invoke("umls-proxy", {
+      body: { action: "search", params: { string: requestedName, sabs: sab, pageSize: 15, searchType: "words", returnIdType: "sourceUi" } },
+    });
+    if (error) return false;
+    const results: any[] = data?.result?.results ?? [];
+    const codes: SeedCode[] = [];
+    const seen = new Set<string>();
+    for (const r of results) {
+      const code = String(r?.ui ?? "").trim();
+      const display = String(r?.name ?? "").trim();
+      if (!code || code === "NONE" || code === "NO RESULTS" || seen.has(code)) continue;
+      if (!codeShapeMatches(vocabLabel, code)) continue;
+      seen.add(code);
+      codes.push({ code, display, vocabulary: vocabLabel });
+      if (codes.length >= 15) break;
+    }
+    if (codes.length < 3) return false;
+
+    const now = new Date().toISOString();
+    const notes = `UMLS match: ${codes.length} ${vocabLabel} concept(s) available for import — awaiting terminologist approval.`;
+    await supabase
+      .from("terminology_requests" as any)
+      .update({
+        status: "umls-suggested",
+        seed_codes: codes,
+        vocabulary: vocabLabel,
+        quality_gate_notes: notes,
+        updated_at: now,
+      } as any)
+      .eq("id", req.id);
+
+    const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    await logActivity({
+      action: "umls-suggested-import",
+      message: `${timeLabel} — UMLS lookup for '${requestedName}' returned ${codes.length} ${vocabLabel} concept(s) — staged as import suggestion (awaiting terminologist approval).`,
+      theme: requestedName,
+      codes_count: codes.length,
+    });
+    return true;
+  } catch (e) {
+    console.warn("[auto-term] UMLS suggestion failed", e);
+    return false;
+  }
+}
+
 async function processPendingTerminologyRequests(
   byTheme: Map<string, Array<{ hit: CodeHit; n: number }>>,
 ): Promise<{ drafted: number; gated: number }> {
@@ -459,6 +533,16 @@ async function processPendingTerminologyRequests(
     try {
       const requestedName = String(req.requested_name ?? "").trim();
       if (!requestedName) continue;
+
+      // UMLS-first: prefer an existing real value set over self-authoring.
+      // If UMLS returns a plausible match, stage it as a suggestion and
+      // let a human terminologist approve the import from the panel.
+      const suggested = await tryUmlsSuggestion(req);
+      if (suggested) {
+        requestLogTracker.delete(String(req.id));
+        continue;
+      }
+
       let seedCodes: SeedCode[] = Array.isArray(req.seed_codes) ? (req.seed_codes as any[])
         .map((s) => ({
           code: String(s?.code ?? "").trim(),

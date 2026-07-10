@@ -917,6 +917,7 @@ export type Database = {
           codes: Json
           created_at: string
           description: string | null
+          fhir_published_at: string | null
           fhir_url: string | null
           id: string
           intensional_rule: Json | null
@@ -940,6 +941,7 @@ export type Database = {
           codes?: Json
           created_at?: string
           description?: string | null
+          fhir_published_at?: string | null
           fhir_url?: string | null
           id?: string
           intensional_rule?: Json | null
@@ -963,6 +965,7 @@ export type Database = {
           codes?: Json
           created_at?: string
           description?: string | null
+          fhir_published_at?: string | null
           fhir_url?: string | null
           id?: string
           intensional_rule?: Json | null

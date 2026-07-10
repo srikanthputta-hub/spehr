@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Bot, RefreshCw, CheckCircle2, AlertTriangle, Pause, Clock, Inbox } from "lucide-react";
-import { Trash2 } from "lucide-react";
+import { Trash2, Download } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
+import { toast } from "sonner";
 
 type LogRow = {
   id: string;
@@ -57,11 +58,15 @@ type RequestRow = {
   quality_gate_notes: string | null;
   requested_at: string;
   resolved_at: string | null;
+  seed_codes?: any[] | null;
+  vocabulary?: string | null;
+  clinical_application?: string | null;
 };
 
 function statusBadge(status: string | null): string {
   const s = String(status ?? "pending").toLowerCase();
   if (s === "drafted") return "text-sky-700 bg-sky-50 border-sky-200";
+  if (s === "umls-suggested") return "text-indigo-700 bg-indigo-50 border-indigo-200";
   if (s === "published") return "text-emerald-700 bg-emerald-50 border-emerald-200";
   if (s === "rejected") return "text-red-700 bg-red-50 border-red-200";
   return "text-amber-700 bg-amber-50 border-amber-200"; // pending
@@ -75,6 +80,59 @@ export function AutoTerminologistActivity() {
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [requestQuery, setRequestQuery] = useState("");
   const [draftedQuery, setDraftedQuery] = useState("");
+  const [importingId, setImportingId] = useState<string | null>(null);
+
+  const importFromUmls = async (r: RequestRow) => {
+    const codes = Array.isArray(r.seed_codes) ? r.seed_codes : [];
+    if (codes.length === 0) {
+      toast.error("No UMLS codes staged on this request");
+      return;
+    }
+    setImportingId(r.id);
+    try {
+      const now = new Date().toISOString();
+      const name = r.requested_name;
+      const vocab = r.vocabulary || (codes[0] as any)?.vocabulary || "SNOMED CT";
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const { data: inserted, error: insertErr } = await supabase
+        .from("custom_value_sets")
+        .insert({
+          name,
+          system: String(vocab).replace(" ", "-"),
+          vocabulary: vocab,
+          type: "extensional",
+          codes,
+          status: "draft",
+          description: `Imported from UMLS in response to terminology request from ${r.requesting_consumer}: ${r.justification ?? ""}`.trim(),
+          clinical_application: r.clinical_application ?? null,
+          fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
+          oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
+          change_history: [{ at: now, actor: "S.P.E.H.R. Terminology Services", change: `Imported from UMLS (${codes.length} concepts) — ${vocab}` }],
+        } as any)
+        .select("id")
+        .single();
+      if (insertErr) throw insertErr;
+      const valueSetId = (inserted as any)?.id;
+      await supabase
+        .from("terminology_requests" as any)
+        .update({ status: "drafted", value_set_id: valueSetId, resolved_at: now, updated_at: now, quality_gate_notes: `Imported from UMLS (${codes.length} concepts).` } as any)
+        .eq("id", r.id);
+      await supabase.from("auto_terminologist_log" as any).insert({
+        action: "drafted",
+        message: `Imported '${name}' from UMLS (${codes.length} ${vocab} concepts) — status: draft — awaiting human review.`,
+        theme: name,
+        codes_count: codes.length,
+        value_set_id: valueSetId,
+      } as any);
+      setRequests((rs) => rs.map((x) => x.id === r.id ? { ...x, status: "drafted", resolved_at: now } : x));
+      toast.success(`Imported "${name}" from UMLS as draft value set`);
+    } catch (e: any) {
+      console.warn("[auto-term] UMLS import failed", e);
+      toast.error(`Import failed: ${e?.message ?? e}`);
+    } finally {
+      setImportingId(null);
+    }
+  };
 
   const lastRunAt = useMemo(() => latest?.run_at, [latest]);
 
@@ -133,7 +191,7 @@ export function AutoTerminologistActivity() {
       const { data } = await supabase
         .from("terminology_requests" as any)
         .select(
-          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at",
+          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application",
         )
         .order("requested_at", { ascending: false })
         .limit(50);
@@ -273,6 +331,18 @@ export function AutoTerminologistActivity() {
                     <span>({formatAgo(r.requested_at)})</span>
                   </div>
                 </div>
+                {r.status === "umls-suggested" && (
+                  <button
+                    type="button"
+                    disabled={importingId === r.id}
+                    onClick={() => void importFromUmls(r)}
+                    className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+                    title="Create a draft value set from these UMLS concepts"
+                  >
+                    <Download className="h-3 w-3" />
+                    {importingId === r.id ? "Importing…" : "Import from UMLS"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={async () => {
