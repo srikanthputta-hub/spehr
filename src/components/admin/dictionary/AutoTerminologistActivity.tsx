@@ -137,7 +137,7 @@ export function AutoTerminologistActivity() {
       const { data } = await supabase
         .from("terminology_requests" as any)
         .select(
-          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at",
+          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application",
         )
         .order("requested_at", { ascending: false })
         .limit(50);
