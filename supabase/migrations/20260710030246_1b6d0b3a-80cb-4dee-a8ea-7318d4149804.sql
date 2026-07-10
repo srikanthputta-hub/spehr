@@ -1,0 +1,1 @@
+ALTER TABLE public.radiology_orders ADD COLUMN IF NOT EXISTS image_url text;

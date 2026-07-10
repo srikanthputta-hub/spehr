@@ -646,6 +646,7 @@ type RadRow = {
   resulted_at: string | null;
   requested_by: string | null;
   created_at: string | null;
+  image_url: string | null;
 };
 
 function useRadiology(mrn: string) {
@@ -657,7 +658,7 @@ function useRadiology(mrn: string) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase.from("radiology_orders") as any)
         .select(
-          "id, exam_type, modality, body_part, status, report_text, impression, ordered_at, resulted_at, requested_by, created_at",
+          "id, exam_type, modality, body_part, status, report_text, impression, ordered_at, resulted_at, requested_by, created_at, image_url",
         )
         .eq("patient_mrn", mrn)
         .order("ordered_at", { ascending: false })
@@ -736,6 +737,23 @@ function RadiologyView({ mrn }: { mrn: string }) {
               <td className={tdClass}>
                 {resulted && hasBody ? (
                   <div className="space-y-1">
+                    {r.image_url ? (
+                      <a
+                        href={r.image_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block rounded border border-slate-200 overflow-hidden bg-black/5 hover:opacity-90 transition-opacity w-fit"
+                        title="Open radiograph in new tab"
+                      >
+                        <img
+                          src={r.image_url}
+                          alt={`Radiograph: ${r.exam_type ?? "imaging"}`}
+                          className="object-contain"
+                          style={{ maxHeight: 200 }}
+                          loading="lazy"
+                        />
+                      </a>
+                    ) : null}
                     {r.impression ? (
                       <div className="text-[12px] font-semibold text-slate-900">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mr-1">

@@ -370,6 +370,13 @@ async function handleRadiologyReport(admin: any, resource: any): Promise<IngestO
   const presentedB64: string | null = resource?.presentedForm?.[0]?.data ?? null;
   const reportText = conclusion ?? base64DecodeSafe(presentedB64);
 
+  // Scan presentedForm for an image entry (contentType image/*, url set).
+  const presentedForms: any[] = Array.isArray(resource?.presentedForm) ? resource.presentedForm : [];
+  const imageEntry = presentedForms.find(
+    (p: any) => typeof p?.contentType === "string" && p.contentType.toLowerCase().startsWith("image/") && typeof p?.url === "string" && p.url,
+  );
+  const imageUrl: string | null = imageEntry?.url ?? null;
+
   // 1) Prefer match by svcreq_fhir_id.
   let matched: any = null;
   if (svcReqId) {
@@ -402,6 +409,7 @@ async function handleRadiologyReport(admin: any, resource: any): Promise<IngestO
   if (reportText) patch.report_text = reportText;
   if (conclusion) patch.impression = conclusion;
   if (svcReqId) patch.svcreq_fhir_id = svcReqId;
+  if (imageUrl) patch.image_url = imageUrl;
 
   if (matched) {
     const { error } = await admin.from("radiology_orders").update(patch).eq("id", matched.id);
@@ -425,6 +433,7 @@ async function handleRadiologyReport(admin: any, resource: any): Promise<IngestO
     resulted_at: new Date().toISOString(),
     created_by_type: "system",
   };
+  if (imageUrl) insertRow.image_url = imageUrl;
   const ins = await admin.from("radiology_orders").insert(insertRow).select("id").maybeSingle();
   if (ins.error) return { ok: false, reason: ins.error.message };
   return { ok: true, action: "inserted", localId: ins.data?.id, mrn: subjectMrn };

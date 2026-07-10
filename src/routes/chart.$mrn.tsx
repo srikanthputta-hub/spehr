@@ -1474,6 +1474,23 @@ function RadiologyStudyCard({ study }: { study: any }) {
         </div>
       </header>
       <div className="p-4 space-y-2 text-sm">
+        {study.image_url && (
+          <a
+            href={study.image_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-md border border-border overflow-hidden bg-black/5 hover:opacity-90 transition-opacity"
+            title="Open radiograph in new tab"
+          >
+            <img
+              src={study.image_url}
+              alt={`Radiograph: ${study.exam_type ?? "imaging study"}`}
+              className="w-full object-contain"
+              style={{ maxHeight: 320 }}
+              loading="lazy"
+            />
+          </a>
+        )}
         {study.clinical_indication && (
           <div className="text-xs">
             <span className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Indication:</span>{" "}
