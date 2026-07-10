@@ -28,7 +28,6 @@ import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]
 import { Route as ApiPublicUmlsValidateCodeRouteImport } from './routes/api/public/umls-validate-code'
 import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
-import { Route as ApiPublicHooksRegenInvoiceRouteImport } from './routes/api/public/hooks/regen-invoice'
 import { Route as ApiPublicHooksAutoDocRouteImport } from './routes/api/public/hooks/auto-doc'
 
 const TasksRoute = TasksRouteImport.update({
@@ -130,12 +129,6 @@ const Char91DotmcpChar93InvokeToolToolRoute =
     path: '/.mcp/invoke-tool/$tool',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicHooksRegenInvoiceRoute =
-  ApiPublicHooksRegenInvoiceRouteImport.update({
-    id: '/api/public/hooks/regen-invoice',
-    path: '/api/public/hooks/regen-invoice',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiPublicHooksAutoDocRoute = ApiPublicHooksAutoDocRouteImport.update({
   id: '/api/public/hooks/auto-doc',
   path: '/api/public/hooks/auto-doc',
@@ -163,7 +156,6 @@ export interface FileRoutesByFullPath {
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
-  '/api/public/hooks/regen-invoice': typeof ApiPublicHooksRegenInvoiceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -186,7 +178,6 @@ export interface FileRoutesByTo {
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
-  '/api/public/hooks/regen-invoice': typeof ApiPublicHooksRegenInvoiceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -210,7 +201,6 @@ export interface FileRoutesById {
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
-  '/api/public/hooks/regen-invoice': typeof ApiPublicHooksRegenInvoiceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -235,7 +225,6 @@ export interface FileRouteTypes {
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
-    | '/api/public/hooks/regen-invoice'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -258,7 +247,6 @@ export interface FileRouteTypes {
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
-    | '/api/public/hooks/regen-invoice'
   id:
     | '__root__'
     | '/'
@@ -281,7 +269,6 @@ export interface FileRouteTypes {
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
-    | '/api/public/hooks/regen-invoice'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -305,7 +292,6 @@ export interface RootRouteChildren {
   ApiPublicUmlsSearchRoute: typeof ApiPublicUmlsSearchRoute
   ApiPublicUmlsValidateCodeRoute: typeof ApiPublicUmlsValidateCodeRoute
   ApiPublicHooksAutoDocRoute: typeof ApiPublicHooksAutoDocRoute
-  ApiPublicHooksRegenInvoiceRoute: typeof ApiPublicHooksRegenInvoiceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -443,13 +429,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotmcpChar93InvokeToolToolRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/hooks/regen-invoice': {
-      id: '/api/public/hooks/regen-invoice'
-      path: '/api/public/hooks/regen-invoice'
-      fullPath: '/api/public/hooks/regen-invoice'
-      preLoaderRoute: typeof ApiPublicHooksRegenInvoiceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/public/hooks/auto-doc': {
       id: '/api/public/hooks/auto-doc'
       path: '/api/public/hooks/auto-doc'
@@ -482,7 +461,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicUmlsSearchRoute: ApiPublicUmlsSearchRoute,
   ApiPublicUmlsValidateCodeRoute: ApiPublicUmlsValidateCodeRoute,
   ApiPublicHooksAutoDocRoute: ApiPublicHooksAutoDocRoute,
-  ApiPublicHooksRegenInvoiceRoute: ApiPublicHooksRegenInvoiceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
