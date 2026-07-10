@@ -857,6 +857,16 @@ async function collectChangedMrns(
   bump((conds.data ?? []) as any[]);
   bump((pats.data ?? []) as any[]);
 
+  // provider_notes / shift_notes use patient_mrn — bump() handles both keys.
+  const [provNotes, shiftNotes] = await Promise.all([
+    admin.from("provider_notes").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin.from("shift_notes").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+  ]);
+  if (provNotes.error) throw new Error(`provider_notes change scan: ${provNotes.error.message}`);
+  if (shiftNotes.error) throw new Error(`shift_notes change scan: ${shiftNotes.error.message}`);
+  bump((provNotes.data ?? []) as any[]);
+  bump((shiftNotes.data ?? []) as any[]);
+
   const totalDiscovered = byMrn.size;
 
   // Strict lex filter on (newest, mrn) > (cursor.ts, cursor.mrn).
