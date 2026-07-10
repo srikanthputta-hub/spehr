@@ -189,6 +189,26 @@ export async function runAutoDocPipeline(mrn: string) {
     `Planned ${tpl.meds.length} med(s) + ${tpl.labs.length} lab(s) for ${tpl.condition}; client cascade owns insertion (T+20/35/50s)`,
     { meds: tpl.meds.map((m) => m.name), labs: tpl.labs.map((l) => l.name) },
   );
+
+  // Radiology / imaging orders — insert into public.radiology_orders (the
+  // same table `RadiologyOrderPanel.tsx` writes into) and push a FHIR
+  // ServiceRequest to the shared Medblocks server so the sibling Health
+  // Hub Suite imaging pipeline picks it up. Idempotent: stable id per
+  // (mrn, exam) and DB-side dedup by (patient_mrn, exam_type, source).
+  try {
+    const imgResults = await orderImagingForMrn(mrn, tpl, p);
+    if (imgResults.length > 0) {
+      await log(
+        mrn,
+        "order",
+        `Auto Doc ordered ${imgResults.map((r) => r.examType).join(", ")} for ${tpl.condition}`,
+        { imaging: imgResults },
+      );
+    }
+  } catch (e) {
+    await log(mrn, "order", `Radiology order failed: ${(e as Error).message}`, null, "warn");
+  }
+
   await setRunStage(mrn, "result");
   await log(mrn, "result", "Result generation deferred to staged cascade");
 
