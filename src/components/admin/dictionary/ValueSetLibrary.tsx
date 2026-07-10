@@ -131,6 +131,31 @@ export function ValueSetLibrary() {
     if (data) setRows(data as any);
   };
 
+  const publishToFhirServer = async (row: ValueSet) => {
+    setFhirPublishing(row.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("fhir-publish-valueset", {
+        body: { id: row.id },
+      });
+      if (error) {
+        toast.error(`FHIR publish failed: ${error.message}`);
+        return;
+      }
+      const result = Array.isArray((data as any)?.results) ? (data as any).results[0] : null;
+      if (result && !result.ok) {
+        toast.error(`FHIR publish failed: ${result.error ?? "unknown error"}`);
+        return;
+      }
+      toast.success(`Published "${row.name}" to FHIR server`);
+      logActivity("published_to_fhir", `"${row.name}" pushed to FHIR server at ${result?.url ?? "upstream"}`, row.id);
+      await refreshRows();
+    } catch (e: any) {
+      toast.error(`FHIR publish failed: ${e?.message ?? e}`);
+    } finally {
+      setFhirPublishing(null);
+    }
+  };
+
   const handleVsacFetch = async () => {
     const oid = vsacOid.trim();
     if (!oid) return;
