@@ -331,6 +331,18 @@ export function AutoTerminologistActivity() {
                     <span>({formatAgo(r.requested_at)})</span>
                   </div>
                 </div>
+                {r.status === "umls-suggested" && (
+                  <button
+                    type="button"
+                    disabled={importingId === r.id}
+                    onClick={() => void importFromUmls(r)}
+                    className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+                    title="Create a draft value set from these UMLS concepts"
+                  >
+                    <Download className="h-3 w-3" />
+                    {importingId === r.id ? "Importing…" : "Import from UMLS"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={async () => {
