@@ -3692,6 +3692,18 @@ export type Database = {
         Returns: string
       }
       purge_expired_local_cache: { Args: never; Returns: Json }
+      resolve_simulated_lab_result: {
+        Args: { p_test_type: string }
+        Returns: {
+          analyte: string
+          flag: string
+          loinc_code: string
+          loinc_display: string
+          reference_range: string
+          unit: string
+          value_num: number
+        }[]
+      }
       sweep_stalled_clinical_orders: { Args: never; Returns: undefined }
       text_to_bytea: { Args: { data: string }; Returns: string }
       urlencode:
