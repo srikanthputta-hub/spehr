@@ -16,7 +16,7 @@ export type ChargeCategory =
 
 export interface PricedCharge {
   code: string;
-  codeSystem: "internal" | "LOINC" | "RxNorm" | "CPT" | "ICD-10";
+  codeSystem: "internal" | "LOINC" | "RxNorm" | "CPT" | "ICD-10" | "Revenue Code";
   description: string;
   category: ChargeCategory;
   quantity: number;
