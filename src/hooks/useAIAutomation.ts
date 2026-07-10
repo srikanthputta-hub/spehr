@@ -378,11 +378,44 @@ async function cascadeLab(
       resultedAt,
     );
   }
+  // Structured results_data — array of metric entries. Shape covers every
+  // reader currently in the codebase:
+  //   • lab-board.tsx reads r.test / r.value / r.unit / r.flag
+  //   • chart.$mrn.tsx reads m.name / m.value / m.unit / m.reference / m.flag
+  //   • fhir-ingest.ts writes { flag, referenceRange } on inbound Observations
+  // so we emit all of the above plus the LOINC code for FHIR symmetry.
+  let resultsData: Array<Record<string, unknown>> | null = null;
+  if (labMeta && typeof labMeta.numericValue === "number" && labMeta.flagCode) {
+    const flagWord =
+      labMeta.flagCode === "C"
+        ? "CRITICAL"
+        : labMeta.flagCode === "H"
+          ? "HIGH"
+          : labMeta.flagCode === "L"
+            ? "LOW"
+            : "NORMAL";
+    const profile = LAB_PROFILE[labMeta.name];
+    resultsData = [
+      {
+        test: labMeta.name,
+        name: labMeta.name,
+        analyte: labMeta.name,
+        value: labMeta.numericValue,
+        unit: labMeta.unit,
+        flag: flagWord,
+        reference: labMeta.referenceRange,
+        range: labMeta.referenceRange,
+        referenceRange: labMeta.referenceRange,
+        loinc: profile?.loinc ?? null,
+      },
+    ];
+  }
   await supabase
     .from("lab_orders")
     .update({
       status: "Reported",
       result_value: elaborate,
+      results_data: resultsData as any,
       collected_at: collectedAt,
       resulted_at: resultedAt,
     } as any)
