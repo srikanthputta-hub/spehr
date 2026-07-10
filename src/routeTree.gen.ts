@@ -27,6 +27,7 @@ import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } fr
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
 import { Route as ApiPublicUmlsValidateCodeRouteImport } from './routes/api/public/umls-validate-code'
 import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
+import { Route as ApiPublicDirectoryRouteImport } from './routes/api/public/directory'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as ApiPublicHooksGenerateInvoiceRouteImport } from './routes/api/public/hooks/generate-invoice'
 import { Route as ApiPublicHooksBackfillRadiologyRouteImport } from './routes/api/public/hooks/backfill-radiology'
@@ -125,6 +126,11 @@ const ApiPublicUmlsSearchRoute = ApiPublicUmlsSearchRouteImport.update({
   path: '/api/public/umls-search',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicDirectoryRoute = ApiPublicDirectoryRouteImport.update({
+  id: '/api/public/directory',
+  path: '/api/public/directory',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const Char91DotmcpChar93InvokeToolToolRoute =
   Char91DotmcpChar93InvokeToolToolRouteImport.update({
     id: '/.mcp/invoke-tool/$tool',
@@ -167,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/api/public/directory': typeof ApiPublicDirectoryRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
@@ -191,6 +198,7 @@ export interface FileRoutesByTo {
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/api/public/directory': typeof ApiPublicDirectoryRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
@@ -216,6 +224,7 @@ export interface FileRoutesById {
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/api/public/directory': typeof ApiPublicDirectoryRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
@@ -242,6 +251,7 @@ export interface FileRouteTypes {
     | '/chart/$mrn'
     | '/patient/$mrn'
     | '/.mcp/invoke-tool/$tool'
+    | '/api/public/directory'
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
@@ -266,6 +276,7 @@ export interface FileRouteTypes {
     | '/chart/$mrn'
     | '/patient/$mrn'
     | '/.mcp/invoke-tool/$tool'
+    | '/api/public/directory'
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
@@ -290,6 +301,7 @@ export interface FileRouteTypes {
     | '/chart/$mrn'
     | '/patient/$mrn'
     | '/.mcp/invoke-tool/$tool'
+    | '/api/public/directory'
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
@@ -315,6 +327,7 @@ export interface RootRouteChildren {
   ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
+  ApiPublicDirectoryRoute: typeof ApiPublicDirectoryRoute
   ApiPublicUmlsSearchRoute: typeof ApiPublicUmlsSearchRoute
   ApiPublicUmlsValidateCodeRoute: typeof ApiPublicUmlsValidateCodeRoute
   ApiPublicHooksAutoDocRoute: typeof ApiPublicHooksAutoDocRoute
@@ -450,6 +463,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicUmlsSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/directory': {
+      id: '/api/public/directory'
+      path: '/api/public/directory'
+      fullPath: '/api/public/directory'
+      preLoaderRoute: typeof ApiPublicDirectoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/.mcp/invoke-tool/$tool': {
       id: '/.mcp/invoke-tool/$tool'
       path: '/.mcp/invoke-tool/$tool'
@@ -500,6 +520,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
+  ApiPublicDirectoryRoute: ApiPublicDirectoryRoute,
   ApiPublicUmlsSearchRoute: ApiPublicUmlsSearchRoute,
   ApiPublicUmlsValidateCodeRoute: ApiPublicUmlsValidateCodeRoute,
   ApiPublicHooksAutoDocRoute: ApiPublicHooksAutoDocRoute,
