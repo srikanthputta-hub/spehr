@@ -151,8 +151,6 @@ function LoginScreen() {
 
               <a
                 href={ANCILLARY_URL}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="w-full flex items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] px-5 py-4 text-left shadow-lg shadow-black/30 hover:border-[#5cbdb9]/40 hover:bg-white/[0.06] transition cursor-pointer group"
               >
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2d8a9e]/15 text-[#5cbdb9]">
@@ -167,8 +165,6 @@ function LoginScreen() {
 
               <a
                 href={ANALYTICS_URL}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="w-full flex items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] px-5 py-4 text-left shadow-lg shadow-black/30 hover:border-[#5cbdb9]/40 hover:bg-white/[0.06] transition cursor-pointer group"
               >
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2d8a9e]/15 text-[#5cbdb9]">
