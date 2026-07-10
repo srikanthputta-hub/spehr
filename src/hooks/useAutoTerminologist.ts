@@ -533,6 +533,16 @@ async function processPendingTerminologyRequests(
     try {
       const requestedName = String(req.requested_name ?? "").trim();
       if (!requestedName) continue;
+
+      // UMLS-first: prefer an existing real value set over self-authoring.
+      // If UMLS returns a plausible match, stage it as a suggestion and
+      // let a human terminologist approve the import from the panel.
+      const suggested = await tryUmlsSuggestion(req);
+      if (suggested) {
+        requestLogTracker.delete(String(req.id));
+        continue;
+      }
+
       let seedCodes: SeedCode[] = Array.isArray(req.seed_codes) ? (req.seed_codes as any[])
         .map((s) => ({
           code: String(s?.code ?? "").trim(),
