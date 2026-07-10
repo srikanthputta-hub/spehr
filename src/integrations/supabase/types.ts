@@ -1267,6 +1267,8 @@ export type Database = {
           paid_at: string | null
           patient_name: string | null
           payload: Json
+          primary_diagnosis_display: string | null
+          primary_diagnosis_icd10: string | null
           status: string
           subtotal: number
           tax: number
@@ -1285,6 +1287,8 @@ export type Database = {
           paid_at?: string | null
           patient_name?: string | null
           payload?: Json
+          primary_diagnosis_display?: string | null
+          primary_diagnosis_icd10?: string | null
           status?: string
           subtotal?: number
           tax?: number
@@ -1303,6 +1307,8 @@ export type Database = {
           paid_at?: string | null
           patient_name?: string | null
           payload?: Json
+          primary_diagnosis_display?: string | null
+          primary_diagnosis_icd10?: string | null
           status?: string
           subtotal?: number
           tax?: number
