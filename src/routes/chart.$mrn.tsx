@@ -226,6 +226,21 @@ function ChartPage() {
     };
   }, [mrn]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("provider_notes")
+        .select("*")
+        .eq("patient_mrn", mrn)
+        .order("created_at", { ascending: false });
+      if (!cancelled && data) setProviderNotes(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mrn]);
+
   // Clear unread labs alert when nurse opens the chart
 
   useEffect(() => {
