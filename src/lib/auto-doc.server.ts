@@ -196,13 +196,13 @@ export async function runAutoDocPipeline(mrn: string) {
   // Hub Suite imaging pipeline picks it up. Idempotent: stable id per
   // (mrn, exam) and DB-side dedup by (patient_mrn, exam_type, source).
   try {
-    const imgResults = await orderImagingForMrn(mrn, tpl, p);
-    if (imgResults.length > 0) {
+    const imgOut = await orderImagingForMrn(mrn, tpl, p);
+    if (imgOut.results.length > 0) {
       await log(
         mrn,
         "order",
-        `Auto Doc ordered ${imgResults.map((r) => r.examType).join(", ")} for ${tpl.condition}`,
-        { imaging: imgResults },
+        `Auto Doc ordered ${imgOut.results.map((r) => r.examType).join(", ")} for ${tpl.condition}`,
+        { imaging: imgOut.results, inserted: imgOut.inserted, errors: imgOut.errors },
       );
     }
   } catch (e) {
