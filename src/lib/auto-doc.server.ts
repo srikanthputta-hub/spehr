@@ -593,11 +593,23 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   // back to the denormalised patients.icd10_codes array when empty.
   const { data: condRows } = await sb
     .from("conditions")
-    .select("icd10_code")
-    .eq("mrn", mrn);
-  let icd10Codes: string[] = ((condRows ?? []) as any[])
-    .map((r) => r?.icd10_code)
-    .filter((c: unknown): c is string => typeof c === "string" && c.length > 0);
+    .select("icd10_code, icd10_display, onset_date, created_at, clinical_status")
+    .eq("mrn", mrn)
+    .order("onset_date", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true });
+  const condsWithIcd10 = ((condRows ?? []) as any[]).filter(
+    (r) => typeof r?.icd10_code === "string" && r.icd10_code.length > 0,
+  );
+  let icd10Codes: string[] = condsWithIcd10.map((r) => r.icd10_code as string);
+  // Primary diagnosis = earliest recorded active condition with an ICD-10 code
+  // (first non-'resolved' row after ordering by onset then created_at).
+  const primaryCond =
+    condsWithIcd10.find(
+      (r) => String(r?.clinical_status ?? "active").toLowerCase() !== "resolved",
+    ) ?? condsWithIcd10[0] ?? null;
+  const primaryIcd10: string | null = primaryCond?.icd10_code ?? null;
+  const primaryIcd10Display: string | null =
+    primaryCond?.icd10_display ?? null;
   if (icd10Codes.length === 0) {
     const { data: pRow } = await sb
       .from("patients")
@@ -617,6 +629,30 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     .select("name, codes, clinical_application, status")
     .eq("status", "published")
     .eq("clinical_application", "Billing");
+
+  // Locate the Charge Master value set — used to substitute real CPT / UB-04
+  // Revenue codes on room/board, nursing, physician time, pharmacy, and lab
+  // charge lines. Kept as a separate concern from ICD-10 risk-adjustment
+  // matching so both remain independently governable.
+  const chargeMasterVs = ((billingVs ?? []) as any[]).find((v) =>
+    /charge\s*master/i.test(String(v?.name ?? "")),
+  );
+  const chargeMaster: Array<{
+    code: string;
+    display?: string;
+    system?: string;
+    internal_category?: string;
+  }> = Array.isArray(chargeMasterVs?.codes)
+    ? (chargeMasterVs.codes as any[]).map((e) => ({
+        code: String(e?.code ?? ""),
+        display: e?.display ? String(e.display) : undefined,
+        system: e?.system ? String(e.system) : undefined,
+        internal_category: e?.internal_category
+          ? String(e.internal_category)
+          : undefined,
+      }))
+    : [];
+
   const billingMatches = matchBillingValueSets(
     icd10Codes,
     ((billingVs ?? []) as any[]).map((v) => ({
@@ -704,6 +740,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     meds,
     labs,
     billingMatches,
+    chargeMaster,
   };
   const charges = composeCharges(input);
   const { subtotal, tax, total } = summarizeCharges(charges);
