@@ -227,6 +227,7 @@ function ChartPage() {
   }, [mrn]);
 
   // Clear unread labs alert when nurse opens the chart
+
   useEffect(() => {
     (async () => {
       await supabase
