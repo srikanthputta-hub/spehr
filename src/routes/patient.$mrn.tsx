@@ -1978,8 +1978,8 @@ function PatientChart() {
                 <WidgetHeader title="Radiographs" icon={<Scan className="h-3.5 w-3.5" />} />
                 <RadiologyView mrn={patient.mrn} />
               </div>
-              
             </div>
+
           ) : tab === "medications" ? (
             <div className={widgetBox + " overflow-hidden"}>
               <WidgetHeader title="Medication Administration Record" icon={<Pill className="h-3.5 w-3.5" />} />
