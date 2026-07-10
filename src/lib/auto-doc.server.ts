@@ -196,13 +196,13 @@ export async function runAutoDocPipeline(mrn: string) {
   // Hub Suite imaging pipeline picks it up. Idempotent: stable id per
   // (mrn, exam) and DB-side dedup by (patient_mrn, exam_type, source).
   try {
-    const imgResults = await orderImagingForMrn(mrn, tpl, p);
-    if (imgResults.length > 0) {
+    const imgOut = await orderImagingForMrn(mrn, tpl, p);
+    if (imgOut.results.length > 0) {
       await log(
         mrn,
         "order",
-        `Auto Doc ordered ${imgResults.map((r) => r.examType).join(", ")} for ${tpl.condition}`,
-        { imaging: imgResults },
+        `Auto Doc ordered ${imgOut.results.map((r) => r.examType).join(", ")} for ${tpl.condition}`,
+        { imaging: imgOut.results, inserted: imgOut.inserted, errors: imgOut.errors },
       );
     }
   } catch (e) {
@@ -647,12 +647,18 @@ async function orderImagingForMrn(
   mrn: string,
   tpl: ConditionTemplate,
   p: any,
-): Promise<Array<{ examType: string; svcId: string; pushed: boolean; status?: number }>> {
+): Promise<{
+  results: Array<{ examType: string; svcId: string; pushed: boolean; status?: number }>;
+  inserted: number;
+  errors: string[];
+}> {
   const imaging = tpl.imaging ?? [];
-  if (imaging.length === 0) return [];
+  if (imaging.length === 0) return { results: [], inserted: 0, errors: [] };
   const sb = admin();
   const nowIso = new Date().toISOString();
   const results: Array<{ examType: string; svcId: string; pushed: boolean; status?: number }> = [];
+  const errors: string[] = [];
+  let inserted = 0;
   const patientName =
     p?.name || [p?.first_name, p?.last_name].filter(Boolean).join(" ") || null;
 
@@ -681,12 +687,20 @@ async function orderImagingForMrn(
         snomed_display: img.snomedDisplay,
         svcreq_fhir_id: svcId,
         source: "auto-doc",
-        created_by_type: "ai",
+        created_by_type: "automation",
         ordered_at: nowIso,
       } as never);
       if (insErr) {
-        // Non-fatal: keep going with FHIR push so downstream still sees it.
-        console.warn("[auto-doc] radiology_orders insert failed", insErr.message);
+        const msg = `${(insErr as any).code ?? ""} ${insErr.message ?? ""} ${(insErr as any).details ?? ""}`.trim();
+        console.warn("[auto-doc] radiology_orders insert failed", msg);
+        try {
+          await log(mrn, "order", `radiology_orders insert failed: ${msg}`, insErr as any, "error");
+        } catch {
+          /* ignore */
+        }
+        errors.push(msg);
+      } else {
+        inserted++;
       }
     } else if (!(existing as any).svcreq_fhir_id) {
       await sb
@@ -722,7 +736,7 @@ async function orderImagingForMrn(
     const pushed = await putFhirResource(`/ServiceRequest/${svcId}`, svcReq, mrn);
     results.push({ examType: img.examType, svcId, pushed: pushed.ok, status: pushed.status });
   }
-  return results;
+  return { results, inserted, errors };
 }
 
 /* ---------------- Radiology backfill ---------------- */
@@ -732,6 +746,7 @@ export async function backfillMissingRadiologyOrders(): Promise<{
   processed: number;
   ordersCreated: number;
   skipped: number;
+  errors: string[];
 }> {
   const sb = admin();
   const { data: patientsList } = await sb
@@ -747,6 +762,7 @@ export async function backfillMissingRadiologyOrders(): Promise<{
   let processed = 0;
   let ordersCreated = 0;
   let skipped = 0;
+  const errorCounts = new Map<string, number>();
 
   for (const row of rows) {
     if (!row.mrn) {
@@ -781,11 +797,16 @@ export async function backfillMissingRadiologyOrders(): Promise<{
       .eq("mrn", row.mrn)
       .maybeSingle();
 
-    const results = await orderImagingForMrn(row.mrn, tpl, patientRow ?? row);
+    const out = await orderImagingForMrn(row.mrn, tpl, patientRow ?? row);
     processed++;
-    ordersCreated += results.length;
+    ordersCreated += out.inserted;
+    for (const e of out.errors) errorCounts.set(e, (errorCounts.get(e) ?? 0) + 1);
   }
-  return { ok: true, processed, ordersCreated, skipped };
+  const errors = [...errorCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([msg, n]) => `(${n}x) ${msg}`);
+  return { ok: true, processed, ordersCreated, skipped, errors };
 }
 
 /* ---------------- Billing / FHIR Invoice generation ---------------- */
