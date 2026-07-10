@@ -20,6 +20,7 @@ import DischargeConformanceBanner from "@/components/patient/DischargeConformanc
 import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
 import ClinicalTriggersBanner from "@/components/patient/ClinicalTriggersBanner";
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
+import { RadiologyFhirCard } from "@/components/patient/RadiologyFhirCard";
 
 /* ------------------------------------------------------------------ */
 /* CDS active suggestion hook — reads cds_suggestions table + realtime */
@@ -1977,6 +1978,7 @@ function PatientChart() {
                 <WidgetHeader title="Radiographs" icon={<Scan className="h-3.5 w-3.5" />} />
                 <RadiologyView mrn={patient.mrn} />
               </div>
+              <RadiologyFhirCard mrn={patient.mrn} />
             </div>
           ) : tab === "medications" ? (
             <div className={widgetBox + " overflow-hidden"}>
