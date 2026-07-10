@@ -299,6 +299,11 @@ const stableIds = {
   docRef: (mrn: string) => `docref-${mrn}`,
 };
 
+const noteStableIds = {
+  providerNote: (id: string) => `docref-provider-note-${id}`,
+  shiftNote: (id: string) => `docref-shift-note-${id}`,
+};
+
 function radStableId(r: any, mrn: string): string {
   const seed = r.snomed_code
     ? String(r.snomed_code).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 20)
