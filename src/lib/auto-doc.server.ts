@@ -776,6 +776,8 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
         currency: "USD",
         issued_at: new Date().toISOString(),
         paid_at: null,
+        primary_diagnosis_icd10: primaryIcd10,
+        primary_diagnosis_display: primaryIcd10Display,
         payload: {} as any,
       } as never)
       .eq("id", invoiceId);
@@ -794,6 +796,8 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
         tax,
         total,
         currency: "USD",
+        primary_diagnosis_icd10: primaryIcd10,
+        primary_diagnosis_display: primaryIcd10Display,
         payload: {} as any,
       } as never)
       .select("id")
