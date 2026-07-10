@@ -102,6 +102,7 @@ function ChartPage() {
   const [liveMeds, setLiveMeds] = useState<MedOrder[] | null>(null);
   const [administering, setAdministering] = useState<string | null>(null);
   const [shiftNotes, setShiftNotes] = useState<any[]>([]);
+  const [providerNotes, setProviderNotes] = useState<any[]>([]);
   const [noteText, setNoteText] = useState("");
   const [sbarOpen, setSbarOpen] = useState(false);
   const [sbar, setSbar] = useState({ s: "", b: "", a: "", r: "" });
