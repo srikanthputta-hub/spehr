@@ -57,11 +57,15 @@ type RequestRow = {
   quality_gate_notes: string | null;
   requested_at: string;
   resolved_at: string | null;
+  seed_codes?: any[] | null;
+  vocabulary?: string | null;
+  clinical_application?: string | null;
 };
 
 function statusBadge(status: string | null): string {
   const s = String(status ?? "pending").toLowerCase();
   if (s === "drafted") return "text-sky-700 bg-sky-50 border-sky-200";
+  if (s === "umls-suggested") return "text-indigo-700 bg-indigo-50 border-indigo-200";
   if (s === "published") return "text-emerald-700 bg-emerald-50 border-emerald-200";
   if (s === "rejected") return "text-red-700 bg-red-50 border-red-200";
   return "text-amber-700 bg-amber-50 border-amber-200"; // pending
