@@ -12,10 +12,7 @@ import {
 import { routeDepartment, type Department } from "./chief-complaints";
 import {
   buildAdmissionTransactionBundle,
-  buildDischargeTransactionBundle,
   type AdmissionPatient,
-  type DischargeLab,
-  type DischargeMed,
 } from "./fhir-admission-discharge";
 import {
   buildChargeItemResource,
