@@ -10,7 +10,8 @@ import {
   saveIntake,
 } from "@/lib/intake-record";
 import { routeDepartment } from "@/lib/chief-complaints";
-import { templateForDepartment } from "@/lib/auto-doc-catalog";
+import { templateForDepartment, findLabTemplateByName } from "@/lib/auto-doc-catalog";
+import { lookupLabLoinc } from "@/lib/lab-loinc-map";
 import { runAutoDoc } from "@/lib/auto-doc.functions";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
@@ -682,6 +683,10 @@ export async function seedAdmission(
           clinical_condition: tpl.condition,
           status: "Ordered",
           ordered_by: "Auto Doc",
+          loinc_code: l.loinc,
+          loinc_display: l.name,
+          coding_source: "protocol",
+          coded_at: new Date().toISOString(),
         } as any)
         .select("id")
         .single();
@@ -848,9 +853,47 @@ export function useAIAutomation() {
             source.includes("ghost ai") ||
             source.includes("auto doc")
           ) return;
-          cascadeLab(mrn, o.id, `${o.test_type ?? "Lab"}: resulted`).catch((e) =>
-            console.warn("[order-cascadeLab] failed", e),
-          );
+          (async () => {
+            const testType = o.test_type ?? "Lab";
+            const tmpl = findLabTemplateByName(testType);
+            if (tmpl) {
+              const sample = tmpl.gen();
+              const nowIso = new Date().toISOString();
+              await supabase
+                .from("lab_orders")
+                .update({
+                  loinc_code: tmpl.loinc,
+                  loinc_display: tmpl.name,
+                  coding_source: "protocol",
+                  coded_at: nowIso,
+                } as any)
+                .eq("id", o.id);
+              const summary = `${tmpl.name}: ${sample.value} ${tmpl.unit} [${sample.flag}] (ref ${tmpl.ref} ${tmpl.unit})`;
+              await cascadeLab(mrn, o.id, summary, {
+                name: tmpl.name,
+                unit: tmpl.unit,
+                referenceRange: tmpl.ref,
+                resultExample: `${sample.value} ${tmpl.unit} [${sample.flag}]`,
+                numericValue: sample.value,
+                flagCode: sample.flag,
+              });
+              return;
+            }
+            const hit = lookupLabLoinc(testType);
+            if (hit) {
+              const nowIso = new Date().toISOString();
+              await supabase
+                .from("lab_orders")
+                .update({
+                  loinc_code: hit.code,
+                  loinc_display: hit.display,
+                  coding_source: "umls",
+                  coded_at: nowIso,
+                } as any)
+                .eq("id", o.id);
+            }
+            await cascadeLab(mrn, o.id, `${testType}: resulted`);
+          })().catch((e) => console.warn("[order-cascadeLab] failed", e));
         },
       )
       .subscribe();

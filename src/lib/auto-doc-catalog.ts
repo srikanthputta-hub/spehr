@@ -384,3 +384,28 @@ export function templateForDepartment(d: Department | null | undefined): Conditi
     CATALOG["Family Medicine"]!
   );
 }
+
+/**
+ * Flat, case-insensitive lookup of a LabTemplate by test name across every
+ * department in the CATALOG. First match wins (departments iterated in
+ * declaration order); duplicates by name are ignored. Built lazily and
+ * memoized so callers can invoke it per realtime event without cost.
+ */
+let _labByName: Map<string, LabTemplate> | null = null;
+function buildLabIndex(): Map<string, LabTemplate> {
+  const idx = new Map<string, LabTemplate>();
+  for (const tpl of Object.values(CATALOG)) {
+    if (!tpl) continue;
+    for (const lab of tpl.labs) {
+      const key = lab.name.trim().toLowerCase();
+      if (!key || idx.has(key)) continue;
+      idx.set(key, lab);
+    }
+  }
+  return idx;
+}
+export function findLabTemplateByName(name: string): LabTemplate | null {
+  if (!name) return null;
+  if (!_labByName) _labByName = buildLabIndex();
+  return _labByName.get(name.trim().toLowerCase()) ?? null;
+}
