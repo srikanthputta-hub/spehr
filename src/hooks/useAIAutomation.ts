@@ -10,7 +10,8 @@ import {
   saveIntake,
 } from "@/lib/intake-record";
 import { routeDepartment } from "@/lib/chief-complaints";
-import { templateForDepartment } from "@/lib/auto-doc-catalog";
+import { templateForDepartment, findLabTemplateByName } from "@/lib/auto-doc-catalog";
+import { lookupLabLoinc } from "@/lib/lab-loinc-map";
 import { runAutoDoc } from "@/lib/auto-doc.functions";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
@@ -682,6 +683,10 @@ export async function seedAdmission(
           clinical_condition: tpl.condition,
           status: "Ordered",
           ordered_by: "Auto Doc",
+          loinc_code: l.loinc,
+          loinc_display: l.name,
+          coding_source: "protocol",
+          coded_at: new Date().toISOString(),
         } as any)
         .select("id")
         .single();
