@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, RefreshCw, Trash2, Sparkles, ShieldCheck } from "lucide-react";
+import { Activity, RefreshCw, Trash2, Sparkles, ShieldCheck, Scan } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +41,8 @@ export function AutoApiCard() {
   const [forceMsg, setForceMsg] = useState<string | null>(null);
   const [dedupRunning, setDedupRunning] = useState(false);
   const [dedupResult, setDedupResult] = useState<string | null>(null);
+  const [radBackfillRunning, setRadBackfillRunning] = useState(false);
+  const [radBackfillResult, setRadBackfillResult] = useState<string | null>(null);
   const [idemp, setIdemp] = useState<{ lastRun: number; pass: boolean; duplicates: number }>(() => ({
     lastRun: Date.now() - 2 * 60_000,
     pass: true,
@@ -132,6 +134,29 @@ export function AutoApiCard() {
     await new Promise((r) => setTimeout(r, 1200));
     setDedupResult("✓ Deduplication complete · Removed 12 duplicate resources across 4 patients · all surviving resources renamed to deterministic stable IDs.");
     setDedupRunning(false);
+  };
+
+  const runRadiologyBackfill = async () => {
+    setRadBackfillRunning(true);
+    setRadBackfillResult(null);
+    try {
+      const r = await fetch("/api/public/hooks/backfill-radiology", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setRadBackfillResult(`✗ Backfill failed: ${j?.error ?? r.statusText}`);
+      } else {
+        setRadBackfillResult(
+          `✓ Backfill complete · processed ${j.processed} patient(s) · ${j.ordersCreated} imaging order(s) created · ${j.skipped} skipped`,
+        );
+      }
+    } catch (e: any) {
+      setRadBackfillResult(`✗ Backfill error: ${e?.message ?? "unknown"}`);
+    } finally {
+      setRadBackfillRunning(false);
+    }
   };
 
   const hasErr = loops.some((l) => l.status === "ERROR");
@@ -249,6 +274,27 @@ export function AutoApiCard() {
         {dedupResult && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[10px] text-emerald-800">
             {dedupResult}
+          </div>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!enabled || radBackfillRunning}
+          onClick={runRadiologyBackfill}
+          className="w-full justify-center"
+        >
+          <Scan className="h-3.5 w-3.5 mr-1.5" />
+          {radBackfillRunning ? "Backfilling…" : "🩻 Backfill Radiology Orders"}
+        </Button>
+        {radBackfillResult && (
+          <div
+            className={
+              radBackfillResult.startsWith("✓")
+                ? "rounded-md border border-cyan-200 bg-cyan-50 px-2 py-1.5 text-[10px] text-cyan-800"
+                : "rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[10px] text-rose-800"
+            }
+          >
+            {radBackfillResult}
           </div>
         )}
       </div>
