@@ -55,8 +55,8 @@ const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = 
   { value: "/system-admin", label: "Command Center · System Administration", abbrev: "EHR" },
 ];
 
-const ANCILLARY_URL = "https://spehrancillary.live";
-const ANALYTICS_URL = "https://spehranalytics.live";
+const ANCILLARY_URL = "https://www.spehrancillary.live";
+const ANALYTICS_URL = "https://www.spehranalytics.live";
 
 function LoginScreen() {
   const navigate = useNavigate();
