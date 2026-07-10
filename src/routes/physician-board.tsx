@@ -145,6 +145,7 @@ function PhysicianBoard() {
   const [labStat, setLabStat] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [notePin, setNotePin] = useState("");
+  const [savingProgressNote, setSavingProgressNote] = useState(false);
   const [disposition, setDisposition] = useState("Discharge to Home");
   const [dischargeLoading, setDischargeLoading] = useState(false);
   const [alertMrns, setAlertMrns] = useState<Set<string>>(new Set());
@@ -1108,7 +1109,7 @@ function PhysicianBoard() {
                       </Button>
                       <Button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                           if (!noteText.trim()) {
                             toast.error("Note body is required");
                             return;
@@ -1117,12 +1118,36 @@ function PhysicianBoard() {
                             toast.error("Invalid Master PIN");
                             return;
                           }
+                          setSavingProgressNote(true);
+                          const { error } = await supabase.from("provider_notes").insert({
+                            patient_mrn: p.mrn,
+                            author_name: md.name,
+                            author_role: md.roleLabel,
+                            author_id: md.name,
+                            note_type: "Progress Note",
+                            content: noteText.trim(),
+                            signed_at: new Date().toISOString(),
+                            created_by_type: "human",
+                          });
+                          setSavingProgressNote(false);
+                          if (error) {
+                            toast.error("Failed to save progress note", {
+                              description: error.message,
+                            });
+                            return;
+                          }
                           toast.success("Progress note signed & locked", {
                             description: `For ${fullName} (${p.mrn})`,
                           });
+                          setNoteText("");
+                          setNotePin("");
                           setActionsMrn(null);
                         }}
+                        disabled={savingProgressNote}
                       >
+                        {savingProgressNote && (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        )}
                         Sign & Lock Note
                       </Button>
                     </DialogFooter>
