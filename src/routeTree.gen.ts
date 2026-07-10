@@ -28,6 +28,7 @@ import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]
 import { Route as ApiPublicUmlsValidateCodeRouteImport } from './routes/api/public/umls-validate-code'
 import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
+import { Route as ApiPublicHooksGenerateInvoiceRouteImport } from './routes/api/public/hooks/generate-invoice'
 import { Route as ApiPublicHooksBackfillRadiologyRouteImport } from './routes/api/public/hooks/backfill-radiology'
 import { Route as ApiPublicHooksAutoDocRouteImport } from './routes/api/public/hooks/auto-doc'
 
@@ -130,6 +131,12 @@ const Char91DotmcpChar93InvokeToolToolRoute =
     path: '/.mcp/invoke-tool/$tool',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksGenerateInvoiceRoute =
+  ApiPublicHooksGenerateInvoiceRouteImport.update({
+    id: '/api/public/hooks/generate-invoice',
+    path: '/api/public/hooks/generate-invoice',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksBackfillRadiologyRoute =
   ApiPublicHooksBackfillRadiologyRouteImport.update({
     id: '/api/public/hooks/backfill-radiology',
@@ -164,6 +171,7 @@ export interface FileRoutesByFullPath {
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
   '/api/public/hooks/backfill-radiology': typeof ApiPublicHooksBackfillRadiologyRoute
+  '/api/public/hooks/generate-invoice': typeof ApiPublicHooksGenerateInvoiceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -187,6 +195,7 @@ export interface FileRoutesByTo {
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
   '/api/public/hooks/backfill-radiology': typeof ApiPublicHooksBackfillRadiologyRoute
+  '/api/public/hooks/generate-invoice': typeof ApiPublicHooksGenerateInvoiceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -211,6 +220,7 @@ export interface FileRoutesById {
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
   '/api/public/hooks/auto-doc': typeof ApiPublicHooksAutoDocRoute
   '/api/public/hooks/backfill-radiology': typeof ApiPublicHooksBackfillRadiologyRoute
+  '/api/public/hooks/generate-invoice': typeof ApiPublicHooksGenerateInvoiceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -236,6 +246,7 @@ export interface FileRouteTypes {
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
     | '/api/public/hooks/backfill-radiology'
+    | '/api/public/hooks/generate-invoice'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -259,6 +270,7 @@ export interface FileRouteTypes {
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
     | '/api/public/hooks/backfill-radiology'
+    | '/api/public/hooks/generate-invoice'
   id:
     | '__root__'
     | '/'
@@ -282,6 +294,7 @@ export interface FileRouteTypes {
     | '/api/public/umls-validate-code'
     | '/api/public/hooks/auto-doc'
     | '/api/public/hooks/backfill-radiology'
+    | '/api/public/hooks/generate-invoice'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -306,6 +319,7 @@ export interface RootRouteChildren {
   ApiPublicUmlsValidateCodeRoute: typeof ApiPublicUmlsValidateCodeRoute
   ApiPublicHooksAutoDocRoute: typeof ApiPublicHooksAutoDocRoute
   ApiPublicHooksBackfillRadiologyRoute: typeof ApiPublicHooksBackfillRadiologyRoute
+  ApiPublicHooksGenerateInvoiceRoute: typeof ApiPublicHooksGenerateInvoiceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -443,6 +457,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotmcpChar93InvokeToolToolRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/generate-invoice': {
+      id: '/api/public/hooks/generate-invoice'
+      path: '/api/public/hooks/generate-invoice'
+      fullPath: '/api/public/hooks/generate-invoice'
+      preLoaderRoute: typeof ApiPublicHooksGenerateInvoiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/backfill-radiology': {
       id: '/api/public/hooks/backfill-radiology'
       path: '/api/public/hooks/backfill-radiology'
@@ -483,6 +504,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicUmlsValidateCodeRoute: ApiPublicUmlsValidateCodeRoute,
   ApiPublicHooksAutoDocRoute: ApiPublicHooksAutoDocRoute,
   ApiPublicHooksBackfillRadiologyRoute: ApiPublicHooksBackfillRadiologyRoute,
+  ApiPublicHooksGenerateInvoiceRoute: ApiPublicHooksGenerateInvoiceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

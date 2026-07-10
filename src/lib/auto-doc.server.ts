@@ -1175,26 +1175,30 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
 
 export async function backfillMissingInvoices(): Promise<{ ok: true; generated: number; skipped: number }> {
   const sb = admin();
-  const { data: discharged } = await sb
-    .from("patients")
-    .select("mrn,status")
-    .ilike("status", "discharged")
-    .limit(500);
-  const list = (discharged ?? []) as Array<{ mrn: string | null }>;
+  // Pull every discharged patient and every mrn that already has an
+  // invoice, then compute the set difference. The previous version capped
+  // the query at 500 rows, which meant that once the first 500 discharged
+  // MRNs (by arbitrary order) each had an invoice, the backfill produced
+  // 0 new invoices and every subsequent discharge stalled indefinitely.
+  const [{ data: discharged }, { data: invoiced }] = await Promise.all([
+    sb.from("patients").select("mrn").ilike("status", "discharged"),
+    sb.from("fhir_invoices").select("mrn"),
+  ]);
+  const invoicedMrns = new Set(
+    ((invoiced ?? []) as Array<{ mrn: string | null }>)
+      .map((r) => r.mrn)
+      .filter((m): m is string => !!m),
+  );
+  const list = ((discharged ?? []) as Array<{ mrn: string | null }>)
+    .filter((r) => r.mrn && !invoicedMrns.has(r.mrn));
   let generated = 0;
   let skipped = 0;
-  for (const row of list) {
+  // Cap per-invocation work to keep the cron under the request budget.
+  const MAX_PER_RUN = 200;
+  const batch = list.slice(0, MAX_PER_RUN);
+  skipped += list.length - batch.length;
+  for (const row of batch) {
     if (!row.mrn) {
-      skipped++;
-      continue;
-    }
-    const { data: existing } = await sb
-      .from("fhir_invoices")
-      .select("id")
-      .eq("mrn", row.mrn)
-      .limit(1)
-      .maybeSingle();
-    if (existing) {
       skipped++;
       continue;
     }
