@@ -374,11 +374,14 @@ export async function runAutoDocPipeline(mrn: string) {
     .from("patients")
     .update({
       status: "Admitted",
-      discharge_summary: tpl.discharge,
       diagnosis: tpl.condition,
     } as never)
     .eq("mrn", mrn);
-  await log(mrn, "discharge", "Discharge summary authored and saved on patient chart");
+  await log(
+    mrn,
+    "discharge",
+    "Admission-time discharge stage: diagnosis recorded; no discharge_summary written and no Composition pushed (real discharge owns that)",
+  );
 
   try {
     /* -------------------------------------------------------------------
@@ -401,11 +404,6 @@ export async function runAutoDocPipeline(mrn: string) {
       sb.from("medication_orders").select("id,drug,drug_name,medication_name,dose,route,frequency,ordering_physician,status").eq("patient_mrn", mrn).limit(50),
       sb.from("allergies").select("substance,reaction,severity,status").eq("mrn", mrn).limit(50),
     ]);
-    const patientForBundle: AdmissionPatient = {
-      ...((patientRow ?? p) as AdmissionPatient),
-      discharge_summary: tpl.discharge,
-      diagnosis: tpl.condition,
-    };
     const patientUuid = (patientRow ?? p)?.id as string | undefined;
 
     /* -----------------------------------------------------------------
@@ -471,230 +469,16 @@ export async function runAutoDocPipeline(mrn: string) {
         medication_requests: medReqRows.length,
       });
     }
-
-    /* -----------------------------------------------------------------
-     * Re-query the structured tables. The FHIR Bundle and discharge PDF
-     * are now derived from these relational rows — never from the
-     * legacy flattened `standardized_output` blob.
-     *
-     * Race-condition guard: the staged admission cascade inserts
-     * lab_orders / medication_orders on a delayed timer (T+20/35/50s).
-     * If Auto Doc fires before the cascade has produced any discrete
-     * rows, the upserts above wrote nothing and the Composition would
-     * narrate "0 observations / 0 medications" — even though the rows
-     * land milliseconds later. Poll the discrete tables until at least
-     * one row of each exists (or we time out at ~60s), THEN build the
-     * narrative. This makes DB-Save → Wait → Build-Context →
-     * Generate-Narrative strictly sequential.
-     * --------------------------------------------------------------- */
-    let structuredObs: any[] | null = null;
-    let structuredMedReqs: any[] | null = null;
-    const expectObs = tpl.labs.length > 0;
-    const expectMeds = tpl.meds.length > 0;
-    const maxAttempts = 12; // 12 × 5s = 60s upper bound
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const [{ data: obs }, { data: mrs }] = await Promise.all([
-        sb.from("observations").select("*").eq("patient_mrn", mrn).order("recorded_at", { ascending: true }),
-        sb.from("medication_requests").select("*").eq("patient_mrn", mrn).order("ordered_at", { ascending: true }),
-      ]);
-      structuredObs = obs as any[] | null;
-      structuredMedReqs = mrs as any[] | null;
-      const obsOk = !expectObs || (structuredObs?.length ?? 0) > 0;
-      const medOk = !expectMeds || (structuredMedReqs?.length ?? 0) > 0;
-      if (obsOk && medOk) break;
-
-      // Re-pull the upstream cascade tables and re-upsert any newly
-      // landed rows so the next poll sees structured data.
-      const [{ data: freshLabs }, { data: freshMeds }] = await Promise.all([
-        sb.from("lab_orders").select("id,test_type,result_value,collected_at,status").eq("patient_mrn", mrn).limit(50),
-        sb.from("medication_orders").select("id,drug,drug_name,medication_name,dose,route,frequency,ordering_physician,status").eq("patient_mrn", mrn).limit(50),
-      ]);
-      if (patientUuid && (freshLabs?.length ?? 0) > 0) {
-        const rows = (freshLabs ?? []).map((l: any, idx: number) => {
-          const valStr = typeof l.result_value === "string" ? l.result_value : null;
-          const numMatch = valStr ? valStr.match(/-?\d+(\.\d+)?/) : null;
-          const numeric = numMatch ? Number(numMatch[0]) : null;
-          const abnormal = valStr && /CRITICAL|HIGH|LOW|ABNORMAL/i.test(valStr) ? "H" : null;
-          return {
-            patient_id: patientUuid,
-            patient_mrn: mrn,
-            loinc_code: loincForLab(l.test_type),
-            display_name: l.test_type ?? "Lab observation",
-            value: valStr,
-            value_numeric: Number.isFinite(numeric as number) ? numeric : null,
-            unit: null,
-            abnormal_flag: abnormal,
-            status: /resulted|reported|final/i.test(String(l.status ?? "")) ? "final" : "registered",
-            recorded_at: l.collected_at ?? new Date().toISOString(),
-            source: "auto-doc",
-          };
-        });
-        await sb.from("observations").upsert(rows as never, { onConflict: "patient_id,loinc_code,source" });
-      }
-      if (patientUuid && (freshMeds?.length ?? 0) > 0) {
-        const rows = (freshMeds ?? []).map((m: any, idx: number) => ({
-          patient_id: patientUuid,
-          patient_mrn: mrn,
-          rxnorm_code: rxnormForMed(m.drug ?? m.drug_name ?? m.medication_name),
-          display_name: m.drug ?? m.drug_name ?? m.medication_name ?? "Medication",
-          dosage: m.dose ?? null,
-          route: m.route ?? "PO",
-          frequency: m.frequency ?? null,
-          status: String(m.status ?? "active").toLowerCase().includes("administ") ? "completed" : "active",
-          intent: "order",
-          ordered_at: new Date().toISOString(),
-          requester: m.ordering_physician ?? "Auto Doc Attending",
-          source: "auto-doc",
-        }));
-        await sb.from("medication_requests").upsert(rows as never, { onConflict: "patient_id,rxnorm_code,source" });
-      }
-
-      await log(
-        mrn,
-        "discharge",
-        `Waiting for discrete clinical data to land (attempt ${attempt + 1}/${maxAttempts}) — obs:${structuredObs?.length ?? 0} meds:${structuredMedReqs?.length ?? 0}`,
-      );
-      await new Promise((r) => setTimeout(r, 5000));
-    }
-    await log(mrn, "discharge", "Discrete clinical data committed — building Composition narrative", {
-      observations: structuredObs?.length ?? 0,
-      medication_requests: structuredMedReqs?.length ?? 0,
-    });
-
-    const labs: DischargeLab[] = ((structuredObs ?? []).length > 0
-      ? (structuredObs ?? []).map((o: any) => ({
-          id: o.id,
-          test_name: o.display_name ?? "Lab",
-          test_type: o.display_name ?? undefined,
-          result_value: o.value ?? (o.value_numeric != null ? String(o.value_numeric) : undefined),
-          loinc: o.loinc_code ?? undefined,
-          collected_at: o.recorded_at ?? undefined,
-          performing_lab: "SPEHR Central Laboratory",
-          flag: o.abnormal_flag === "H" ? "HIGH" : undefined,
-        }))
-      : (labRows ?? []).map((l: any, idx: number) => ({
-      id: l.id,
-      test_name: l.test_type ?? "Lab",
-      test_type: l.test_type ?? undefined,
-      result_value: l.result_value ?? undefined,
-      loinc: loincForLab(l.test_type) ?? undefined,
-      collected_at: l.collected_at ?? undefined,
-      performing_lab: "SPEHR Central Laboratory",
-      flag: typeof l.result_value === "string" && /CRITICAL|HIGH/i.test(l.result_value) ? "HIGH" : undefined,
-    })));
-    const meds: DischargeMed[] = ((structuredMedReqs ?? []).length > 0
-      ? (structuredMedReqs ?? []).map((m: any) => ({
-          id: m.id,
-          drug: m.display_name ?? "medication",
-          dose: m.dosage ?? undefined,
-          route: m.route ?? "PO",
-          frequency: m.frequency ?? "Daily",
-          rxnorm: m.rxnorm_code ?? undefined,
-          status: m.status ?? "active",
-          ordering_physician: m.requester ?? "Auto Doc Attending",
-        }))
-      : (medRows ?? []).map((m: any, idx: number) => ({
-      id: m.id,
-      drug: m.drug ?? m.drug_name ?? m.medication_name ?? "medication",
-      dose: m.dose ?? undefined,
-      route: m.route ?? "PO",
-      frequency: m.frequency ?? "Daily",
-      rxnorm: rxnormForMed(m.drug ?? m.drug_name ?? m.medication_name) ?? undefined,
-      status: m.status ?? "active",
-      ordering_physician: m.ordering_physician ?? "Auto Doc Attending",
-    })));
-    // Allergy summary line is rendered into the Composition so the
-    // narrative section is sourced from AllergyIntolerance, not boilerplate.
-    const allergyList = (allergyRows ?? []) as Array<{
-      substance: string | null;
-      reaction: string | null;
-      severity: string | null;
-    }>;
-    const allergyText = allergyList.length === 0
-      ? "NKDA — No known drug allergies."
-      : allergyList
-          .map((a) => {
-            const sub = a.substance?.trim() || "Unspecified substance";
-            const r = a.reaction?.trim();
-            return r ? `${sub} (${r})` : sub;
-          })
-          .join("; ");
-    const dischargeMedsText = `${meds.length} medication(s) prescribed on discharge.`;
-    const labsText = `${labs.length} laboratory observation(s) performed by SPEHR Central Laboratory.`;
-
-    const discharge = buildDischargeTransactionBundle({
-      patient: patientForBundle,
-      labs,
-      dischargeMeds: meds,
-      hospitalCourse: tpl.discharge,
-      admittingDiagnosis: tpl.condition,
-      dischargeDiagnosis: tpl.condition,
-      conditionAtDischarge: "Stable, improved.",
-      diet: "Regular as tolerated",
-      activity: "Activity as tolerated",
-      followUp: patientForBundle.primary_care_physician
-        ? `Follow up with ${patientForBundle.primary_care_physician} within 7 days.`
-        : "Follow up with PCP within 7 days.",
-      returnPrecautions: "Return for worsening symptoms, chest pain, shortness of breath, fever > 101.5°F, or new neurological deficits.",
-      patientEducation: `Patient educated on ${tpl.condition} diagnosis, medication adherence and follow-up plan.`,
-      physicalExam: {
-        general: "Awake, alert, in no acute distress on admission.",
-        cardiovascular: "Regular rate and rhythm, no murmurs.",
-        pulmonary: "Clear to auscultation bilaterally.",
-        abdomen: "Soft, non-tender, non-distended.",
-        neurologic: "Alert and oriented x3, no focal deficits.",
-      },
-    });
-
-    /* -------------------------------------------------------------------
-     * Phase C cross-check — verify the Composition text counts match the
-     * discrete FHIR arrays in the same Bundle before pushing to the
-     * external Medblocks server. If counts diverge, abort the push so
-     * the local copy stays as the source of truth and the watchdog can
-     * surface the mismatch for manual review.
-     * ----------------------------------------------------------------- */
-    const entries = (discharge.bundle.entry ?? []) as Array<{ resource?: { resourceType?: string } }>;
-    const obsCount = entries.filter((e) => e.resource?.resourceType === "Observation").length;
-    const medCount = entries.filter((e) => e.resource?.resourceType === "MedicationRequest").length;
-    const crossCheckOk = obsCount === labs.length && medCount === meds.length;
-    if (!crossCheckOk) {
-      await log(
-        mrn,
-        "discharge",
-        `Cross-check FAILED — Bundle has ${obsCount} Observation / ${medCount} MedicationRequest vs queried ${labs.length} labs / ${meds.length} meds. Skipping external push.`,
-        { obsCount, medCount, queriedLabs: labs.length, queriedMeds: meds.length },
-        "error",
-      );
-    } else {
-      await log(mrn, "discharge", "Cross-check passed: Composition counts match discrete FHIR arrays", {
-        labs: labs.length,
-        meds: meds.length,
-        allergies: allergyList.length,
-        allergyText,
-        labsText,
-        dischargeMedsText,
-      });
-    }
-
-    await sb.rpc("persist_fhir_resource" as never, {
-      _resource_type: "Bundle",
-      _resource_id: `discharge-${mrn}`,
-      _mrn: mrn,
-      _payload: discharge.bundle as never,
-      _source: "auto-doc:discharge",
-      _origin: "automation",
-      _author_id: "auto-doc",
-    } as never);
-    if (crossCheckOk) {
-      const pushed = await pushBundle(discharge.bundle, mrn);
-      await log(mrn, "discharge", "Discharge Composition + transaction Bundle pushed to Medblocks", {
-        entries: discharge.bundle.entry?.length ?? 0,
-        pushed: pushed.ok,
-        status: pushed.status,
-      });
-    }
+    // NOTE: Building or pushing a Discharge Summary Composition at admission
+    // time was removed intentionally. That was a false-signal data-fabrication
+    // bug: a Composition with status="final" was landing on the external
+    // FHIR server (and `patients.discharge_summary` was being populated)
+    // while the patient was still actively admitted. The real discharge
+    // Composition is produced by `ghost-discharge-worker` (and any
+    // physician-driven discharge flow) once the patient is actually
+    // discharged. Do not re-introduce a Composition push here.
   } catch (e) {
-    await log(mrn, "discharge", `Discharge Bundle build/push failed: ${(e as Error).message}`, null, "warn");
+    await log(mrn, "discharge", `Admission structured-data upsert failed: ${(e as Error).message}`, null, "warn");
   }
 
   await setRunStage(mrn, "complete");
