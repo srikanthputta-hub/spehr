@@ -5,6 +5,10 @@ import {
   Activity,
   Lock,
   ArrowRight,
+  ArrowLeft,
+  Stethoscope,
+  FlaskConical,
+  BarChart3,
 } from "lucide-react";
 import {
   Select,
@@ -19,11 +23,11 @@ import spehrLogo from "@/assets/spehr-logo.png.asset.json";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "S.P.E.H.R. Clinical System — Role Gateway" },
+      { title: "S.P.E.H.R. — Network Hub" },
       {
         name: "description",
         content:
-          "S Group Private Network secure clinical role gateway. Select your role to enter the live clinical workspace.",
+          "S Group Private Network hub. Choose Clinical, Ancillary, or Analytics workspace to enter the live network.",
       },
     ],
   }),
@@ -51,8 +55,12 @@ const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = 
   { value: "/system-admin", label: "Command Center · System Administration", abbrev: "EHR" },
 ];
 
+const ANCILLARY_URL = "https://spehrancillary.live";
+const ANALYTICS_URL = "https://spehranalytics.live";
+
 function LoginScreen() {
   const navigate = useNavigate();
+  const [view, setView] = useState<"hub" | "clinical">("hub");
   const [role, setRole] = useState<RoleRoute | "">("");
   const { facility, setFacility, setActiveRole } = useFacility();
   const selectedRole = ROLES.find((r) => r.value === role);
@@ -73,7 +81,6 @@ function LoginScreen() {
 
   return (
     <main className="min-h-screen bg-[#05080f] text-slate-100 relative overflow-hidden">
-      {/* ambient glow */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -90,7 +97,6 @@ function LoginScreen() {
         }}
       />
 
-      {/* top bar */}
       <header className="relative flex items-center justify-between px-6 sm:px-10 py-5 border-b border-white/5">
         <div className="flex items-center gap-3">
           <img src={spehrLogo.url} alt="S Group Private Network" className="h-10 w-auto" />
@@ -115,91 +121,148 @@ function LoginScreen() {
         </div>
       </header>
 
-      {/* centered login */}
-      <section className="relative px-6 sm:px-10 py-10 max-w-md mx-auto">
+      <section className={`relative px-6 sm:px-10 py-10 mx-auto ${view === "hub" ? "max-w-lg" : "max-w-md"}`}>
         <div className="flex justify-center mb-8">
           <img src={spehrLogo.url} alt="S Group Private Network" className="h-40 w-auto scale-125" />
         </div>
-        <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-8 shadow-2xl shadow-black/40 backdrop-blur-sm">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
-            <Activity className="h-3 w-3 text-[#5cbdb9]" />
-            Role Gateway
-          </div>
-          <h1 className="mt-4 text-2xl font-semibold tracking-tight leading-tight">
-            S.P.E.H.R
-          </h1>
-          <p className="mt-1.5 text-xs text-slate-400">
-            Simulated Patient Electronic Health Records
-          </p>
 
-          <div className="mt-7 space-y-2">
-            <label className="block text-[11px] uppercase tracking-[0.18em] text-slate-400">
-              Select Demo Role to Enter System
-            </label>
-            <Select value={role} onValueChange={(v) => setRole(v as RoleRoute)}>
-              <SelectTrigger className="h-11 bg-[#0a1220] border-white/10 text-slate-100 hover:border-[#5cbdb9]/40 focus:ring-[#5cbdb9]/60">
-                <SelectValue placeholder="Choose a clinical role…" />
-              </SelectTrigger>
-              <SelectContent className="bg-[#0a1220] border-white/10 text-slate-100">
-                {ROLES.map((r) => (
-                  <SelectItem
-                    key={r.value}
-                    value={r.value}
-                    className="focus:bg-[#2d8a9e]/20 focus:text-slate-50"
-                  >
-                    <span className="font-medium">{r.label}</span>
-                    <span className="ml-2 text-[11px] text-[#5cbdb9]">
-                      {r.abbrev}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {view === "hub" && (
+          <div className="text-center">
+            <h1 className="text-3xl font-bold tracking-tight">S.P.E.H.R</h1>
+            <p className="mt-2 text-sm text-slate-400">
+              Simulated Patient Electronic Health Records
+            </p>
 
-          {activeStaff && !isEhr && (
-            <div className="mt-4 rounded-lg border border-[#5cbdb9]/25 bg-[#0a1220]/70 p-3 space-y-2">
-              <label className="block text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                Facility Network · Auto-binds {activeStaff.roleLabel} Identity
-              </label>
-              <select
-                value={facility}
-                onChange={(e) => setFacility(e.target.value as any)}
-                className="w-full h-10 rounded-md bg-[#0a1220] border border-white/10 text-slate-100 text-sm px-2 outline-none hover:border-[#5cbdb9]/40 focus:border-[#5cbdb9]/60 cursor-pointer"
+            <div className="mt-8 space-y-3">
+              <button
+                type="button"
+                onClick={() => setView("clinical")}
+                className="w-full flex items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] px-5 py-4 text-left shadow-lg shadow-black/30 hover:border-[#5cbdb9]/40 hover:bg-white/[0.06] transition cursor-pointer group"
               >
-                {FACILITIES.map((f) => (
-                  <option key={f} value={f} className="text-slate-900">
-                    {f}
-                  </option>
-                ))}
-              </select>
-              <div className="flex items-center justify-between gap-2 pt-1 text-[11px]">
-                <span className="text-slate-400">Signing in as</span>
-                <span className="font-medium text-[#5cbdb9]">
-                  {activeStaff.name} · {activeStaff.ward}
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2d8a9e]/15 text-[#5cbdb9]">
+                  <Stethoscope className="h-5 w-5" />
                 </span>
-              </div>
+                <span className="flex-1">
+                  <span className="block text-sm font-semibold">Clinical Workspace</span>
+                  <span className="block text-[11px] text-slate-400">Role Gateway · Admissions, Nursing, Physician, Pharmacy…</span>
+                </span>
+                <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-[#5cbdb9] transition" />
+              </button>
+
+              <a
+                href={ANCILLARY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] px-5 py-4 text-left shadow-lg shadow-black/30 hover:border-[#5cbdb9]/40 hover:bg-white/[0.06] transition cursor-pointer group"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2d8a9e]/15 text-[#5cbdb9]">
+                  <FlaskConical className="h-5 w-5" />
+                </span>
+                <span className="flex-1">
+                  <span className="block text-sm font-semibold">Ancillary Workspace</span>
+                  <span className="block text-[11px] text-slate-400">Labs · Pharmacy · Radiology</span>
+                </span>
+                <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-[#5cbdb9] transition" />
+              </a>
+
+              <a
+                href={ANALYTICS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] px-5 py-4 text-left shadow-lg shadow-black/30 hover:border-[#5cbdb9]/40 hover:bg-white/[0.06] transition cursor-pointer group"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2d8a9e]/15 text-[#5cbdb9]">
+                  <BarChart3 className="h-5 w-5" />
+                </span>
+                <span className="flex-1">
+                  <span className="block text-sm font-semibold">Analytics Workspace</span>
+                  <span className="block text-[11px] text-slate-400">Billing · RCM · Population Health</span>
+                </span>
+                <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-[#5cbdb9] transition" />
+              </a>
             </div>
-          )}
 
-          <button
-            type="button"
-            onClick={handleLaunch}
-            disabled={!role}
-            className="mt-5 w-full inline-flex items-center justify-center gap-2 h-11 rounded-md bg-[#2d8a9e] text-white font-semibold text-sm shadow-lg shadow-[#2d8a9e]/20 hover:bg-[#34a0b6] transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5cbdb9]/60"
-          >
-            Launch Clinical Workspace
-            <ArrowRight className="h-4 w-4" />
-          </button>
+            <p className="mt-8 text-[11px] text-slate-600 text-center max-w-sm mx-auto">
+              Disclaimer: All patient data displayed in this system is 100% fabricated for simulation purposes and contains no real Protected Health Information (PHI).
+            </p>
+          </div>
+        )}
 
-          <p className="mt-4 text-center text-[11px] text-slate-500">
-            No password required · Audit-logged session
-          </p>
-        </div>
+        {view === "clinical" && (
+          <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-8 shadow-2xl shadow-black/40 backdrop-blur-sm">
+            <button
+              type="button"
+              onClick={() => setView("hub")}
+              className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-[#5cbdb9] transition cursor-pointer mb-4"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back
+            </button>
 
-        <p className="mt-8 text-[11px] text-slate-600 text-center max-w-sm mx-auto">
-          Disclaimer: All patient data displayed in this system is 100% fabricated for simulation purposes and contains no real Protected Health Information (PHI).
-        </p>
+            <div className="mt-7 space-y-2">
+              <label className="block text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                Select Demo Role to Enter System
+              </label>
+              <Select value={role} onValueChange={(v) => setRole(v as RoleRoute)}>
+                <SelectTrigger className="h-11 bg-[#0a1220] border-white/10 text-slate-100 hover:border-[#5cbdb9]/40 focus:ring-[#5cbdb9]/60">
+                  <SelectValue placeholder="Choose a clinical role…" />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0a1220] border-white/10 text-slate-100">
+                  {ROLES.map((r) => (
+                    <SelectItem
+                      key={r.value}
+                      value={r.value}
+                      className="focus:bg-[#2d8a9e]/20 focus:text-slate-50"
+                    >
+                      <span className="font-medium">{r.label}</span>
+                      <span className="ml-2 text-[11px] text-[#5cbdb9]">
+                        {r.abbrev}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {activeStaff && !isEhr && (
+              <div className="mt-4 rounded-lg border border-[#5cbdb9]/25 bg-[#0a1220]/70 p-3 space-y-2">
+                <label className="block text-[10px] uppercase tracking-[0.18em] text-slate-400">
+                  Facility Network · Auto-binds {activeStaff.roleLabel} Identity
+                </label>
+                <select
+                  value={facility}
+                  onChange={(e) => setFacility(e.target.value as any)}
+                  className="w-full h-10 rounded-md bg-[#0a1220] border border-white/10 text-slate-100 text-sm px-2 outline-none hover:border-[#5cbdb9]/40 focus:border-[#5cbdb9]/60 cursor-pointer"
+                >
+                  {FACILITIES.map((f) => (
+                    <option key={f} value={f} className="text-slate-900">
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex items-center justify-between gap-2 pt-1 text-[11px]">
+                  <span className="text-slate-400">Signing in as</span>
+                  <span className="font-medium text-[#5cbdb9]">
+                    {activeStaff.name} · {activeStaff.ward}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleLaunch}
+              disabled={!role}
+              className="mt-5 w-full inline-flex items-center justify-center gap-2 h-11 rounded-md bg-[#2d8a9e] text-white font-semibold text-sm shadow-lg shadow-[#2d8a9e]/20 hover:bg-[#34a0b6] transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5cbdb9]/60"
+            >
+              Launch Clinical Workspace
+              <ArrowRight className="h-4 w-4" />
+            </button>
+
+            <p className="mt-4 text-center text-[11px] text-slate-500">
+              No password required · Audit-logged session
+            </p>
+          </div>
+        )}
       </section>
     </main>
   );
