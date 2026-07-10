@@ -3546,6 +3546,11 @@ export type Database = {
         }
         Returns: undefined
       }
+      admit_patient_from_appointment: {
+        Args: { p_appointment_id: string }
+        Returns: undefined
+      }
+      auto_admit_due_appointments: { Args: never; Returns: undefined }
       auto_admit_ghost_patient: { Args: never; Returns: undefined }
       auto_code_patient_complaint: {
         Args: { _complaint: string; _mrn: string; _name: string }
