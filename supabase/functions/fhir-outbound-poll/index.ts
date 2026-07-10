@@ -583,6 +583,64 @@ function buildDocRef(mrn: string, n: any) {
   });
 }
 
+function buildProviderNoteDocRef(mrn: string, n: any) {
+  const noteType = n.note_type ?? "Progress Note";
+  const authorDisplay = [n.author_name, n.author_role].filter(Boolean).join(", ")
+    || n.author_name || "Provider";
+  return tagged({
+    resourceType: "DocumentReference",
+    id: noteStableIds.providerNote(String(n.id)),
+    status: "current",
+    type: { text: noteType },
+    subject: { reference: `Patient/${mrn}` },
+    context: { encounter: [{ reference: `Encounter/${stableIds.encounter(mrn)}` }] },
+    date: n.signed_at ?? n.created_at ?? undefined,
+    author: [{ display: authorDisplay }],
+    content: [
+      {
+        attachment: {
+          contentType: "text/plain",
+          data: b64encode(n.content ?? ""),
+          title: noteType,
+        },
+      },
+    ],
+  });
+}
+
+function buildShiftNoteDocRef(mrn: string, n: any) {
+  const noteType = "Nursing Note (SBAR)";
+  const authorDisplay = n.author_nurse || "Nurse";
+  const sbarParts = [
+    n.sbar_situation ? `S: ${n.sbar_situation}` : null,
+    n.sbar_background ? `B: ${n.sbar_background}` : null,
+    n.sbar_assessment ? `A: ${n.sbar_assessment}` : null,
+    n.sbar_recommendation ? `R: ${n.sbar_recommendation}` : null,
+  ].filter(Boolean);
+  const body = n.note_text && n.note_text.trim().length > 0
+    ? n.note_text
+    : sbarParts.join("\n");
+  return tagged({
+    resourceType: "DocumentReference",
+    id: noteStableIds.shiftNote(String(n.id)),
+    status: "current",
+    type: { text: noteType },
+    subject: { reference: `Patient/${mrn}` },
+    context: { encounter: [{ reference: `Encounter/${stableIds.encounter(mrn)}` }] },
+    date: n.esigned_at ?? n.created_at ?? undefined,
+    author: [{ display: authorDisplay }],
+    content: [
+      {
+        attachment: {
+          contentType: "text/plain",
+          data: b64encode(body ?? ""),
+          title: noteType,
+        },
+      },
+    ],
+  });
+}
+
 /* ---------------- Transaction bundle push -------------------------------- */
 
 async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number; body: any }> {
