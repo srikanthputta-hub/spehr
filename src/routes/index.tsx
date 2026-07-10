@@ -122,12 +122,11 @@ function LoginScreen() {
       </header>
 
       <section className={`relative px-6 sm:px-10 py-10 mx-auto ${view === "hub" ? "max-w-lg" : "max-w-md"}`}>
-        <div className="flex justify-center mb-8">
-          <img src={spehrLogo.url} alt="S Group Private Network" className="h-40 w-auto scale-125" />
-        </div>
-
         {view === "hub" && (
           <div className="text-center">
+            <div className="flex justify-center mb-8">
+              <img src={spehrLogo.url} alt="S Group Private Network" className="h-40 w-auto scale-125" />
+            </div>
             <h1 className="text-3xl font-bold tracking-tight">S.P.E.H.R</h1>
             <p className="mt-2 text-sm text-slate-400">
               Simulated Patient Electronic Health Records
