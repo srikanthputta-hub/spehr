@@ -23,7 +23,7 @@ import { FlaskConical, Scan } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveNurse, useFacility } from "@/lib/facility-context";
 import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
-import { RadiologyFhirCard } from "@/components/patient/RadiologyFhirCard";
+
 import { autoCodeLab } from "@/lib/auto-code";
 import {
   getPatient,
@@ -644,13 +644,9 @@ function ChartPage() {
           {activeTab === "labs" ? (
             <LabReportsPanel reports={completedLabs} />
           ) : activeTab === "radiology" ? (
-            <>
-              <RadiologyPanel studies={radStudies} />
-              <div className="mt-4">
-                <RadiologyFhirCard mrn={patient.mrn} />
-              </div>
-            </>
+            <RadiologyPanel studies={radStudies} />
           ) : (
+
           <>
           {/* Live Vitals */}
           <section className="rounded-xl border border-border bg-card overflow-hidden">
