@@ -551,6 +551,243 @@ async function pushBundle(bundle: unknown, mrn: string): Promise<{ ok: boolean; 
   }
 }
 
+async function putFhirResource(
+  path: string,
+  resource: unknown,
+  mrn: string,
+): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const url = process.env.FHIR_SERVER_URL;
+  const token = process.env.FHIR_BEARER_TOKEN;
+  if (!url || !token) {
+    console.warn("[auto-doc] FHIR endpoint not configured; resource persisted locally only", { mrn, path });
+    return { ok: false, error: "FHIR endpoint not configured" };
+  }
+  try {
+    const base = url.replace(/\/+$/, "");
+    const suffix = path.startsWith("/") ? path : `/${path}`;
+    const r = await fetch(base + suffix, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/fhir+json",
+        Accept: "application/fhir+json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(resource),
+    });
+    return { ok: r.ok, status: r.status };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/* ---------------- Radiology / imaging orders ---------------- */
+
+function slugifyExam(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function modalityFor(examType: string): "XR" | "CT" | "MRI" | "US" {
+  const s = examType.toLowerCase();
+  if (s.includes("mri")) return "MRI";
+  if (s.includes("ultrasound")) return "US";
+  if (s.includes("ct ")) return "CT";
+  return "XR";
+}
+
+function bodyPartFor(examType: string): string {
+  const s = examType.toLowerCase();
+  if (s.includes("chest")) return "Chest";
+  if (s.includes("head")) return "Head";
+  if (s.includes("brain")) return "Brain";
+  if (s.includes("abdomen") || s.includes("abdominal")) return s.includes("pelvis") ? "Abdomen/Pelvis" : "Abdomen";
+  if (s.includes("spine")) return "Spine";
+  if (s.includes("knee")) return "Knee";
+  return "General";
+}
+
+function buildServiceRequest(input: {
+  id: string;
+  mrn: string;
+  examType: string;
+  snomed: string;
+  snomedDisplay: string;
+  reason: string;
+  authoredOn: string;
+}) {
+  return {
+    resourceType: "ServiceRequest",
+    id: input.id,
+    meta: { tag: [{ system: "urn:spehr:source", code: "spehr" }] },
+    status: "active",
+    intent: "order",
+    category: [
+      {
+        coding: [
+          { system: "http://snomed.info/sct", code: "363679005", display: "Imaging" },
+        ],
+      },
+    ],
+    code: {
+      coding: [
+        { system: "http://snomed.info/sct", code: input.snomed, display: input.snomedDisplay },
+      ],
+      text: input.examType,
+    },
+    subject: { reference: `Patient/${input.mrn}` },
+    reasonCode: [{ text: input.reason }],
+    authoredOn: input.authoredOn,
+    requester: { display: "Auto Doc" },
+  };
+}
+
+async function orderImagingForMrn(
+  mrn: string,
+  tpl: ConditionTemplate,
+  p: any,
+): Promise<Array<{ examType: string; svcId: string; pushed: boolean; status?: number }>> {
+  const imaging = tpl.imaging ?? [];
+  if (imaging.length === 0) return [];
+  const sb = admin();
+  const nowIso = new Date().toISOString();
+  const results: Array<{ examType: string; svcId: string; pushed: boolean; status?: number }> = [];
+  const patientName =
+    p?.name || [p?.first_name, p?.last_name].filter(Boolean).join(" ") || null;
+
+  for (const img of imaging) {
+    const svcId = `radsvc-${mrn}-${slugifyExam(img.examType)}`;
+    // Skip if we already ordered this exam for this MRN (idempotency).
+    const { data: existing } = await sb
+      .from("radiology_orders")
+      .select("id, svcreq_fhir_id")
+      .eq("patient_mrn", mrn)
+      .eq("exam_type", img.examType)
+      .maybeSingle();
+
+    if (!existing) {
+      const { error: insErr } = await sb.from("radiology_orders").insert({
+        patient_mrn: mrn,
+        patient_name: patientName,
+        facility_name: p?.facility_name ?? null,
+        requested_by: "Auto Doc",
+        exam_type: img.examType,
+        modality: modalityFor(img.examType),
+        body_part: bodyPartFor(img.examType),
+        clinical_indication: tpl.condition,
+        status: "ordered",
+        snomed_code: img.snomed,
+        snomed_display: img.snomedDisplay,
+        svcreq_fhir_id: svcId,
+        source: "auto-doc",
+        created_by_type: "ai",
+        ordered_at: nowIso,
+      } as never);
+      if (insErr) {
+        // Non-fatal: keep going with FHIR push so downstream still sees it.
+        console.warn("[auto-doc] radiology_orders insert failed", insErr.message);
+      }
+    } else if (!(existing as any).svcreq_fhir_id) {
+      await sb
+        .from("radiology_orders")
+        .update({ svcreq_fhir_id: svcId } as never)
+        .eq("id", (existing as any).id);
+    }
+
+    const svcReq = buildServiceRequest({
+      id: svcId,
+      mrn,
+      examType: img.examType,
+      snomed: img.snomed,
+      snomedDisplay: img.snomedDisplay,
+      reason: tpl.condition,
+      authoredOn: nowIso,
+    });
+
+    try {
+      await sb.rpc("persist_fhir_resource" as never, {
+        _resource_type: "ServiceRequest",
+        _resource_id: svcId,
+        _mrn: mrn,
+        _payload: svcReq as never,
+        _source: "auto-doc:imaging",
+        _origin: "automation",
+        _author_id: "auto-doc",
+      } as never);
+    } catch (e) {
+      console.warn("[auto-doc] persist_fhir_resource(ServiceRequest) failed", (e as Error).message);
+    }
+
+    const pushed = await putFhirResource(`/ServiceRequest/${svcId}`, svcReq, mrn);
+    results.push({ examType: img.examType, svcId, pushed: pushed.ok, status: pushed.status });
+  }
+  return results;
+}
+
+/* ---------------- Radiology backfill ---------------- */
+
+export async function backfillMissingRadiologyOrders(): Promise<{
+  ok: true;
+  processed: number;
+  ordersCreated: number;
+  skipped: number;
+}> {
+  const sb = admin();
+  const { data: patientsList } = await sb
+    .from("patients")
+    .select("mrn, assigned_department, chief_complaint")
+    .not("mrn", "is", null)
+    .limit(1000);
+  const rows = (patientsList ?? []) as Array<{
+    mrn: string | null;
+    assigned_department: string | null;
+    chief_complaint: string | null;
+  }>;
+  let processed = 0;
+  let ordersCreated = 0;
+  let skipped = 0;
+
+  for (const row of rows) {
+    if (!row.mrn) {
+      skipped++;
+      continue;
+    }
+    // Skip if this patient already has any radiology_orders row.
+    const { data: existing } = await sb
+      .from("radiology_orders")
+      .select("id")
+      .eq("patient_mrn", row.mrn)
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      skipped++;
+      continue;
+    }
+
+    const dept: Department =
+      (row.assigned_department as Department) ||
+      routeDepartment(String(row.chief_complaint ?? ""));
+    const tpl = templateForDepartment(dept);
+    if (!tpl.imaging || tpl.imaging.length === 0) {
+      skipped++;
+      continue;
+    }
+
+    // Need a fuller patient row for facility/name.
+    const { data: patientRow } = await sb
+      .from("patients")
+      .select("*")
+      .eq("mrn", row.mrn)
+      .maybeSingle();
+
+    const results = await orderImagingForMrn(row.mrn, tpl, patientRow ?? row);
+    processed++;
+    ordersCreated += results.length;
+  }
+  return { ok: true, processed, ordersCreated, skipped };
+}
+
 /* ---------------- Billing / FHIR Invoice generation ---------------- */
 
 function safeFullName(p: any): string {
