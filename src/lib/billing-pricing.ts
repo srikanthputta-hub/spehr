@@ -12,6 +12,8 @@ export type ChargeCategory =
   | "consultation"
   | "medication"
   | "lab"
+  | "imaging"
+  | "advanced_imaging"
   | "admin";
 
 export interface PricedCharge {
@@ -354,7 +356,81 @@ export interface BuildChargesInput {
     system?: string; // "CPT" | "UB-04 Revenue Code" | ...
     internal_category?: string;
   }>;
+  /**
+   * Imaging studies ordered for this admission. One ChargeItem is emitted
+   * per row with a real CPT code (falls back to the standard CPT map below
+   * when the Charge Master value set doesn't carry an imaging entry).
+   * CT/MRI studies are tagged category "advanced_imaging" so downstream
+   * Prior-Auth panels can filter them out of the noise.
+   */
+  imagingOrders?: Array<{
+    snomed?: string | null;
+    exam_type?: string | null;
+    modality?: string | null;
+    body_part?: string | null;
+    ordered_at?: string | null;
+  }>;
 }
+
+/**
+ * SNOMED procedure code → { CPT, description, advanced? }.
+ * "advanced" flags studies (CT/MRI) that require payer prior authorization,
+ * consumed by Health Billing Hub's Prior-Auth panel.
+ */
+const IMAGING_CPT_BY_SNOMED: Record<
+  string,
+  { cpt: string; description: string; advanced: boolean }
+> = {
+  // Chest X-ray 2-view
+  "399208008": { cpt: "71046", description: "Chest X-ray, 2 views", advanced: false },
+  // CT chest w/o contrast
+  "169070004": { cpt: "71250", description: "CT chest without contrast", advanced: true },
+  // CT head w/o contrast
+  "169069000": { cpt: "70450", description: "CT head without contrast", advanced: true },
+  // CT abdomen/pelvis w/o contrast
+  "169071000": { cpt: "74176", description: "CT abdomen and pelvis without contrast", advanced: true },
+  // MRI brain w/o contrast
+  "241601008": { cpt: "70551", description: "MRI brain without contrast", advanced: true },
+  // MRI cervical spine w/o contrast
+  "241645009": { cpt: "72141", description: "MRI cervical spine without contrast", advanced: true },
+  // Abdominal ultrasound
+  "45036003":  { cpt: "76700", description: "Ultrasound, abdomen, complete", advanced: false },
+  // Knee X-ray 2-view
+  "168807003": { cpt: "73560", description: "Knee X-ray, 2 views", advanced: false },
+};
+
+const IMAGING_CPT_BY_EXAM: Array<[RegExp, { cpt: string; description: string; advanced: boolean }]> = [
+  [/chest\s*x[- ]?ray/i,     { cpt: "71046", description: "Chest X-ray, 2 views", advanced: false }],
+  [/ct\s*chest/i,            { cpt: "71250", description: "CT chest without contrast", advanced: true }],
+  [/ct\s*head/i,             { cpt: "70450", description: "CT head without contrast", advanced: true }],
+  [/ct\s*abdomen|ct\s*abd/i, { cpt: "74176", description: "CT abdomen and pelvis without contrast", advanced: true }],
+  [/mri\s*brain/i,           { cpt: "70551", description: "MRI brain without contrast", advanced: true }],
+  [/mri.*(spine|cervical)/i, { cpt: "72141", description: "MRI cervical spine without contrast", advanced: true }],
+  [/(ultrasound|us).*(abd)/i,{ cpt: "76700", description: "Ultrasound, abdomen, complete", advanced: false }],
+  [/knee\s*x[- ]?ray/i,      { cpt: "73560", description: "Knee X-ray, 2 views", advanced: false }],
+];
+
+function lookupImagingCpt(snomed?: string | null, examType?: string | null):
+  | { cpt: string; description: string; advanced: boolean }
+  | null {
+  const s = String(snomed ?? "").trim();
+  if (s && IMAGING_CPT_BY_SNOMED[s]) return IMAGING_CPT_BY_SNOMED[s];
+  const e = String(examType ?? "");
+  if (e) for (const [re, hit] of IMAGING_CPT_BY_EXAM) if (re.test(e)) return hit;
+  return null;
+}
+
+/** Rough per-study price (USD). Advanced imaging is materially pricier. */
+const IMAGING_PRICE_BY_CPT: Record<string, number> = {
+  "71046": 220, // CXR
+  "73560": 240, // Knee XR
+  "76700": 320, // US abdomen
+  "70450": 480, // CT head
+  "71250": 520, // CT chest
+  "74176": 640, // CT abd/pelvis
+  "70551": 720, // MRI brain
+  "72141": 780, // MRI c-spine
+};
 
 /** Map a LOINC code (or lab name) to a charge-master internal_category. */
 function labInternalCategory(loinc?: string | null, name?: string | null): string {
@@ -539,6 +615,24 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
       unitPrice: TARIFF.pharmacy_handling,
       amount: TARIFF.pharmacy_handling,
     }, cm, "pharmacy_fee"));
+  }
+
+  // Imaging — one ChargeItem per radiology_orders row. Uses real CPT
+  // codes so payer-side adjudication and prior-auth analytics can match.
+  for (const r of input.imagingOrders ?? []) {
+    const hit = lookupImagingCpt(r.snomed, r.exam_type);
+    if (!hit) continue;
+    const unit = IMAGING_PRICE_BY_CPT[hit.cpt] ?? 350;
+    out.push({
+      code: hit.cpt,
+      codeSystem: "CPT",
+      description: `Imaging · ${hit.description}`,
+      category: hit.advanced ? "advanced_imaging" : "imaging",
+      quantity: 1,
+      unitPrice: unit,
+      amount: unit,
+      serviceDate: r.ordered_at ?? undefined,
+    });
   }
 
   // Standard admin

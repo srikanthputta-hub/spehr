@@ -841,7 +841,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   const p = patient as any;
 
   // Pull clinical course
-  const [{ data: medRows }, { data: labRows }] = await Promise.all([
+  const [{ data: medRows }, { data: labRows }, { data: radRows }] = await Promise.all([
     sb
       .from("medication_orders")
       .select("medication_name,drug_name,drug,rxnorm_code,status,administered_at")
@@ -849,6 +849,10 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     sb
       .from("lab_orders")
       .select("test_type,loinc_code,status,collected_at")
+      .eq("patient_mrn", mrn),
+    sb
+      .from("radiology_orders")
+      .select("snomed_code,exam_type,modality,body_part,status,ordered_at")
       .eq("patient_mrn", mrn),
   ]);
 
@@ -865,6 +869,20 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
       loinc: l.loinc_code ?? null,
       name: l.test_type ?? "Lab",
       collected_at: l.collected_at ?? null,
+    }));
+  // Bill for every imaging study that made it past "requested" — i.e.,
+  // ordered, in-progress, resulted, or reported. (Cancelled/draft skipped.)
+  const imagingOrders = ((radRows ?? []) as any[])
+    .filter((r) => {
+      const s = String(r?.status ?? "").toLowerCase();
+      return /order|progress|resulted|reported|final|complete/.test(s);
+    })
+    .map((r) => ({
+      snomed: r.snomed_code ?? null,
+      exam_type: r.exam_type ?? null,
+      modality: r.modality ?? null,
+      body_part: r.body_part ?? null,
+      ordered_at: r.ordered_at ?? null,
     }));
 
   // Pull ICD-10 codes for this MRN — prefer discrete conditions rows; fall
@@ -1019,6 +1037,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     labs,
     billingMatches,
     chargeMaster,
+    imagingOrders,
   };
   const charges = composeCharges(input);
   const { subtotal, tax, total } = summarizeCharges(charges);

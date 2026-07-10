@@ -163,6 +163,10 @@ const CATALOG: Partial<Record<Department, ConditionTemplate>> = {
     labs: [
       ...BMP,
       { loinc: "2532-0", name: "Lactate", unit: "mmol/L", ref: "0.5–2.2", gen: () => { const v = rand(1, 5, 1); return { value: v, flag: inRange(v, 0.5, 2.2) }; } },
+      // Hemoglobin A1c — powers the eCQM "Diabetes A1c care gap" measure
+      // downstream in Health Billing Hub. Range spans normal / prediabetic
+      // / diabetic so the gap denominator can actually move.
+      { loinc: "4548-4", name: "Hemoglobin A1c", unit: "%", ref: "<5.7", gen: () => { const v = rand(5.5, 12, 1); return { value: v, flag: v >= 6.5 ? (v >= 9 ? "C" : "H") : v >= 5.7 ? "H" : "N" }; } },
     ],
   },
   "Intensive Care Unit": {
