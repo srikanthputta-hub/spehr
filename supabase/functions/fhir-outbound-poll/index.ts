@@ -581,7 +581,19 @@ function buildDocRef(mrn: string, n: any) {
 /* ---------------- Transaction bundle push -------------------------------- */
 
 async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number; body: any }> {
-  const bundle = { resourceType: "Bundle", type: "transaction", entry: entries };
+  // Dedupe entries by request.url (Type/id). HAPI rejects any transaction
+  // Bundle containing two entries with the same resource id
+  // ("HAPI-0535: Transaction bundle contains multiple resources with ID"),
+  // which happens whenever a patient has two rows that collapse to the
+  // same stable id (e.g. two hemoglobin lab_orders → lab-718-7-<mrn>).
+  // Keep the last occurrence so the freshest server-side state wins.
+  const seen = new Map<string, number>();
+  entries.forEach((e, i) => {
+    const url = String(e?.request?.url ?? `_noid_${i}`);
+    seen.set(url, i);
+  });
+  const deduped = Array.from(seen.values()).sort((a, b) => a - b).map((i) => entries[i]);
+  const bundle = { resourceType: "Bundle", type: "transaction", entry: deduped };
   const res = await fetch(FHIR_SERVER_URL, {
     method: "POST",
     headers: fhirHeaders(),
@@ -614,12 +626,13 @@ async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number
   if (!ok) {
     console.error("[pushBundle] failures:", JSON.stringify({
       httpStatus: res.status,
-      entryCount: entries.length,
+      entryCount: deduped.length,
+      inputEntryCount: entries.length,
       entryFailures: entryFailures.slice(0, 10),
       rawBodyPreview: typeof body === "string"
         ? body.slice(0, 1500)
         : JSON.stringify(body).slice(0, 1500),
-      firstEntryUrls: entries.slice(0, 5).map((e) => e?.request?.url),
+      firstEntryUrls: deduped.slice(0, 5).map((e) => e?.request?.url),
     }));
   }
   return { ok, status: res.status, body: entryFailures.length > 0 ? { httpStatus: res.status, entryFailures, raw: body } : body };
