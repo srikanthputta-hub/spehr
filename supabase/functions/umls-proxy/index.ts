@@ -542,6 +542,7 @@ function buildUrl(action: Action, p: Record<string, unknown>): {
     case "resolveAndValidate":
     case "subsumes":
     case "vsacExpand":
+    case "icd10Resolve":
       throw new Error(`Action "${action}" must be handled before buildUrl`);
   }
 }
