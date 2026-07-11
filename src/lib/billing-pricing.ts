@@ -636,6 +636,8 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
       unitPrice: unit,
       amount: unit,
       serviceDate: r.ordered_at ?? undefined,
+      reasonIcd10Code: r.indication_icd10_code ?? null,
+      reasonIcd10Display: r.indication_icd10_display ?? null,
     });
   }
 
