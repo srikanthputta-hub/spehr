@@ -852,7 +852,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
       .eq("patient_mrn", mrn),
     sb
       .from("radiology_orders")
-      .select("snomed_code,exam_type,modality,body_part,status,ordered_at")
+      .select("snomed_code,exam_type,modality,body_part,status,ordered_at,indication_icd10_code,indication_icd10_display")
       .eq("patient_mrn", mrn),
   ]);
 
@@ -883,6 +883,8 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
       modality: r.modality ?? null,
       body_part: r.body_part ?? null,
       ordered_at: r.ordered_at ?? null,
+      indication_icd10_code: r.indication_icd10_code ?? null,
+      indication_icd10_display: r.indication_icd10_display ?? null,
     }));
 
   // Pull ICD-10 codes for this MRN — prefer discrete conditions rows; fall
