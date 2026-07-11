@@ -231,6 +231,16 @@ export function buildChargeItemResource(args: {
     },
     factorOverride: 1,
     note: [{ text: `${c.category} charge` }],
+    extension: c.reasonIcd10Code
+      ? [{
+          url: "urn:spehr:imaging-reason-icd10",
+          valueCoding: {
+            system: "http://hl7.org/fhir/sid/icd-10-cm",
+            code: c.reasonIcd10Code,
+            display: c.reasonIcd10Display ?? undefined,
+          },
+        }]
+      : undefined,
   };
 }
 
