@@ -219,6 +219,63 @@ export async function resolveConcept(
       return concept;
     }
 
+    if (vocabulary === "ICD10CM") {
+      const env = await callProxy("icd10Resolve", { string: text.trim() });
+      const elapsed = env.elapsed_ms ?? 0;
+      const cacheHit = !!env.cached;
+      const candidates = env.result?.results ?? [];
+      const valid = candidates.filter(
+        (r) => r.ui && r.ui !== "NONE" && r.name && r.name !== "NO RESULTS",
+      );
+
+      if (valid.length === 0) {
+        audit({
+          resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
+          input_text: text, vocabulary,
+          resolved_code: null, resolved_display: null, umls_cui: null,
+          confidence: 0, action: "miss", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+        });
+        memo.set(key, null);
+        return null;
+      }
+
+      const scored = valid
+        .map((r) => ({ r, s: scoreMatch(text, r.name ?? "") }))
+        .sort((a, b) => b.s - a.s);
+      const best = scored[0];
+      const confidence = best.s;
+
+      if (confidence < minConfidence) {
+        audit({
+          resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
+          input_text: text, vocabulary,
+          resolved_code: best.r.ui ?? null, resolved_display: best.r.name ?? null, umls_cui: null,
+          confidence, action: "rejected", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+        });
+        memo.set(key, null);
+        return null;
+      }
+
+      const concept: ResolvedConcept = {
+        code: best.r.ui as string,
+        display: best.r.name as string,
+        vocabulary,
+        umlsCui: null,
+        confidence,
+        source: "umls",
+        cacheHit,
+        elapsedMs: elapsed,
+      };
+      audit({
+        resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
+        input_text: text, vocabulary,
+        resolved_code: concept.code, resolved_display: concept.display, umls_cui: null,
+        confidence, action: "accepted", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+      });
+      memo.set(key, concept);
+      return concept;
+    }
+
     const env = await callProxy("search", {
       string: text.trim(),
       sabs: vocabulary,
