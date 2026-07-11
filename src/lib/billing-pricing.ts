@@ -25,6 +25,8 @@ export interface PricedCharge {
   unitPrice: number;
   amount: number;
   serviceDate?: string;
+  reasonIcd10Code?: string | null;
+  reasonIcd10Display?: string | null;
 }
 
 /** Standard daily / per-event tariffs. Single source of truth. */
@@ -229,6 +231,16 @@ export function buildChargeItemResource(args: {
     },
     factorOverride: 1,
     note: [{ text: `${c.category} charge` }],
+    extension: c.reasonIcd10Code
+      ? [{
+          url: "urn:spehr:imaging-reason-icd10",
+          valueCoding: {
+            system: "http://hl7.org/fhir/sid/icd-10-cm",
+            code: c.reasonIcd10Code,
+            display: c.reasonIcd10Display ?? undefined,
+          },
+        }]
+      : undefined,
   };
 }
 
@@ -369,6 +381,8 @@ export interface BuildChargesInput {
     modality?: string | null;
     body_part?: string | null;
     ordered_at?: string | null;
+    indication_icd10_code?: string | null;
+    indication_icd10_display?: string | null;
   }>;
 }
 
@@ -632,6 +646,8 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
       unitPrice: unit,
       amount: unit,
       serviceDate: r.ordered_at ?? undefined,
+      reasonIcd10Code: r.indication_icd10_code ?? null,
+      reasonIcd10Display: r.indication_icd10_display ?? null,
     });
   }
 

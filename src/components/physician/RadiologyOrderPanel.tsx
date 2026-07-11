@@ -3,6 +3,7 @@ import { Loader2, Send, ChevronDown, Scan } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { InfoHint } from "@/components/ui/info-hint";
+import { resolveConcept, type ResolvedConcept } from "@/lib/terminology-resolver";
 
 interface Props {
   mrn: string;
@@ -75,6 +76,31 @@ export function RadiologyOrderPanel({ mrn, patientName, facility, diagnosis, phy
         .single();
       if (error) throw error;
 
+      // Best-effort: resolve the free-text clinical indication to ICD-10
+      // via UMLS. Runs after the insert so we can stamp the row; won't
+      // block the toast/UX if it misses or errors.
+      let coded: ResolvedConcept | null = null;
+      try {
+        coded = await resolveConcept(trimmed, "ICD10CM", {
+          resourceType: "radiology_order",
+          resourceId: data?.id,
+          mrn,
+          resolver: "radiology-order-panel",
+        });
+        if (coded && data?.id) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (supabase.from("radiology_orders") as any)
+            .update({
+              indication_icd10_code: coded.code,
+              indication_icd10_display: coded.display,
+              indication_icd10_confidence: coded.confidence,
+            })
+            .eq("id", data.id);
+        }
+      } catch (codeErr: any) {
+        console.warn("[radiology] ICD-10 resolution failed", codeErr?.message);
+      }
+
       // Push a FHIR ServiceRequest to the shared server so the sibling
       // Health Hub Suite imaging pipeline receives the order. Stable id
       // per (mrn, exam) so re-submits idempotently PUT the same resource.
@@ -93,7 +119,12 @@ export function RadiologyOrderPanel({ mrn, patientName, facility, diagnosis, phy
           text: chosen.exam,
         },
         subject: { reference: `Patient/${mrn}` },
-        reasonCode: [{ text: trimmed }],
+        reasonCode: [{
+          text: trimmed,
+          coding: coded
+            ? [{ system: "http://hl7.org/fhir/sid/icd-10-cm", code: coded.code, display: coded.display }]
+            : undefined,
+        }],
         authoredOn: new Date().toISOString(),
         requester: { display: physicianName ?? "Physician" },
       };

@@ -2833,6 +2833,9 @@ export type Database = {
           id: string
           image_url: string | null
           impression: string | null
+          indication_icd10_code: string | null
+          indication_icd10_confidence: number | null
+          indication_icd10_display: string | null
           modality: string | null
           ordered_at: string
           patient_mrn: string
@@ -2857,6 +2860,9 @@ export type Database = {
           id?: string
           image_url?: string | null
           impression?: string | null
+          indication_icd10_code?: string | null
+          indication_icd10_confidence?: number | null
+          indication_icd10_display?: string | null
           modality?: string | null
           ordered_at?: string
           patient_mrn: string
@@ -2881,6 +2887,9 @@ export type Database = {
           id?: string
           image_url?: string | null
           impression?: string | null
+          indication_icd10_code?: string | null
+          indication_icd10_confidence?: number | null
+          indication_icd10_display?: string | null
           modality?: string | null
           ordered_at?: string
           patient_mrn?: string
