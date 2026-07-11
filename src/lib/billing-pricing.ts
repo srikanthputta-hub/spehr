@@ -25,6 +25,8 @@ export interface PricedCharge {
   unitPrice: number;
   amount: number;
   serviceDate?: string;
+  reasonIcd10Code?: string | null;
+  reasonIcd10Display?: string | null;
 }
 
 /** Standard daily / per-event tariffs. Single source of truth. */
@@ -369,6 +371,8 @@ export interface BuildChargesInput {
     modality?: string | null;
     body_part?: string | null;
     ordered_at?: string | null;
+    indication_icd10_code?: string | null;
+    indication_icd10_display?: string | null;
   }>;
 }
 
