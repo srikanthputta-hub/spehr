@@ -357,6 +357,7 @@ type Action =
   | "meddra"
   | "icd10"
   | "snomed"
+  | "icd10Resolve"
   | "loinc"
   | "resolveAndValidate"   // P1-A: replaces "validate" for Auto Terminologist
   | "subsumes"             // P1-B: FHIR $subsumes via UMLS ancestors
