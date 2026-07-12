@@ -253,8 +253,14 @@ export function AuthoringWorkbench() {
     }
   };
 
-  const stewardVisible = savedStatus === "review" && activeRole === "Admin";
+  // Steward controls surface whenever an item is awaiting review. Visibility
+  // is NOT gated by the StaffRole string — the Authoring Workbench only
+  // renders inside /system-admin, where activeRole is never "Admin", so the
+  // old `activeRole === "Admin"` check made these buttons dead code.
+  // Enable/disable + tooltip is driven by the role-permission
+  // (dictionary.steward_approve) via gate(), consistent with the rest of app.
   const stewardAllowed = can("dictionary.steward_approve");
+  const stewardVisible = savedStatus === "review";
 
   // Invalidate validation whenever the concept list changes.
   useEffect(() => {
