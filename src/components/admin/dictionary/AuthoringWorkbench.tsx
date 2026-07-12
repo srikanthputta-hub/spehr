@@ -472,14 +472,16 @@ export function AuthoringWorkbench() {
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1 flex items-center gap-1">
-                <ShieldCheck className="h-3 w-3" /> Steward (must differ)
+                <ShieldCheck className="h-3 w-3" /> Binding Strength
               </div>
-              <Input
-                value={steward}
-                onChange={(e) => setSteward(e.target.value)}
-                placeholder="e.g. Clinical Terminology Committee"
-                className="h-8 text-xs"
-              />
+              <Select value={bindingStrength} onValueChange={(v) => setBindingStrength(v as BindingStrength)}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {BINDING_STRENGTHS.map((b) => (
+                    <SelectItem key={b} value={b}>{b}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
