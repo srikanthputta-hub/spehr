@@ -594,6 +594,7 @@ export function AuthoringWorkbench() {
                     {validationSummary.unknown > 0 && <span className="text-amber-700">⚠ {validationSummary.unknown} unknown</span>}
                     {validationSummary.inactive > 0 && <span className="text-rose-700">✗ {validationSummary.inactive} inactive</span>}
                     {validationSummary.error > 0 && <span className="text-rose-700">! {validationSummary.error} errored</span>}
+                    <span className="text-slate-600">· Binding: <strong>{bindingStrength}</strong></span>
                     {lastValidatedAt && <span className="text-slate-500">· {new Date(lastValidatedAt).toLocaleTimeString()}</span>}
                   </div>
                 )}
