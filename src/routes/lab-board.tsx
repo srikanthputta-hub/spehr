@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, FlaskConical, Sparkles, CheckCircle2 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
+import { Link } from "@tanstack/react-router";
+import { ArrowLeft } from "lucide-react";
 import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
@@ -363,6 +365,14 @@ function LabBoard() {
         subtitle={`${tech.ward} · ${pending.length} pending · ${completed.length} resulted`}
         badge="Lab Tech"
       />
+      <div className="px-6 pt-3">
+        <Link
+          to="/ancillary-services"
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition"
+        >
+          <ArrowLeft className="h-3 w-3" /> Back to Ancillary Services
+        </Link>
+      </div>
       <ModuleRibbon
         module="LAB"
         context={`${facility} · Central Lab`}

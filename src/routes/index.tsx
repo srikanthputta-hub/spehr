@@ -37,19 +37,17 @@ export const Route = createFileRoute("/")({
 type RoleRoute =
   | "/nursing-board"
   | "/physician-board"
-  | "/pharmacy-queue"
   | "/finance-board"
   | "/admin-dashboard"
-  | "/lab-board"
   | "/admissions-board"
+  | "/ancillary-services"
   | "/system-admin";
 
 const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = [
   { value: "/admissions-board", label: "Admissions / Reception", abbrev: "Reception" },
   { value: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
   { value: "/physician-board", label: "Attending Physician", abbrev: "MD" },
-  { value: "/pharmacy-queue", label: "Clinical Pharmacist", abbrev: "PharmD" },
-  { value: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
+  { value: "/ancillary-services", label: "Clinical Ancillary Services", abbrev: "Ancillary" as unknown as StaffRole },
   { value: "/admin-dashboard", label: "Clinical Site Manager", abbrev: "Admin" },
   { value: "/finance-board", label: "Corporate Finance & Accounts", abbrev: "Finance" },
   { value: "/system-admin", label: "Command Center · System Administration", abbrev: "EHR" },
@@ -65,12 +63,18 @@ function LoginScreen() {
   const { facility, setFacility, setActiveRole } = useFacility();
   const selectedRole = ROLES.find((r) => r.value === role);
   const isEhr = selectedRole?.abbrev === "EHR";
+  const isAncillary = (selectedRole?.abbrev as string) === "Ancillary";
   const activeStaff =
-    selectedRole && !isEhr ? STAFF_BY_FACILITY[facility][selectedRole.abbrev as StaffRole] : null;
+    selectedRole && !isEhr && !isAncillary
+      ? STAFF_BY_FACILITY[facility][selectedRole.abbrev as StaffRole]
+      : isAncillary
+        ? STAFF_BY_FACILITY[facility]["PharmD"]
+        : null;
 
   const handleLaunch = () => {
     if (!role) return;
-    if (selectedRole && !isEhr) setActiveRole(selectedRole.abbrev as StaffRole);
+    if (selectedRole && !isEhr && !isAncillary) setActiveRole(selectedRole.abbrev as StaffRole);
+    if (isAncillary) setActiveRole("PharmD");
     if (isEhr) {
       try {
         localStorage.setItem("spehr.activeRole", "EHR");

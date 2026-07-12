@@ -16,7 +16,7 @@ export interface NurseProfile {
   ward: string;
 }
 
-export type StaffRole = "RN" | "MD" | "PharmD" | "Finance" | "Admin" | "Lab" | "Reception";
+export type StaffRole = "RN" | "MD" | "PharmD" | "Finance" | "Admin" | "Lab" | "Reception" | "Rad";
 
 export interface StaffProfile {
   name: string;
@@ -35,6 +35,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     Admin: { name: "Diane Whitaker", role: "Admin", roleLabel: "Clinical Site Manager", facility: "Memorial Hospital", ward: "Operations" },
     Lab: { name: "Sarah Collins, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "Memorial Hospital", ward: "Central Lab" },
     Reception: { name: "Hannah Brooks", role: "Reception", roleLabel: "Admissions / Reception", facility: "Memorial Hospital", ward: "Front Desk · Main Lobby" },
+    Rad: { name: "Dr. Priya Iyer, MD", role: "Rad", roleLabel: "Radiologist", facility: "Memorial Hospital", ward: "Central Radiology" },
   },
   "St. Jude Medical Center": {
     RN: { name: "Michael Chang, RN", role: "RN", roleLabel: "Registered Nurse", facility: "St. Jude Medical Center", ward: "ICU - Pod B" },
@@ -44,6 +45,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     Admin: { name: "Harold Pierce", role: "Admin", roleLabel: "Clinical Site Manager", facility: "St. Jude Medical Center", ward: "Operations" },
     Lab: { name: "Alex Wong, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "St. Jude Medical Center", ward: "ICU Diagnostic Lab" },
     Reception: { name: "Marisol Vega", role: "Reception", roleLabel: "Admissions / Reception", facility: "St. Jude Medical Center", ward: "Admissions Desk · Tower B" },
+    Rad: { name: "Dr. Nathaniel Cho, MD", role: "Rad", roleLabel: "Radiologist", facility: "St. Jude Medical Center", ward: "Imaging Suite · Tower A" },
   },
   "City General Infirmary": {
     RN: { name: "Amanda Ross, RN", role: "RN", roleLabel: "Registered Nurse", facility: "City General Infirmary", ward: "ER - Trauma Bay" },
@@ -53,6 +55,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     Admin: { name: "Renee Cabrera", role: "Admin", roleLabel: "Clinical Site Manager", facility: "City General Infirmary", ward: "Operations" },
     Lab: { name: "Maya Lin, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "City General Infirmary", ward: "ER STAT Lab" },
     Reception: { name: "Devon Carter", role: "Reception", roleLabel: "Admissions / Reception", facility: "City General Infirmary", ward: "ER Registration" },
+    Rad: { name: "Dr. Elena Marquez, MD", role: "Rad", roleLabel: "Radiologist", facility: "City General Infirmary", ward: "ER Imaging" },
   },
   "County Health Pavilion": {
     RN: { name: "Jordan Lee, RN", role: "RN", roleLabel: "Registered Nurse", facility: "County Health Pavilion", ward: "Med-Surg Float" },
@@ -62,6 +65,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     Admin: { name: "Marcus Hadley", role: "Admin", roleLabel: "Clinical Site Manager", facility: "County Health Pavilion", ward: "Operations" },
     Lab: { name: "James Carter, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "County Health Pavilion", ward: "Diagnostic Lab" },
     Reception: { name: "Aisha Bennett", role: "Reception", roleLabel: "Admissions / Reception", facility: "County Health Pavilion", ward: "Patient Access Office" },
+    Rad: { name: "Dr. Samuel Okafor, MD", role: "Rad", roleLabel: "Radiologist", facility: "County Health Pavilion", ward: "Diagnostic Imaging" },
   },
   "Srik Health Clinic": {
     RN: { name: "Priya Shah, RN", role: "RN", roleLabel: "Registered Nurse", facility: "Srik Health Clinic", ward: "Wing C" },
@@ -71,6 +75,7 @@ export const STAFF_BY_FACILITY: Record<Facility, Record<StaffRole, StaffProfile>
     Admin: { name: "Olivia Sterling", role: "Admin", roleLabel: "Clinical Site Manager", facility: "Srik Health Clinic", ward: "Operations" },
     Lab: { name: "Nisha Patel, CLT", role: "Lab", roleLabel: "Laboratory Technician", facility: "Srik Health Clinic", ward: "Pediatric Lab" },
     Reception: { name: "Theo Nakamura", role: "Reception", roleLabel: "Admissions / Reception", facility: "Srik Health Clinic", ward: "Clinic Reception" },
+    Rad: { name: "Dr. Hana Suzuki, MD", role: "Rad", roleLabel: "Radiologist", facility: "Srik Health Clinic", ward: "Pediatric Imaging" },
   },
 };
 
@@ -143,7 +148,7 @@ export function FacilityProvider({ children }: { children: ReactNode }) {
         setFacilityState(stored as Facility);
       }
       const r = localStorage.getItem(ROLE_STORAGE_KEY);
-      if (r && ["RN", "MD", "PharmD", "Finance", "Admin", "Lab", "Reception"].includes(r)) {
+      if (r && ["RN", "MD", "PharmD", "Finance", "Admin", "Lab", "Reception", "Rad"].includes(r)) {
         setActiveRoleState(r as StaffRole);
       }
     } catch {}

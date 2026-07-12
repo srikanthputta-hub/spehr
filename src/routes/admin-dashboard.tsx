@@ -103,12 +103,13 @@ const ROLE_SUFFIX: Record<RoleKey, string> = {
   Admin: ", Admin",
   Finance: ", CPA",
   Reception: "",
+  Rad: ", MD",
 };
 const ROLE_RATE: Record<RoleKey, number> = {
-  RN: 52, MD: 150, PharmD: 68, Lab: 38, Admin: 45, Finance: 60, Reception: 28,
+  RN: 52, MD: 150, PharmD: 68, Lab: 38, Admin: 45, Finance: 60, Reception: 28, Rad: 160,
 };
 const ROLE_CAP: Record<RoleKey, number> = {
-  RN: 5, MD: 15, PharmD: 50, Lab: 20, Admin: 0, Finance: 0, Reception: 0,
+  RN: 5, MD: 15, PharmD: 50, Lab: 20, Admin: 0, Finance: 0, Reception: 0, Rad: 0,
 };
 
 // Deterministic per-facility name pool keeps each hospital's roster

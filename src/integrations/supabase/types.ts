@@ -3567,6 +3567,7 @@ export type Database = {
       }
       auto_discharge_ghost_patients: { Args: never; Returns: undefined }
       auto_order_ghost_labs: { Args: never; Returns: undefined }
+      auto_report_pending_radiology_orders: { Args: never; Returns: undefined }
       auto_result_ghost_labs: { Args: never; Returns: undefined }
       bytea_to_text: { Args: { data: string }; Returns: string }
       cascade_clinical_automation: { Args: never; Returns: undefined }

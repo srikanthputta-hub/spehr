@@ -11,12 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SystemAdminRouteImport } from './routes/system-admin'
+import { Route as RadiologyBoardRouteImport } from './routes/radiology-board'
 import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as LabBoardRouteImport } from './routes/lab-board'
 import { Route as FinanceBoardRouteImport } from './routes/finance-board'
+import { Route as AncillaryServicesRouteImport } from './routes/ancillary-services'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AdmissionsBoardRouteImport } from './routes/admissions-board'
 import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
@@ -41,6 +43,11 @@ const TasksRoute = TasksRouteImport.update({
 const SystemAdminRoute = SystemAdminRouteImport.update({
   id: '/system-admin',
   path: '/system-admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RadiologyBoardRoute = RadiologyBoardRouteImport.update({
+  id: '/radiology-board',
+  path: '/radiology-board',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PhysicianBoardRoute = PhysicianBoardRouteImport.update({
@@ -71,6 +78,11 @@ const LabBoardRoute = LabBoardRouteImport.update({
 const FinanceBoardRoute = FinanceBoardRouteImport.update({
   id: '/finance-board',
   path: '/finance-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AncillaryServicesRoute = AncillaryServicesRouteImport.update({
+  id: '/ancillary-services',
+  path: '/ancillary-services',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
@@ -160,12 +172,14 @@ export interface FileRoutesByFullPath {
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admissions-board': typeof AdmissionsBoardRoute
   '/analytics': typeof AnalyticsRoute
+  '/ancillary-services': typeof AncillaryServicesRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
   '/mcp': typeof McpRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
+  '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
@@ -185,12 +199,14 @@ export interface FileRoutesByTo {
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admissions-board': typeof AdmissionsBoardRoute
   '/analytics': typeof AnalyticsRoute
+  '/ancillary-services': typeof AncillaryServicesRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
   '/mcp': typeof McpRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
+  '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
@@ -211,12 +227,14 @@ export interface FileRoutesById {
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admissions-board': typeof AdmissionsBoardRoute
   '/analytics': typeof AnalyticsRoute
+  '/ancillary-services': typeof AncillaryServicesRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
   '/mcp': typeof McpRoute
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
+  '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
@@ -238,12 +256,14 @@ export interface FileRouteTypes {
     | '/admin-dashboard'
     | '/admissions-board'
     | '/analytics'
+    | '/ancillary-services'
     | '/finance-board'
     | '/lab-board'
     | '/mcp'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
+    | '/radiology-board'
     | '/system-admin'
     | '/tasks'
     | '/.mcp/list-tools'
@@ -263,12 +283,14 @@ export interface FileRouteTypes {
     | '/admin-dashboard'
     | '/admissions-board'
     | '/analytics'
+    | '/ancillary-services'
     | '/finance-board'
     | '/lab-board'
     | '/mcp'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
+    | '/radiology-board'
     | '/system-admin'
     | '/tasks'
     | '/.mcp/list-tools'
@@ -288,12 +310,14 @@ export interface FileRouteTypes {
     | '/admin-dashboard'
     | '/admissions-board'
     | '/analytics'
+    | '/ancillary-services'
     | '/finance-board'
     | '/lab-board'
     | '/mcp'
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
+    | '/radiology-board'
     | '/system-admin'
     | '/tasks'
     | '/.mcp/list-tools'
@@ -314,12 +338,14 @@ export interface RootRouteChildren {
   AdminDashboardRoute: typeof AdminDashboardRoute
   AdmissionsBoardRoute: typeof AdmissionsBoardRoute
   AnalyticsRoute: typeof AnalyticsRoute
+  AncillaryServicesRoute: typeof AncillaryServicesRoute
   FinanceBoardRoute: typeof FinanceBoardRoute
   LabBoardRoute: typeof LabBoardRoute
   McpRoute: typeof McpRoute
   NursingBoardRoute: typeof NursingBoardRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
   PhysicianBoardRoute: typeof PhysicianBoardRoute
+  RadiologyBoardRoute: typeof RadiologyBoardRoute
   SystemAdminRoute: typeof SystemAdminRoute
   TasksRoute: typeof TasksRoute
   Char91DotmcpChar93ListToolsRoute: typeof Char91DotmcpChar93ListToolsRoute
@@ -349,6 +375,13 @@ declare module '@tanstack/react-router' {
       path: '/system-admin'
       fullPath: '/system-admin'
       preLoaderRoute: typeof SystemAdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/radiology-board': {
+      id: '/radiology-board'
+      path: '/radiology-board'
+      fullPath: '/radiology-board'
+      preLoaderRoute: typeof RadiologyBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/physician-board': {
@@ -391,6 +424,13 @@ declare module '@tanstack/react-router' {
       path: '/finance-board'
       fullPath: '/finance-board'
       preLoaderRoute: typeof FinanceBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ancillary-services': {
+      id: '/ancillary-services'
+      path: '/ancillary-services'
+      fullPath: '/ancillary-services'
+      preLoaderRoute: typeof AncillaryServicesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analytics': {
@@ -506,12 +546,14 @@ const rootRouteChildren: RootRouteChildren = {
   AdminDashboardRoute: AdminDashboardRoute,
   AdmissionsBoardRoute: AdmissionsBoardRoute,
   AnalyticsRoute: AnalyticsRoute,
+  AncillaryServicesRoute: AncillaryServicesRoute,
   FinanceBoardRoute: FinanceBoardRoute,
   LabBoardRoute: LabBoardRoute,
   McpRoute: McpRoute,
   NursingBoardRoute: NursingBoardRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
   PhysicianBoardRoute: PhysicianBoardRoute,
+  RadiologyBoardRoute: RadiologyBoardRoute,
   SystemAdminRoute: SystemAdminRoute,
   TasksRoute: TasksRoute,
   Char91DotmcpChar93ListToolsRoute: Char91DotmcpChar93ListToolsRoute,
