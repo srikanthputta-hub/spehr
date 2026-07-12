@@ -423,9 +423,15 @@ export function AuthoringWorkbench() {
                 <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold whitespace-nowrap ${
                   savedStatus === "draft" ? "bg-slate-100 text-slate-700 border-slate-200"
                   : savedStatus === "review" ? "bg-amber-100 text-amber-800 border-amber-200"
+                  : savedStatus === "rejected" ? "bg-rose-100 text-rose-800 border-rose-200"
+                  : savedStatus === "approved" ? "bg-sky-100 text-sky-800 border-sky-200"
                   : "bg-emerald-100 text-emerald-800 border-emerald-200"
                 }`}>
-                  {savedStatus === "draft" ? "Saved as Draft" : savedStatus === "review" ? "In Review" : "Published"}
+                  {savedStatus === "draft" ? "Saved as Draft"
+                    : savedStatus === "review" ? "In Review"
+                    : savedStatus === "rejected" ? "Rejected"
+                    : savedStatus === "approved" ? "Approved"
+                    : "Published"}
                 </span>
               )}
             </div>
@@ -439,11 +445,48 @@ export function AuthoringWorkbench() {
                 className="bg-[#0c2340] hover:bg-[#0c2340]/90"
                 onClick={() => save("review")}
                 disabled={saving || !canSubmitReview || (savedStatus !== null && savedStatus !== "draft")}
-                title={!canSubmitReview ? "Requires Author, distinct Steward, and a passing validation run" : undefined}>
+                title={!canSubmitReview ? "Requires Author and a passing validation run" : undefined}>
                 <Send className="h-3.5 w-3.5" /> Submit for Review
               </Button>
+              {stewardVisible && (
+                <>
+                  <Button
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    {...gate("dictionary.steward_approve", () => {
+                      if (governing) return;
+                      void runStewardAction("approved", "");
+                    })}
+                  >
+                    {governing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    Approve & Publish
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                    {...gate("dictionary.steward_approve", () => {
+                      if (governing) return;
+                      const comment = window.prompt("Reason for rejection (required):", "")?.trim() ?? "";
+                      if (!comment) {
+                        toast.error("A rejection comment is required");
+                        return;
+                      }
+                      void runStewardAction("rejected", comment);
+                    })}
+                  >
+                    <XCircle className="h-3.5 w-3.5" /> Reject
+                  </Button>
+                </>
+              )}
             </div>
           </div>
+          {stewardVisible && !stewardAllowed && (
+            <div className="text-[10px] text-amber-700 flex items-start gap-1">
+              <AlertTriangle className="h-3 w-3 mt-[1px]" />
+              <span>Steward approve/publish is disabled for your role at this facility. A Site Manager can enable it in System Admin.</span>
+            </div>
+          )}
           <div className="flex items-center gap-3 text-xs">
             <label className="flex items-center gap-1.5">
               <input type="radio" checked={type === "extensional"} onChange={() => setType("extensional")} />
