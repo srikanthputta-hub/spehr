@@ -63,12 +63,18 @@ function LoginScreen() {
   const { facility, setFacility, setActiveRole } = useFacility();
   const selectedRole = ROLES.find((r) => r.value === role);
   const isEhr = selectedRole?.abbrev === "EHR";
+  const isAncillary = (selectedRole?.abbrev as string) === "Ancillary";
   const activeStaff =
-    selectedRole && !isEhr ? STAFF_BY_FACILITY[facility][selectedRole.abbrev as StaffRole] : null;
+    selectedRole && !isEhr && !isAncillary
+      ? STAFF_BY_FACILITY[facility][selectedRole.abbrev as StaffRole]
+      : isAncillary
+        ? STAFF_BY_FACILITY[facility]["PharmD"]
+        : null;
 
   const handleLaunch = () => {
     if (!role) return;
-    if (selectedRole && !isEhr) setActiveRole(selectedRole.abbrev as StaffRole);
+    if (selectedRole && !isEhr && !isAncillary) setActiveRole(selectedRole.abbrev as StaffRole);
+    if (isAncillary) setActiveRole("PharmD");
     if (isEhr) {
       try {
         localStorage.setItem("spehr.activeRole", "EHR");
