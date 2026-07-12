@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SystemAdminRouteImport } from './routes/system-admin'
+import { Route as RadiologyBoardRouteImport } from './routes/radiology-board'
 import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
@@ -42,6 +43,11 @@ const TasksRoute = TasksRouteImport.update({
 const SystemAdminRoute = SystemAdminRouteImport.update({
   id: '/system-admin',
   path: '/system-admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RadiologyBoardRoute = RadiologyBoardRouteImport.update({
+  id: '/radiology-board',
+  path: '/radiology-board',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PhysicianBoardRoute = PhysicianBoardRouteImport.update({
@@ -173,6 +179,7 @@ export interface FileRoutesByFullPath {
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
+  '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
@@ -199,6 +206,7 @@ export interface FileRoutesByTo {
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
+  '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
@@ -226,6 +234,7 @@ export interface FileRoutesById {
   '/nursing-board': typeof NursingBoardRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
+  '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
@@ -254,6 +263,7 @@ export interface FileRouteTypes {
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
+    | '/radiology-board'
     | '/system-admin'
     | '/tasks'
     | '/.mcp/list-tools'
@@ -280,6 +290,7 @@ export interface FileRouteTypes {
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
+    | '/radiology-board'
     | '/system-admin'
     | '/tasks'
     | '/.mcp/list-tools'
@@ -306,6 +317,7 @@ export interface FileRouteTypes {
     | '/nursing-board'
     | '/pharmacy-queue'
     | '/physician-board'
+    | '/radiology-board'
     | '/system-admin'
     | '/tasks'
     | '/.mcp/list-tools'
@@ -333,6 +345,7 @@ export interface RootRouteChildren {
   NursingBoardRoute: typeof NursingBoardRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
   PhysicianBoardRoute: typeof PhysicianBoardRoute
+  RadiologyBoardRoute: typeof RadiologyBoardRoute
   SystemAdminRoute: typeof SystemAdminRoute
   TasksRoute: typeof TasksRoute
   Char91DotmcpChar93ListToolsRoute: typeof Char91DotmcpChar93ListToolsRoute
@@ -362,6 +375,13 @@ declare module '@tanstack/react-router' {
       path: '/system-admin'
       fullPath: '/system-admin'
       preLoaderRoute: typeof SystemAdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/radiology-board': {
+      id: '/radiology-board'
+      path: '/radiology-board'
+      fullPath: '/radiology-board'
+      preLoaderRoute: typeof RadiologyBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/physician-board': {
@@ -533,6 +553,7 @@ const rootRouteChildren: RootRouteChildren = {
   NursingBoardRoute: NursingBoardRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
   PhysicianBoardRoute: PhysicianBoardRoute,
+  RadiologyBoardRoute: RadiologyBoardRoute,
   SystemAdminRoute: SystemAdminRoute,
   TasksRoute: TasksRoute,
   Char91DotmcpChar93ListToolsRoute: Char91DotmcpChar93ListToolsRoute,
