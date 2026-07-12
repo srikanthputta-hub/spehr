@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +8,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { LookupCard } from "@/components/admin/dictionary/FhirOpCards";
 import { InfoHint } from "@/components/ui/info-hint";
+import { useFacility } from "@/lib/facility-context";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 type Hit = { ui: string; name: string; rootSource?: string };
 type Picked = { code: string; display: string; vocabulary: string; excluded?: boolean };
 type ValidationStatus = "pending" | "valid" | "inactive" | "unknown" | "error";
 type ValidationRow = { code: string; display: string; vocabulary: string; status: ValidationStatus; message: string };
+type ValueSetStatus = "draft" | "review" | "approved" | "rejected" | "published";
+const BINDING_STRENGTHS = ["Required", "Extensible", "Preferred", "Example"] as const;
+type BindingStrength = (typeof BINDING_STRENGTHS)[number];
 
 const VOCABS = [
   { label: "SNOMED CT", value: "SNOMEDCT_US" },
@@ -23,6 +28,8 @@ const VOCABS = [
 ];
 
 export function AuthoringWorkbench() {
+  const { activeRole } = useFacility();
+  const { gate, can } = useRolePermissions();
   const [vocab, setVocab] = useState(VOCABS[0]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Hit[]>([]);
@@ -36,14 +43,15 @@ export function AuthoringWorkbench() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [author, setAuthor] = useState("");
-  const [steward, setSteward] = useState("");
+  const [bindingStrength, setBindingStrength] = useState<BindingStrength>("Preferred");
   const [validationRows, setValidationRows] = useState<ValidationRow[]>([]);
   const [validating, setValidating] = useState(false);
   const [lastValidatedAt, setLastValidatedAt] = useState<string | null>(null);
   const [log, setLog] = useState<Array<{ id: string; created_at: string; actor: string; message: string }>>([]);
   const [savedId, setSavedId] = useState<string | null>(null);
-  const [savedStatus, setSavedStatus] = useState<"draft" | "review" | "published" | null>(null);
+  const [savedStatus, setSavedStatus] = useState<ValueSetStatus | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [governing, setGoverning] = useState(false);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -154,11 +162,8 @@ export function AuthoringWorkbench() {
     if (!name.trim()) return toast.error("Value set name required");
     if (picks.length === 0) return toast.error("Add at least one concept");
     if (status === "review") {
-      if (!author.trim() || !steward.trim()) {
-        return toast.error("Author and Steward are required to submit for review");
-      }
-      if (author.trim().toLowerCase() === steward.trim().toLowerCase()) {
-        return toast.error("Steward must be different from Author");
+      if (!author.trim()) {
+        return toast.error("Author is required to submit for review");
       }
       if (lastValidatedAt === null) {
         return toast.error("Run validation before submitting for review");
@@ -180,7 +185,7 @@ export function AuthoringWorkbench() {
         status,
         description: notes || null,
         author: author.trim() || null,
-        steward: steward.trim() || null,
+        binding_strength: bindingStrength,
         fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
         oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
         change_history: [{
@@ -188,13 +193,13 @@ export function AuthoringWorkbench() {
           action: status === "review" ? "submitted" : "saved",
           codes: picks.length,
           author: author.trim() || null,
-          steward: steward.trim() || null,
+          binding_strength: bindingStrength,
           validated_at: lastValidatedAt,
         }],
       }, { onConflict: "name" }).select("id, status").maybeSingle();
       if (error) throw error;
       if (data?.id) setSavedId(data.id);
-      setSavedStatus(status);
+      setSavedStatus(status as ValueSetStatus);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 2000);
       toast.success(status === "review" ? "Submitted for review" : "Draft saved");
@@ -205,6 +210,52 @@ export function AuthoringWorkbench() {
       toast.error(e.message);
     } finally { setSaving(false); }
   };
+
+  // Steward governance: fetch current change_history, append entry, update status.
+  const runStewardAction = async (decision: "approved" | "rejected", comment: string) => {
+    if (!savedId) return;
+    setGoverning(true);
+    try {
+      const { data: cur, error: readErr } = await supabase
+        .from("custom_value_sets")
+        .select("change_history")
+        .eq("id", savedId)
+        .maybeSingle();
+      if (readErr) throw readErr;
+      const history: any[] = Array.isArray((cur as any)?.change_history) ? (cur as any).change_history : [];
+      const entry = {
+        at: new Date().toISOString(),
+        action: decision === "approved" ? "approved_and_published" : "rejected",
+        actor_role: activeRole,
+        comment: comment || null,
+      };
+      const nextStatus: ValueSetStatus = decision === "approved" ? "published" : "draft";
+      const patch: Record<string, any> = {
+        status: nextStatus,
+        change_history: [...history, entry],
+      };
+      if (decision === "approved") patch.published_at = new Date().toISOString();
+      const { error: upErr } = await supabase
+        .from("custom_value_sets")
+        .update(patch)
+        .eq("id", savedId);
+      if (upErr) throw upErr;
+      setSavedStatus(nextStatus);
+      toast.success(decision === "approved" ? "Approved & published" : "Rejected — returned to draft");
+      logActivity(
+        decision === "approved" ? "steward_approved" : "steward_rejected",
+        `Steward ${decision} "${name}"${comment ? ` — ${comment}` : ""}`,
+        savedId,
+      );
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setGoverning(false);
+    }
+  };
+
+  const stewardVisible = savedStatus === "review" && activeRole === "Admin";
+  const stewardAllowed = can("dictionary.steward_approve");
 
   // Invalidate validation whenever the concept list changes.
   useEffect(() => {
@@ -280,12 +331,11 @@ export function AuthoringWorkbench() {
   }, [validationRows]);
 
   const canSubmitReview = useMemo(() => {
-    if (!author.trim() || !steward.trim()) return false;
-    if (author.trim().toLowerCase() === steward.trim().toLowerCase()) return false;
+    if (!author.trim()) return false;
     if (lastValidatedAt === null) return false;
     if (validationRows.some((r) => r.status === "inactive" || r.status === "error")) return false;
     return true;
-  }, [author, steward, lastValidatedAt, validationRows]);
+  }, [author, lastValidatedAt, validationRows]);
 
   return (
     <div className="space-y-4">
