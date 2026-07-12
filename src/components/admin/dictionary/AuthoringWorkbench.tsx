@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Save, Send, Loader2, X, Plus, Check } from "lucide-react";
+import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { InfoHint } from "@/components/ui/info-hint";
 
 type Hit = { ui: string; name: string; rootSource?: string };
 type Picked = { code: string; display: string; vocabulary: string; excluded?: boolean };
+type ValidationStatus = "pending" | "valid" | "inactive" | "unknown" | "error";
+type ValidationRow = { code: string; display: string; vocabulary: string; status: ValidationStatus; message: string };
 
 const VOCABS = [
   { label: "SNOMED CT", value: "SNOMEDCT_US" },
@@ -33,6 +35,11 @@ export function AuthoringWorkbench() {
   const [excluded, setExcluded] = useState<Picked[]>([]);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [author, setAuthor] = useState("");
+  const [steward, setSteward] = useState("");
+  const [validationRows, setValidationRows] = useState<ValidationRow[]>([]);
+  const [validating, setValidating] = useState(false);
+  const [lastValidatedAt, setLastValidatedAt] = useState<string | null>(null);
   const [log, setLog] = useState<Array<{ id: string; created_at: string; actor: string; message: string }>>([]);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [savedStatus, setSavedStatus] = useState<"draft" | "review" | "published" | null>(null);
@@ -146,6 +153,21 @@ export function AuthoringWorkbench() {
   const save = async (status: "draft" | "review") => {
     if (!name.trim()) return toast.error("Value set name required");
     if (picks.length === 0) return toast.error("Add at least one concept");
+    if (status === "review") {
+      if (!author.trim() || !steward.trim()) {
+        return toast.error("Author and Steward are required to submit for review");
+      }
+      if (author.trim().toLowerCase() === steward.trim().toLowerCase()) {
+        return toast.error("Steward must be different from Author");
+      }
+      if (lastValidatedAt === null) {
+        return toast.error("Run validation before submitting for review");
+      }
+      const hasBlocking = validationRows.some((r) => r.status === "inactive" || r.status === "error");
+      if (hasBlocking) {
+        return toast.error("Resolve inactive/errored concepts before submitting");
+      }
+    }
     setSaving(true);
     try {
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -157,9 +179,18 @@ export function AuthoringWorkbench() {
         codes: picks,
         status,
         description: notes || null,
+        author: author.trim() || null,
+        steward: steward.trim() || null,
         fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
         oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
-        change_history: [{ at: new Date().toISOString(), action: status === "review" ? "submitted" : "saved", codes: picks.length }],
+        change_history: [{
+          at: new Date().toISOString(),
+          action: status === "review" ? "submitted" : "saved",
+          codes: picks.length,
+          author: author.trim() || null,
+          steward: steward.trim() || null,
+          validated_at: lastValidatedAt,
+        }],
       }, { onConflict: "name" }).select("id, status").maybeSingle();
       if (error) throw error;
       if (data?.id) setSavedId(data.id);
@@ -175,13 +206,86 @@ export function AuthoringWorkbench() {
     } finally { setSaving(false); }
   };
 
-  const validation = useMemo(() => {
-    const issues: { ok: boolean; msg: string }[] = [];
-    issues.push({ ok: picks.length > 0, msg: picks.length > 0 ? `${picks.length} concept(s) validated against UMLS` : "No concepts added yet" });
-    issues.push({ ok: true, msg: "No inactive concepts included" });
-    issues.push({ ok: true, msg: "FHIR binding strength: Preferred" });
-    return issues;
-  }, [picks]);
+  // Invalidate validation whenever the concept list changes.
+  useEffect(() => {
+    setValidationRows([]);
+    setLastValidatedAt(null);
+  }, [picks, excluded]);
+
+  const runValidation = useCallback(async () => {
+    if (picks.length === 0 && excluded.length === 0) {
+      toast.error("Add concepts before validating");
+      return;
+    }
+    setValidating(true);
+    const all = [...picks, ...excluded];
+    const initial: ValidationRow[] = all.map((p) => ({
+      code: p.code, display: p.display, vocabulary: p.vocabulary,
+      status: "pending", message: "Checking…",
+    }));
+    setValidationRows(initial);
+
+    const VOCAB_TO_SAB: Record<string, string> = {
+      "SNOMED CT": "SNOMEDCT_US",
+      "ICD-10-CM": "ICD10CM",
+      "LOINC": "LNC",
+      "RxNorm": "RXNORM",
+      "MedDRA": "MDR",
+    };
+
+    const validated = await Promise.all(all.map(async (p): Promise<ValidationRow> => {
+      const sab = VOCAB_TO_SAB[p.vocabulary] ?? p.vocabulary;
+      try {
+        const { data, error } = await supabase.functions.invoke("umls-proxy", {
+          body: {
+            action: "search",
+            params: { string: p.code, sabs: sab, inputType: "sourceUi", returnIdType: "sourceUi", pageSize: 1 },
+          },
+        });
+        if (error) {
+          return { code: p.code, display: p.display, vocabulary: p.vocabulary, status: "error", message: error.message ?? "Lookup failed" };
+        }
+        const results = ((data as any)?.result?.results ?? []).filter((r: any) => r?.ui && r.ui !== "NONE");
+        if (results.length === 0) {
+          return { code: p.code, display: p.display, vocabulary: p.vocabulary, status: "unknown", message: "Code not found in current UMLS release" };
+        }
+        const hit = results[0];
+        const nameMatch = String(hit.name ?? "").toLowerCase();
+        const wanted = p.display.toLowerCase();
+        const mismatch = nameMatch && wanted && !nameMatch.includes(wanted.slice(0, 12)) && !wanted.includes(nameMatch.slice(0, 12));
+        return {
+          code: p.code, display: p.display, vocabulary: p.vocabulary,
+          status: "valid",
+          message: mismatch ? `Active — display differs (UMLS: "${hit.name}")` : `Active in ${p.vocabulary}`,
+        };
+      } catch (e: any) {
+        return { code: p.code, display: p.display, vocabulary: p.vocabulary, status: "error", message: e?.message ?? "Network error" };
+      }
+    }));
+
+    setValidationRows(validated);
+    setLastValidatedAt(new Date().toISOString());
+    setValidating(false);
+    const bad = validated.filter((r) => r.status !== "valid").length;
+    logActivity("validated", `Validated ${validated.length} concept(s) against UMLS — ${bad} issue(s)`, null);
+    if (bad === 0) toast.success(`All ${validated.length} concept(s) valid`);
+    else toast.warning(`${bad} of ${validated.length} concept(s) need attention`);
+  }, [picks, excluded]);
+
+  const validationSummary = useMemo(() => {
+    if (validationRows.length === 0) return null;
+    const counts = { valid: 0, inactive: 0, unknown: 0, error: 0, pending: 0 };
+    for (const r of validationRows) counts[r.status] += 1;
+    return counts;
+  }, [validationRows]);
+
+  const canSubmitReview = useMemo(() => {
+    if (!author.trim() || !steward.trim()) return false;
+    if (author.trim().toLowerCase() === steward.trim().toLowerCase()) return false;
+    if (lastValidatedAt === null) return false;
+    if (validationRows.some((r) => r.status === "inactive" || r.status === "error")) return false;
+    return true;
+  }, [author, steward, lastValidatedAt, validationRows]);
 
   return (
     <div className="space-y-4">
@@ -285,7 +389,8 @@ export function AuthoringWorkbench() {
                 size="sm"
                 className="bg-[#0c2340] hover:bg-[#0c2340]/90"
                 onClick={() => save("review")}
-                disabled={saving || (savedStatus !== null && savedStatus !== "draft")}>
+                disabled={saving || !canSubmitReview || (savedStatus !== null && savedStatus !== "draft")}
+                title={!canSubmitReview ? "Requires Author, distinct Steward, and a passing validation run" : undefined}>
                 <Send className="h-3.5 w-3.5" /> Submit for Review
               </Button>
             </div>
@@ -301,6 +406,31 @@ export function AuthoringWorkbench() {
             </label>
             <span className="text-slate-400">·</span>
             <span className="text-slate-600">Vocabulary: <strong>{vocab.label}</strong></span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1 flex items-center gap-1">
+                <ShieldCheck className="h-3 w-3" /> Author
+              </div>
+              <Input
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+                placeholder="e.g. Dr. J. Smith"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1 flex items-center gap-1">
+                <ShieldCheck className="h-3 w-3" /> Steward (must differ)
+              </div>
+              <Input
+                value={steward}
+                onChange={(e) => setSteward(e.target.value)}
+                placeholder="e.g. Clinical Terminology Committee"
+                className="h-8 text-xs"
+              />
+            </div>
           </div>
 
           <div>
@@ -347,14 +477,54 @@ export function AuthoringWorkbench() {
           </div>
 
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1">Validation</div>
-            <ul className="text-[11px] space-y-0.5">
-              {validation.map((v, i) => (
-                <li key={i} className={v.ok ? "text-emerald-700" : "text-amber-700"}>
-                  {v.ok ? "✓" : "⚠"} {v.msg}
-                </li>
-              ))}
-            </ul>
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1 flex items-center justify-between">
+              <span>Validation</span>
+              <Button size="sm" variant="outline" className="h-6 text-[10px] px-2"
+                onClick={runValidation}
+                disabled={validating || (picks.length === 0 && excluded.length === 0)}>
+                {validating ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+                {validating ? "Validating…" : "Run Validation"}
+              </Button>
+            </div>
+            {validationRows.length === 0 ? (
+              <div className="text-[11px] text-slate-400">
+                {lastValidatedAt === null
+                  ? "Not yet validated. Run validation to check each concept against the live UMLS release."
+                  : "No concepts to validate."}
+              </div>
+            ) : (
+              <>
+                {validationSummary && (
+                  <div className="text-[11px] mb-1 flex flex-wrap gap-2">
+                    <span className="text-emerald-700">✓ {validationSummary.valid} valid</span>
+                    {validationSummary.unknown > 0 && <span className="text-amber-700">⚠ {validationSummary.unknown} unknown</span>}
+                    {validationSummary.inactive > 0 && <span className="text-rose-700">✗ {validationSummary.inactive} inactive</span>}
+                    {validationSummary.error > 0 && <span className="text-rose-700">! {validationSummary.error} errored</span>}
+                    {lastValidatedAt && <span className="text-slate-500">· {new Date(lastValidatedAt).toLocaleTimeString()}</span>}
+                  </div>
+                )}
+                <ul className="text-[11px] space-y-0.5 max-h-40 overflow-y-auto border border-slate-200 rounded p-2">
+                  {validationRows.map((r) => (
+                    <li key={`${r.vocabulary}:${r.code}`} className={
+                      r.status === "valid" ? "text-emerald-700"
+                      : r.status === "pending" ? "text-slate-500"
+                      : r.status === "unknown" ? "text-amber-700"
+                      : "text-rose-700"
+                    }>
+                      {r.status === "valid" ? "✓" : r.status === "pending" ? "…" : r.status === "unknown" ? "⚠" : r.status === "inactive" ? "✗" : "!"}
+                      {" "}
+                      <span className="font-mono">{r.code}</span> · {r.message}
+                    </li>
+                  ))}
+                </ul>
+                {!canSubmitReview && lastValidatedAt && (
+                  <div className="text-[10px] text-amber-700 mt-1 flex items-start gap-1">
+                    <AlertTriangle className="h-3 w-3 mt-[1px]" />
+                    <span>Submit for Review is blocked until Author + distinct Steward are set and all concepts pass validation.</span>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
