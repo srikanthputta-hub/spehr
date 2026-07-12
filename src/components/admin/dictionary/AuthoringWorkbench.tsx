@@ -253,13 +253,14 @@ export function AuthoringWorkbench() {
     }
   };
 
-  // Gate purely by the role-permission (dictionary.steward_approve) rather than
-  // the StaffRole string. The Authoring Workbench only renders inside
-  // /system-admin, where activeRole is never "Admin" — using role equality here
-  // made the Approve/Reject buttons dead code. Any role granted the
-  // steward_approve feature at this facility can act on review items.
+  // Steward controls surface whenever an item is awaiting review. Visibility
+  // is NOT gated by the StaffRole string — the Authoring Workbench only
+  // renders inside /system-admin, where activeRole is never "Admin", so the
+  // old `activeRole === "Admin"` check made these buttons dead code.
+  // Enable/disable + tooltip is driven by the role-permission
+  // (dictionary.steward_approve) via gate(), consistent with the rest of app.
   const stewardAllowed = can("dictionary.steward_approve");
-  const stewardVisible = savedStatus === "review" && stewardAllowed;
+  const stewardVisible = savedStatus === "review";
 
   // Invalidate validation whenever the concept list changes.
   useEffect(() => {
