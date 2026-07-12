@@ -17,6 +17,7 @@ import { Route as NursingBoardRouteImport } from './routes/nursing-board'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as LabBoardRouteImport } from './routes/lab-board'
 import { Route as FinanceBoardRouteImport } from './routes/finance-board'
+import { Route as AncillaryServicesRouteImport } from './routes/ancillary-services'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AdmissionsBoardRouteImport } from './routes/admissions-board'
 import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
@@ -71,6 +72,11 @@ const LabBoardRoute = LabBoardRouteImport.update({
 const FinanceBoardRoute = FinanceBoardRouteImport.update({
   id: '/finance-board',
   path: '/finance-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AncillaryServicesRoute = AncillaryServicesRouteImport.update({
+  id: '/ancillary-services',
+  path: '/ancillary-services',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
@@ -160,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admissions-board': typeof AdmissionsBoardRoute
   '/analytics': typeof AnalyticsRoute
+  '/ancillary-services': typeof AncillaryServicesRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
   '/mcp': typeof McpRoute
@@ -185,6 +192,7 @@ export interface FileRoutesByTo {
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admissions-board': typeof AdmissionsBoardRoute
   '/analytics': typeof AnalyticsRoute
+  '/ancillary-services': typeof AncillaryServicesRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
   '/mcp': typeof McpRoute
@@ -211,6 +219,7 @@ export interface FileRoutesById {
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admissions-board': typeof AdmissionsBoardRoute
   '/analytics': typeof AnalyticsRoute
+  '/ancillary-services': typeof AncillaryServicesRoute
   '/finance-board': typeof FinanceBoardRoute
   '/lab-board': typeof LabBoardRoute
   '/mcp': typeof McpRoute
@@ -238,6 +247,7 @@ export interface FileRouteTypes {
     | '/admin-dashboard'
     | '/admissions-board'
     | '/analytics'
+    | '/ancillary-services'
     | '/finance-board'
     | '/lab-board'
     | '/mcp'
@@ -263,6 +273,7 @@ export interface FileRouteTypes {
     | '/admin-dashboard'
     | '/admissions-board'
     | '/analytics'
+    | '/ancillary-services'
     | '/finance-board'
     | '/lab-board'
     | '/mcp'
@@ -288,6 +299,7 @@ export interface FileRouteTypes {
     | '/admin-dashboard'
     | '/admissions-board'
     | '/analytics'
+    | '/ancillary-services'
     | '/finance-board'
     | '/lab-board'
     | '/mcp'
@@ -314,6 +326,7 @@ export interface RootRouteChildren {
   AdminDashboardRoute: typeof AdminDashboardRoute
   AdmissionsBoardRoute: typeof AdmissionsBoardRoute
   AnalyticsRoute: typeof AnalyticsRoute
+  AncillaryServicesRoute: typeof AncillaryServicesRoute
   FinanceBoardRoute: typeof FinanceBoardRoute
   LabBoardRoute: typeof LabBoardRoute
   McpRoute: typeof McpRoute
@@ -391,6 +404,13 @@ declare module '@tanstack/react-router' {
       path: '/finance-board'
       fullPath: '/finance-board'
       preLoaderRoute: typeof FinanceBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ancillary-services': {
+      id: '/ancillary-services'
+      path: '/ancillary-services'
+      fullPath: '/ancillary-services'
+      preLoaderRoute: typeof AncillaryServicesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analytics': {
@@ -506,6 +526,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminDashboardRoute: AdminDashboardRoute,
   AdmissionsBoardRoute: AdmissionsBoardRoute,
   AnalyticsRoute: AnalyticsRoute,
+  AncillaryServicesRoute: AncillaryServicesRoute,
   FinanceBoardRoute: FinanceBoardRoute,
   LabBoardRoute: LabBoardRoute,
   McpRoute: McpRoute,
