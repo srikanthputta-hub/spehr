@@ -230,14 +230,13 @@ export function AuthoringWorkbench() {
         comment: comment || null,
       };
       const nextStatus: ValueSetStatus = decision === "approved" ? "published" : "draft";
-      const patch: Record<string, any> = {
-        status: nextStatus,
-        change_history: [...history, entry],
-      };
-      if (decision === "approved") patch.published_at = new Date().toISOString();
       const { error: upErr } = await supabase
         .from("custom_value_sets")
-        .update(patch)
+        .update({
+          status: nextStatus,
+          change_history: [...history, entry] as any,
+          published_at: decision === "approved" ? new Date().toISOString() : null,
+        })
         .eq("id", savedId);
       if (upErr) throw upErr;
       setSavedStatus(nextStatus);
