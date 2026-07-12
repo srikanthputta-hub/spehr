@@ -253,8 +253,13 @@ export function AuthoringWorkbench() {
     }
   };
 
-  const stewardVisible = savedStatus === "review" && activeRole === "Admin";
+  // Gate purely by the role-permission (dictionary.steward_approve) rather than
+  // the StaffRole string. The Authoring Workbench only renders inside
+  // /system-admin, where activeRole is never "Admin" — using role equality here
+  // made the Approve/Reject buttons dead code. Any role granted the
+  // steward_approve feature at this facility can act on review items.
   const stewardAllowed = can("dictionary.steward_approve");
+  const stewardVisible = savedStatus === "review" && stewardAllowed;
 
   // Invalidate validation whenever the concept list changes.
   useEffect(() => {
