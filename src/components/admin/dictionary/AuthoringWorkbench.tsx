@@ -614,7 +614,7 @@ export function AuthoringWorkbench() {
                 {!canSubmitReview && lastValidatedAt && (
                   <div className="text-[10px] text-amber-700 mt-1 flex items-start gap-1">
                     <AlertTriangle className="h-3 w-3 mt-[1px]" />
-                    <span>Submit for Review is blocked until Author + distinct Steward are set and all concepts pass validation.</span>
+                    <span>Submit for Review is blocked until Author is set and all concepts pass validation.</span>
                   </div>
                 )}
               </>
