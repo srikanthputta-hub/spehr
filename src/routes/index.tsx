@@ -37,19 +37,17 @@ export const Route = createFileRoute("/")({
 type RoleRoute =
   | "/nursing-board"
   | "/physician-board"
-  | "/pharmacy-queue"
   | "/finance-board"
   | "/admin-dashboard"
-  | "/lab-board"
   | "/admissions-board"
+  | "/ancillary-services"
   | "/system-admin";
 
 const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = [
   { value: "/admissions-board", label: "Admissions / Reception", abbrev: "Reception" },
   { value: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
   { value: "/physician-board", label: "Attending Physician", abbrev: "MD" },
-  { value: "/pharmacy-queue", label: "Clinical Pharmacist", abbrev: "PharmD" },
-  { value: "/lab-board", label: "Laboratory Technician", abbrev: "Lab" },
+  { value: "/ancillary-services", label: "Clinical Ancillary Services", abbrev: "Ancillary" as unknown as StaffRole },
   { value: "/admin-dashboard", label: "Clinical Site Manager", abbrev: "Admin" },
   { value: "/finance-board", label: "Corporate Finance & Accounts", abbrev: "Finance" },
   { value: "/system-admin", label: "Command Center · System Administration", abbrev: "EHR" },
