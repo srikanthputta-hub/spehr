@@ -435,6 +435,7 @@ const DEFAULT_ROLE_FEATURES: Record<string, Array<{ key: string; name: string }>
   Admin: [
     { key: "bed_management", name: "Bed management board" },
     { key: "discharge_authorization", name: "Discharge authorization" },
+    { key: "dictionary.steward_approve", name: "Steward — approve/publish value sets" },
   ],
 };
 
