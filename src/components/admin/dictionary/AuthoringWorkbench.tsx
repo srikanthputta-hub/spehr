@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Target, Layers, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,27 @@ type ValidationRow = { code: string; display: string; vocabulary: string; status
 type ValueSetStatus = "draft" | "review" | "approved" | "rejected" | "published";
 const BINDING_STRENGTHS = ["Required", "Extensible", "Preferred", "Example"] as const;
 type BindingStrength = (typeof BINDING_STRENGTHS)[number];
+
+const HIERARCHY_OPERATORS = [
+  { value: "equal", label: "equal — just this concept" },
+  { value: "in", label: "in — just this concept (as set member)" },
+  { value: "descendantOf", label: "descendantOf — all descendants (excludes anchor)" },
+  { value: "descendantOrSelfOf", label: "descendantOrSelfOf — anchor + all descendants" },
+  { value: "childOf", label: "childOf — direct children only" },
+  { value: "ancestorOf", label: "ancestorOf — all ancestors (excludes anchor)" },
+  { value: "ancestorOrSelfOf", label: "ancestorOrSelfOf — anchor + all ancestors" },
+  { value: "parentOf", label: "parentOf — direct parents only" },
+] as const;
+type HierarchyOperator = (typeof HIERARCHY_OPERATORS)[number]["value"];
+
+type IntensionalClause = {
+  anchorCode: string;
+  anchorDisplay: string;
+  vocabulary: string;
+  operator: HierarchyOperator;
+  computedAt: string;
+  count: number;
+};
 
 const VOCABS = [
   { label: "SNOMED CT", value: "SNOMEDCT_US" },
@@ -44,6 +65,13 @@ export function AuthoringWorkbench() {
   const [saving, setSaving] = useState(false);
   const [author, setAuthor] = useState("");
   const [bindingStrength, setBindingStrength] = useState<BindingStrength>("Preferred");
+  // Intensional (SNOMED-only) authoring state
+  const [anchor, setAnchor] = useState<{ code: string; display: string } | null>(null);
+  const [operator, setOperator] = useState<HierarchyOperator>("descendantOrSelfOf");
+  const [expansion, setExpansion] = useState<Array<{ code: string; name: string }>>([]);
+  const [expansionTruncated, setExpansionTruncated] = useState(false);
+  const [expanding, setExpanding] = useState(false);
+  const [intensionalClause, setIntensionalClause] = useState<IntensionalClause | null>(null);
   const [validationRows, setValidationRows] = useState<ValidationRow[]>([]);
   const [validating, setValidating] = useState(false);
   const [lastValidatedAt, setLastValidatedAt] = useState<string | null>(null);
@@ -152,6 +180,65 @@ export function AuthoringWorkbench() {
     logActivity(exclude ? "excluded_concept" : "added_concept", `${exclude ? "Excluded" : "Added"} ${hit.ui} · ${hit.name}`, hit.ui);
   };
 
+  // Intensional-mode helpers (SNOMED CT only) ─────────────────────────────
+  const isSnomed = vocab.value === "SNOMEDCT_US";
+  const intensionalActive = type === "intensional" && isSnomed;
+
+  const setAsAnchor = (hit: Hit) => {
+    setAnchor({ code: hit.ui, display: hit.name });
+    setExpansion([]);
+    setExpansionTruncated(false);
+    logActivity("anchor_set", `Set anchor ${hit.ui} · ${hit.name}`, hit.ui);
+  };
+
+  const previewExpansion = async () => {
+    if (!anchor) { toast.error("Set an anchor concept first"); return; }
+    setExpanding(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: {
+          action: "hierarchyExpand",
+          params: { sab: "SNOMEDCT_US", code: anchor.code, operator },
+        },
+      });
+      if (error) throw error;
+      const codes = Array.isArray((data as any)?.codes) ? (data as any).codes : [];
+      setExpansion(codes);
+      setExpansionTruncated(Boolean((data as any)?.truncated));
+      logActivity("previewed_expansion", `Previewed ${operator} of ${anchor.code} → ${codes.length} members${(data as any)?.truncated ? " (truncated)" : ""}`, anchor.code);
+      if (codes.length === 0) toast.warning("Expansion returned no members");
+      else toast.success(`Expansion: ${codes.length} member(s)`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Expansion failed");
+    } finally { setExpanding(false); }
+  };
+
+  const applyExpansionToValueSet = () => {
+    if (!anchor || expansion.length === 0) { toast.error("Preview an expansion first"); return; }
+    const asPicks: Picked[] = expansion.map((c) => ({
+      code: c.code, display: c.name || c.code, vocabulary: vocab.label,
+    }));
+    setPicks(asPicks);
+    setExcluded([]);
+    const clause: IntensionalClause = {
+      anchorCode: anchor.code,
+      anchorDisplay: anchor.display,
+      vocabulary: vocab.label,
+      operator,
+      computedAt: new Date().toISOString(),
+      count: asPicks.length,
+    };
+    setIntensionalClause(clause);
+    logActivity("applied_expansion", `Applied ${operator} of ${anchor.code} — ${asPicks.length} concept(s) loaded`, anchor.code);
+    toast.success(`Loaded ${asPicks.length} concept(s) into value set`);
+  };
+
+  // If user switches away from intensional/SNOMED, drop the clause so a
+  // subsequent save doesn't persist a stale hierarchy rule.
+  useEffect(() => {
+    if (!intensionalActive && intensionalClause) setIntensionalClause(null);
+  }, [intensionalActive, intensionalClause]);
+
   const removePick = (code: string, list: "in" | "out") => {
     if (list === "in") setPicks(p => p.filter(x => x.code !== code));
     else setExcluded(p => p.filter(x => x.code !== code));
@@ -186,6 +273,7 @@ export function AuthoringWorkbench() {
         description: notes || null,
         author: author.trim() || null,
         binding_strength: bindingStrength,
+        intensional_clause: type === "intensional" ? (intensionalClause as any) : null,
         fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
         oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
         change_history: [{
@@ -319,14 +407,70 @@ export function AuthoringWorkbench() {
       }
     }));
 
-    setValidationRows(validated);
+    // Intensional check: re-resolve the anchor via hierarchyExpand and compare
+    // the resulting count against the saved clause. Adds one synthetic row so
+    // steward sees whether the rule still resolves.
+    let finalRows = validated;
+    if (type === "intensional" && intensionalClause) {
+      try {
+        const { data, error } = await supabase.functions.invoke("umls-proxy", {
+          body: {
+            action: "hierarchyExpand",
+            params: {
+              sab: "SNOMEDCT_US",
+              code: intensionalClause.anchorCode,
+              operator: intensionalClause.operator,
+            },
+          },
+        });
+        const nowCount = Array.isArray((data as any)?.codes) ? (data as any).codes.length : 0;
+        const anchorLabel = `${intensionalClause.anchorCode} · ${intensionalClause.operator}`;
+        let row: ValidationRow;
+        if (error || nowCount === 0) {
+          row = {
+            code: intensionalClause.anchorCode,
+            display: intensionalClause.anchorDisplay,
+            vocabulary: intensionalClause.vocabulary,
+            status: "unknown",
+            message: `Anchor no longer resolves (${anchorLabel})`,
+          };
+        } else if (nowCount !== intensionalClause.count) {
+          row = {
+            code: intensionalClause.anchorCode,
+            display: intensionalClause.anchorDisplay,
+            vocabulary: intensionalClause.vocabulary,
+            status: "unknown",
+            message: `Expansion drifted — saved ${intensionalClause.count}, live ${nowCount} (${anchorLabel})`,
+          };
+        } else {
+          row = {
+            code: intensionalClause.anchorCode,
+            display: intensionalClause.anchorDisplay,
+            vocabulary: intensionalClause.vocabulary,
+            status: "valid",
+            message: `Expansion resolves — ${nowCount} members found (${anchorLabel})`,
+          };
+        }
+        finalRows = [...validated, row];
+      } catch (e: any) {
+        finalRows = [...validated, {
+          code: intensionalClause.anchorCode,
+          display: intensionalClause.anchorDisplay,
+          vocabulary: intensionalClause.vocabulary,
+          status: "error",
+          message: e?.message ?? "Anchor re-resolution failed",
+        }];
+      }
+    }
+
+    setValidationRows(finalRows);
     setLastValidatedAt(new Date().toISOString());
     setValidating(false);
-    const bad = validated.filter((r) => r.status !== "valid").length;
-    logActivity("validated", `Validated ${validated.length} concept(s) against UMLS — ${bad} issue(s)`, null);
-    if (bad === 0) toast.success(`All ${validated.length} concept(s) valid`);
-    else toast.warning(`${bad} of ${validated.length} concept(s) need attention`);
-  }, [picks, excluded]);
+    const bad = finalRows.filter((r) => r.status !== "valid").length;
+    logActivity("validated", `Validated ${finalRows.length} concept(s) against UMLS — ${bad} issue(s)`, null);
+    if (bad === 0) toast.success(`All ${finalRows.length} concept(s) valid`);
+    else toast.warning(`${bad} of ${finalRows.length} concept(s) need attention`);
+  }, [picks, excluded, type, intensionalClause]);
 
   const validationSummary = useMemo(() => {
     if (validationRows.length === 0) return null;
@@ -402,12 +546,25 @@ export function AuthoringWorkbench() {
                     <div className="text-[10px] text-slate-500">{vocab.label}</div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => addPick(hit, false)}>
-                      <Plus className="h-3 w-3" /> Include
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => addPick(hit, true)}>
-                      <X className="h-3 w-3" /> Exclude
-                    </Button>
+                    {intensionalActive ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] px-2"
+                        onClick={() => setAsAnchor(hit)}
+                      >
+                        <Target className="h-3 w-3" /> Set as Anchor
+                      </Button>
+                    ) : (
+                      <>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => addPick(hit, false)}>
+                          <Plus className="h-3 w-3" /> Include
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => addPick(hit, true)}>
+                          <X className="h-3 w-3" /> Exclude
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -505,6 +662,87 @@ export function AuthoringWorkbench() {
             <span className="text-slate-400">·</span>
             <span className="text-slate-600">Vocabulary: <strong>{vocab.label}</strong></span>
           </div>
+
+          {type === "intensional" && !isSnomed && (
+            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 mt-[1px] shrink-0" />
+              <span>Intensional (hierarchy-rule) authoring is SNOMED CT only for now. Switch the vocabulary to SNOMED CT to use anchor + operator expansion, or keep the type as Extensional for {vocab.label}.</span>
+            </div>
+          )}
+
+          {intensionalActive && (
+            <div className="rounded border border-sky-200 bg-sky-50/50 p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-900">
+                <Layers className="h-3.5 w-3.5" /> Intensional Hierarchy Rule (SNOMED CT)
+              </div>
+              <div className="text-[11px] text-slate-700">
+                Anchor:{" "}
+                {anchor ? (
+                  <span>
+                    <span className="font-mono">{anchor.code}</span> · {anchor.display}
+                  </span>
+                ) : (
+                  <span className="text-slate-500">None — pick a concept in the search panel and click "Set as Anchor".</span>
+                )}
+              </div>
+              <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+                <Select value={operator} onValueChange={(v) => setOperator(v as HierarchyOperator)}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {HIERARCHY_OPERATORS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-[11px]"
+                  onClick={previewExpansion}
+                  disabled={!anchor || expanding}
+                >
+                  {expanding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                  Preview Expansion
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-[11px] bg-[#0c2340] hover:bg-[#0c2340]/90"
+                  onClick={applyExpansionToValueSet}
+                  disabled={!anchor || expansion.length === 0}
+                >
+                  <Download className="h-3.5 w-3.5" /> Apply to Value Set
+                </Button>
+              </div>
+              {expansionTruncated && (
+                <div className="text-[10px] text-amber-800 flex items-start gap-1">
+                  <AlertTriangle className="h-3 w-3 mt-[1px]" />
+                  <span>Expansion truncated at 500 members. Narrow the anchor or use a more specific operator (e.g. childOf).</span>
+                </div>
+              )}
+              {expansion.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1">
+                    Expansion Preview ({expansion.length} member{expansion.length === 1 ? "" : "s"})
+                  </div>
+                  <ul className="border border-slate-200 rounded max-h-40 overflow-y-auto text-[11px] divide-y divide-slate-100 bg-white">
+                    {expansion.map((c) => (
+                      <li key={c.code} className="px-2 py-1 flex gap-2">
+                        <span className="font-mono text-slate-900">{c.code}</span>
+                        <span className="truncate text-slate-700">{c.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {intensionalClause && (
+                <div className="text-[10px] text-slate-600">
+                  Saved rule: <span className="font-mono">{intensionalClause.operator}</span> of{" "}
+                  <span className="font-mono">{intensionalClause.anchorCode}</span>
+                  {" "}({intensionalClause.count} members at {new Date(intensionalClause.computedAt).toLocaleTimeString()})
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <div>
