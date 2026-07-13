@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { reconcileOrphanedBeds } from "@/lib/admit-patient";
 import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
 import { InfoHint } from "@/components/ui/info-hint";
+import { useVisibilityRefetch } from "@/hooks/useVisibilityRefetch";
 
 interface BedRow {
   id: string;
@@ -73,10 +74,10 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
   const [precautions, setPrecautions] = useState<PrecautionMap>({});
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const cancelledRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
+  const load = useCallback(async () => {
+      const cancelled = cancelledRef.current;
       await reconcileOrphanedBeds(facility).catch(() => {});
       const { data } = await supabase
         .from("bed_management")
@@ -121,7 +122,7 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
               const hit = codeMap.get(String(c.snomed_code));
               if (hit && !pmap[c.mrn]) pmap[c.mrn] = hit.precaution_type ?? "Contact";
             }
-            if (!cancelled) setPrecautions(pmap);
+            if (!cancelledRef.current) setPrecautions(pmap);
           }
         } catch {
           /* silent — banner is informational */
@@ -130,20 +131,40 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
         setNames({});
         setPrecautions({});
       }
-    };
+  }, [facility]);
+
+  useEffect(() => {
+    cancelledRef.current = false;
     load();
-    const ch = supabase
-      .channel(`bed-board-${facility}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` }, () => load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` }, () => load())
-      .subscribe();
+    let ch: ReturnType<typeof supabase.channel> | null = null;
+    const buildChannel = () => {
+      const channel = supabase
+        .channel(`bed-board-${facility}-${Date.now()}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` }, () => load())
+        .on("postgres_changes", { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` }, () => load())
+        .subscribe((status) => {
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            // Realtime dropped — tear down and rebuild so the board self-heals.
+            try { supabase.removeChannel(channel); } catch { /* ignore */ }
+            if (ch === channel && !cancelledRef.current) {
+              ch = buildChannel();
+              // Also do an immediate catch-up fetch in case we missed events.
+              load();
+            }
+          }
+        });
+      return channel;
+    };
+    ch = buildChannel();
     const poll = setInterval(load, 4000);
     return () => {
-      cancelled = true;
-      supabase.removeChannel(ch);
+      cancelledRef.current = true;
+      if (ch) supabase.removeChannel(ch);
       clearInterval(poll);
     };
-  }, [facility]);
+  }, [facility, load]);
+
+  useVisibilityRefetch(load);
 
   const counts = useMemo(() => {
     const c = { available: 0, occupied: 0, cleaning: 0, disinfecting: 0, makingBed: 0 };
