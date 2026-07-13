@@ -839,47 +839,67 @@ async function processPendingTerminologyRequests(): Promise<{
 /*  Never touches draft/review rows and never re-links.                */
 /* ------------------------------------------------------------------ */
 async function runPairAutoLinkPass(): Promise<number> {
-  const { data: unlinked, error } = await supabase
-    .from("value_set_dependencies")
-    .select("id, purpose, lookup_mode, value_set_name")
-    .eq("consumer", "Safety Alerts Engine · Drug-Allergy")
-    .is("value_set_id", null);
-  if (error || !unlinked || unlinked.length === 0) return 0;
-
-  let linked = 0;
-  for (const dep of unlinked as any[]) {
-    const name = String(dep?.value_set_name ?? "").trim();
-    if (!name) continue;
-    try {
-      const { data: vs } = await supabase
-        .from("custom_value_sets")
-        .select("id, name")
-        .eq("name", name)
-        .eq("status", "published")
-        .maybeSingle();
-      if (!vs) continue;
-      const vsId = (vs as any).id as string;
-      const { error: updErr } = await supabase
-        .from("value_set_dependencies")
-        .update({ value_set_id: vsId, updated_at: new Date().toISOString() } as any)
-        .eq("id", dep.id);
-      if (updErr) continue;
-
-      const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const msg = `${timeLabel} — Activated Drug-Allergy pair '${dep.purpose}' (${dep.lookup_mode} side) — linked published value set '${name}'.`;
-      await logActivity({
-        action: "pair-linked",
-        message: msg,
-        theme: String(dep.purpose ?? null),
-        value_set_id: vsId,
-      });
-      await logToBus("library", "pair-linked", msg, vsId);
-      linked += 1;
-    } catch (e) {
-      console.warn("[auto-term] pair auto-link failed for", dep?.id, e);
+  try {
+    const { data: unlinked, error } = await supabase
+      .from("value_set_dependencies")
+      .select("id, purpose, lookup_mode, value_set_name")
+      .eq("consumer", "Safety Alerts Engine · Drug-Allergy")
+      .is("value_set_id", null);
+    if (error) {
+      console.warn("[auto-term] pair auto-link select failed", error);
+      return 0;
     }
+    if (!unlinked || unlinked.length === 0) return 0;
+
+    let linked = 0;
+    for (const dep of unlinked as any[]) {
+      const name = String(dep?.value_set_name ?? "").trim();
+      if (!name) continue;
+      try {
+        // Use .limit(1) instead of .maybeSingle() — maybeSingle throws when
+        // more than one row matches, which would kill the whole cycle if any
+        // duplicate-named published rows ever slipped in.
+        const { data: vsRows, error: vsErr } = await supabase
+          .from("custom_value_sets")
+          .select("id, name")
+          .eq("name", name)
+          .eq("status", "published")
+          .limit(1);
+        if (vsErr) {
+          console.warn("[auto-term] pair vs lookup failed", name, vsErr);
+          continue;
+        }
+        const vs = Array.isArray(vsRows) && vsRows.length > 0 ? vsRows[0] : null;
+        if (!vs) continue;
+        const vsId = (vs as any).id as string;
+        const { error: updErr } = await supabase
+          .from("value_set_dependencies")
+          .update({ value_set_id: vsId, updated_at: new Date().toISOString() } as any)
+          .eq("id", dep.id);
+        if (updErr) {
+          console.warn("[auto-term] pair link update failed", dep?.id, updErr);
+          continue;
+        }
+
+        const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const msg = `${timeLabel} — Activated Drug-Allergy pair '${dep.purpose}' (${dep.lookup_mode} side) — linked published value set '${name}'.`;
+        await logActivity({
+          action: "pair-linked",
+          message: msg,
+          theme: String(dep.purpose ?? null),
+          value_set_id: vsId,
+        });
+        await logToBus("library", "pair-linked", msg, vsId);
+        linked += 1;
+      } catch (e) {
+        console.warn("[auto-term] pair auto-link failed for", dep?.id, e);
+      }
+    }
+    return linked;
+  } catch (e) {
+    console.warn("[auto-term] pair auto-link pass crashed", e);
+    return 0;
   }
-  return linked;
 }
 
 async function runAutoTerminologistCycle() {
