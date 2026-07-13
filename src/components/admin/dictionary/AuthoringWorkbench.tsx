@@ -484,10 +484,17 @@ export function AuthoringWorkbench() {
 
     const VOCAB_TO_SAB: Record<string, string> = {
       "SNOMED CT": "SNOMEDCT_US",
+      "SNOMEDCT_US": "SNOMEDCT_US",
+      "ICD-10": "ICD10CM",
       "ICD-10-CM": "ICD10CM",
+      "ICD10CM": "ICD10CM",
+      "ICD-9-CM": "ICD9CM",
+      "LNC": "LNC",
       "LOINC": "LNC",
       "RxNorm": "RXNORM",
+      "RXNORM": "RXNORM",
       "MedDRA": "MDR",
+      "MDR": "MDR",
     };
 
     const validated = await Promise.all(all.map(async (p): Promise<ValidationRow> => {
@@ -495,25 +502,29 @@ export function AuthoringWorkbench() {
       try {
         const { data, error } = await supabase.functions.invoke("umls-proxy", {
           body: {
-            action: "search",
-            params: { string: p.code, sabs: sab, inputType: "sourceUi", returnIdType: "sourceUi", pageSize: 1 },
+            action: "validate",
+            params: { code: p.code, sab },
           },
         });
         if (error) {
           return { code: p.code, display: p.display, vocabulary: p.vocabulary, status: "error", message: error.message ?? "Lookup failed" };
         }
-        const results = ((data as any)?.result?.results ?? []).filter((r: any) => r?.ui && r.ui !== "NONE");
-        if (results.length === 0) {
+        const res = (data as any)?.result;
+        const hitName = String(res?.name ?? "").trim();
+        if (!res || !hitName || hitName === "NONE") {
           return { code: p.code, display: p.display, vocabulary: p.vocabulary, status: "unknown", message: "Code not found in current UMLS release" };
         }
-        const hit = results[0];
-        const nameMatch = String(hit.name ?? "").toLowerCase();
+        const status = String(res?.status ?? "active").toLowerCase();
+        if (status && status !== "active") {
+          return { code: p.code, display: p.display, vocabulary: p.vocabulary, status: "inactive", message: `Inactive in ${p.vocabulary} (${status})` };
+        }
+        const nameMatch = hitName.toLowerCase();
         const wanted = p.display.toLowerCase();
         const mismatch = nameMatch && wanted && !nameMatch.includes(wanted.slice(0, 12)) && !wanted.includes(nameMatch.slice(0, 12));
         return {
           code: p.code, display: p.display, vocabulary: p.vocabulary,
           status: "valid",
-          message: mismatch ? `Active — display differs (UMLS: "${hit.name}")` : `Active in ${p.vocabulary}`,
+          message: mismatch ? `Active — display differs (UMLS: "${hitName}")` : `Active in ${p.vocabulary}`,
         };
       } catch (e: any) {
         return { code: p.code, display: p.display, vocabulary: p.vocabulary, status: "error", message: e?.message ?? "Network error" };
