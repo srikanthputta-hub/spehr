@@ -12,15 +12,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "sonner";
 import { ExpandCard } from "@/components/admin/dictionary/FhirOpCards";
 import { InfoHint } from "@/components/ui/info-hint";
+import { useRolePermissions, DISABLED_MESSAGE } from "@/hooks/useRolePermissions";
 
 type ValueSet = {
   id: string;
   name: string;
   oid: string | null;
   vocabulary: string | null;
-  type: "extensional" | "intensional";
+  type: "extensional" | "intensional" | "grouping";
   codes: any[];
   intensional_rule: any | null;
+  grouping_members: Array<{ valueSetId: string; valueSetName: string; oid: string | null }> | null;
   status: "draft" | "review" | "published" | "deprecated";
   clinical_application: string | null;
   fhir_url: string | null;
@@ -43,6 +45,7 @@ const STATUS_STYLES: Record<string, string> = {
 const TYPE_STYLES: Record<string, string> = {
   extensional: "bg-sky-100 text-sky-800 border-sky-200",
   intensional: "bg-violet-100 text-violet-800 border-violet-200",
+  grouping: "bg-indigo-100 text-indigo-800 border-indigo-200",
 };
 
 export function ValueSetLibrary() {
