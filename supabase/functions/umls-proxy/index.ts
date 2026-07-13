@@ -277,6 +277,7 @@ async function fetchRelatedCodes(
     }
     if (!res.ok) break; // 404 → none / leaf / unknown
     const json = await res.json();
+    console.log("[umls-proxy] fetchRelatedCodes", relation, code, "page", page, "keys:", Object.keys(json ?? {}), "resultType:", Array.isArray(json?.result) ? "array" : typeof json?.result, "sample:", JSON.stringify(json).slice(0, 400));
     const rows = Array.isArray(json?.result) ? json.result : [];
     if (rows.length === 0) break;
     for (const r of rows) {
