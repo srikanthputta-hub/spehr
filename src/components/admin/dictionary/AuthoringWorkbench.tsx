@@ -180,6 +180,65 @@ export function AuthoringWorkbench() {
     logActivity(exclude ? "excluded_concept" : "added_concept", `${exclude ? "Excluded" : "Added"} ${hit.ui} · ${hit.name}`, hit.ui);
   };
 
+  // Intensional-mode helpers (SNOMED CT only) ─────────────────────────────
+  const isSnomed = vocab.value === "SNOMEDCT_US";
+  const intensionalActive = type === "intensional" && isSnomed;
+
+  const setAsAnchor = (hit: Hit) => {
+    setAnchor({ code: hit.ui, display: hit.name });
+    setExpansion([]);
+    setExpansionTruncated(false);
+    logActivity("anchor_set", `Set anchor ${hit.ui} · ${hit.name}`, hit.ui);
+  };
+
+  const previewExpansion = async () => {
+    if (!anchor) { toast.error("Set an anchor concept first"); return; }
+    setExpanding(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: {
+          action: "hierarchyExpand",
+          params: { sab: "SNOMEDCT_US", code: anchor.code, operator },
+        },
+      });
+      if (error) throw error;
+      const codes = Array.isArray((data as any)?.codes) ? (data as any).codes : [];
+      setExpansion(codes);
+      setExpansionTruncated(Boolean((data as any)?.truncated));
+      logActivity("previewed_expansion", `Previewed ${operator} of ${anchor.code} → ${codes.length} members${(data as any)?.truncated ? " (truncated)" : ""}`, anchor.code);
+      if (codes.length === 0) toast.warning("Expansion returned no members");
+      else toast.success(`Expansion: ${codes.length} member(s)`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Expansion failed");
+    } finally { setExpanding(false); }
+  };
+
+  const applyExpansionToValueSet = () => {
+    if (!anchor || expansion.length === 0) { toast.error("Preview an expansion first"); return; }
+    const asPicks: Picked[] = expansion.map((c) => ({
+      code: c.code, display: c.name || c.code, vocabulary: vocab.label,
+    }));
+    setPicks(asPicks);
+    setExcluded([]);
+    const clause: IntensionalClause = {
+      anchorCode: anchor.code,
+      anchorDisplay: anchor.display,
+      vocabulary: vocab.label,
+      operator,
+      computedAt: new Date().toISOString(),
+      count: asPicks.length,
+    };
+    setIntensionalClause(clause);
+    logActivity("applied_expansion", `Applied ${operator} of ${anchor.code} — ${asPicks.length} concept(s) loaded`, anchor.code);
+    toast.success(`Loaded ${asPicks.length} concept(s) into value set`);
+  };
+
+  // If user switches away from intensional/SNOMED, drop the clause so a
+  // subsequent save doesn't persist a stale hierarchy rule.
+  useEffect(() => {
+    if (!intensionalActive && intensionalClause) setIntensionalClause(null);
+  }, [intensionalActive, intensionalClause]);
+
   const removePick = (code: string, list: "in" | "out") => {
     if (list === "in") setPicks(p => p.filter(x => x.code !== code));
     else setExcluded(p => p.filter(x => x.code !== code));
@@ -214,6 +273,7 @@ export function AuthoringWorkbench() {
         description: notes || null,
         author: author.trim() || null,
         binding_strength: bindingStrength,
+        intensional_clause: type === "intensional" ? (intensionalClause as any) : null,
         fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
         oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
         change_history: [{
