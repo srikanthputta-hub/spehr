@@ -490,12 +490,25 @@ export function AuthoringWorkbench() {
                     <div className="text-[10px] text-slate-500">{vocab.label}</div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => addPick(hit, false)}>
-                      <Plus className="h-3 w-3" /> Include
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => addPick(hit, true)}>
-                      <X className="h-3 w-3" /> Exclude
-                    </Button>
+                    {intensionalActive ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] px-2"
+                        onClick={() => setAsAnchor(hit)}
+                      >
+                        <Target className="h-3 w-3" /> Set as Anchor
+                      </Button>
+                    ) : (
+                      <>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => addPick(hit, false)}>
+                          <Plus className="h-3 w-3" /> Include
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => addPick(hit, true)}>
+                          <X className="h-3 w-3" /> Exclude
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
