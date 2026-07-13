@@ -126,12 +126,18 @@ function FinanceBoard() {
     else {
       const rows = (data ?? []) as InvoiceRow[];
       const mrns = Array.from(new Set(rows.map((r) => r.mrn))).filter(Boolean);
-      let times: Record<string, { admission_time: string | null; discharge_time: string | null }> = {};
+      // Seed from the previously-known map so a partial/failed patients
+      // fetch on a realtime-triggered refresh doesn't collapse every row
+      // to -Infinity and fall back to the DB's `issued_at DESC` order.
+      const times: Record<string, { admission_time: string | null; discharge_time: string | null }> = {
+        ...patientTimes,
+      };
       if (mrns.length > 0) {
-        const { data: pts } = await (supabase as any)
+        const { data: pts, error: pErr } = await (supabase as any)
           .from("patients")
           .select("mrn,admission_time,discharge_time")
           .in("mrn", mrns);
+        if (pErr) console.warn("[finance-board] patients join failed", pErr.message);
         for (const p of ((pts ?? []) as any[])) {
           times[String(p.mrn)] = {
             admission_time: p.admission_time ?? null,
@@ -140,17 +146,25 @@ function FinanceBoard() {
         }
         setPatientTimes(times);
       }
-      // Sort the queue by actual discharge time (latest first) so users see
-      // real chronology instead of the batch-cron `issued_at` clusters.
-      // `issued_at` remains visible in the "Issued" column — only the
-      // sort key changes here. Rows without a discharge_time (edge cases)
-      // sink to the bottom.
+      // Sort by actual discharge time (latest first) so users see real
+      // chronology instead of the batch-cron `issued_at` clusters. Sort a
+      // shallow copy — the PostgREST response array can be non-writable in
+      // some transport paths, which silently no-ops in-place sort and left
+      // the queue in DB-returned `issued_at DESC` order. Tiebreaker on
+      // `issued_at` keeps deterministic order when two invoices share a
+      // discharge_time; rows without a discharge_time sink to the bottom.
       const dt = (mrn: string) => {
-        const t = times[mrn]?.discharge_time;
+        const t = times[String(mrn)]?.discharge_time;
         return t ? new Date(t).getTime() : -Infinity;
       };
-      rows.sort((a, b) => dt(b.mrn) - dt(a.mrn));
-      setInvoices(rows);
+      const sorted = [...rows].sort((a, b) => {
+        const diff = dt(b.mrn) - dt(a.mrn);
+        if (diff !== 0) return diff;
+        const ai = a.issued_at ? new Date(a.issued_at).getTime() : 0;
+        const bi = b.issued_at ? new Date(b.issued_at).getTime() : 0;
+        return bi - ai;
+      });
+      setInvoices(sorted);
     }
     setLoading(false);
     initialLoadRef.current = false;
