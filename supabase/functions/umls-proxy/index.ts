@@ -229,46 +229,170 @@ async function checkSubsumes(p: Record<string, unknown>): Promise<{
     return { outcome: "equivalent", codeA, codeB, elapsed_ms: Date.now() - started };
   }
 
-  // Fetch all ancestor source codes for a given concept via UMLS pagination.
-  const getAncestorCodes = async (code: string): Promise<Set<string>> => {
-    const codes = new Set<string>();
-    for (let page = 1; page <= 10; page++) {
-      const url = `${UTS}/content/current/source/${encodeURIComponent(sab)}/${encodeURIComponent(code)}/ancestors?pageNumber=${page}&pageSize=50&apiKey=${UMLS_API_KEY}`;
-      let res: Response;
-      try {
-        res = await fetch(url, { headers: { Accept: "application/json" } });
-      } catch {
-        break;
-      }
-      if (!res.ok) break; // 404 = no ancestors (root concept) or unknown code
-      const json = await res.json();
-      const ancestors = Array.isArray(json?.result) ? json.result : [];
-      if (ancestors.length === 0) break;
-      for (const a of ancestors) {
-        // Each ancestor atom has a "code" field which is a URL ending in the
-        // source code, e.g. ".../source/SNOMEDCT_US/73211009"
-        const codeUrl = String(a?.code ?? "");
-        const extracted = codeUrl.split("/").pop() ?? "";
-        if (extracted && extracted !== "NONE") codes.add(extracted);
-      }
-      if (ancestors.length < 50) break; // Last page — no more results
-    }
-    return codes;
-  };
-
   // Is codeA subsumed-by codeB? (codeB is an ancestor of codeA)
-  const ancestorsOfA = await getAncestorCodes(codeA);
-  if (ancestorsOfA.has(codeB)) {
+  const ancestorsOfA = await fetchRelatedCodes(sab, codeA, "ancestors", { maxPages: 10 });
+  if (ancestorsOfA.some((r) => r.code === codeB)) {
     return { outcome: "subsumed-by", codeA, codeB, elapsed_ms: Date.now() - started };
   }
 
   // Does codeA subsume codeB? (codeA is an ancestor of codeB)
-  const ancestorsOfB = await getAncestorCodes(codeB);
-  if (ancestorsOfB.has(codeA)) {
+  const ancestorsOfB = await fetchRelatedCodes(sab, codeB, "ancestors", { maxPages: 10 });
+  if (ancestorsOfB.some((r) => r.code === codeA)) {
     return { outcome: "subsumes", codeA, codeB, elapsed_ms: Date.now() - started };
   }
 
   return { outcome: "not-subsumed", codeA, codeB, elapsed_ms: Date.now() - started };
+}
+
+// ─── P2: Shared UMLS relation pagination + hierarchyExpand ───────────────────
+//
+// Single helper used by checkSubsumes (ancestors) and hierarchyExpand
+// (descendants / ancestors / children / parents). Returns { code, name } pairs
+// extracted from ancestor/descendant/child/parent atoms with the URL-tail
+// code extraction. Ancestors and descendants paginate up to `maxPages`;
+// children and parents are one hop so a single page is enough.
+
+type UmlsRelation = "ancestors" | "descendants" | "children" | "parents";
+
+async function fetchRelatedCodes(
+  sab: string,
+  code: string,
+  relation: UmlsRelation,
+  opts: { maxPages?: number; cap?: number } = {},
+): Promise<Array<{ code: string; name: string }>> {
+  const maxPages = opts.maxPages ?? (relation === "children" || relation === "parents" ? 1 : 10);
+  const cap = opts.cap ?? Infinity;
+  const pageSize = 50;
+  const out: Array<{ code: string; name: string }> = [];
+  const seen = new Set<string>();
+  for (let page = 1; page <= maxPages; page++) {
+    const url =
+      `${UTS}/content/current/source/${encodeURIComponent(sab)}/${encodeURIComponent(code)}/${relation}` +
+      `?pageNumber=${page}&pageSize=${pageSize}&apiKey=${UMLS_API_KEY}`;
+    let res: Response;
+    try {
+      res = await fetch(url, { headers: { Accept: "application/json" } });
+    } catch {
+      break;
+    }
+    if (!res.ok) break; // 404 → none / leaf / unknown
+    const json = await res.json();
+    const rows = Array.isArray(json?.result) ? json.result : [];
+    if (rows.length === 0) break;
+    for (const r of rows) {
+      const codeUrl = String(r?.code ?? "");
+      const extracted = codeUrl.split("/").pop() ?? "";
+      if (!extracted || extracted === "NONE" || seen.has(extracted)) continue;
+      seen.add(extracted);
+      out.push({ code: extracted, name: String(r?.name ?? "") });
+      if (out.length >= cap) return out;
+    }
+    if (rows.length < pageSize) break;
+  }
+  return out;
+}
+
+type HierarchyOperator =
+  | "equal"
+  | "in"
+  | "descendantOf"
+  | "descendantOrSelfOf"
+  | "childOf"
+  | "ancestorOf"
+  | "ancestorOrSelfOf"
+  | "parentOf";
+
+const HIERARCHY_CAP = 500;
+
+async function fetchAnchorName(sab: string, code: string): Promise<string> {
+  try {
+    const url = `${UTS}/content/current/source/${encodeURIComponent(sab)}/${encodeURIComponent(code)}?apiKey=${UMLS_API_KEY}`;
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return "";
+    const json = await res.json();
+    return String(json?.result?.name ?? "");
+  } catch {
+    return "";
+  }
+}
+
+async function hierarchyExpand(p: Record<string, unknown>): Promise<{
+  anchorCode: string;
+  operator: HierarchyOperator;
+  codes: Array<{ code: string; name: string }>;
+  count: number;
+  truncated: boolean;
+  elapsed_ms: number;
+}> {
+  const started = Date.now();
+  const sab = String(p.sab ?? "SNOMEDCT_US");
+  const anchorCode = String(p.code ?? "").trim();
+  const operator = String(p.operator ?? "descendantOrSelfOf") as HierarchyOperator;
+
+  const empty = {
+    anchorCode,
+    operator,
+    codes: [] as Array<{ code: string; name: string }>,
+    count: 0,
+    truncated: false,
+    elapsed_ms: Date.now() - started,
+  };
+  if (!anchorCode) return empty;
+
+  const anchorName = await fetchAnchorName(sab, anchorCode);
+  const self = { code: anchorCode, name: anchorName };
+
+  let related: Array<{ code: string; name: string }> = [];
+  let includeSelf = false;
+  let cap = HIERARCHY_CAP;
+
+  switch (operator) {
+    case "equal":
+    case "in":
+      return {
+        anchorCode,
+        operator,
+        codes: [self],
+        count: 1,
+        truncated: false,
+        elapsed_ms: Date.now() - started,
+      };
+    case "descendantOrSelfOf":
+      includeSelf = true;
+      cap = HIERARCHY_CAP - 1;
+      related = await fetchRelatedCodes(sab, anchorCode, "descendants", { cap });
+      break;
+    case "descendantOf":
+      related = await fetchRelatedCodes(sab, anchorCode, "descendants", { cap });
+      break;
+    case "ancestorOrSelfOf":
+      includeSelf = true;
+      cap = HIERARCHY_CAP - 1;
+      related = await fetchRelatedCodes(sab, anchorCode, "ancestors", { cap });
+      break;
+    case "ancestorOf":
+      related = await fetchRelatedCodes(sab, anchorCode, "ancestors", { cap });
+      break;
+    case "childOf":
+      related = await fetchRelatedCodes(sab, anchorCode, "children", { cap });
+      break;
+    case "parentOf":
+      related = await fetchRelatedCodes(sab, anchorCode, "parents", { cap });
+      break;
+    default:
+      return empty;
+  }
+
+  const codes = includeSelf ? [self, ...related] : related;
+  const truncated = codes.length >= HIERARCHY_CAP;
+  return {
+    anchorCode,
+    operator,
+    codes: codes.slice(0, HIERARCHY_CAP),
+    count: Math.min(codes.length, HIERARCHY_CAP),
+    truncated,
+    elapsed_ms: Date.now() - started,
+  };
 }
 
 // ─── VSAC $expand by OID ─────────────────────────────────────────────────────
