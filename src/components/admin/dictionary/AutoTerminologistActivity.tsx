@@ -507,6 +507,63 @@ export function AutoTerminologistActivity() {
       </div>
 
       <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+          <Archive className="h-3.5 w-3.5" />
+          Deprecation Suggestions
+        </div>
+        <span className="text-[11px] text-slate-500">
+          {deprecations.length} pending
+        </span>
+      </div>
+      <div className="scroll-feed rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
+        {deprecations.length === 0 ? (
+          <div className="px-4 py-6 text-sm text-slate-500">
+            No value sets currently flagged for deprecation.
+          </div>
+        ) : (
+          deprecations.map((d) => {
+            const change = latestChange(d.change_history);
+            return (
+              <div key={d.id} className="flex items-start gap-3 px-4 py-3">
+                <span className="mt-0.5 inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                  <Archive className="h-3 w-3" />
+                  deprecation-suggested
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 leading-snug">{d.name}</p>
+                  <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3">
+                    {d.vocabulary && <span>{d.vocabulary}</span>}
+                    {d.oid && <span className="font-mono text-slate-600">OID {d.oid}</span>}
+                  </div>
+                  {change && (
+                    <p className="mt-1 text-xs text-slate-600 leading-snug">{change}</p>
+                  )}
+                </div>
+                {d.oid && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(d.oid!);
+                        toast.success("OID copied — paste into the Value Set Library to open");
+                      } catch {
+                        toast.error("Copy failed");
+                      }
+                    }}
+                    className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                    title="Copy OID to jump to this value set in the Library"
+                  >
+                    <Copy className="h-3 w-3" />
+                    Copy OID
+                  </button>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 pt-1">
         <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
           Value Sets Drafted
         </div>
