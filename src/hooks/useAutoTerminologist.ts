@@ -646,6 +646,12 @@ async function processPendingTerminologyRequests(): Promise<{
             theme: tName,
             value_set_id: tRow.id ?? null,
           });
+          await logToBus(
+            "library",
+            "deprecation-suggested",
+            `${timeLabel} — Deprecation suggested for '${tName}' (was ${tStatus}) — requested by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+            tRow.id ?? null,
+          );
           deprecationSuggested += 1;
           continue;
         }
@@ -779,6 +785,37 @@ async function processPendingTerminologyRequests(): Promise<{
         codes_count: codes.length,
         value_set_id: valueSetId,
       });
+
+      // Mirror material outcomes onto the shared activity bus so
+      // Library + Authoring panels see automated activity. Skip noop.
+      if (outcome.mode === "created" || outcome.mode === "replaced-draft") {
+        await logToBus("library", "drafted", activityMessage, valueSetId);
+        await logToBus("authoring", "drafted", activityMessage, valueSetId);
+      } else if (outcome.mode === "merged") {
+        await logToBus("library", "extended", activityMessage, valueSetId);
+        await logToBus("authoring", "extended", activityMessage, valueSetId);
+      }
+
+      // Best-effort crosswalk sanity-check on newly-added codes. For
+      // "created" that's the first 3 of `codes`; for merged / replaced-
+      // draft that's the first 3 of the incoming request codes as a
+      // proxy for the actually-added set (safeUpsertValueSet already
+      // guarantees addedCount > 0 for these modes — noop is filtered
+      // above). Never blocks the draft.
+      if (
+        (outcome.mode === "created" ||
+          outcome.mode === "merged" ||
+          outcome.mode === "replaced-draft") &&
+        outcome.addedCount > 0
+      ) {
+        void runCrosswalkSanityCheck({
+          valueSetId,
+          valueSetName: requestedName,
+          dominantVocab,
+          codesToCheck: codes.slice(0, 3),
+        });
+      }
+
       requestLogTracker.delete(String(req.id));
       drafted += 1;
     } catch (e) {
