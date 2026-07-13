@@ -362,6 +362,86 @@ export async function runAutoDocPipeline(mrn: string) {
     dictRegistered: dictRows.length,
   });
 
+  // Clinical coverage-gap detection (Auto Doc as a requesting consumer):
+  // if none of the resolved SNOMED CT concepts for tpl.condition are
+  // covered by a currently-published SNOMED CT value set, file (or extend)
+  // a terminology_requests row so the Auto Terminologist / human steward
+  // can close the gap. Mirrors the Billing Engine gap-request pattern
+  // below in generateInvoiceForPatient. Wrapped in try/catch so any
+  // failure here NEVER blocks the fhir / discharge / complete stages.
+  try {
+    if (snomedFinal.length > 0) {
+      const wanted = new Set(snomedFinal.map((c) => String(c).trim()).filter(Boolean));
+      const { data: publishedSets } = await sb
+        .from("custom_value_sets")
+        .select("codes")
+        .eq("vocabulary", "SNOMED CT")
+        .eq("status", "published");
+      let covered = false;
+      for (const row of ((publishedSets ?? []) as any[])) {
+        const rowCodes: any[] = Array.isArray(row?.codes) ? row.codes : [];
+        for (const c of rowCodes) {
+          const k = String(c?.code ?? "").trim();
+          if (k && wanted.has(k)) { covered = true; break; }
+        }
+        if (covered) break;
+      }
+
+      if (!covered) {
+        const seedCodes = snomedFinal.map((code) => ({
+          code,
+          display: tpl.condition,
+          vocabulary: "SNOMED CT",
+        }));
+
+        // Extend an existing unresolved Auto Doc request for the same
+        // condition rather than filing a duplicate.
+        const { data: existingReq } = await sb
+          .from("terminology_requests" as any)
+          .select("id, seed_codes, status")
+          .eq("requesting_consumer", "Auto Doc")
+          .eq("requested_name", tpl.condition)
+          .in("status", ["pending", "umls-suggested"])
+          .maybeSingle();
+
+        if (existingReq) {
+          const prevCodes: Array<{ code: string; display?: string; vocabulary?: string }> =
+            Array.isArray((existingReq as any).seed_codes)
+              ? (existingReq as any).seed_codes
+              : [];
+          const seen = new Set(prevCodes.map((c) => String(c?.code ?? "").trim()));
+          const merged = [...prevCodes];
+          for (const c of seedCodes) {
+            const code = String(c?.code ?? "").trim();
+            if (!code || seen.has(code)) continue;
+            seen.add(code);
+            merged.push(c);
+          }
+          if (merged.length !== prevCodes.length) {
+            await sb
+              .from("terminology_requests" as any)
+              .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
+              .eq("id", (existingReq as any).id);
+          }
+        } else {
+          await sb.from("terminology_requests" as any).insert({
+            requesting_consumer: "Auto Doc",
+            requested_name: tpl.condition,
+            justification: `No published SNOMED CT value set currently covers "${tpl.condition}" — ${snomedFinal.length} concept(s) resolved for MRN-${mrn} with no governed coverage.`,
+            priority: "normal",
+            vocabulary: "SNOMED CT",
+            seed_codes: seedCodes,
+            clinical_application: "CDS",
+            related_mrn: mrn,
+            status: "pending",
+          } as any);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[auto-doc] terminology coverage-gap request failed", (e as Error).message);
+  }
+
   // STAGE: fhir (recorded; existing FHIR sync pipeline picks up the rows)
   await setRunStage(mrn, "fhir");
   try {
