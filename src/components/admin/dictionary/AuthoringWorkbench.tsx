@@ -825,9 +825,77 @@ export function AuthoringWorkbench() {
               <input type="radio" checked={type === "intensional"} onChange={() => setType("intensional")} />
               Intensional
             </label>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" checked={type === "grouping"} onChange={() => setType("grouping")} />
+              Grouping
+            </label>
             <span className="text-slate-400">·</span>
             <span className="text-slate-600">Vocabulary: <strong>{vocab.label}</strong></span>
           </div>
+
+          {type === "grouping" && (
+            <div className="rounded border border-indigo-200 bg-indigo-50/50 p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-900">
+                <Boxes className="h-3.5 w-3.5" /> Grouping Members ({groupingMembers.length})
+              </div>
+              {groupingMembers.length === 0 ? (
+                <div className="text-[11px] text-slate-500">
+                  None — search existing value sets in the left panel and click "Add to Group".
+                </div>
+              ) : (
+                <ul className="border border-slate-200 rounded max-h-40 overflow-y-auto text-[11px] divide-y divide-slate-100 bg-white">
+                  {groupingMembers.map((m) => (
+                    <li key={m.id} className="px-2 py-1 flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-slate-800 font-semibold">{m.name}</div>
+                        <div className="font-mono text-[10px] text-slate-500 truncate">
+                          {m.oid ?? "—"} · {m.codes?.length ?? 0} code{(m.codes?.length ?? 0) === 1 ? "" : "s"}
+                        </div>
+                      </div>
+                      <button onClick={() => removeGroupingMember(m.id)} className="text-slate-400 hover:text-rose-600">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-[11px]"
+                  onClick={previewGroupingUnion}
+                  disabled={groupingMembers.length === 0}
+                >
+                  <Search className="h-3.5 w-3.5" /> Preview Union
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-[11px] bg-[#0c2340] hover:bg-[#0c2340]/90"
+                  onClick={applyGroupingUnion}
+                  disabled={groupingUnion.length === 0}
+                >
+                  <Download className="h-3.5 w-3.5" /> Apply to Value Set
+                </Button>
+              </div>
+              {groupingUnion.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1">
+                    Union Preview ({groupingUnion.length} unique member{groupingUnion.length === 1 ? "" : "s"})
+                  </div>
+                  <ul className="border border-slate-200 rounded max-h-40 overflow-y-auto text-[11px] divide-y divide-slate-100 bg-white">
+                    {groupingUnion.map((c) => (
+                      <li key={`${c.vocabulary}:${c.code}`} className="px-2 py-1 flex gap-2">
+                        <span className="font-mono text-slate-900">{c.code}</span>
+                        <span className="truncate text-slate-700">{c.display}</span>
+                        <span className="text-slate-400 ml-auto">{c.vocabulary}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
           {type === "intensional" && !isSnomed && (
             <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 flex items-start gap-1.5">
