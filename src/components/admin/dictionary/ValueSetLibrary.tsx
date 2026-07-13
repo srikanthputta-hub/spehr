@@ -49,6 +49,8 @@ const TYPE_STYLES: Record<string, string> = {
 };
 
 export function ValueSetLibrary() {
+  const { gate: stewardGate, can: stewardCan } = useRolePermissions();
+  const stewardAllowed = stewardCan("dictionary.steward_approve");
   const [rows, setRows] = useState<ValueSet[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -463,17 +465,26 @@ export function ValueSetLibrary() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={async () => {
-              const t = publishTarget; if (!t) return;
-              setPublishTarget(null);
-              await transitionStatus(t, "draft", null, "Returned to draft for changes");
-            }}>Request Changes</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
-              const t = publishTarget; if (!t) return;
-              setPublishTarget(null);
-              await transitionStatus(t, "published", null, "Published successfully", { published_at: new Date().toISOString() });
-            }}>Approve & Publish</Button>
+            <Button
+              variant="outline"
+              {...stewardGate("dictionary.steward_approve", async () => {
+                const t = publishTarget; if (!t) return;
+                setPublishTarget(null);
+                await transitionStatus(t, "draft", null, "Returned to draft for changes");
+              })}
+            >Request Changes</Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              {...stewardGate("dictionary.steward_approve", async () => {
+                const t = publishTarget; if (!t) return;
+                setPublishTarget(null);
+                await transitionStatus(t, "published", null, "Published successfully", { published_at: new Date().toISOString() });
+              })}
+            >Approve & Publish</Button>
           </DialogFooter>
+          {!stewardAllowed && (
+            <div className="text-[10px] text-amber-700 mt-1">{DISABLED_MESSAGE}</div>
+          )}
         </DialogContent>
       </Dialog>
 
