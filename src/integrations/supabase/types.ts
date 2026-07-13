@@ -3241,12 +3241,14 @@ export type Database = {
           priority: string
           quality_gate_notes: string | null
           related_mrn: string | null
+          request_type: string
           requested_at: string
           requested_name: string
           requesting_consumer: string
           resolved_at: string | null
           seed_codes: Json
           status: string
+          target_value_set_id: string | null
           updated_at: string
           value_set_id: string | null
           vocabulary: string | null
@@ -3258,12 +3260,14 @@ export type Database = {
           priority?: string
           quality_gate_notes?: string | null
           related_mrn?: string | null
+          request_type?: string
           requested_at?: string
           requested_name: string
           requesting_consumer: string
           resolved_at?: string | null
           seed_codes?: Json
           status?: string
+          target_value_set_id?: string | null
           updated_at?: string
           value_set_id?: string | null
           vocabulary?: string | null
@@ -3275,17 +3279,26 @@ export type Database = {
           priority?: string
           quality_gate_notes?: string | null
           related_mrn?: string | null
+          request_type?: string
           requested_at?: string
           requested_name?: string
           requesting_consumer?: string
           resolved_at?: string | null
           seed_codes?: Json
           status?: string
+          target_value_set_id?: string | null
           updated_at?: string
           value_set_id?: string | null
           vocabulary?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "terminology_requests_target_value_set_id_fkey"
+            columns: ["target_value_set_id"]
+            isOneToOne: false
+            referencedRelation: "custom_value_sets"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "terminology_requests_value_set_id_fkey"
             columns: ["value_set_id"]
