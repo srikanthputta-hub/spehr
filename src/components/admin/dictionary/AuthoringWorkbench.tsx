@@ -607,6 +607,87 @@ export function AuthoringWorkbench() {
             <span className="text-slate-600">Vocabulary: <strong>{vocab.label}</strong></span>
           </div>
 
+          {type === "intensional" && !isSnomed && (
+            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 mt-[1px] shrink-0" />
+              <span>Intensional (hierarchy-rule) authoring is SNOMED CT only for now. Switch the vocabulary to SNOMED CT to use anchor + operator expansion, or keep the type as Extensional for {vocab.label}.</span>
+            </div>
+          )}
+
+          {intensionalActive && (
+            <div className="rounded border border-sky-200 bg-sky-50/50 p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-900">
+                <Layers className="h-3.5 w-3.5" /> Intensional Hierarchy Rule (SNOMED CT)
+              </div>
+              <div className="text-[11px] text-slate-700">
+                Anchor:{" "}
+                {anchor ? (
+                  <span>
+                    <span className="font-mono">{anchor.code}</span> · {anchor.display}
+                  </span>
+                ) : (
+                  <span className="text-slate-500">None — pick a concept in the search panel and click "Set as Anchor".</span>
+                )}
+              </div>
+              <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+                <Select value={operator} onValueChange={(v) => setOperator(v as HierarchyOperator)}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {HIERARCHY_OPERATORS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-[11px]"
+                  onClick={previewExpansion}
+                  disabled={!anchor || expanding}
+                >
+                  {expanding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                  Preview Expansion
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-[11px] bg-[#0c2340] hover:bg-[#0c2340]/90"
+                  onClick={applyExpansionToValueSet}
+                  disabled={!anchor || expansion.length === 0}
+                >
+                  <Download className="h-3.5 w-3.5" /> Apply to Value Set
+                </Button>
+              </div>
+              {expansionTruncated && (
+                <div className="text-[10px] text-amber-800 flex items-start gap-1">
+                  <AlertTriangle className="h-3 w-3 mt-[1px]" />
+                  <span>Expansion truncated at 500 members. Narrow the anchor or use a more specific operator (e.g. childOf).</span>
+                </div>
+              )}
+              {expansion.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1">
+                    Expansion Preview ({expansion.length} member{expansion.length === 1 ? "" : "s"})
+                  </div>
+                  <ul className="border border-slate-200 rounded max-h-40 overflow-y-auto text-[11px] divide-y divide-slate-100 bg-white">
+                    {expansion.map((c) => (
+                      <li key={c.code} className="px-2 py-1 flex gap-2">
+                        <span className="font-mono text-slate-900">{c.code}</span>
+                        <span className="truncate text-slate-700">{c.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {intensionalClause && (
+                <div className="text-[10px] text-slate-600">
+                  Saved rule: <span className="font-mono">{intensionalClause.operator}</span> of{" "}
+                  <span className="font-mono">{intensionalClause.anchorCode}</span>
+                  {" "}({intensionalClause.count} members at {new Date(intensionalClause.computedAt).toLocaleTimeString()})
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-2">
             <div>
               <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1 flex items-center gap-1">
