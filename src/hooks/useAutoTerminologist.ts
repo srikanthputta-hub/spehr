@@ -308,35 +308,6 @@ function normalizePriority(p: string | null | undefined): number {
   return 2;
 }
 
-/** Loose case-insensitive substring match in either direction. */
-function looselyMatches(a: string, b: string): boolean {
-  const x = a.toLowerCase().trim();
-  const y = b.toLowerCase().trim();
-  if (!x || !y) return false;
-  return x.includes(y) || y.includes(x);
-}
-
-/** Try to satisfy an empty-seed request from the current cycle's scan gaps. */
-function findScanMatchForRequest(
-  requestedName: string,
-  byTheme: Map<string, Array<{ hit: CodeHit; n: number }>>,
-): SeedCode[] | null {
-  for (const [theme, group] of byTheme) {
-    if (group.length === 0) continue;
-    const themeMatches = looselyMatches(theme, requestedName);
-    const displayMatch = group.find((g) =>
-      looselyMatches(g.hit.display ?? g.hit.code, requestedName),
-    );
-    if (!themeMatches && !displayMatch) continue;
-    return group.map((g) => ({
-      code: g.hit.code,
-      display: g.hit.display ?? g.hit.code,
-      vocabulary: g.hit.vocab,
-    }));
-  }
-  return null;
-}
-
 // Cadence guard so still-pending requests don't spam the activity log
 // every 60s tick — key = request id, value = last log timestamp + notes.
 const requestLogTracker = new Map<string, { loggedAt: number; notes: string }>();
