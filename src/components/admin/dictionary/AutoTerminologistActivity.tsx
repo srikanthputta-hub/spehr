@@ -343,7 +343,7 @@ export function AutoTerminologistActivity() {
             <h3 className="text-lg font-semibold">Auto Terminologist · Activity</h3>
             <InfoHint
               className="ml-1.5"
-              text="Autonomous agent that scans the last 36 hours of patient data every 10 minutes, groups uncovered clinical concepts by theme, and drafts a new value set for genuine recurring gaps — exactly as a human terminologist would in the Authoring Workbench. It never submits for review or publishes on its own; promoting a draft always requires a human action in the Value Set Library. It also fulfills governed change requests filed by other SPEHR consumers on demand (Safety Alerts Engine, Billing Engine, Auto Doc, Auto Admin, Auto IT), subject to the same draft-only quality gate."
+              text="Purely demand-driven agent — it only acts on governed change requests filed in terminology_requests by other SPEHR consumers, never scans patient data opportunistically. Before drafting anything new it runs a quality gate and checks the existing Value Set Library for an exact or near-duplicate match (merging into the existing entry when appropriate). It can also action deprecation-suggestion requests, flagging an existing published value set for a steward to retire. It never submits for review or publishes on its own — promoting a draft or deprecating a value set always requires a human action in the Value Set Library. Current requesting consumers: Auto Doc (clinical/CDS coverage gaps found per admission), Auto Admin (billing + population-health coverage gaps), and Safety Alerts Engine (medication/allergy safety value sets — by far the highest-volume consumer today)."
             />
           </div>
         </div>
