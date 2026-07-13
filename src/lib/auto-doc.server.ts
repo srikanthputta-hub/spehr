@@ -44,6 +44,7 @@ type Stage =
   | "umls"
   | "fhir"
   | "discharge"
+  | "billing"
   | "complete"
   | "error";
 
@@ -427,7 +428,7 @@ export async function runAutoDocPipeline(mrn: string) {
           await sb.from("terminology_requests" as any).insert({
             requesting_consumer: "Auto Doc",
             requested_name: tpl.condition,
-            justification: `No published SNOMED CT value set currently covers "${tpl.condition}" — ${snomedFinal.length} concept(s) resolved for MRN-${mrn} with no governed coverage.`,
+            justification: `No published SNOMED CT value set currently covers "${tpl.condition}" — ${snomedFinal.length} concept(s) resolved for ${mrn} with no governed coverage.`,
             priority: "normal",
             vocabulary: "SNOMED CT",
             seed_codes: seedCodes,
@@ -600,7 +601,7 @@ export async function runAutoDocPipeline(mrn: string) {
       }
     }
   } catch (e) {
-    await log(mrn, "complete", `Auto Doc billing issue failed: ${(e as Error).message}`, null, "warn");
+    await log(mrn, "billing", `Auto Doc billing issue failed: ${(e as Error).message}`, null, "error");
   }
 
   return { ok: true, department, condition: tpl.condition };
@@ -1060,7 +1061,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
       const seedCodes = unmatchedIcd10.map((c) => ({ code: c, display: displayByCode.get(c) ?? c }));
 
       const { error: insertErr } = await sb.from("terminology_requests" as any).insert({
-        requesting_consumer: "Billing Engine",
+        requesting_consumer: "Auto Admin",
         requested_name: "Billing Coverage Gaps",
         justification: `Invoice ${invoiceNo} for MRN-${mrn} includes ${unmatchedIcd10.length} ICD-10 diagnosis code(s) with no match in any published Billing value set — these codes are being charged without a governed coverage/risk-adjustment mapping.`,
         priority: "normal",
@@ -1078,7 +1079,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
         const { data: existingReq } = await sb
           .from("terminology_requests" as any)
           .select("id, seed_codes")
-          .eq("requesting_consumer", "Billing Engine")
+          .eq("requesting_consumer", "Auto Admin")
           .eq("requested_name", "Billing Coverage Gaps")
           .eq("status", "pending")
           .maybeSingle();
