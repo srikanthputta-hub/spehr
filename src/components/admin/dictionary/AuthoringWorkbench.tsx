@@ -502,8 +502,8 @@ export function AuthoringWorkbench() {
       try {
         const { data, error } = await supabase.functions.invoke("umls-proxy", {
           body: {
-            action: "search",
-            params: { string: p.code, sabs: sab, inputType: "sourceUi", returnIdType: "sourceUi", pageSize: 1 },
+            action: "validate",
+            params: { code: p.code, sab },
           },
         });
         if (error) {
