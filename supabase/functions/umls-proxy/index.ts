@@ -744,6 +744,30 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ── P2: hierarchyExpand (multi-step, bypasses buildUrl) ──────────────────
+    if (action === "hierarchyExpand") {
+      if (!UMLS_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: "UMLS_API_KEY not configured" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const cacheKey = await hashKey(`hierarchyExpand:${JSON.stringify(params ?? {})}`);
+      const cached = await cacheGet(cacheKey);
+      if (cached) {
+        return new Response(
+          JSON.stringify({ cached: true, vocabulary: "SNOMEDCT_US", ...(cached as object) }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const result = await hierarchyExpand(params ?? {});
+      cacheSet(cacheKey, "SNOMEDCT_US", result).catch(() => {});
+      return new Response(
+        JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...result }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // ── vsacExpand: VSAC ValueSet $expand by OID ─────────────────────────────
     if (action === "vsacExpand") {
       if (!UMLS_API_KEY) {
