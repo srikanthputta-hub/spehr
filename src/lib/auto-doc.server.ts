@@ -1034,6 +1034,19 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   if (pErr || !patient) return { ok: false, error: "patient not found" };
   const p = patient as any;
 
+  // Single-source-of-truth discharge gate: NO invoice is ever generated for
+  // a still-admitted (or otherwise not-yet-discharged) patient, regardless
+  // of which caller invoked this function (dashboard "Regenerate", public
+  // /hooks/generate-invoice with a specific mrn, pipeline tail, backfill,
+  // future callers). Case-insensitive match on patient.status.
+  if (String(p.status ?? "").toLowerCase() !== "discharged") {
+    return {
+      ok: false,
+      skipped: true,
+      error: `patient ${mrn} is not discharged (status=${p.status ?? "unknown"}) — invoice generation skipped`,
+    };
+  }
+
   // Pull clinical course
   const [{ data: medRows }, { data: labRows }, { data: radRows }] = await Promise.all([
     sb
@@ -1377,7 +1390,13 @@ export async function backfillMissingInvoices(): Promise<{ ok: true; generated: 
   // MRNs (by arbitrary order) each had an invoice, the backfill produced
   // 0 new invoices and every subsequent discharge stalled indefinitely.
   const [{ data: discharged }, { data: invoiced }] = await Promise.all([
-    sb.from("patients").select("mrn").ilike("status", "discharged"),
+    // FIFO drain: oldest unbilled discharge first, so the dashboard's
+    // discharge-time sort reflects real generation progress.
+    sb
+      .from("patients")
+      .select("mrn,discharge_time")
+      .ilike("status", "discharged")
+      .order("discharge_time", { ascending: true, nullsFirst: false }),
     sb.from("fhir_invoices").select("mrn"),
   ]);
   const invoicedMrns = new Set(

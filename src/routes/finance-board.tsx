@@ -125,22 +125,32 @@ function FinanceBoard() {
     if (error) toast.error(`Unable to load invoices: ${error.message}`);
     else {
       const rows = (data ?? []) as InvoiceRow[];
-      setInvoices(rows);
       const mrns = Array.from(new Set(rows.map((r) => r.mrn))).filter(Boolean);
+      let times: Record<string, { admission_time: string | null; discharge_time: string | null }> = {};
       if (mrns.length > 0) {
         const { data: pts } = await (supabase as any)
           .from("patients")
           .select("mrn,admission_time,discharge_time")
           .in("mrn", mrns);
-        const map: Record<string, { admission_time: string | null; discharge_time: string | null }> = {};
         for (const p of ((pts ?? []) as any[])) {
-          map[String(p.mrn)] = {
+          times[String(p.mrn)] = {
             admission_time: p.admission_time ?? null,
             discharge_time: p.discharge_time ?? null,
           };
         }
-        setPatientTimes(map);
+        setPatientTimes(times);
       }
+      // Sort the queue by actual discharge time (latest first) so users see
+      // real chronology instead of the batch-cron `issued_at` clusters.
+      // `issued_at` remains visible in the "Issued" column — only the
+      // sort key changes here. Rows without a discharge_time (edge cases)
+      // sink to the bottom.
+      const dt = (mrn: string) => {
+        const t = times[mrn]?.discharge_time;
+        return t ? new Date(t).getTime() : -Infinity;
+      };
+      rows.sort((a, b) => dt(b.mrn) - dt(a.mrn));
+      setInvoices(rows);
     }
     setLoading(false);
     initialLoadRef.current = false;
