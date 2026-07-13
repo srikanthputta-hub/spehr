@@ -89,31 +89,6 @@ function cleanComplaintName(raw: string): string {
   return titleCase(words.join(" "));
 }
 
-/** Derive a clean clinical theme label from the dominant validated concept. */
-function deriveThemeName(
-  fallbackTheme: string,
-  validated: Array<{ code: string; display: string; vocabulary: string }>,
-  occurrences: Map<string, number>,
-): string {
-  // Rank concepts (SNOMED/ICD preferred) by frequency
-  const clinical = validated.filter((v) => v.vocabulary === "SNOMED CT" || v.vocabulary === "ICD-10");
-  const pool = clinical.length > 0 ? clinical : validated;
-  const ranked = [...pool].sort((a, b) => {
-    const na = occurrences.get(`${a.vocabulary}|${a.code}`) ?? 0;
-    const nb = occurrences.get(`${b.vocabulary}|${b.code}`) ?? 0;
-    return nb - na;
-  });
-  const top = ranked[0]?.display?.trim();
-  let base: string;
-  if (top && top.length > 2 && !/^\d+$/.test(top)) {
-    base = cleanComplaintName(top);
-  } else {
-    base = cleanComplaintName(fallbackTheme);
-  }
-  // Preserve the full concept name — no character truncation.
-  return `${base} (Auto)`;
-}
-
 async function logActivity(opts: {
   message: string;
   value_set_id?: string | null;
