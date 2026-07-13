@@ -641,7 +641,13 @@ async function processPendingTerminologyRequests(): Promise<{
     }
   }
 
-  return { drafted, gated };
+  return {
+    drafted,
+    gated,
+    deprecationSuggested,
+    rejected,
+    scanned: rows.length,
+  };
 }
 
 async function runAutoTerminologistCycle() {
@@ -661,203 +667,34 @@ async function runAutoTerminologistCycle() {
     return;
   }
 
-  const { hits, admissions } = await collectRecentCodes();
-
-  // Frequency count per (code|vocab)
-  const freq = new Map<string, { hit: CodeHit; n: number; themes: Map<string, number> }>();
-  for (const h of hits) {
-    const k = `${h.vocab}|${h.code}`;
-    const cur = freq.get(k) ?? { hit: h, n: 0, themes: new Map() };
-    cur.n += 1;
-    if (h.theme) cur.themes.set(h.theme, (cur.themes.get(h.theme) ?? 0) + 1);
-    freq.set(k, cur);
-  }
-
-  // Existing coverage set (read-only — used to identify gaps, never written)
-  const { data: existingSets } = await supabase
-    .from("custom_value_sets")
-    .select("id, name, codes");
-  const covered = new Set<string>();
-  for (const s of (existingSets ?? []) as any[]) {
-    const codes = Array.isArray(s.codes) ? s.codes : [];
-    for (const c of codes) {
-      const code = String(c?.code ?? "").trim();
-      const vocab = String(c?.vocabulary ?? c?.system ?? "").trim();
-      if (code) covered.add(`${vocab}|${code}`);
-    }
-  }
-
-  // Coverage gaps (>=3 occurrences and not covered)
-  const gaps: Array<{ hit: CodeHit; n: number; theme: string }> = [];
-  for (const [k, v] of freq) {
-    if (v.n < 3) continue;
-    if (covered.has(k)) continue;
-    const theme = [...v.themes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "General Clinical";
-    gaps.push({ hit: v.hit, n: v.n, theme });
-  }
-
-  // Group gaps by theme
-  const byTheme = new Map<string, Array<{ hit: CodeHit; n: number }>>();
-  for (const g of gaps) {
-    const arr = byTheme.get(g.theme) ?? [];
-    arr.push({ hit: g.hit, n: g.n });
-    byTheme.set(g.theme, arr);
-  }
-
-  // Demand-mode pass: fulfill pending terminology_requests before the
-  // opportunistic drafter runs. Failures are non-fatal.
-  let demand = { drafted: 0, gated: 0 };
+  // Demand-mode only: fulfill pending terminology_requests. There is no
+  // opportunistic scanner anymore — Auto Terminologist behaves like VSAC.
+  let demand = { drafted: 0, gated: 0, deprecationSuggested: 0, rejected: 0, scanned: 0 };
   try {
-    demand = await processPendingTerminologyRequests(byTheme);
+    demand = await processPendingTerminologyRequests();
   } catch (e) {
     console.warn("[auto-term] demand pass failed", e);
   }
 
-  let touchedCount = 0;
-
-  // Autonomous drafter: for each qualifying themed cluster, draft a new
-  // extensional value set into custom_value_sets (status: "draft" only).
-  for (const [theme, group] of byTheme) {
-    if (group.length < 2) continue;
-
-    try {
-      const occMap = new Map<string, number>();
-      const validatedForNaming: Array<{ code: string; display: string; vocabulary: string }> = [];
-      const vocabCount: Record<string, number> = {};
-      for (const g of group) {
-        occMap.set(`${g.hit.vocab}|${g.hit.code}`, g.n);
-        vocabCount[g.hit.vocab] = (vocabCount[g.hit.vocab] ?? 0) + 1;
-        validatedForNaming.push({
-          code: g.hit.code,
-          display: g.hit.display ?? g.hit.code,
-          vocabulary: g.hit.vocab,
-        });
-      }
-      const rankedVocabs = Object.entries(vocabCount).sort((a, b) => b[1] - a[1]);
-      const dominantVocab = rankedVocabs[0][0];
-      const themeName = deriveThemeName(theme, validatedForNaming, occMap);
-      const totalFreq = group.reduce((s, g) => s + g.n, 0);
-
-      // Build codes array in Authoring Workbench's `Picked` shape.
-      const codes = validatedForNaming.map((v) => ({
-        code: v.code,
-        display: v.display,
-        vocabulary: v.vocabulary,
-      }));
-
-      // Optional cross-vocab crosswalk if the group spans >1 vocabulary.
-      if (rankedVocabs.length > 1) {
-        try {
-          const secondaryVocab = rankedVocabs[1][0];
-          const fromSab = VOCAB_TO_SAB[dominantVocab];
-          const toSab = VOCAB_TO_SAB[secondaryVocab];
-          const fromCode = group.find((g) => g.hit.vocab === dominantVocab)?.hit.code;
-          if (fromSab && toSab && fromCode) {
-            const { data: cw, error: cwErr } = await supabase.functions.invoke("umls-proxy", {
-              body: { action: "crosswalk", params: { fromSab, fromCode, toSab } },
-            });
-            if (!cwErr) {
-              const matches = Array.isArray(cw?.matches)
-                ? cw.matches
-                : (cw?.result ? [cw.result] : []);
-              await supabase.from("terminology_activity_log" as any).insert({
-                feature: "crossmap",
-                actor: "Auto Terminologist",
-                action: "translated",
-                message: `Translated ${fromCode} (${dominantVocab} → ${secondaryVocab}) — ${matches.length} match(es)`,
-              });
-            }
-          }
-        } catch {
-          // Crosswalk is best-effort — never block draft creation.
-        }
-      }
-
-      const clinical_application = clinicalApplicationFor(themeName);
-      const now = new Date().toISOString();
-      const nameSlug = slugify(themeName);
-
-      const outcome = await safeUpsertValueSet({
-        name: themeName,
-        system: dominantVocab.replace(" ", "-"),
-        vocabulary: dominantVocab,
-        type: "extensional",
-        codes,
-        description:
-          "Auto-drafted by Auto Terminologist from a recurring coverage gap detected in the last 36h scan.",
-        clinical_application,
-        fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
-        oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
-        changeEntry: {
-          at: now,
-          actor: "Auto Terminologist",
-          change: "Extended from coverage-gap detection",
-        },
-      });
-      const valueSetId = outcome.id;
-
-      touchedCount += 1;
-      const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      let draftedMsg: string;
-      let activityAction = "drafted";
-      let logFeatureAction = "drafted_value_set";
-      let logFeatureMsg = `Drafted value set "${themeName}" (${codes.length} ${dominantVocab} concept(s)) from coverage-gap detection.`;
-      if (outcome.mode === "merged") {
-        activityAction = "extended";
-        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' already ${outcome.existingStatus} — merged ${outcome.addedCount} new ${dominantVocab} concept(s) into the existing value set (status preserved).`;
-        logFeatureAction = "extended_value_set";
-        logFeatureMsg = `Extended value set "${themeName}" with ${outcome.addedCount} new ${dominantVocab} concept(s); existing ${outcome.existingStatus} status preserved.`;
-      } else if (outcome.mode === "replaced-draft") {
-        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' — merged ${outcome.addedCount} new ${dominantVocab} concept(s) into existing draft value set.`;
-        logFeatureMsg = `Merged ${outcome.addedCount} new ${dominantVocab} concept(s) into existing draft "${themeName}".`;
-      } else if (outcome.mode === "noop") {
-        activityAction = "extended";
-        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' already ${outcome.existingStatus} and every gap code was already present — no changes made.`;
-        logFeatureAction = "extended_value_set";
-        logFeatureMsg = `No-op for "${themeName}": all gap codes already present in the ${outcome.existingStatus} value set.`;
-      } else {
-        draftedMsg = `${timeLabel} — Coverage gap detected: '${themeName}' — ${group.length} uncovered ${dominantVocab} concept(s) across ${totalFreq} occurrences (last 36h). Drafted as new value set (status: draft — awaiting human review).`;
-      }
-
-      await logActivity({
-        message: draftedMsg,
-        action: activityAction,
-        theme: themeName,
-        codes_count: group.length,
-        value_set_id: valueSetId,
-      });
-
-      await supabase.from("terminology_activity_log" as any).insert({
-        feature: "authoring",
-        actor: "Auto Terminologist",
-        action: logFeatureAction,
-        message: logFeatureMsg,
-        ref_id: valueSetId,
-      });
-    } catch (e) {
-      console.warn("[auto-term] theme draft failed", theme, e);
-    }
-  }
+  const totalActed =
+    demand.drafted + demand.gated + demand.deprecationSuggested + demand.rejected;
+  const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  await logActivity({
+    action: totalActed === 0 ? "heartbeat" : "cycle_summary",
+    message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.drafted} drafted, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected.`,
+    codes_count: 0,
+  });
 
   enginesChecked["auto_terminologist"] = {
-    admissions_scanned: admissions,
-    unique_codes: freq.size,
-    coverage_gaps: gaps.length,
-    themes_logged: touchedCount,
+    requests_scanned: demand.scanned,
     requests_drafted: demand.drafted,
     requests_gated: demand.gated,
+    deprecation_suggested: demand.deprecationSuggested,
+    requests_rejected: demand.rejected,
   };
   actions.push(
-    `auto_terminologist: scanned ${admissions} admissions · ${gaps.length} gap codes · ${touchedCount} theme(s) drafted · demand queue drafted ${demand.drafted}, gated ${demand.gated}.`,
+    `auto_terminologist: demand queue — scanned ${demand.scanned}, drafted ${demand.drafted}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}.`,
   );
-
-  if (touchedCount === 0 && gaps.length === 0) {
-    await logActivity({
-      message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Scanned ${admissions} admissions (last 36h). No new coverage gaps detected.`,
-      action: "no_gaps",
-      codes_count: 0,
-    });
-  }
 
   await supabase.from("automation_watchdog_logs").insert({
     global_control_status: "ON",
