@@ -16,6 +16,9 @@ import { PopulationHealth } from "@/components/admin/PopulationHealth";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 import { InfoHint } from "@/components/ui/info-hint";
+import { useVisibilityRefetch } from "@/hooks/useVisibilityRefetch";
+
+const POLL_INTERVAL_MS = 30_000;
 
 export const Route = createFileRoute("/analytics")({
   component: AnalyticsPage,
@@ -66,6 +69,8 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
   const load = async () => {
     const { data, error } = await fetchWithTimeout(
@@ -81,12 +86,20 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
     if (error) setError(error.message);
     else setPatients((data as Patient[]) ?? []);
     setLoading(false);
+    setLastUpdated(Date.now());
   };
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 30000);
+    const t = setInterval(load, POLL_INTERVAL_MS);
     return () => clearInterval(t);
+  }, []);
+
+  useVisibilityRefetch(load);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
   }, []);
 
   const totals = useMemo(() => {
@@ -252,7 +265,9 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               </span>
-              Updating every 10s
+              {lastUpdated
+                ? `Updated ${Math.max(0, Math.round((nowTs - lastUpdated) / 1000))}s ago · every ${POLL_INTERVAL_MS / 1000}s`
+                : `Updating every ${POLL_INTERVAL_MS / 1000}s`}
             </div>
           </div>
           <div className="px-5 py-3 border-b border-slate-100">
