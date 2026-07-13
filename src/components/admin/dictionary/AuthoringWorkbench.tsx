@@ -484,10 +484,17 @@ export function AuthoringWorkbench() {
 
     const VOCAB_TO_SAB: Record<string, string> = {
       "SNOMED CT": "SNOMEDCT_US",
+      "SNOMEDCT_US": "SNOMEDCT_US",
+      "ICD-10": "ICD10CM",
       "ICD-10-CM": "ICD10CM",
+      "ICD10CM": "ICD10CM",
+      "ICD-9-CM": "ICD9CM",
+      "LNC": "LNC",
       "LOINC": "LNC",
       "RxNorm": "RXNORM",
+      "RXNORM": "RXNORM",
       "MedDRA": "MDR",
+      "MDR": "MDR",
     };
 
     const validated = await Promise.all(all.map(async (p): Promise<ValidationRow> => {
