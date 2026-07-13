@@ -361,7 +361,8 @@ type Action =
   | "loinc"
   | "resolveAndValidate"   // P1-A: replaces "validate" for Auto Terminologist
   | "subsumes"             // P1-B: FHIR $subsumes via UMLS ancestors
-  | "vsacExpand";          // VSAC $expand by OID via HL7 FHIR terminology server
+  | "vsacExpand"           // VSAC $expand by OID via HL7 FHIR terminology server
+  | "hierarchyExpand";     // P2: intensional expansion for SNOMED CT
 
 interface Body {
   action: Action;
