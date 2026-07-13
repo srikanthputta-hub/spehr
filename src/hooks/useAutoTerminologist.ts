@@ -833,6 +833,8 @@ async function processPendingTerminologyRequests(): Promise<{
 }
 
 async function runAutoTerminologistCycle() {
+  // handled below
+  void 0;
   const automationOn = await getAutomationEnabled();
 
   const enginesChecked: Record<string, any> = {};
