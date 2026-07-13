@@ -930,15 +930,17 @@ export function AuthoringWorkbench() {
                   <span className="text-slate-500">None — pick a concept in the search panel and click "Set as Anchor".</span>
                 )}
               </div>
-              <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
-                <Select value={operator} onValueChange={(v) => setOperator(v as HierarchyOperator)}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {HIERARCHY_OPERATORS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <Select value={operator} onValueChange={(v) => setOperator(v as HierarchyOperator)}>
+                    <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {HIERARCHY_OPERATORS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button
                   size="sm"
                   variant="outline"
