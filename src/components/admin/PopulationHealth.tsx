@@ -143,7 +143,7 @@ export function PopulationHealth() {
           <Activity className="h-4 w-4 text-[#0c2340]" />
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              AUTO API · Population Health
+              AUTO ADMIN · Population Health
             </div>
             <div className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1">
               Cohort Query (Multi-Terminology + Facility Filter)
