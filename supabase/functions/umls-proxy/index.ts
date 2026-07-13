@@ -277,12 +277,17 @@ async function fetchRelatedCodes(
     }
     if (!res.ok) break; // 404 → none / leaf / unknown
     const json = await res.json();
-    console.log("[umls-proxy] fetchRelatedCodes", relation, code, "page", page, "keys:", Object.keys(json ?? {}), "resultType:", Array.isArray(json?.result) ? "array" : typeof json?.result, "sample:", JSON.stringify(json).slice(0, 400));
     const rows = Array.isArray(json?.result) ? json.result : [];
     if (rows.length === 0) break;
     for (const r of rows) {
-      const codeUrl = String(r?.code ?? "");
-      const extracted = codeUrl.split("/").pop() ?? "";
+      // UMLS source-relation rows expose the code as `ui`. Older code paths
+      // ship it as a full URL under `code`; support both so the extractor
+      // works regardless of which shape UTS returns.
+      let extracted = String(r?.ui ?? "").trim();
+      if (!extracted) {
+        const codeUrl = String(r?.code ?? "");
+        extracted = codeUrl.includes("/") ? (codeUrl.split("/").pop() ?? "") : codeUrl;
+      }
       if (!extracted || extracted === "NONE" || seen.has(extracted)) continue;
       seen.add(extracted);
       out.push({ code: extracted, name: String(r?.name ?? "") });
