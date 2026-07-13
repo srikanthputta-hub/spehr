@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Bot, RefreshCw, CheckCircle2, AlertTriangle, Pause, Clock, Inbox } from "lucide-react";
+import { Bot, RefreshCw, CheckCircle2, AlertTriangle, Pause, Clock, Inbox, Archive, Copy } from "lucide-react";
 import { Trash2, Download } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 import { toast } from "sonner";
@@ -61,7 +61,25 @@ type RequestRow = {
   seed_codes?: any[] | null;
   vocabulary?: string | null;
   clinical_application?: string | null;
+  request_type?: string | null;
+  target_value_set_id?: string | null;
 };
+
+type DeprecationRow = {
+  id: string;
+  name: string;
+  oid: string | null;
+  vocabulary: string | null;
+  change_history: any[] | null;
+  updated_at?: string | null;
+};
+
+function latestChange(history: any[] | null): string | null {
+  if (!Array.isArray(history) || history.length === 0) return null;
+  // Assume history is chronological; last entry is most recent.
+  const last = history[history.length - 1];
+  return typeof last?.change === "string" ? last.change : null;
+}
 
 function statusBadge(status: string | null): string {
   const s = String(status ?? "pending").toLowerCase();
@@ -79,8 +97,11 @@ export function AutoTerminologistActivity() {
   const [nowTick, setNowTick] = useState(0);
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [requestQuery, setRequestQuery] = useState("");
+  const [consumerFilter, setConsumerFilter] = useState<string>("All");
   const [draftedQuery, setDraftedQuery] = useState("");
   const [importingId, setImportingId] = useState<string | null>(null);
+  const [deprecations, setDeprecations] = useState<DeprecationRow[]>([]);
+  const [targetNames, setTargetNames] = useState<Record<string, string>>({});
 
   const importFromUmls = async (r: RequestRow) => {
     const codes = Array.isArray(r.seed_codes) ? r.seed_codes : [];
@@ -138,14 +159,23 @@ export function AutoTerminologistActivity() {
 
   const filteredRequests = useMemo(() => {
     const q = requestQuery.trim().toLowerCase();
-    if (!q) return requests;
-    return requests.filter((r) =>
-      (r.requesting_consumer ?? "").toLowerCase().includes(q) ||
-      (r.requested_name ?? "").toLowerCase().includes(q) ||
-      (r.justification ?? "").toLowerCase().includes(q) ||
-      (r.status ?? "").toLowerCase().includes(q),
-    );
-  }, [requests, requestQuery]);
+    return requests.filter((r) => {
+      if (consumerFilter !== "All" && r.requesting_consumer !== consumerFilter) return false;
+      if (!q) return true;
+      return (
+        (r.requesting_consumer ?? "").toLowerCase().includes(q) ||
+        (r.requested_name ?? "").toLowerCase().includes(q) ||
+        (r.justification ?? "").toLowerCase().includes(q) ||
+        (r.status ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [requests, requestQuery, consumerFilter]);
+
+  const consumerOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of requests) if (r.requesting_consumer) set.add(r.requesting_consumer);
+    return ["All", ...Array.from(set).sort()];
+  }, [requests]);
 
   const filteredDrafted = useMemo(() => {
     const q = draftedQuery.trim().toLowerCase();
@@ -191,13 +221,23 @@ export function AutoTerminologistActivity() {
       const { data } = await supabase
         .from("terminology_requests" as any)
         .select(
-          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application",
+          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id",
         )
         .order("requested_at", { ascending: false })
         .limit(50);
       if (!cancelled) setRequests(((data as any) ?? []) as RequestRow[]);
     };
     loadRequests();
+    const loadDeprecations = async () => {
+      const { data } = await supabase
+        .from("custom_value_sets")
+        .select("id, name, oid, vocabulary, change_history, updated_at")
+        .eq("status", "deprecation-suggested")
+        .order("updated_at", { ascending: false })
+        .limit(50);
+      if (!cancelled) setDeprecations(((data as any) ?? []) as DeprecationRow[]);
+    };
+    loadDeprecations();
     const ch = supabase
       .channel("auto-term-activity")
       .on(
@@ -239,14 +279,60 @@ export function AutoTerminologistActivity() {
         },
       )
       .subscribe();
+    const depCh = supabase
+      .channel("auto-term-deprecations")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "custom_value_sets" },
+        (payload) => {
+          const row = payload.new as any as DeprecationRow & { status?: string };
+          const oldRow = payload.old as any as { id?: string; status?: string };
+          if (row?.status === "deprecation-suggested") {
+            setDeprecations((r) => [row, ...r.filter((x) => x.id !== row.id)].slice(0, 50));
+          } else if (oldRow?.id && oldRow?.status === "deprecation-suggested") {
+            setDeprecations((r) => r.filter((x) => x.id !== oldRow.id));
+          }
+        },
+      )
+      .subscribe();
     const id = setInterval(load, 30_000);
     return () => {
       cancelled = true;
       supabase.removeChannel(ch);
       supabase.removeChannel(reqCh);
+      supabase.removeChannel(depCh);
       clearInterval(id);
     };
   }, []);
+
+  // Resolve target_value_set_id -> name for any deprecation-request rows in view.
+  useEffect(() => {
+    const ids = Array.from(
+      new Set(
+        requests
+          .filter((r) => r.request_type === "deprecate" && r.target_value_set_id)
+          .map((r) => r.target_value_set_id!)
+          .filter((id) => !(id in targetNames)),
+      ),
+    );
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("custom_value_sets")
+        .select("id, name")
+        .in("id", ids);
+      if (cancelled || !data) return;
+      setTargetNames((prev) => {
+        const next = { ...prev };
+        for (const row of data as any[]) next[row.id] = row.name;
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [requests, targetNames]);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
@@ -275,6 +361,22 @@ export function AutoTerminologistActivity() {
         </div>
       )}
 
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+        <span className="font-semibold uppercase tracking-wider text-slate-500">Consumers:</span>
+        <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5">
+          <span className="font-semibold text-slate-700">Auto Doc</span>
+          <span className="ml-1 text-slate-500">→ clinical gaps</span>
+        </span>
+        <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5">
+          <span className="font-semibold text-slate-700">Auto Admin</span>
+          <span className="ml-1 text-slate-500">→ billing / population health (+ IT hand-off on infra failure)</span>
+        </span>
+        <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5">
+          <span className="font-semibold text-slate-700">Safety Alerts Engine</span>
+          <span className="ml-1 text-slate-500">→ medication/allergy safety</span>
+        </span>
+      </div>
+
       <div className="flex items-center justify-between gap-3 pt-1">
         <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
           <Inbox className="h-3.5 w-3.5" />
@@ -287,6 +389,25 @@ export function AutoTerminologistActivity() {
           onChange={(e) => setRequestQuery(e.target.value)}
           className="h-7 w-56 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"
         />
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {consumerOptions.map((c) => {
+          const active = consumerFilter === c;
+          return (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setConsumerFilter(c)}
+              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${
+                active
+                  ? "border-[#0c2340] bg-[#0c2340] text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {c}
+            </button>
+          );
+        })}
       </div>
       <div className="scroll-feed rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
         {filteredRequests.length === 0 ? (
@@ -301,6 +422,9 @@ export function AutoTerminologistActivity() {
               hour: "2-digit",
               minute: "2-digit",
             });
+            const isDeprecate = r.request_type === "deprecate";
+            const targetName =
+              isDeprecate && r.target_value_set_id ? targetNames[r.target_value_set_id] : null;
             return (
               <div key={r.id} className="flex items-start gap-3 px-4 py-3">
                 <span className="mt-0.5 inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
@@ -308,7 +432,18 @@ export function AutoTerminologistActivity() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-medium text-slate-800 leading-snug">{r.requested_name}</p>
+                    {isDeprecate ? (
+                      <>
+                        <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                          Deprecation Request
+                        </span>
+                        <p className="text-sm font-medium text-slate-800 leading-snug">
+                          {targetName ? `Target: ${targetName}` : `Deprecation target label: ${r.requested_name}`}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm font-medium text-slate-800 leading-snug">{r.requested_name}</p>
+                    )}
                     <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBadge(r.status)}`}>
                       {(r.status ?? "pending")}
                     </span>
