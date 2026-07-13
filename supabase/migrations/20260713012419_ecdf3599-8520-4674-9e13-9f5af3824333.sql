@@ -1,0 +1,1 @@
+ALTER TABLE public.custom_value_sets ADD COLUMN IF NOT EXISTS intensional_clause jsonb NULL;
