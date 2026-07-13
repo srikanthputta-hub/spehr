@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Target, Layers, Download } from "lucide-react";
+import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Target, Layers, Download, Boxes } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,22 @@ type IntensionalClause = {
   count: number;
 };
 
+type GroupingCandidate = {
+  id: string;
+  name: string;
+  oid: string | null;
+  status: string | null;
+  codesCount: number;
+  codes: Picked[];
+};
+
+type GroupingMember = {
+  id: string;
+  name: string;
+  oid: string | null;
+  codes: Picked[];
+};
+
 const VOCABS = [
   { label: "SNOMED CT", value: "SNOMEDCT_US" },
   { label: "ICD-10-CM", value: "ICD10CM" },
@@ -58,7 +74,7 @@ export function AuthoringWorkbench() {
   const [searchErr, setSearchErr] = useState<string | null>(null);
 
   const [name, setName] = useState("");
-  const [type, setType] = useState<"extensional" | "intensional">("extensional");
+  const [type, setType] = useState<"extensional" | "intensional" | "grouping">("extensional");
   const [picks, setPicks] = useState<Picked[]>([]);
   const [excluded, setExcluded] = useState<Picked[]>([]);
   const [notes, setNotes] = useState("");
@@ -72,6 +88,12 @@ export function AuthoringWorkbench() {
   const [expansionTruncated, setExpansionTruncated] = useState(false);
   const [expanding, setExpanding] = useState(false);
   const [intensionalClause, setIntensionalClause] = useState<IntensionalClause | null>(null);
+  // Grouping (union-of-value-sets) authoring state
+  const [groupingQuery, setGroupingQuery] = useState("");
+  const [groupingResults, setGroupingResults] = useState<GroupingCandidate[]>([]);
+  const [groupingSearching, setGroupingSearching] = useState(false);
+  const [groupingMembers, setGroupingMembers] = useState<GroupingMember[]>([]);
+  const [groupingUnion, setGroupingUnion] = useState<Picked[]>([]);
   const [validationRows, setValidationRows] = useState<ValidationRow[]>([]);
   const [validating, setValidating] = useState(false);
   const [lastValidatedAt, setLastValidatedAt] = useState<string | null>(null);
@@ -82,6 +104,7 @@ export function AuthoringWorkbench() {
   const [governing, setGoverning] = useState(false);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const groupingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load + subscribe to unified authoring activity log
   useEffect(() => {
@@ -239,6 +262,93 @@ export function AuthoringWorkbench() {
     if (!intensionalActive && intensionalClause) setIntensionalClause(null);
   }, [intensionalActive, intensionalClause]);
 
+  // If the user switches away from grouping, drop grouping state so a
+  // subsequent save doesn't persist a stale grouping_members payload.
+  useEffect(() => {
+    if (type !== "grouping") {
+      if (groupingMembers.length > 0) setGroupingMembers([]);
+      if (groupingUnion.length > 0) setGroupingUnion([]);
+      if (groupingResults.length > 0) setGroupingResults([]);
+      if (groupingQuery) setGroupingQuery("");
+    }
+  }, [type, groupingMembers.length, groupingUnion.length, groupingResults.length, groupingQuery]);
+
+  // Debounced search of existing value sets by name (grouping mode)
+  const runGroupingSearch = useCallback(async (q: string) => {
+    const term = q.trim();
+    if (!term || term.length < 2) { setGroupingResults([]); return; }
+    setGroupingSearching(true);
+    try {
+      const { data, error } = await supabase
+        .from("custom_value_sets")
+        .select("id, name, oid, status, codes")
+        .ilike("name", `%${term}%`)
+        .order("name", { ascending: true })
+        .limit(20);
+      if (error) throw error;
+      const selfName = name.trim().toLowerCase();
+      const rows: GroupingCandidate[] = (data ?? [])
+        .filter((r: any) => !selfName || String(r.name ?? "").toLowerCase() !== selfName)
+        .map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          oid: r.oid ?? null,
+          status: r.status ?? null,
+          codesCount: Array.isArray(r.codes) ? r.codes.length : 0,
+          codes: Array.isArray(r.codes) ? (r.codes as Picked[]) : [],
+        }));
+      setGroupingResults(rows);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Value set search failed");
+      setGroupingResults([]);
+    } finally { setGroupingSearching(false); }
+  }, [name]);
+
+  useEffect(() => {
+    if (type !== "grouping") return;
+    if (groupingTimer.current) clearTimeout(groupingTimer.current);
+    if (!groupingQuery || groupingQuery.length < 2) { setGroupingResults([]); return; }
+    groupingTimer.current = setTimeout(() => runGroupingSearch(groupingQuery), 300);
+    return () => { if (groupingTimer.current) clearTimeout(groupingTimer.current); };
+  }, [groupingQuery, type, runGroupingSearch]);
+
+  const addGroupingMember = (c: GroupingCandidate) => {
+    setGroupingMembers((prev) => prev.find((m) => m.id === c.id)
+      ? prev
+      : [...prev, { id: c.id, name: c.name, oid: c.oid, codes: c.codes }]);
+    logActivity("grouping_added_member", `Added "${c.name}" to grouping (${c.codesCount} codes)`, c.id);
+  };
+
+  const removeGroupingMember = (id: string) => {
+    setGroupingMembers((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const previewGroupingUnion = () => {
+    if (groupingMembers.length === 0) { toast.error("Add at least one value set to the grouping"); return; }
+    const seen = new Set<string>();
+    const union: Picked[] = [];
+    for (const m of groupingMembers) {
+      for (const c of m.codes ?? []) {
+        const key = `${c.vocabulary ?? ""}:${c.code}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        union.push({ code: c.code, display: c.display, vocabulary: c.vocabulary, excluded: false });
+      }
+    }
+    setGroupingUnion(union);
+    logActivity("grouping_previewed_union", `Previewed union of ${groupingMembers.length} value set(s) — ${union.length} unique member(s)`, null);
+    if (union.length === 0) toast.warning("Union is empty — chosen value sets have no codes");
+    else toast.success(`Union: ${union.length} unique member(s)`);
+  };
+
+  const applyGroupingUnion = () => {
+    if (groupingUnion.length === 0) { toast.error("Preview the union first"); return; }
+    setPicks(groupingUnion.map((c) => ({ ...c })));
+    setExcluded([]);
+    logActivity("grouping_applied_union", `Loaded ${groupingUnion.length} concept(s) from grouping union`, null);
+    toast.success(`Loaded ${groupingUnion.length} concept(s) into value set`);
+  };
+
   const removePick = (code: string, list: "in" | "out") => {
     if (list === "in") setPicks(p => p.filter(x => x.code !== code));
     else setExcluded(p => p.filter(x => x.code !== code));
@@ -274,6 +384,9 @@ export function AuthoringWorkbench() {
         author: author.trim() || null,
         binding_strength: bindingStrength,
         intensional_clause: type === "intensional" ? (intensionalClause as any) : null,
+        grouping_members: type === "grouping"
+          ? (groupingMembers.map((m) => ({ valueSetId: m.id, valueSetName: m.name, oid: m.oid })) as any)
+          : null,
         fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
         oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
         change_history: [{
@@ -499,7 +612,59 @@ export function AuthoringWorkbench() {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
-        {/* LEFT — Concept search */}
+        {/* LEFT — Concept search (extensional/intensional) OR Value-set search (grouping) */}
+        {type === "grouping" ? (
+        <div className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold flex items-center gap-1.5">
+              <Boxes className="h-3.5 w-3.5" /> Value Set Search (Grouping)
+            </h4>
+            <span className="text-[10px] text-slate-500">Union of member value sets</span>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-slate-400" />
+            <Input
+              value={groupingQuery}
+              onChange={(e) => setGroupingQuery(e.target.value)}
+              placeholder="Search existing value sets by name…"
+              className="pl-7 h-8 text-xs"
+            />
+            {groupingSearching && <Loader2 className="absolute right-2 top-2 h-4 w-4 animate-spin text-slate-400" />}
+          </div>
+          <div className="border border-slate-200 rounded max-h-[28rem] overflow-y-auto divide-y divide-slate-100">
+            {groupingResults.length === 0 && !groupingSearching && (
+              <div className="px-3 py-4 text-xs text-slate-500 text-center">
+                Search existing value sets by name to add them as members of this grouping.
+              </div>
+            )}
+            {groupingResults.map((c) => {
+              const already = groupingMembers.some((m) => m.id === c.id);
+              return (
+                <div key={c.id} className="px-3 py-2 hover:bg-slate-50 group">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-slate-900 truncate">{c.name}</div>
+                      <div className="font-mono text-[10px] text-slate-500 truncate">
+                        {c.oid ?? "—"} · {c.codesCount} code{c.codesCount === 1 ? "" : "s"}
+                        {c.status ? ` · ${c.status}` : ""}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[10px] px-2"
+                      disabled={already}
+                      onClick={() => addGroupingMember(c)}
+                    >
+                      <Plus className="h-3 w-3" /> {already ? "Added" : "Add to Group"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        ) : (
         <div className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-semibold">UMLS Concept Search</h4>
@@ -571,6 +736,7 @@ export function AuthoringWorkbench() {
             ))}
           </div>
         </div>
+        )}
 
         {/* RIGHT — Active value set editor */}
         <div className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
@@ -659,9 +825,77 @@ export function AuthoringWorkbench() {
               <input type="radio" checked={type === "intensional"} onChange={() => setType("intensional")} />
               Intensional
             </label>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" checked={type === "grouping"} onChange={() => setType("grouping")} />
+              Grouping
+            </label>
             <span className="text-slate-400">·</span>
             <span className="text-slate-600">Vocabulary: <strong>{vocab.label}</strong></span>
           </div>
+
+          {type === "grouping" && (
+            <div className="rounded border border-indigo-200 bg-indigo-50/50 p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-900">
+                <Boxes className="h-3.5 w-3.5" /> Grouping Members ({groupingMembers.length})
+              </div>
+              {groupingMembers.length === 0 ? (
+                <div className="text-[11px] text-slate-500">
+                  None — search existing value sets in the left panel and click "Add to Group".
+                </div>
+              ) : (
+                <ul className="border border-slate-200 rounded max-h-40 overflow-y-auto text-[11px] divide-y divide-slate-100 bg-white">
+                  {groupingMembers.map((m) => (
+                    <li key={m.id} className="px-2 py-1 flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-slate-800 font-semibold">{m.name}</div>
+                        <div className="font-mono text-[10px] text-slate-500 truncate">
+                          {m.oid ?? "—"} · {m.codes?.length ?? 0} code{(m.codes?.length ?? 0) === 1 ? "" : "s"}
+                        </div>
+                      </div>
+                      <button onClick={() => removeGroupingMember(m.id)} className="text-slate-400 hover:text-rose-600">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-[11px]"
+                  onClick={previewGroupingUnion}
+                  disabled={groupingMembers.length === 0}
+                >
+                  <Search className="h-3.5 w-3.5" /> Preview Union
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-[11px] bg-[#0c2340] hover:bg-[#0c2340]/90"
+                  onClick={applyGroupingUnion}
+                  disabled={groupingUnion.length === 0}
+                >
+                  <Download className="h-3.5 w-3.5" /> Apply to Value Set
+                </Button>
+              </div>
+              {groupingUnion.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1">
+                    Union Preview ({groupingUnion.length} unique member{groupingUnion.length === 1 ? "" : "s"})
+                  </div>
+                  <ul className="border border-slate-200 rounded max-h-40 overflow-y-auto text-[11px] divide-y divide-slate-100 bg-white">
+                    {groupingUnion.map((c) => (
+                      <li key={`${c.vocabulary}:${c.code}`} className="px-2 py-1 flex gap-2">
+                        <span className="font-mono text-slate-900">{c.code}</span>
+                        <span className="truncate text-slate-700">{c.display}</span>
+                        <span className="text-slate-400 ml-auto">{c.vocabulary}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
           {type === "intensional" && !isSnomed && (
             <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 flex items-start gap-1.5">

@@ -919,6 +919,7 @@ export type Database = {
           description: string | null
           fhir_published_at: string | null
           fhir_url: string | null
+          grouping_members: Json | null
           id: string
           intensional_clause: Json | null
           intensional_rule: Json | null
@@ -944,6 +945,7 @@ export type Database = {
           description?: string | null
           fhir_published_at?: string | null
           fhir_url?: string | null
+          grouping_members?: Json | null
           id?: string
           intensional_clause?: Json | null
           intensional_rule?: Json | null
@@ -969,6 +971,7 @@ export type Database = {
           description?: string | null
           fhir_published_at?: string | null
           fhir_url?: string | null
+          grouping_members?: Json | null
           id?: string
           intensional_clause?: Json | null
           intensional_rule?: Json | null

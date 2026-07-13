@@ -12,15 +12,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "sonner";
 import { ExpandCard } from "@/components/admin/dictionary/FhirOpCards";
 import { InfoHint } from "@/components/ui/info-hint";
+import { useRolePermissions, DISABLED_MESSAGE } from "@/hooks/useRolePermissions";
 
 type ValueSet = {
   id: string;
   name: string;
   oid: string | null;
   vocabulary: string | null;
-  type: "extensional" | "intensional";
+  type: "extensional" | "intensional" | "grouping";
   codes: any[];
   intensional_rule: any | null;
+  grouping_members: Array<{ valueSetId: string; valueSetName: string; oid: string | null }> | null;
   status: "draft" | "review" | "published" | "deprecated";
   clinical_application: string | null;
   fhir_url: string | null;
@@ -43,9 +45,12 @@ const STATUS_STYLES: Record<string, string> = {
 const TYPE_STYLES: Record<string, string> = {
   extensional: "bg-sky-100 text-sky-800 border-sky-200",
   intensional: "bg-violet-100 text-violet-800 border-violet-200",
+  grouping: "bg-indigo-100 text-indigo-800 border-indigo-200",
 };
 
 export function ValueSetLibrary() {
+  const { gate: stewardGate, can: stewardCan } = useRolePermissions();
+  const stewardAllowed = stewardCan("dictionary.steward_approve");
   const [rows, setRows] = useState<ValueSet[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -460,17 +465,26 @@ export function ValueSetLibrary() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={async () => {
-              const t = publishTarget; if (!t) return;
-              setPublishTarget(null);
-              await transitionStatus(t, "draft", null, "Returned to draft for changes");
-            }}>Request Changes</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
-              const t = publishTarget; if (!t) return;
-              setPublishTarget(null);
-              await transitionStatus(t, "published", null, "Published successfully", { published_at: new Date().toISOString() });
-            }}>Approve & Publish</Button>
+            <Button
+              variant="outline"
+              {...stewardGate("dictionary.steward_approve", async () => {
+                const t = publishTarget; if (!t) return;
+                setPublishTarget(null);
+                await transitionStatus(t, "draft", null, "Returned to draft for changes");
+              })}
+            >Request Changes</Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              {...stewardGate("dictionary.steward_approve", async () => {
+                const t = publishTarget; if (!t) return;
+                setPublishTarget(null);
+                await transitionStatus(t, "published", null, "Published successfully", { published_at: new Date().toISOString() });
+              })}
+            >Approve & Publish</Button>
           </DialogFooter>
+          {!stewardAllowed && (
+            <div className="text-[10px] text-amber-700 mt-1">{DISABLED_MESSAGE}</div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -728,6 +742,10 @@ function ValueSetDrawer({
   const [expansion, setExpansion] = useState<any>(null);
   const [copied, setCopied] = useState(false);
 
+  // "Member Of" — value sets of type=grouping that include this VS as a member.
+  const [memberOf, setMemberOf] = useState<Array<{ id: string; name: string; oid: string | null; status: string }>>([]);
+  const [memberOfLoading, setMemberOfLoading] = useState(false);
+
   // --- Editable Rule state (intensional) -----------------------------------
   const [ruleRoot, setRuleRoot] = useState("");
   const [ruleRootName, setRuleRootName] = useState("");
@@ -748,6 +766,7 @@ function ValueSetDrawer({
     setExpansion(null);
     setPreviewCount(null);
     setCopied(false);
+    setMemberOf([]);
     if (vs) {
       const r = vs.intensional_rule ?? {};
       setRuleRoot(r.rootConcept ?? "");
@@ -760,6 +779,28 @@ function ValueSetDrawer({
       setMetaApp(vs.clinical_application ?? "");
       setMetaVersion(vs.version ?? "1.0.0");
     }
+  }, [vs?.id]);
+
+  // Load "Member Of" whenever the drawer opens on a different value set.
+  useEffect(() => {
+    if (!vs) return;
+    let cancelled = false;
+    (async () => {
+      setMemberOfLoading(true);
+      const { data, error } = await supabase
+        .from("custom_value_sets")
+        .select("id, name, oid, status, grouping_members")
+        .eq("type", "grouping");
+      if (cancelled) return;
+      if (error) { setMemberOf([]); setMemberOfLoading(false); return; }
+      const matches = (data ?? []).filter((r: any) => {
+        const members = Array.isArray(r.grouping_members) ? r.grouping_members : [];
+        return members.some((m: any) => m?.valueSetId === vs.id);
+      }).map((r: any) => ({ id: r.id, name: r.name, oid: r.oid ?? null, status: r.status ?? "draft" }));
+      setMemberOf(matches);
+      setMemberOfLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, [vs?.id]);
 
   if (!vs) return null;
@@ -920,8 +961,9 @@ function ValueSetDrawer({
         </SheetHeader>
 
         <Tabs defaultValue="members" className="mt-4">
-          <TabsList className="grid grid-cols-4 w-full">
+          <TabsList className="grid grid-cols-5 w-full">
             <TabsTrigger value="members">Concept Members</TabsTrigger>
+            <TabsTrigger value="memberOf">Member Of</TabsTrigger>
             <TabsTrigger value="rule" disabled={vs.type !== "intensional"}>Rule Editor</TabsTrigger>
             <TabsTrigger value="meta">Metadata</TabsTrigger>
             <TabsTrigger value="fhir">FHIR Preview</TabsTrigger>
@@ -953,6 +995,36 @@ function ValueSetDrawer({
                 ))}
               </tbody>
             </table>
+          </TabsContent>
+
+          <TabsContent value="memberOf" className="mt-3 space-y-2 text-xs">
+            <div className="text-[11px] text-slate-600">
+              Grouping value sets that embed <span className="font-semibold">{vs.name}</span> as a member.
+              Editing or retiring this value set will affect them.
+            </div>
+            {memberOfLoading ? (
+              <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+              </div>
+            ) : memberOf.length === 0 ? (
+              <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                Not a member of any grouping value set.
+              </div>
+            ) : (
+              <ul className="border border-slate-200 rounded divide-y divide-slate-100 bg-white">
+                {memberOf.map((m) => (
+                  <li key={m.id} className="px-3 py-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-slate-900 truncate">{m.name}</div>
+                      <div className="font-mono text-[10px] text-slate-500 truncate">{m.oid ?? "—"}</div>
+                    </div>
+                    <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize ${STATUS_STYLES[m.status] ?? ""}`}>
+                      {m.status}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </TabsContent>
 
           <TabsContent value="rule" className="mt-3 space-y-3 text-xs">
