@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Target, Layers, Download } from "lucide-react";
+import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Target, Layers, Download, Boxes } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,22 @@ type IntensionalClause = {
   count: number;
 };
 
+type GroupingCandidate = {
+  id: string;
+  name: string;
+  oid: string | null;
+  status: string | null;
+  codesCount: number;
+  codes: Picked[];
+};
+
+type GroupingMember = {
+  id: string;
+  name: string;
+  oid: string | null;
+  codes: Picked[];
+};
+
 const VOCABS = [
   { label: "SNOMED CT", value: "SNOMEDCT_US" },
   { label: "ICD-10-CM", value: "ICD10CM" },
@@ -58,7 +74,7 @@ export function AuthoringWorkbench() {
   const [searchErr, setSearchErr] = useState<string | null>(null);
 
   const [name, setName] = useState("");
-  const [type, setType] = useState<"extensional" | "intensional">("extensional");
+  const [type, setType] = useState<"extensional" | "intensional" | "grouping">("extensional");
   const [picks, setPicks] = useState<Picked[]>([]);
   const [excluded, setExcluded] = useState<Picked[]>([]);
   const [notes, setNotes] = useState("");
@@ -72,6 +88,12 @@ export function AuthoringWorkbench() {
   const [expansionTruncated, setExpansionTruncated] = useState(false);
   const [expanding, setExpanding] = useState(false);
   const [intensionalClause, setIntensionalClause] = useState<IntensionalClause | null>(null);
+  // Grouping (union-of-value-sets) authoring state
+  const [groupingQuery, setGroupingQuery] = useState("");
+  const [groupingResults, setGroupingResults] = useState<GroupingCandidate[]>([]);
+  const [groupingSearching, setGroupingSearching] = useState(false);
+  const [groupingMembers, setGroupingMembers] = useState<GroupingMember[]>([]);
+  const [groupingUnion, setGroupingUnion] = useState<Picked[]>([]);
   const [validationRows, setValidationRows] = useState<ValidationRow[]>([]);
   const [validating, setValidating] = useState(false);
   const [lastValidatedAt, setLastValidatedAt] = useState<string | null>(null);
@@ -82,6 +104,7 @@ export function AuthoringWorkbench() {
   const [governing, setGoverning] = useState(false);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const groupingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load + subscribe to unified authoring activity log
   useEffect(() => {
@@ -239,6 +262,93 @@ export function AuthoringWorkbench() {
     if (!intensionalActive && intensionalClause) setIntensionalClause(null);
   }, [intensionalActive, intensionalClause]);
 
+  // If the user switches away from grouping, drop grouping state so a
+  // subsequent save doesn't persist a stale grouping_members payload.
+  useEffect(() => {
+    if (type !== "grouping") {
+      if (groupingMembers.length > 0) setGroupingMembers([]);
+      if (groupingUnion.length > 0) setGroupingUnion([]);
+      if (groupingResults.length > 0) setGroupingResults([]);
+      if (groupingQuery) setGroupingQuery("");
+    }
+  }, [type, groupingMembers.length, groupingUnion.length, groupingResults.length, groupingQuery]);
+
+  // Debounced search of existing value sets by name (grouping mode)
+  const runGroupingSearch = useCallback(async (q: string) => {
+    const term = q.trim();
+    if (!term || term.length < 2) { setGroupingResults([]); return; }
+    setGroupingSearching(true);
+    try {
+      const { data, error } = await supabase
+        .from("custom_value_sets")
+        .select("id, name, oid, status, codes")
+        .ilike("name", `%${term}%`)
+        .order("name", { ascending: true })
+        .limit(20);
+      if (error) throw error;
+      const selfName = name.trim().toLowerCase();
+      const rows: GroupingCandidate[] = (data ?? [])
+        .filter((r: any) => !selfName || String(r.name ?? "").toLowerCase() !== selfName)
+        .map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          oid: r.oid ?? null,
+          status: r.status ?? null,
+          codesCount: Array.isArray(r.codes) ? r.codes.length : 0,
+          codes: Array.isArray(r.codes) ? (r.codes as Picked[]) : [],
+        }));
+      setGroupingResults(rows);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Value set search failed");
+      setGroupingResults([]);
+    } finally { setGroupingSearching(false); }
+  }, [name]);
+
+  useEffect(() => {
+    if (type !== "grouping") return;
+    if (groupingTimer.current) clearTimeout(groupingTimer.current);
+    if (!groupingQuery || groupingQuery.length < 2) { setGroupingResults([]); return; }
+    groupingTimer.current = setTimeout(() => runGroupingSearch(groupingQuery), 300);
+    return () => { if (groupingTimer.current) clearTimeout(groupingTimer.current); };
+  }, [groupingQuery, type, runGroupingSearch]);
+
+  const addGroupingMember = (c: GroupingCandidate) => {
+    setGroupingMembers((prev) => prev.find((m) => m.id === c.id)
+      ? prev
+      : [...prev, { id: c.id, name: c.name, oid: c.oid, codes: c.codes }]);
+    logActivity("grouping_added_member", `Added "${c.name}" to grouping (${c.codesCount} codes)`, c.id);
+  };
+
+  const removeGroupingMember = (id: string) => {
+    setGroupingMembers((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const previewGroupingUnion = () => {
+    if (groupingMembers.length === 0) { toast.error("Add at least one value set to the grouping"); return; }
+    const seen = new Set<string>();
+    const union: Picked[] = [];
+    for (const m of groupingMembers) {
+      for (const c of m.codes ?? []) {
+        const key = `${c.vocabulary ?? ""}:${c.code}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        union.push({ code: c.code, display: c.display, vocabulary: c.vocabulary, excluded: false });
+      }
+    }
+    setGroupingUnion(union);
+    logActivity("grouping_previewed_union", `Previewed union of ${groupingMembers.length} value set(s) — ${union.length} unique member(s)`, null);
+    if (union.length === 0) toast.warning("Union is empty — chosen value sets have no codes");
+    else toast.success(`Union: ${union.length} unique member(s)`);
+  };
+
+  const applyGroupingUnion = () => {
+    if (groupingUnion.length === 0) { toast.error("Preview the union first"); return; }
+    setPicks(groupingUnion.map((c) => ({ ...c })));
+    setExcluded([]);
+    logActivity("grouping_applied_union", `Loaded ${groupingUnion.length} concept(s) from grouping union`, null);
+    toast.success(`Loaded ${groupingUnion.length} concept(s) into value set`);
+  };
+
   const removePick = (code: string, list: "in" | "out") => {
     if (list === "in") setPicks(p => p.filter(x => x.code !== code));
     else setExcluded(p => p.filter(x => x.code !== code));
@@ -274,6 +384,9 @@ export function AuthoringWorkbench() {
         author: author.trim() || null,
         binding_strength: bindingStrength,
         intensional_clause: type === "intensional" ? (intensionalClause as any) : null,
+        grouping_members: type === "grouping"
+          ? (groupingMembers.map((m) => ({ valueSetId: m.id, valueSetName: m.name, oid: m.oid })) as any)
+          : null,
         fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
         oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
         change_history: [{
