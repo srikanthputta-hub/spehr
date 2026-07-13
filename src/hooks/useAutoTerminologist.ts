@@ -14,9 +14,17 @@ import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
  *   3. For `request_type = 'deprecate'`, flags the target value set as
  *      `deprecation-suggested` for a human to act on in the Value Set
  *      Library. Never auto-publishes or auto-retires anything.
- *   4. Logs human-readable activity to `auto_terminologist_log` +
- *      `terminology_activity_log`, plus a cycle summary to
- *      `automation_watchdog_logs`.
+ *   4. Logs human-readable activity to `auto_terminologist_log` (full
+ *      audit trail) and mirrors material events (drafted / extended /
+ *      deprecation-suggested / crossmap sanity-checks) onto the shared
+ *      `terminology_activity_log` bus with actor "Auto Terminologist" so
+ *      the Library / Authoring / Cross-Map activity panels show live
+ *      automated activity alongside human actions. A cycle summary lands
+ *      in `automation_watchdog_logs`.
+ *
+ *      Noise-suppression: noop / gated / rejected outcomes and
+ *      UMLS-suggested-import staging are NOT mirrored to the shared bus
+ *      — those stay confined to `auto_terminologist_log`.
  *
  * The engine NEVER submits for review and NEVER publishes — every drafted
  * value set lands in `status: "draft"`. Promotion to review / published
@@ -108,6 +116,102 @@ async function logActivity(opts: {
     } as any);
   } catch (e) {
     console.warn("[auto-term] activity log failed", e);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Shared activity bus mirror                                         */
+/*  Writes to terminology_activity_log (feature-scoped) so the         */
+/*  Library / Authoring / Cross-Map panels see automated activity.     */
+/*  Uses actor "Auto Terminologist" (vs. human handlers' actor         */
+/*  "S.P.E.H.R. Terminology Services") so reviewers can distinguish    */
+/*  automated rows from manual ones at a glance.                       */
+/* ------------------------------------------------------------------ */
+async function logToBus(
+  feature: "library" | "authoring" | "crossmap",
+  action: string,
+  message: string,
+  ref_id?: string | null,
+) {
+  try {
+    await supabase.from("terminology_activity_log" as any).insert({
+      feature,
+      actor: "Auto Terminologist",
+      action,
+      message,
+      ref_id: ref_id ?? null,
+    } as any);
+  } catch (e) {
+    console.warn("[auto-term] bus log failed", feature, action, e);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Crosswalk sanity-check                                             */
+/*  Best-effort UMLS crosswalk on newly-drafted codes, mirroring the   */
+/*  Cross-Map Studio's use of umls-proxy `crosswalk`. Never fails the  */
+/*  draft — always caught. Logs one consolidated crossmap bus row per  */
+/*  value set (not per code).                                          */
+/* ------------------------------------------------------------------ */
+const CROSSWALK_SAB: Record<string, string> = {
+  "SNOMED CT": "SNOMEDCT_US",
+  "ICD-10": "ICD10CM",
+  "RxNorm": "RXNORM",
+  "LOINC": "LNC",
+  "CPT": "CPT",
+};
+
+const CROSSWALK_TARGET: Record<string, string> = {
+  "SNOMED CT": "ICD-10-CM",
+  "ICD-10": "SNOMED CT",
+  "RxNorm": "SNOMED CT",
+  "LOINC": "CPT",
+};
+
+// Target-label → SAB (target labels use ICD-10-CM, not ICD-10)
+const TARGET_SAB: Record<string, string> = {
+  "SNOMED CT": "SNOMEDCT_US",
+  "ICD-10-CM": "ICD10CM",
+  "CPT": "CPT",
+};
+
+async function runCrosswalkSanityCheck(opts: {
+  valueSetId: string | null;
+  valueSetName: string;
+  dominantVocab: string;
+  codesToCheck: Array<{ code: string }>;
+}): Promise<void> {
+  try {
+    const fromSab = CROSSWALK_SAB[opts.dominantVocab];
+    const targetVocab = CROSSWALK_TARGET[opts.dominantVocab];
+    const toSab = targetVocab ? TARGET_SAB[targetVocab] : undefined;
+    if (!fromSab || !targetVocab || !toSab) return;
+
+    const sample = opts.codesToCheck.slice(0, 3).filter((c) => c && c.code);
+    if (sample.length === 0) return;
+
+    let matches = 0;
+    for (const c of sample) {
+      try {
+        const { data, error } = await supabase.functions.invoke("umls-proxy", {
+          body: { action: "crosswalk", params: { fromSab, fromCode: c.code, toSab } },
+        });
+        if (error) continue;
+        const hit = (data as any)?.result ?? (data as any)?.matches?.[0] ?? null;
+        if (hit && (hit.code || (Array.isArray((data as any)?.matches) && (data as any).matches.length > 0))) {
+          matches += 1;
+        }
+      } catch {
+        /* per-code failure ignored — sanity check is best-effort */
+      }
+    }
+
+    const msg = matches > 0
+      ? `Cross-mapped ${sample.length} code(s) from '${opts.valueSetName}' (${opts.dominantVocab} → ${targetVocab}) during drafting — ${matches} equivalence(s) found.`
+      : `Cross-mapped ${sample.length} code(s) from '${opts.valueSetName}' (${opts.dominantVocab} → ${targetVocab}) during drafting — no equivalences found in UMLS.`;
+    await logToBus("crossmap", "cross-mapped", msg, opts.valueSetId);
+  } catch (e) {
+    console.warn("[auto-term] crosswalk sanity-check failed", e);
   }
 }
 
