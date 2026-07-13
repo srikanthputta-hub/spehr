@@ -615,6 +615,137 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
         .sort((a, b) => b[1] - a[1])
         .slice(0, n)
         .map(([label, count]) => ({ label, count }));
+
+    // ── Population Health coverage-gap detection (Auto Admin as consumer) ─
+    // Only fires for raw keyword+code_system searches that are NOT already
+    // scoped to a value set, and only when the cohort is non-trivial (≥3
+    // patients). If the codes surfaced by the query aren't covered by any
+    // published Population Health value set for the matching vocabulary, we
+    // file (or extend) a terminology_requests row so a steward / the Auto
+    // Terminologist can close the gap. All wrapped in try/catch — this must
+    // never break the actual population-query response. Genuine infra
+    // failures on the availability check itself are routed to Auto IT via
+    // auto_doc_logs (stage="fhir", level="error"), NOT to terminology_requests.
+    if (kwRaw && data.code_system && !data.value_set_id && codeMrns && codeMrns.size >= 3) {
+      try {
+        const vocabMap: Record<string, string> = {
+          SNOMED: "SNOMED CT",
+          ICD10: "ICD-10",
+          LOINC: "LOINC",
+          RXNORM: "RxNorm",
+        };
+        const vocab = vocabMap[data.code_system];
+        const relevantMap =
+          data.code_system === "LOINC"
+            ? topLoinc
+            : data.code_system === "RXNORM"
+              ? topRxnorm
+              : topSnomed; // both SNOMED and ICD10 accumulate into topSnomed above
+        const parseKey = (k: string) => {
+          const idx = k.indexOf(" · ");
+          const code = idx >= 0 ? k.slice(0, idx) : k;
+          const display = idx >= 0 ? k.slice(idx + 3) : k;
+          return { code: code.trim(), display: display.trim() };
+        };
+        const foundCodes = Object.keys(relevantMap)
+          .map(parseKey)
+          .filter((c) => c.code && c.code !== "?");
+        const foundCodeSet = new Set(foundCodes.map((c) => c.code));
+
+        // Availability check — an error here is treated as an infra failure
+        // (Auto IT), not a coverage gap.
+        const { data: phSets, error: phErr } = await sb
+          .from("custom_value_sets")
+          .select("codes")
+          .eq("status", "published")
+          .eq("clinical_application", "Population Health")
+          .eq("vocabulary", vocab);
+
+        if (phErr) {
+          await sb.from("auto_doc_logs").insert({
+            mrn: null,
+            stage: "fhir",
+            level: "error",
+            message: `Auto Admin population-health coverage check failed: ${phErr.message}`,
+          } as any);
+        } else {
+          let covered = false;
+          for (const row of ((phSets ?? []) as any[])) {
+            const rowCodes: any[] = Array.isArray(row?.codes) ? row.codes : [];
+            for (const c of rowCodes) {
+              const k = String(c?.code ?? "").trim();
+              if (k && foundCodeSet.has(k)) { covered = true; break; }
+            }
+            if (covered) break;
+          }
+
+          if (!covered && foundCodes.length > 0) {
+            const seedCodes = Object.entries(relevantMap)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 15)
+              .map(([k]) => {
+                const { code, display } = parseKey(k);
+                return { code, display, vocabulary: vocab };
+              })
+              .filter((c) => c.code && c.code !== "?");
+
+            const justification = `Population Health cohort query for "${kwRaw}" (${data.code_system}) returned ${codeMrns.size} patient(s) with no published Population Health value set covering the matched codes.`;
+
+            const { data: existingReq } = await sb
+              .from("terminology_requests" as any)
+              .select("id, seed_codes")
+              .eq("requesting_consumer", "Auto Admin")
+              .eq("requested_name", kwRaw)
+              .in("status", ["pending", "umls-suggested"])
+              .maybeSingle();
+
+            if (existingReq) {
+              const prevCodes: Array<{ code: string; display?: string; vocabulary?: string }> =
+                Array.isArray((existingReq as any).seed_codes)
+                  ? (existingReq as any).seed_codes
+                  : [];
+              const seen = new Set(prevCodes.map((c) => String(c?.code ?? "").trim()));
+              const merged = [...prevCodes];
+              for (const c of seedCodes) {
+                const code = String(c?.code ?? "").trim();
+                if (!code || seen.has(code)) continue;
+                seen.add(code);
+                merged.push(c);
+              }
+              if (merged.length !== prevCodes.length) {
+                await sb
+                  .from("terminology_requests" as any)
+                  .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
+                  .eq("id", (existingReq as any).id);
+              }
+            } else {
+              await sb.from("terminology_requests" as any).insert({
+                requesting_consumer: "Auto Admin",
+                requested_name: kwRaw,
+                justification,
+                priority: "normal",
+                vocabulary: vocab,
+                seed_codes: seedCodes,
+                clinical_application: "Population Health",
+                status: "pending",
+              } as any);
+            }
+          }
+        }
+      } catch (e) {
+        try {
+          await sb.from("auto_doc_logs").insert({
+            mrn: null,
+            stage: "fhir",
+            level: "error",
+            message: `Auto Admin population-health coverage check failed: ${(e as Error).message}`,
+          } as any);
+        } catch {
+          /* non-fatal */
+        }
+      }
+    }
+
     await logEvent("POPULATION_QUERY", {
       code_system: data.code_system ?? null,
       keyword: kwRaw || null,

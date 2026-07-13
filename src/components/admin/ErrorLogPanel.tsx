@@ -21,7 +21,7 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const AUTO_DOC_STAGES = ["analyze", "order", "result", "document", "complete", "error"];
-const AUTO_ADMIN_STAGES = ["discharge"];
+const AUTO_ADMIN_STAGES = ["discharge", "billing"];
 const AUTO_IT_STAGES = ["umls", "fhir"];
 
 async function fetchErrors(tab: TabId): Promise<ErrorRow[]> {
