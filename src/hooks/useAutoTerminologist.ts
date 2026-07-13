@@ -6,13 +6,16 @@ import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
  * Auto Terminologist — autonomous clinical terminologist agent.
  * --------------------------------------------------------------
  * Background loop (10 min cadence, leader-elected across tabs):
- *   1. Scans the last 36h of patient / condition / medication / lab data.
- *   2. Counts unique clinical codes and identifies coverage gaps by theme.
- *   3. For genuine recurring gaps, drafts a new value set into
- *      `custom_value_sets` — exactly as a human terminologist would via
- *      the Authoring Workbench.
+ *   1. Scans pending `terminology_requests` filed by consumer engines
+ *      (Safety Alerts, Billing, Auto Doc, etc.) — VSAC-style demand mode.
+ *   2. For `request_type = 'create'`, prefers an existing real value set
+ *      via UMLS; otherwise runs the quality gate and drafts / merges into
+ *      `custom_value_sets`.
+ *   3. For `request_type = 'deprecate'`, flags the target value set as
+ *      `deprecation-suggested` for a human to act on in the Value Set
+ *      Library. Never auto-publishes or auto-retires anything.
  *   4. Logs human-readable activity to `auto_terminologist_log` +
- *      `terminology_activity_log`, plus a heartbeat to
+ *      `terminology_activity_log`, plus a cycle summary to
  *      `automation_watchdog_logs`.
  *
  * The engine NEVER submits for review and NEVER publishes — every drafted
@@ -58,32 +61,6 @@ function tryAcquireLeader(): boolean {
   } catch {
     return false;
   }
-}
-
-type CodeHit = {
-  code: string;
-  vocab: "SNOMED CT" | "ICD-10" | "RxNorm" | "LOINC";
-  display?: string;
-  theme?: string;
-};
-
-function themeFromText(s?: string | null): string {
-  if (!s) return "General Clinical";
-  const t = s.toLowerCase();
-  if (/(stroke|cva|cerebrovascular)/.test(t)) return "Acute Stroke Presentations";
-  if (/(sepsis|septic)/.test(t)) return "Sepsis & Severe Infection";
-  if (/(mi|myocardial|stemi|nstemi|chest pain|acs)/.test(t)) return "Acute Coronary Syndrome";
-  if (/(antiplatelet|aspirin|clopidogrel|ticagrelor)/.test(t)) return "Antiplatelet Therapy";
-  if (/(anticoag|warfarin|apixaban|rivaroxaban|heparin)/.test(t)) return "Anticoagulation Therapy";
-  if (/(asthma|copd|bronch|respirator)/.test(t)) return "Respiratory Conditions";
-  if (/(diabet|hyperglyc|insulin)/.test(t)) return "Diabetes Management";
-  if (/(pneumon)/.test(t)) return "Community-Acquired Pneumonia";
-  if (/(trauma|fracture|injury)/.test(t)) return "Trauma & Injury";
-  if (/(pregn|obstetr|labor|delivery)/.test(t)) return "Obstetric Care";
-  if (/(antibio|infection|cellulitis|uti)/.test(t)) return "Infection Management";
-  if (/(pain|analges)/.test(t)) return "Pain Management";
-  if (/(renal|kidney|dialys)/.test(t)) return "Renal Care";
-  return cleanComplaintName(s);
 }
 
 const STOP_TAIL = new Set([
