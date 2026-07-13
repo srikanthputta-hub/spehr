@@ -407,14 +407,70 @@ export function AuthoringWorkbench() {
       }
     }));
 
-    setValidationRows(validated);
+    // Intensional check: re-resolve the anchor via hierarchyExpand and compare
+    // the resulting count against the saved clause. Adds one synthetic row so
+    // steward sees whether the rule still resolves.
+    let finalRows = validated;
+    if (type === "intensional" && intensionalClause) {
+      try {
+        const { data, error } = await supabase.functions.invoke("umls-proxy", {
+          body: {
+            action: "hierarchyExpand",
+            params: {
+              sab: "SNOMEDCT_US",
+              code: intensionalClause.anchorCode,
+              operator: intensionalClause.operator,
+            },
+          },
+        });
+        const nowCount = Array.isArray((data as any)?.codes) ? (data as any).codes.length : 0;
+        const anchorLabel = `${intensionalClause.anchorCode} · ${intensionalClause.operator}`;
+        let row: ValidationRow;
+        if (error || nowCount === 0) {
+          row = {
+            code: intensionalClause.anchorCode,
+            display: intensionalClause.anchorDisplay,
+            vocabulary: intensionalClause.vocabulary,
+            status: "unknown",
+            message: `Anchor no longer resolves (${anchorLabel})`,
+          };
+        } else if (nowCount !== intensionalClause.count) {
+          row = {
+            code: intensionalClause.anchorCode,
+            display: intensionalClause.anchorDisplay,
+            vocabulary: intensionalClause.vocabulary,
+            status: "unknown",
+            message: `Expansion drifted — saved ${intensionalClause.count}, live ${nowCount} (${anchorLabel})`,
+          };
+        } else {
+          row = {
+            code: intensionalClause.anchorCode,
+            display: intensionalClause.anchorDisplay,
+            vocabulary: intensionalClause.vocabulary,
+            status: "valid",
+            message: `Expansion resolves — ${nowCount} members found (${anchorLabel})`,
+          };
+        }
+        finalRows = [...validated, row];
+      } catch (e: any) {
+        finalRows = [...validated, {
+          code: intensionalClause.anchorCode,
+          display: intensionalClause.anchorDisplay,
+          vocabulary: intensionalClause.vocabulary,
+          status: "error",
+          message: e?.message ?? "Anchor re-resolution failed",
+        }];
+      }
+    }
+
+    setValidationRows(finalRows);
     setLastValidatedAt(new Date().toISOString());
     setValidating(false);
-    const bad = validated.filter((r) => r.status !== "valid").length;
-    logActivity("validated", `Validated ${validated.length} concept(s) against UMLS — ${bad} issue(s)`, null);
-    if (bad === 0) toast.success(`All ${validated.length} concept(s) valid`);
-    else toast.warning(`${bad} of ${validated.length} concept(s) need attention`);
-  }, [picks, excluded]);
+    const bad = finalRows.filter((r) => r.status !== "valid").length;
+    logActivity("validated", `Validated ${finalRows.length} concept(s) against UMLS — ${bad} issue(s)`, null);
+    if (bad === 0) toast.success(`All ${finalRows.length} concept(s) valid`);
+    else toast.warning(`${bad} of ${finalRows.length} concept(s) need attention`);
+  }, [picks, excluded, type, intensionalClause]);
 
   const validationSummary = useMemo(() => {
     if (validationRows.length === 0) return null;
