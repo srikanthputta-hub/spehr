@@ -567,6 +567,119 @@ export async function runAutoDocPipeline(mrn: string) {
         medication_requests: medReqRows.length,
       });
     }
+
+    /* -----------------------------------------------------------------
+     * Drug-Allergy pair coverage-gap detection (Auto Doc as requesting
+     * consumer). For each of this patient's coded allergies that maps
+     * to a known Safety Alerts Engine · Drug-Allergy pair, check the
+     * allergen-side registry row. If the pair's allergen-side value set
+     * hasn't been authored yet (no `custom_value_sets` row by that
+     * exact name, any status), file/merge a `terminology_requests` row
+     * so the Auto Terminologist / human steward can close the gap and
+     * activate Rule 1 for this pair going forward. Mirrors the merge-or-
+     * insert pattern used by the clinical + billing gap detectors above.
+     * ---------------------------------------------------------------- */
+    try {
+      const PAIR_SUBSTANCE_TERMS: Record<string, string[]> = {
+        penicillin: ["penicillin", "amoxicillin", "product containing penicillin"],
+        cephalosporin: ["cefazolin"],
+        sulfa: ["sulfa"],
+        "iodine-contrast": ["iodine", "contrast dye"],
+        codeine: ["codeine"],
+        // nsaid-hypersensitivity intentionally omitted — no chart data yet
+      };
+      const matchPairId = (substance: string): string | null => {
+        const s = substance.toLowerCase();
+        for (const [pairId, terms] of Object.entries(PAIR_SUBSTANCE_TERMS)) {
+          if (terms.some((t) => s.includes(t))) return pairId;
+        }
+        return null;
+      };
+
+      const seenPairs = new Set<string>();
+      for (const row of (allergyRows ?? []) as any[]) {
+        const substance = String(row?.substance ?? "").trim();
+        if (!substance) continue;
+        const pairId = matchPairId(substance);
+        if (!pairId || seenPairs.has(pairId)) continue;
+        seenPairs.add(pairId);
+
+        const substanceSnomed = row?.substance_snomed ? String(row.substance_snomed).trim() : "";
+        if (!substanceSnomed) continue; // nothing usable to seed with
+
+        // Look up the registry row for this pair's allergen side.
+        const { data: depRow } = await sb
+          .from("value_set_dependencies")
+          .select("id, value_set_id, value_set_name")
+          .eq("consumer", "Safety Alerts Engine · Drug-Allergy")
+          .eq("purpose", pairId)
+          .eq("lookup_mode", "allergen")
+          .maybeSingle();
+        if (!depRow) continue;
+        const dep = depRow as any;
+        if (dep.value_set_id) continue; // already linked — nothing to file
+        const requestedName = String(dep.value_set_name ?? "").trim();
+        if (!requestedName) continue;
+
+        // If a value set with this exact name already exists (any status),
+        // it's already being handled — skip.
+        const { data: existingVs } = await sb
+          .from("custom_value_sets")
+          .select("id")
+          .eq("name", requestedName)
+          .maybeSingle();
+        if (existingVs) continue;
+
+        const seedCode = {
+          code: substanceSnomed,
+          display: substance,
+          vocabulary: "SNOMED CT",
+        };
+        const justification = `Drug-Allergy pair '${pairId}' has no allergen-side value set yet — needed to activate Rule 1 for this pair. Seeded from this patient's coded allergy.`;
+
+        // Merge-or-insert against any unresolved Auto Doc request for the
+        // same requested_name to avoid duplicate rows on repeat patients.
+        const { data: existingReq } = await sb
+          .from("terminology_requests" as any)
+          .select("id, seed_codes, status")
+          .eq("requesting_consumer", "Auto Doc")
+          .eq("requested_name", requestedName)
+          .in("status", ["pending", "umls-suggested"])
+          .maybeSingle();
+
+        if (existingReq) {
+          const prevCodes: Array<{ code: string; display?: string; vocabulary?: string }> =
+            Array.isArray((existingReq as any).seed_codes)
+              ? (existingReq as any).seed_codes
+              : [];
+          const seen = new Set(prevCodes.map((c) => String(c?.code ?? "").trim()));
+          if (!seen.has(seedCode.code)) {
+            await sb
+              .from("terminology_requests" as any)
+              .update({
+                seed_codes: [...prevCodes, seedCode],
+                updated_at: new Date().toISOString(),
+              } as any)
+              .eq("id", (existingReq as any).id);
+          }
+        } else {
+          await sb.from("terminology_requests" as any).insert({
+            requesting_consumer: "Auto Doc",
+            request_type: "create",
+            requested_name: requestedName,
+            justification,
+            priority: "normal",
+            vocabulary: "SNOMED CT",
+            seed_codes: [seedCode],
+            clinical_application: "CDS",
+            related_mrn: mrn,
+            status: "pending",
+          } as any);
+        }
+      }
+    } catch (e) {
+      console.warn("[auto-doc] drug-allergy pair gap-request failed", (e as Error).message);
+    }
     // NOTE: Building or pushing a Discharge Summary Composition at admission
     // time was removed intentionally. That was a false-signal data-fabrication
     // bug: a Composition with status="final" was landing on the external
