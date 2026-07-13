@@ -164,8 +164,38 @@ async function safeUpsertValueSet(payload: ValueSetPayload): Promise<SafeUpsertO
 
   if (fetchErr) throw fetchErr;
 
-  // No existing row — insert fresh draft.
+  // No exact-name match: look for a substantively duplicate value set
+  // in the same vocabulary whose codes overlap ≥50% with the payload.
+  // If found, merge into it instead of creating a differently-named twin.
+  let overlapMatch: any = null;
   if (!existing) {
+    const incomingCodes = new Set(
+      payload.codes.map((c) => String(c?.code ?? "").trim()).filter(Boolean),
+    );
+    if (incomingCodes.size > 0) {
+      const { data: candidates } = await supabase
+        .from("custom_value_sets")
+        .select("id, name, status, codes, change_history")
+        .eq("vocabulary", payload.vocabulary);
+      const threshold = Math.ceil(incomingCodes.size * 0.5);
+      let bestOverlap = 0;
+      for (const row of ((candidates ?? []) as any[])) {
+        const rowCodes: any[] = Array.isArray(row?.codes) ? row.codes : [];
+        let overlap = 0;
+        for (const c of rowCodes) {
+          const k = String(c?.code ?? "").trim();
+          if (k && incomingCodes.has(k)) overlap += 1;
+        }
+        if (overlap >= threshold && overlap > bestOverlap) {
+          bestOverlap = overlap;
+          overlapMatch = row;
+        }
+      }
+    }
+  }
+
+  // No existing row and no code-overlap match — insert fresh draft.
+  if (!existing && !overlapMatch) {
     const { data: inserted, error: insErr } = await supabase
       .from("custom_value_sets")
       .insert({
@@ -192,11 +222,22 @@ async function safeUpsertValueSet(payload: ValueSetPayload): Promise<SafeUpsertO
     };
   }
 
-  const existingRow = existing as any;
+  const matchedByOverlap = !existing && !!overlapMatch;
+  const existingRow = (existing ?? overlapMatch) as any;
   const existingStatus: string = String(existingRow.status ?? "draft");
   const existingCodes: Array<{ code?: string; display?: string; vocabulary?: string; system?: string }> =
     Array.isArray(existingRow.codes) ? existingRow.codes : [];
   const existingHistory: any[] = Array.isArray(existingRow.change_history) ? existingRow.change_history : [];
+
+  // Annotate the change entry when we merged via code-overlap rather than
+  // an exact name match, so reviewers can see why the request was folded
+  // into a differently-named value set.
+  const changeEntry = matchedByOverlap
+    ? {
+        ...payload.changeEntry,
+        change: `${payload.changeEntry.change} — matched by code overlap with existing value set '${String(existingRow.name ?? "")}', not exact name match`,
+      }
+    : payload.changeEntry;
 
   // Merge codes (dedupe by trimmed `code`).
   const haveCodes = new Set(existingCodes.map((c) => String(c?.code ?? "").trim()).filter(Boolean));
@@ -217,7 +258,7 @@ async function safeUpsertValueSet(payload: ValueSetPayload): Promise<SafeUpsertO
   }
 
   const mergedCodes = additions.length > 0 ? [...existingCodes, ...additions] : existingCodes;
-  const mergedHistory = [...existingHistory, payload.changeEntry];
+  const mergedHistory = [...existingHistory, changeEntry];
 
   const updatePatch: Record<string, unknown> = {
     codes: mergedCodes,
