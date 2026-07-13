@@ -858,12 +858,23 @@ async function runAutoTerminologistCycle() {
     console.warn("[auto-term] demand pass failed", e);
   }
 
+  // Pair auto-link pass: wire up any value_set_dependencies rows whose
+  // matching published `custom_value_sets` row now exists but that were
+  // registered before the value set was published. Only ever touches
+  // NULL value_set_id rows — never re-links or downgrades.
+  let pairsLinked = 0;
+  try {
+    pairsLinked = await runPairAutoLinkPass();
+  } catch (e) {
+    console.warn("[auto-term] pair auto-link pass failed", e);
+  }
+
   const totalActed =
     demand.drafted + demand.gated + demand.deprecationSuggested + demand.rejected;
   const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   await logActivity({
     action: totalActed === 0 ? "heartbeat" : "cycle_summary",
-    message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.drafted} drafted, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected.`,
+    message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.drafted} drafted, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}.`,
     codes_count: 0,
   });
 
@@ -873,9 +884,10 @@ async function runAutoTerminologistCycle() {
     requests_gated: demand.gated,
     deprecation_suggested: demand.deprecationSuggested,
     requests_rejected: demand.rejected,
+    drug_allergy_pairs_linked: pairsLinked,
   };
   actions.push(
-    `auto_terminologist: demand queue — scanned ${demand.scanned}, drafted ${demand.drafted}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}.`,
+    `auto_terminologist: demand queue — scanned ${demand.scanned}, drafted ${demand.drafted}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}.`,
   );
 
   await supabase.from("automation_watchdog_logs").insert({
