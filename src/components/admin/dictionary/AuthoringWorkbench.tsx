@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { Search, Save, Send, Loader2, X, Plus, Check, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Target, Layers, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,27 @@ type ValidationRow = { code: string; display: string; vocabulary: string; status
 type ValueSetStatus = "draft" | "review" | "approved" | "rejected" | "published";
 const BINDING_STRENGTHS = ["Required", "Extensible", "Preferred", "Example"] as const;
 type BindingStrength = (typeof BINDING_STRENGTHS)[number];
+
+const HIERARCHY_OPERATORS = [
+  { value: "equal", label: "equal — just this concept" },
+  { value: "in", label: "in — just this concept (as set member)" },
+  { value: "descendantOf", label: "descendantOf — all descendants (excludes anchor)" },
+  { value: "descendantOrSelfOf", label: "descendantOrSelfOf — anchor + all descendants" },
+  { value: "childOf", label: "childOf — direct children only" },
+  { value: "ancestorOf", label: "ancestorOf — all ancestors (excludes anchor)" },
+  { value: "ancestorOrSelfOf", label: "ancestorOrSelfOf — anchor + all ancestors" },
+  { value: "parentOf", label: "parentOf — direct parents only" },
+] as const;
+type HierarchyOperator = (typeof HIERARCHY_OPERATORS)[number]["value"];
+
+type IntensionalClause = {
+  anchorCode: string;
+  anchorDisplay: string;
+  vocabulary: string;
+  operator: HierarchyOperator;
+  computedAt: string;
+  count: number;
+};
 
 const VOCABS = [
   { label: "SNOMED CT", value: "SNOMEDCT_US" },
@@ -44,6 +65,13 @@ export function AuthoringWorkbench() {
   const [saving, setSaving] = useState(false);
   const [author, setAuthor] = useState("");
   const [bindingStrength, setBindingStrength] = useState<BindingStrength>("Preferred");
+  // Intensional (SNOMED-only) authoring state
+  const [anchor, setAnchor] = useState<{ code: string; display: string } | null>(null);
+  const [operator, setOperator] = useState<HierarchyOperator>("descendantOrSelfOf");
+  const [expansion, setExpansion] = useState<Array<{ code: string; name: string }>>([]);
+  const [expansionTruncated, setExpansionTruncated] = useState(false);
+  const [expanding, setExpanding] = useState(false);
+  const [intensionalClause, setIntensionalClause] = useState<IntensionalClause | null>(null);
   const [validationRows, setValidationRows] = useState<ValidationRow[]>([]);
   const [validating, setValidating] = useState(false);
   const [lastValidatedAt, setLastValidatedAt] = useState<string | null>(null);
