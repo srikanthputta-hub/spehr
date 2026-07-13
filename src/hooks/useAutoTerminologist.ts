@@ -386,18 +386,24 @@ async function tryUmlsSuggestion(req: any): Promise<boolean> {
   }
 }
 
-async function processPendingTerminologyRequests(
-  byTheme: Map<string, Array<{ hit: CodeHit; n: number }>>,
-): Promise<{ drafted: number; gated: number }> {
+async function processPendingTerminologyRequests(): Promise<{
+  drafted: number;
+  gated: number;
+  deprecationSuggested: number;
+  rejected: number;
+  scanned: number;
+}> {
   let drafted = 0;
   let gated = 0;
+  let deprecationSuggested = 0;
+  let rejected = 0;
   const { data: pending, error } = await supabase
     .from("terminology_requests" as any)
     .select(
-      "id, requesting_consumer, requested_name, justification, priority, vocabulary, seed_codes, clinical_application, related_mrn, quality_gate_notes",
+      "id, requesting_consumer, requested_name, justification, priority, vocabulary, seed_codes, clinical_application, related_mrn, quality_gate_notes, request_type, target_value_set_id",
     )
     .eq("status", "pending");
-  if (error || !pending) return { drafted, gated };
+  if (error || !pending) return { drafted, gated, deprecationSuggested, rejected, scanned: 0 };
 
   const rows = [...(pending as any[])].sort((a, b) => {
     const dp = normalizePriority(a.priority) - normalizePriority(b.priority);
@@ -408,6 +414,110 @@ async function processPendingTerminologyRequests(
   for (const req of rows) {
     try {
       const requestedName = String(req.requested_name ?? "").trim();
+      const requestType = String(req.request_type ?? "create").toLowerCase();
+      const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      // ---------------- Deprecation branch ----------------
+      if (requestType === "deprecate") {
+        const targetId = req.target_value_set_id ? String(req.target_value_set_id) : null;
+        const nowIso = new Date().toISOString();
+        if (!targetId) {
+          gated += 1;
+          await supabase.from("terminology_requests" as any)
+            .update({ quality_gate_notes: "Deprecation request missing target_value_set_id", updated_at: nowIso } as any)
+            .eq("id", req.id);
+          await logActivity({
+            action: "gated",
+            message: `${timeLabel} — Deprecation request from ${req.requesting_consumer} rejected: no target_value_set_id supplied.`,
+            theme: requestedName || null,
+          });
+          continue;
+        }
+        const { data: target, error: targetErr } = await supabase
+          .from("custom_value_sets")
+          .select("id, name, status, change_history")
+          .eq("id", targetId)
+          .maybeSingle();
+        if (targetErr || !target) {
+          gated += 1;
+          await supabase.from("terminology_requests" as any)
+            .update({ quality_gate_notes: "Target value set not found", updated_at: nowIso } as any)
+            .eq("id", req.id);
+          await logActivity({
+            action: "gated",
+            message: `${timeLabel} — Deprecation request from ${req.requesting_consumer} rejected: target value set ${targetId} not found.`,
+            theme: requestedName || null,
+          });
+          continue;
+        }
+        const tRow = target as any;
+        const tStatus = String(tRow.status ?? "draft");
+        const tName = String(tRow.name ?? "");
+        if (tStatus === "draft") {
+          rejected += 1;
+          await supabase.from("terminology_requests" as any)
+            .update({
+              status: "rejected",
+              resolved_at: nowIso,
+              updated_at: nowIso,
+              quality_gate_notes: "Target is a draft — delete drafts directly instead of deprecating.",
+            } as any)
+            .eq("id", req.id);
+          await logActivity({
+            action: "gated",
+            message: `${timeLabel} — Deprecation request from ${req.requesting_consumer} for draft '${tName}' — drafts should be deleted directly, not deprecated. Marked rejected.`,
+            theme: tName,
+            value_set_id: tRow.id ?? null,
+          });
+          continue;
+        }
+        if (tStatus === "review" || tStatus === "published") {
+          const history = Array.isArray(tRow.change_history) ? tRow.change_history : [];
+          const entry = {
+            at: nowIso,
+            actor: "Auto Terminologist",
+            change: `Deprecation suggested — requested by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+          };
+          await supabase
+            .from("custom_value_sets")
+            .update({
+              status: "deprecation-suggested",
+              change_history: [...history, entry],
+              updated_at: nowIso,
+            } as any)
+            .eq("id", tRow.id);
+          await supabase.from("terminology_requests" as any)
+            .update({
+              status: "drafted",
+              value_set_id: tRow.id,
+              resolved_at: nowIso,
+              updated_at: nowIso,
+              quality_gate_notes: null,
+            } as any)
+            .eq("id", req.id);
+          await logActivity({
+            action: "deprecation-suggested",
+            message: `${timeLabel} — Deprecation suggested for '${tName}' (was ${tStatus}) — requested by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+            theme: tName,
+            value_set_id: tRow.id ?? null,
+          });
+          deprecationSuggested += 1;
+          continue;
+        }
+        // Any other status (e.g. already deprecation-suggested / retired) — no-op
+        await supabase.from("terminology_requests" as any)
+          .update({
+            status: "rejected",
+            resolved_at: nowIso,
+            updated_at: nowIso,
+            quality_gate_notes: `Target value set is '${tStatus}' — no deprecation action taken.`,
+          } as any)
+          .eq("id", req.id);
+        rejected += 1;
+        continue;
+      }
+
+      // ---------------- Create branch (default) ----------------
       if (!requestedName) continue;
 
       // UMLS-first: prefer an existing real value set over self-authoring.
@@ -419,21 +529,14 @@ async function processPendingTerminologyRequests(
         continue;
       }
 
-      let seedCodes: SeedCode[] = Array.isArray(req.seed_codes) ? (req.seed_codes as any[])
+      const seedCodes: SeedCode[] = Array.isArray(req.seed_codes) ? (req.seed_codes as any[])
         .map((s) => ({
           code: String(s?.code ?? "").trim(),
           display: String(s?.display ?? "").trim(),
           vocabulary: String(s?.vocabulary ?? req.vocabulary ?? "").trim(),
         })) : [];
 
-      // Fallback: try to satisfy an empty-seed request from this cycle's scan gaps
-      if (seedCodes.length === 0) {
-        const match = findScanMatchForRequest(requestedName, byTheme);
-        if (match) seedCodes = match;
-      }
-
       const gate = runQualityGate(seedCodes, req.vocabulary);
-      const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
       if (!gate.ok) {
         gated += 1;
