@@ -1,40 +1,46 @@
-## Apply scroll-feed / 150 latest / search to System Admin dashboard panels
+## Goal
 
-Same treatment already applied on the other dashboards (sticky header, ~15 rows visible via `scroll-feed`, latest 150 rows, slim scrollbar), plus a search box wherever there isn't one yet.
+Every clinical safety alert should visibly name the published Value Set(s) from the Value Set Library that caused it to fire (e.g. "Anticoagulants", "Sepsis Indicators", "Penicillin Allergens × Penicillin Class Drugs").
 
-### 1. `src/components/admin/dictionary/LiveTerminologyMatrixPanel.tsx`
-- Already has search + sticky header. Swap the custom `max-h-[560px] overflow-auto` wrapper for the shared `scroll-feed` utility so scrollbar/height match the other boards.
-- Keep the 400-row underlying fetch; no change to filter logic.
+## Approach
 
-### 2. `src/routes/system-admin.tsx` — Enterprise Event Ledger
-- Raise `setEvents(out.slice(0, 50))` → `slice(0, 150)`.
-- Add a search input above the table filtering on Timestamp / Category / Actor / Facility / Details (case-insensitive substring across all columns).
-- Wrap the `<table>` scroll container in `scroll-feed` and keep the header sticky.
-- CSV export exports the filtered result if a search is active, otherwise all loaded events.
+Compute the matching value set name(s) at fire time inside `src/lib/safety-alerts-engine.ts`, thread them through `fireAlert`, and render them in the two consumer UIs. No DB schema change — the names are appended to the existing `family` text (already stored and already rendered) and also mirrored into `auto_doc_logs.meta.valueSetNames` for the CDS Decisions feed.
 
-### 3. `src/components/admin/dictionary/ValueSetLibrary.tsx`
-- Raise `.limit(50)` → `.limit(150)` and the realtime prepend cap `.slice(0, 50)` → `.slice(0, 150)`.
-- Search box already exists — no change.
-- Wrap the value-set rows list in `scroll-feed`.
+### 1. Engine — `src/lib/safety-alerts-engine.ts`
 
-### 4. `src/components/admin/dictionary/NlpAuditLogsPanel.tsx` (NLP Coding Audit Trail)
-- Raise `.limit(20)` → `.limit(150)`.
-- Add a search input above the cards filtering on MRN and chief-complaint / raw text.
-- Wrap the cards container `space-y-3` in `scroll-feed`.
+- Extend `FireInput` with `valueSetNames: string[]`.
+- Change `family` composition to:
+  `"<message> · Value Sets: <A>, <B> [ruleKey:triggerCode] (triggerDisplay)"`
+  (marker preserved so `alreadyFired` dedupe keeps working.)
+- Include `valueSetNames` in the `auto_doc_logs.meta` payload.
+- Determine names per rule:
+  - **Rule 1 (Drug-Allergy):** the specific `VsRow.name` from `pair.drugSets` whose `codes` contain the ordered RxNorm, plus the `VsRow.name` from `pair.allergenSets` whose codes contain the matched allergy SNOMED. Add a small helper `firstContaining(sets, code)` that returns the matching `VsRow` (replaces `anyContains` at the two call sites that need the name).
+  - **Rule 2 (Anticoagulant Bleeding):** always `["Anticoagulants"]`; if the conflicting med is an NSAID, add `"NSAIDs"`.
+  - **Rule 3 (High-Acuity):** `["High-Acuity ED Presentations"]`.
+  - **Rule 4 (Sepsis):** `["Sepsis Indicators"]`.
 
-### 5. `src/components/admin/dictionary/NlpApprovalTrail.tsx`
-- Raise `.limit(50)` → `.limit(150)`.
-- Add a search input filtering on MRN and raw text.
-- Wrap the cards container in `scroll-feed`.
-- Update the badge caption `Last 50 · Approved` → `Last 150 · Approved`.
+### 2. Patient banner — `src/components/patient/SafetyAlertBanner.tsx`
 
-### 6. `src/components/admin/dictionary/AutoTerminologistActivity.tsx`
-- Raise both `.limit(50)` fetches and the two `.slice(0, 50)` realtime caps → `150`.
-- Add one search input for **Terminology Requests** (filters on consumer / requested_name / justification / status).
-- Add one search input for **Value Sets Drafted** (filters on message / theme / action).
-- Wrap each of the two rounded list containers in `scroll-feed`.
+Parse the new `· Value Sets: …` segment out of `alert.family` and render it as a subtle chip row under the existing family line, e.g.
+`Value Sets: [Anticoagulants] [NSAIDs]`.
+Falls back gracefully for older rows without the segment.
 
-### Out of scope
-- No changes to fetch schemas, realtime channels, or card internals.
-- No visual redesign — same colors, badges, spacing; only the wrapper class, row cap, and new search inputs change.
-- Taxonomy Tree, KPI cards, charts, and other panels not shown in the screenshots are unchanged.
+### 3. Physician queue — `src/components/physician/PatientSafetyAlertQueue.tsx`
+
+Same parse+render treatment on each pending alert card (adds a "Triggered by" chip row below the existing family text). No behavioral changes to Override/Reject.
+
+### 4. CDS Decisions feed
+
+Already reads `family` from `clinical_safety_alerts`, so the appended segment shows up automatically. The `auto_doc_logs.meta.valueSetNames` addition is purely for downstream analytics/debugging.
+
+## Out of scope
+
+- No changes to sweep function, cron, or the auto-decide/override pipeline.
+- No new DB column and no migration — reusing `family` keeps the change contained and backfill-free.
+- No changes to CDS Hook static rules (`CdsHookAlert.tsx`) — those aren't value-set driven in the same way; can be a follow-up if desired.
+
+## Verification
+
+- Trigger a fresh order in the physician board that fires each rule and confirm the value set name appears on the banner, in the pending queue card, and in the CDS Decisions row.
+- `alreadyFired` dedupe still works because the `[ruleKey:triggerCode]` marker is unchanged.
+- Typecheck.
