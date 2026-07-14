@@ -73,63 +73,72 @@ export async function ensureValueSetsLoaded(): Promise<Map<VsName, VsRow>> {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Drug-Allergy pair registry (data-driven, no hardcoded pair)        */
+/*  Published value-set catalogue (single source of truth for Rule 1)  */
 /* ------------------------------------------------------------------ */
 
-export type DrugAllergyPair = {
-  pairId: string;             // e.g. "penicillin"
-  allergenSets: VsRow[];      // union of published SNOMED allergen value sets
-  drugSets: VsRow[];          // union of published RxNorm drug value sets
-  allergenNames: string[];    // registered names (published or not) for gap reports
-  drugNames: string[];
-};
+let allVsCache: VsRow[] = [];
+let allVsLoadedAt = 0;
+let allVsLoadPromise: Promise<void> | null = null;
 
-let pairCache: DrugAllergyPair[] = [];
-let pairLoadedAt = 0;
-let pairLoadPromise: Promise<void> | null = null;
-
-export async function loadDrugAllergyPairs(): Promise<DrugAllergyPair[]> {
-  const fresh = Date.now() - pairLoadedAt < VS_TTL_MS && pairCache.length > 0;
-  if (fresh) return pairCache;
-  if (pairLoadPromise) {
-    await pairLoadPromise;
-    return pairCache;
+export async function loadAllPublishedValueSets(): Promise<VsRow[]> {
+  const fresh = Date.now() - allVsLoadedAt < VS_TTL_MS && allVsCache.length > 0;
+  if (fresh) return allVsCache;
+  if (allVsLoadPromise) {
+    await allVsLoadPromise;
+    return allVsCache;
   }
-  pairLoadPromise = (async () => {
+  allVsLoadPromise = (async () => {
     const { data, error } = await supabase
-      .from("value_set_dependencies")
-      .select(
-        "purpose, lookup_mode, value_set_name, custom_value_sets:value_set_id ( id, name, oid, vocabulary, type, codes, intensional_rule, status )",
-      )
-      .eq("consumer", "Safety Alerts Engine · Drug-Allergy");
+      .from("custom_value_sets")
+      .select("id, name, oid, vocabulary, type, codes, intensional_rule, status")
+      .eq("status", "published");
     if (error || !data) {
-      pairCache = [];
-      pairLoadedAt = Date.now();
+      allVsCache = [];
+      allVsLoadedAt = Date.now();
       return;
     }
-    const byPair = new Map<string, DrugAllergyPair>();
-    for (const row of data as any[]) {
-      const pairId = String(row?.purpose ?? "").trim();
-      const mode = String(row?.lookup_mode ?? "").trim();
-      if (!pairId || (mode !== "allergen" && mode !== "drug")) continue;
-      let entry = byPair.get(pairId);
-      if (!entry) {
-        entry = { pairId, allergenSets: [], drugSets: [], allergenNames: [], drugNames: [] };
-        byPair.set(pairId, entry);
-      }
-      const name = String(row?.value_set_name ?? "").trim();
-      if (name) (mode === "allergen" ? entry.allergenNames : entry.drugNames).push(name);
-      const vs = row?.custom_value_sets;
-      if (!vs || vs.status !== "published") continue;
-      (mode === "allergen" ? entry.allergenSets : entry.drugSets).push(vs as VsRow);
-    }
-    pairCache = Array.from(byPair.values());
-    pairLoadedAt = Date.now();
+    allVsCache = (data as any[]) as VsRow[];
+    allVsLoadedAt = Date.now();
   })().finally(() => {
-    pairLoadPromise = null;
+    allVsLoadPromise = null;
   });
-  await pairLoadPromise;
-  return pairCache;
+  await allVsLoadPromise;
+  return allVsCache;
+}
+
+/**
+ * Extract meaningful allergy-class tokens from a value set name. Stopwords
+ * describe the container (allergy, allergen, drugs, class, vocabulary
+ * suffixes) rather than the clinical class itself.
+ */
+const VS_NAME_STOPWORDS = new Set([
+  "allergy", "allergies", "allergen", "allergens", "hypersensitivity",
+  "class", "drug", "drugs", "medication", "medications", "agents", "agent",
+  "rxnorm", "snomed", "loinc", "optum", "spehr", "auto",
+  "and", "or", "the", "of", "for", "with", "to",
+]);
+
+function classTokens(name: string): string[] {
+  const cleaned = name
+    .replace(/\([^)]*\)/g, " ")   // drop parenthetical vocabulary tags
+    .replace(/[^A-Za-z]+/g, " ")
+    .toLowerCase();
+  const out: string[] = [];
+  for (const raw of cleaned.split(/\s+/)) {
+    if (raw.length < 4) continue;
+    if (VS_NAME_STOPWORDS.has(raw)) continue;
+    out.push(raw);
+  }
+  return out;
+}
+
+function substanceMatchesClass(substance: string, tokens: string[]): boolean {
+  const s = substance.toLowerCase();
+  if (!s) return false;
+  for (const t of tokens) {
+    if (s.includes(t)) return true;
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------ */
