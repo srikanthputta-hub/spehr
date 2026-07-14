@@ -73,63 +73,72 @@ export async function ensureValueSetsLoaded(): Promise<Map<VsName, VsRow>> {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Drug-Allergy pair registry (data-driven, no hardcoded pair)        */
+/*  Published value-set catalogue (single source of truth for Rule 1)  */
 /* ------------------------------------------------------------------ */
 
-export type DrugAllergyPair = {
-  pairId: string;             // e.g. "penicillin"
-  allergenSets: VsRow[];      // union of published SNOMED allergen value sets
-  drugSets: VsRow[];          // union of published RxNorm drug value sets
-  allergenNames: string[];    // registered names (published or not) for gap reports
-  drugNames: string[];
-};
+let allVsCache: VsRow[] = [];
+let allVsLoadedAt = 0;
+let allVsLoadPromise: Promise<void> | null = null;
 
-let pairCache: DrugAllergyPair[] = [];
-let pairLoadedAt = 0;
-let pairLoadPromise: Promise<void> | null = null;
-
-export async function loadDrugAllergyPairs(): Promise<DrugAllergyPair[]> {
-  const fresh = Date.now() - pairLoadedAt < VS_TTL_MS && pairCache.length > 0;
-  if (fresh) return pairCache;
-  if (pairLoadPromise) {
-    await pairLoadPromise;
-    return pairCache;
+export async function loadAllPublishedValueSets(): Promise<VsRow[]> {
+  const fresh = Date.now() - allVsLoadedAt < VS_TTL_MS && allVsCache.length > 0;
+  if (fresh) return allVsCache;
+  if (allVsLoadPromise) {
+    await allVsLoadPromise;
+    return allVsCache;
   }
-  pairLoadPromise = (async () => {
+  allVsLoadPromise = (async () => {
     const { data, error } = await supabase
-      .from("value_set_dependencies")
-      .select(
-        "purpose, lookup_mode, value_set_name, custom_value_sets:value_set_id ( id, name, oid, vocabulary, type, codes, intensional_rule, status )",
-      )
-      .eq("consumer", "Safety Alerts Engine · Drug-Allergy");
+      .from("custom_value_sets")
+      .select("id, name, oid, vocabulary, type, codes, intensional_rule, status")
+      .eq("status", "published");
     if (error || !data) {
-      pairCache = [];
-      pairLoadedAt = Date.now();
+      allVsCache = [];
+      allVsLoadedAt = Date.now();
       return;
     }
-    const byPair = new Map<string, DrugAllergyPair>();
-    for (const row of data as any[]) {
-      const pairId = String(row?.purpose ?? "").trim();
-      const mode = String(row?.lookup_mode ?? "").trim();
-      if (!pairId || (mode !== "allergen" && mode !== "drug")) continue;
-      let entry = byPair.get(pairId);
-      if (!entry) {
-        entry = { pairId, allergenSets: [], drugSets: [], allergenNames: [], drugNames: [] };
-        byPair.set(pairId, entry);
-      }
-      const name = String(row?.value_set_name ?? "").trim();
-      if (name) (mode === "allergen" ? entry.allergenNames : entry.drugNames).push(name);
-      const vs = row?.custom_value_sets;
-      if (!vs || vs.status !== "published") continue;
-      (mode === "allergen" ? entry.allergenSets : entry.drugSets).push(vs as VsRow);
-    }
-    pairCache = Array.from(byPair.values());
-    pairLoadedAt = Date.now();
+    allVsCache = (data as any[]) as VsRow[];
+    allVsLoadedAt = Date.now();
   })().finally(() => {
-    pairLoadPromise = null;
+    allVsLoadPromise = null;
   });
-  await pairLoadPromise;
-  return pairCache;
+  await allVsLoadPromise;
+  return allVsCache;
+}
+
+/**
+ * Extract meaningful allergy-class tokens from a value set name. Stopwords
+ * describe the container (allergy, allergen, drugs, class, vocabulary
+ * suffixes) rather than the clinical class itself.
+ */
+const VS_NAME_STOPWORDS = new Set([
+  "allergy", "allergies", "allergen", "allergens", "hypersensitivity",
+  "class", "drug", "drugs", "medication", "medications", "agents", "agent",
+  "rxnorm", "snomed", "loinc", "optum", "spehr", "auto",
+  "and", "or", "the", "of", "for", "with", "to",
+]);
+
+function classTokens(name: string): string[] {
+  const cleaned = name
+    .replace(/\([^)]*\)/g, " ")   // drop parenthetical vocabulary tags
+    .replace(/[^A-Za-z]+/g, " ")
+    .toLowerCase();
+  const out: string[] = [];
+  for (const raw of cleaned.split(/\s+/)) {
+    if (raw.length < 4) continue;
+    if (VS_NAME_STOPWORDS.has(raw)) continue;
+    out.push(raw);
+  }
+  return out;
+}
+
+function substanceMatchesClass(substance: string, tokens: string[]): boolean {
+  const s = substance.toLowerCase();
+  if (!s) return false;
+  for (const t of tokens) {
+    if (s.includes(t)) return true;
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -317,7 +326,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
 
   const vs = await ensureValueSetsLoaded();
   const anticoags = vs.get("Anticoagulants");
-  const pairs = await loadDrugAllergyPairs();
+  const publishedVs = await loadAllPublishedValueSets();
 
   // Patient meta for anchoring & row display
   const { data: pRow } = await supabase
@@ -332,90 +341,90 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
   const facility_name = (pRow as any)?.facility_name ?? null;
   const sinceIso = (pRow as any)?.admission_time ?? null;
 
-  /* ---- RULE 1: Drug-Allergy Conflict (data-driven pair registry) ---- */
-  if (code || name) {
-    // Fetch chart allergies once; reused across every pair.
+  /* ---- RULE 1: Drug-Allergy Conflict (value-set-only match) ----
+   *
+   * A single scan over every published value set. A value set fires when:
+   *   (a) it contains the ordered drug's RxNorm code, AND
+   *   (b) its name (minus stopwords/vocabulary tags) shares a token with
+   *       any active allergy substance on the chart.
+   *
+   * The value set IS the safety rule — no pair registry, no synthetic
+   * allergen value sets required. `Penicillin Allergy RXNORM(optum)` fires
+   * a penicillin-allergic patient's amoxicillin order because it contains
+   * amoxicillin AND its name contains "penicillin".
+   */
+  if (code) {
     const { data: allergyRows } = await supabase
       .from("allergies")
-      .select("substance, substance_snomed")
-      .eq("mrn", mrn);
-    const chartAllergies = (allergyRows ?? []) as Array<{
-      substance: string | null;
-      substance_snomed: string | null;
-    }>;
+      .select("substance")
+      .eq("mrn", mrn)
+      .eq("status", "active");
+    const chartAllergies = ((allergyRows ?? []) as Array<{ substance: string | null }>)
+      .map((r) => String(r?.substance ?? "").trim())
+      .filter(Boolean);
 
-    // Collect every matching pair, then fire ONE alert for the best match.
-    type Match = {
-      pair: DrugAllergyPair;
-      drugVs: VsRow;
-      allergenVs: VsRow;
-      allergyName: string;
-      drugSpecificity: number; // smaller = more specific
-    };
-    const matches: Match[] = [];
-    for (const pair of pairs) {
-      const drugVs = code ? firstContaining(pair.drugSets, code) : null;
-      if (drugVs) {
-        const matchedAllergy = chartAllergies.find((a) => {
-          const snomed = String(a?.substance_snomed ?? "").trim();
-          return !!snomed && anyContains(pair.allergenSets, snomed);
-        });
-        if (matchedAllergy) {
-          const allergenVs = firstContaining(
-            pair.allergenSets,
-            String(matchedAllergy.substance_snomed ?? "").trim(),
-          );
-          if (allergenVs) {
-            matches.push({
-              pair,
-              drugVs,
-              allergenVs,
-              allergyName: String(matchedAllergy.substance ?? ""),
-              drugSpecificity: Array.isArray(drugVs.codes) ? drugVs.codes.length : Number.MAX_SAFE_INTEGER,
-            });
-          }
-        }
-      } else if (name && pair.drugSets.length === 0 && pair.drugNames.length > 0) {
-        // Coverage gap: pair is registered but no published drug value set
-        // is wired yet. File a governed terminology request so the
-        // terminologist knows Rule 1 can't evaluate this pair.
-        await requestTerminologyUpdate({
-          requesting_consumer: "Safety Alerts Engine",
-          requested_name: pair.drugNames[0]!,
-          justification: `Drug-Allergy pair "${pair.pairId}" has no published drug value set (registered: ${pair.drugNames.join(", ")}) — order "${name}"${code ? ` (RxNorm ${code})` : ""} could not be evaluated against this pair.`,
-          priority: "normal",
-          vocabulary: "RxNorm",
-          seed_codes: code ? [{ code, display: name }] : [],
-          clinical_application: "CDS",
-          related_mrn: mrn,
+    if (chartAllergies.length > 0) {
+      type Match = {
+        vs: VsRow;
+        allergyName: string;
+        specificity: number; // smaller = more specific
+      };
+      const matches: Match[] = [];
+      for (const vsRow of publishedVs) {
+        if (!extensionalContains(vsRow, code)) continue;
+        const tokens = classTokens(vsRow.name);
+        if (tokens.length === 0) continue;
+        const hit = chartAllergies.find((s) => substanceMatchesClass(s, tokens));
+        if (!hit) continue;
+        matches.push({
+          vs: vsRow,
+          allergyName: hit,
+          specificity: Array.isArray(vsRow.codes) ? vsRow.codes.length : Number.MAX_SAFE_INTEGER,
         });
       }
-    }
 
-    if (matches.length > 0) {
-      // Deterministic priority: narrowest drug value set wins, then pair id.
-      matches.sort((a, b) => {
-        if (a.drugSpecificity !== b.drugSpecificity) return a.drugSpecificity - b.drugSpecificity;
-        return a.pair.pairId.localeCompare(b.pair.pairId);
-      });
-      const best = matches[0]!;
-      const ruleKey = "rule1-drug-allergy";
-      if (!(await alreadyFired(mrn, ruleKey, code, sinceIso))) {
-        await fireAlert({
-          mrn,
-          patient_name,
-          facility_name,
-          ruleKey,
-          kind: "Drug-Allergy",
-          severity: "HIGH",
-          message: `⚠ Allergy Conflict — ${name || code} matches the "${best.pair.pairId}" allergy class documented for this patient`,
-          triggerCode: code,
-          triggerDisplay: name || code,
-          drug: name || code,
-          allergy_name: best.allergyName,
-          medication_order_id: evt.medication_order_id ?? null,
-          valueSetNames: [best.drugVs.name, best.allergenVs.name],
+      if (matches.length > 0) {
+        matches.sort((a, b) => {
+          if (a.specificity !== b.specificity) return a.specificity - b.specificity;
+          return a.vs.name.localeCompare(b.vs.name);
         });
+        const best = matches[0]!;
+        const ruleKey = "rule1-drug-allergy";
+        if (!(await alreadyFired(mrn, ruleKey, code, sinceIso))) {
+          await fireAlert({
+            mrn,
+            patient_name,
+            facility_name,
+            ruleKey,
+            kind: "Drug-Allergy",
+            severity: "HIGH",
+            message: `⚠ Allergy Conflict — ${name || code} matches "${best.allergyName}" allergy documented for this patient (value set: ${best.vs.name})`,
+            triggerCode: code,
+            triggerDisplay: name || code,
+            drug: name || code,
+            allergy_name: best.allergyName,
+            medication_order_id: evt.medication_order_id ?? null,
+            valueSetNames: [best.vs.name],
+          });
+        }
+      } else {
+        // Coverage gap: patient has an allergy, drug is ordered, but no
+        // published value set names that allergy class and contains the
+        // drug. File a governed terminology request so the terminologist
+        // knows Rule 1 could not evaluate this order.
+        const anyDrugVsHasCode = publishedVs.some((v) => extensionalContains(v, code));
+        if (!anyDrugVsHasCode && name) {
+          await requestTerminologyUpdate({
+            requesting_consumer: "Safety Alerts Engine",
+            requested_name: `Drug-Allergy coverage for "${chartAllergies[0]}"`,
+            justification: `Order "${name}" (RxNorm ${code}) could not be cross-checked against allergy "${chartAllergies[0]}" — no published value set contains this drug and names the allergy class.`,
+            priority: "normal",
+            vocabulary: "RxNorm",
+            seed_codes: [{ code, display: name }],
+            clinical_application: "CDS",
+            related_mrn: mrn,
+          });
+        }
       }
     }
   }
