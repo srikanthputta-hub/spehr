@@ -399,13 +399,6 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
         return a.pair.pairId.localeCompare(b.pair.pairId);
       });
       const best = matches[0]!;
-      // Union every matching drug + allergen value set name so the alert cites
-      // every published list that legitimately fired, not just the winner.
-      const allValueSetNames = Array.from(
-        new Set(
-          matches.flatMap((m) => [m.drugVs.name, m.allergenVs.name]).filter(Boolean),
-        ),
-      );
       const ruleKey = "rule1-drug-allergy";
       if (!(await alreadyFired(mrn, ruleKey, code, sinceIso))) {
         await fireAlert({
@@ -421,7 +414,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           drug: name || code,
           allergy_name: best.allergyName,
           medication_order_id: evt.medication_order_id ?? null,
-          valueSetNames: allValueSetNames,
+          valueSetNames: [best.drugVs.name, best.allergenVs.name],
         });
       }
     }
