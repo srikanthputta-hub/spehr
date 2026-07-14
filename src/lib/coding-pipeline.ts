@@ -485,6 +485,61 @@ export async function runSixStreamPipeline(
     }
     streamD.status = statusFor(streamD.count, allergiesExpected);
 
+    // Stream D also codes drug allergies from the `patients.allergies`
+    // free-text field (e.g. "Penicillin (Nausea)"). Without this, chart
+    // allergies live only as narrative text and never reach the safety-
+    // alerts engine, which reads normalized `allergies` rows.
+    const chartAllergyRaw = String((patient as any)?.allergies ?? "").trim();
+    if (chartAllergyRaw && !/^nkda$/i.test(chartAllergyRaw) && !/no known/i.test(chartAllergyRaw)) {
+      const parsed: Array<{ substance: string; reaction: string | null }> = [];
+      for (const chunk of chartAllergyRaw.split(/[,;]+/)) {
+        const s = chunk.trim();
+        if (!s) continue;
+        const m = s.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+        parsed.push(m
+          ? { substance: m[1].trim(), reaction: m[2].trim() }
+          : { substance: s, reaction: null });
+      }
+      for (const a of parsed) {
+        if (!a.substance) continue;
+        const { data: existing } = await supabase
+          .from("allergies")
+          .select("id")
+          .eq("mrn", mrn)
+          .ilike("substance", a.substance)
+          .maybeSingle();
+        if ((existing as any)?.id) continue;
+        const patch: Record<string, unknown> = {
+          mrn,
+          substance: a.substance,
+          reaction: a.reaction,
+          status: "active",
+          coding_source: "nlp-stream-d-chart",
+          coded_at: new Date().toISOString(),
+        };
+        const envHit = lookupAllergenSnomed(a.substance);
+        if (envHit) {
+          patch.substance_snomed = envHit.snomed;
+        } else {
+          const rx = await resolveRxNorm(a.substance);
+          if (rx) patch.substance_rxcui = rx.code;
+        }
+        if (a.reaction) {
+          const rSnomed = await resolveAndValidateSnomed(a.reaction);
+          if (rSnomed?.code) patch.reaction_snomed = rSnomed.code;
+        }
+        const { error: insErr } = await supabase.from("allergies").insert(patch as any);
+        if (insErr) {
+          console.error("[stream-d] chart allergy write failed", {
+            mrn, substance: a.substance, message: (insErr as any).message,
+          });
+          continue;
+        }
+        streamD.count++;
+        streamD.items.push({ substance: a.substance, ...patch });
+      }
+    }
+
     // -------- Stream E: Vitals (LOINC static map) ---------------------
     const streamE: StreamResult = { status: "coded", count: 0, items: [] };
     let vRow: any = useForm
