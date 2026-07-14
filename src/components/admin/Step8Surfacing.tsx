@@ -291,6 +291,10 @@ export function CdsOverridesFeed() {
         <div className="scroll-feed divide-y divide-slate-100">
           {rows.map((r) => {
             const isOpen = expandedId === r.id;
+            const vsMatch = String(r.reason ?? "").match(/·\s*Value Sets:\s*([^\[]+?)(?:\s*\[|$)/);
+            const valueSetNames = vsMatch
+              ? vsMatch[1]!.split(",").map((s) => s.trim()).filter(Boolean)
+              : [];
             const decisionTone =
               r.decision === "Rejected"
                 ? "bg-rose-50 text-rose-700 border-rose-200"
@@ -368,6 +372,26 @@ export function CdsOverridesFeed() {
                         value={r.physician_id ?? "—"}
                         mono
                       />
+                      <div className="col-span-2">
+                        <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 inline-flex items-center gap-1">
+                          Triggered by Value Set{valueSetNames.length === 1 ? "" : "s"}
+                          <InfoHint text="Published value set(s) from the Value Set Library whose codes matched at fire time and caused this alert to trigger." />
+                        </div>
+                        {valueSetNames.length > 0 ? (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {valueSetNames.map((n) => (
+                              <span
+                                key={n}
+                                className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-800"
+                              >
+                                {n}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-slate-500">—</div>
+                        )}
+                      </div>
                       <DetailField
                         label="Fired At"
                         value={
