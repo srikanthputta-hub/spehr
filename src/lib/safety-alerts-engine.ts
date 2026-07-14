@@ -344,36 +344,34 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
       substance_snomed: string | null;
     }>;
 
+    // Collect every matching pair, then fire ONE alert for the best match.
+    type Match = {
+      pair: DrugAllergyPair;
+      drugVs: VsRow;
+      allergenVs: VsRow;
+      allergyName: string;
+      drugSpecificity: number; // smaller = more specific
+    };
+    const matches: Match[] = [];
     for (const pair of pairs) {
       const drugVs = code ? firstContaining(pair.drugSets, code) : null;
       if (drugVs) {
-        const matched = chartAllergies.find((a) => {
+        const matchedAllergy = chartAllergies.find((a) => {
           const snomed = String(a?.substance_snomed ?? "").trim();
           return !!snomed && anyContains(pair.allergenSets, snomed);
         });
-        if (matched) {
+        if (matchedAllergy) {
           const allergenVs = firstContaining(
             pair.allergenSets,
-            String(matched.substance_snomed ?? "").trim(),
+            String(matchedAllergy.substance_snomed ?? "").trim(),
           );
-          const ruleKey = `rule1-drug-allergy:${pair.pairId}`;
-          if (!(await alreadyFired(mrn, ruleKey, code, sinceIso))) {
-            await fireAlert({
-              mrn,
-              patient_name,
-              facility_name,
-              ruleKey,
-              kind: "Drug-Allergy",
-              severity: "HIGH",
-              message: `⚠ Allergy Conflict — ${name || code} matches the "${pair.pairId}" allergy class documented for this patient`,
-              triggerCode: code,
-              triggerDisplay: name || code,
-              drug: name || code,
-              allergy_name: String(matched.substance ?? ""),
-              medication_order_id: evt.medication_order_id ?? null,
-              valueSetNames: [drugVs.name, allergenVs?.name].filter(
-                (v): v is string => !!v,
-              ),
+          if (allergenVs) {
+            matches.push({
+              pair,
+              drugVs,
+              allergenVs,
+              allergyName: String(matchedAllergy.substance ?? ""),
+              drugSpecificity: Array.isArray(drugVs.codes) ? drugVs.codes.length : Number.MAX_SAFE_INTEGER,
             });
           }
         }
@@ -390,6 +388,40 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           seed_codes: code ? [{ code, display: name }] : [],
           clinical_application: "CDS",
           related_mrn: mrn,
+        });
+      }
+    }
+
+    if (matches.length > 0) {
+      // Deterministic priority: narrowest drug value set wins, then pair id.
+      matches.sort((a, b) => {
+        if (a.drugSpecificity !== b.drugSpecificity) return a.drugSpecificity - b.drugSpecificity;
+        return a.pair.pairId.localeCompare(b.pair.pairId);
+      });
+      const best = matches[0]!;
+      // Union every matching drug + allergen value set name so the alert cites
+      // every published list that legitimately fired, not just the winner.
+      const allValueSetNames = Array.from(
+        new Set(
+          matches.flatMap((m) => [m.drugVs.name, m.allergenVs.name]).filter(Boolean),
+        ),
+      );
+      const ruleKey = "rule1-drug-allergy";
+      if (!(await alreadyFired(mrn, ruleKey, code, sinceIso))) {
+        await fireAlert({
+          mrn,
+          patient_name,
+          facility_name,
+          ruleKey,
+          kind: "Drug-Allergy",
+          severity: "HIGH",
+          message: `⚠ Allergy Conflict — ${name || code} matches the "${best.pair.pairId}" allergy class documented for this patient`,
+          triggerCode: code,
+          triggerDisplay: name || code,
+          drug: name || code,
+          allergy_name: best.allergyName,
+          medication_order_id: evt.medication_order_id ?? null,
+          valueSetNames: allValueSetNames,
         });
       }
     }
