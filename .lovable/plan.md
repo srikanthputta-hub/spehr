@@ -1,46 +1,32 @@
-## Goal
+# Fix duplicate safety alerts for a single drug order
 
-Every clinical safety alert should visibly name the published Value Set(s) from the Value Set Library that caused it to fire (e.g. "Anticoagulants", "Sepsis Indicators", "Penicillin Allergens × Penicillin Class Drugs").
+## Root cause (verified against live data)
 
-## Approach
+The engine is already value-set-driven — it iterates `value_set_dependencies` (consumer `Safety Alerts Engine · Drug-Allergy`) and fires an alert per matching pair. For the amoxicillin order in the screenshot, **two pairs both matched** because the seeded value sets overlap:
 
-Compute the matching value set name(s) at fire time inside `src/lib/safety-alerts-engine.ts`, thread them through `fireAlert`, and render them in the two consumer UIs. No DB schema change — the names are appended to the existing `family` text (already stored and already rendered) and also mirrored into `auto_doc_logs.meta.valueSetNames` for the CDS Decisions feed.
+- `Penicillin Class Drugs`, `Cephalosporin Drugs`, `Penicillin Allergy RXNORM(optum)` all contain amoxicillin's RxNorm code.
+- `Penicillin/Beta-Lactam Allergens` and `Cephalosporin Allergens` both contain SNOMED `764146007` (mislabeled in `Cephalosporin Allergens` as "Cefazolin / beta-lactam cross-reactive allergen").
 
-### 1. Engine — `src/lib/safety-alerts-engine.ts`
+So the patient's single "Penicillin" allergy row satisfies both the penicillin pair and the cephalosporin pair → two alerts. The engine isn't guessing; it's dutifully firing once per registered pair, which is not what the user wants.
 
-- Extend `FireInput` with `valueSetNames: string[]`.
-- Change `family` composition to:
-  `"<message> · Value Sets: <A>, <B> [ruleKey:triggerCode] (triggerDisplay)"`
-  (marker preserved so `alreadyFired` dedupe keeps working.)
-- Include `valueSetNames` in the `auto_doc_logs.meta` payload.
-- Determine names per rule:
-  - **Rule 1 (Drug-Allergy):** the specific `VsRow.name` from `pair.drugSets` whose `codes` contain the ordered RxNorm, plus the `VsRow.name` from `pair.allergenSets` whose codes contain the matched allergy SNOMED. Add a small helper `firstContaining(sets, code)` that returns the matching `VsRow` (replaces `anyContains` at the two call sites that need the name).
-  - **Rule 2 (Anticoagulant Bleeding):** always `["Anticoagulants"]`; if the conflicting med is an NSAID, add `"NSAIDs"`.
-  - **Rule 3 (High-Acuity):** `["High-Acuity ED Presentations"]`.
-  - **Rule 4 (Sepsis):** `["Sepsis Indicators"]`.
+## Fix (engine only — no seed edits)
 
-### 2. Patient banner — `src/components/patient/SafetyAlertBanner.tsx`
+Change Rule 1 in `src/lib/safety-alerts-engine.ts` so it fires **at most one Drug-Allergy alert per medication order**, and cite the specific value set that produced the match.
 
-Parse the new `· Value Sets: …` segment out of `alert.family` and render it as a subtle chip row under the existing family line, e.g.
-`Value Sets: [Anticoagulants] [NSAIDs]`.
-Falls back gracefully for older rows without the segment.
+1. **One-alert-per-order guarantee.** In `runMedicationOrderRules`, collect every matching pair first (drug value set + allergen value set + allergy row), then pick the single best match using this deterministic priority:
+   1. Prefer a match where the drug and allergen value sets are declared under the *same* `purpose` (already true for the pair loop today).
+   2. Break ties by the most specific published drug value set — i.e. the one with the **smallest** `codes.length` that contains the ordered drug (a narrow "Penicillin Allergy RXNORM(optum)"-style list beats a broad umbrella).
+   3. Break further ties by pair id alphabetical order for determinism.
+   Fire once. Skip the other pairs entirely for this order.
 
-### 3. Physician queue — `src/components/physician/PatientSafetyAlertQueue.tsx`
+2. **Cite the actual matched value sets in the alert.** Keep the existing `valueSetNames: [drugVs.name, allergenVs.name]` payload — after step 1 it will already be the specific published value set (e.g. `Penicillin Allergy RXNORM(optum)`, `Penicillin/Beta-Lactam Allergens`) instead of two conflicting families. The chip rows in `SafetyAlertBanner`, `PatientSafetyAlertQueue`, and `Step8Surfacing` already render these names — no UI changes needed.
 
-Same parse+render treatment on each pending alert card (adds a "Triggered by" chip row below the existing family text). No behavioral changes to Override/Reject.
+3. **Belt-and-suspenders DB dedupe.** The existing unique index on `(medication_order_id, rule_id)` prevents true duplicates only when `rule_id` matches. Today `rule_id` is `rule1-drug-allergy:<pairId>`, so two different pairs produce two different `rule_id`s and both insert. Change the stored `rule_id` for Rule 1 to the constant `rule1-drug-allergy` (drop the `:pairId` suffix) so the unique index catches any race that slipped past the in-process dedupe. The `family` string still embeds `[rule1-drug-allergy:<triggerCode>]` for the existing `alreadyFired()` marker, so historical dedupe behavior is preserved.
 
-### 4. CDS Decisions feed
-
-Already reads `family` from `clinical_safety_alerts`, so the appended segment shows up automatically. The `auto_doc_logs.meta.valueSetNames` addition is purely for downstream analytics/debugging.
-
-## Out of scope
-
-- No changes to sweep function, cron, or the auto-decide/override pipeline.
-- No new DB column and no migration — reusing `family` keeps the change contained and backfill-free.
-- No changes to CDS Hook static rules (`CdsHookAlert.tsx`) — those aren't value-set driven in the same way; can be a follow-up if desired.
+4. **No changes** to Rules 2/3/4, to CDS suggestions, to the pair registry table, or to any value set contents. The seeded overlap in `Cephalosporin Allergens` is a data-curation issue for the terminologist and is out of scope for this fix — the engine will simply no longer amplify it into a duplicate alert.
 
 ## Verification
 
-- Trigger a fresh order in the physician board that fires each rule and confirm the value set name appears on the banner, in the pending queue card, and in the CDS Decisions row.
-- `alreadyFired` dedupe still works because the `[ruleKey:triggerCode]` marker is unchanged.
 - Typecheck.
+- SQL sanity check: for a fresh amoxicillin order on a patient with SNOMED `373270004` documented, confirm exactly one row lands in `clinical_safety_alerts` and its `family` contains `· Value Sets: Penicillin Allergy RXNORM(optum), Penicillin/Beta-Lactam Allergens` (or the narrowest matching drug VS after the priority sort).
+- Re-check the physician board banner and the patient banner render the single alert with the correct value set chips.
