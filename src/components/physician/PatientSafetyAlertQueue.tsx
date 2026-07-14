@@ -168,6 +168,19 @@ export function PatientSafetyAlertQueue({
                       </>
                     )}
                   </div>
+                  {(() => {
+                    const m = String(c.family ?? "").match(/·\s*Value Sets:\s*([^\[]+?)(?:\s*\[|$)/);
+                    const names = m ? m[1]!.split(",").map((s) => s.trim()).filter(Boolean) : [];
+                    if (names.length === 0) return null;
+                    return (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] text-slate-700">
+                        <span className="font-semibold uppercase tracking-wider text-slate-500">Triggered by value set{names.length > 1 ? "s" : ""}:</span>
+                        {names.map((n) => (
+                          <span key={n} className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 font-mono">{n}</span>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
                   <span

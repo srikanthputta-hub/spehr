@@ -2,6 +2,14 @@ import { useEffect, useState } from "react";
 import { AlertOctagon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
+function parseValueSets(family: string | null): { names: string[]; rest: string } {
+  if (!family) return { names: [], rest: "" };
+  const m = family.match(/^(.*?)\s*·\s*Value Sets:\s*([^\[]+?)\s*(\[.*)?$/);
+  if (!m) return { names: [], rest: family };
+  const names = m[2]!.split(",").map((s) => s.trim()).filter(Boolean);
+  return { names, rest: `${m[1]}${m[3] ? " " + m[3] : ""}`.trim() };
+}
+
 type SafetyAlert = {
   id: string;
   kind: string;
@@ -63,9 +71,22 @@ export default function SafetyAlertBanner({ mrn }: { mrn: string }) {
           ⚠ Active Safety Alert{alert.severity ? ` · ${alert.severity.toUpperCase()} SEVERITY` : ""}
         </span>
         <div className="font-semibold mt-0.5">{title}</div>
-        {alert.family && (
-          <div className="text-red-800/80 text-[11.5px] mt-0.5">{alert.family}</div>
-        )}
+        {alert.family && (() => {
+          const { names, rest } = parseValueSets(alert.family);
+          return (
+            <>
+              <div className="text-red-800/80 text-[11.5px] mt-0.5">{rest}</div>
+              {names.length > 0 && (
+                <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-red-800/80">
+                  <span className="font-semibold uppercase tracking-wider">Triggered by value set{names.length > 1 ? "s" : ""}:</span>
+                  {names.map((n) => (
+                    <span key={n} className="rounded border border-red-300 bg-white px-1.5 py-0.5 font-mono">{n}</span>
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
         <div className="text-[10px] text-red-700/70 mt-1">
           Pending clinical review — see Medical Dictionary → Safety Alerts to override or reject.
         </div>

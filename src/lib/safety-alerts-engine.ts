@@ -147,6 +147,11 @@ function anyContains(sets: VsRow[], code: string): boolean {
   return sets.some((s) => extensionalContains(s, code));
 }
 
+function firstContaining(sets: VsRow[], code: string): VsRow | null {
+  for (const s of sets) if (extensionalContains(s, code)) return s;
+  return null;
+}
+
 /* ------------------------------------------------------------------ */
 /*  NSAID membership — governed via the published "NSAIDs" value set   */
 /* ------------------------------------------------------------------ */
@@ -204,10 +209,15 @@ type FireInput = {
   drug_b?: string | null;
   allergy_name?: string | null;
   medication_order_id?: string | null;
+  valueSetNames: string[];
 };
 
 async function fireAlert(input: FireInput): Promise<void> {
-  const family = `${input.message} [${input.ruleKey}:${input.triggerCode}] (${input.triggerDisplay})`;
+  const vsSeg =
+    input.valueSetNames.length > 0
+      ? ` · Value Sets: ${Array.from(new Set(input.valueSetNames)).join(", ")}`
+      : "";
+  const family = `${input.message}${vsSeg} [${input.ruleKey}:${input.triggerCode}] (${input.triggerDisplay})`;
   const severityLevel =
     input.severity === "HIGH" || input.severity === "CRITICAL" ? "high" : "medium";
   const row: Record<string, any> = {
@@ -265,6 +275,7 @@ async function fireAlert(input: FireInput): Promise<void> {
       drug: input.drug,
       drug_b: input.drug_b ?? null,
       allergy_name: input.allergy_name ?? null,
+      valueSetNames: Array.from(new Set(input.valueSetNames)),
     },
     created_by_type: "automation",
   } as any);
@@ -334,13 +345,17 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
     }>;
 
     for (const pair of pairs) {
-      const drugHit = !!code && anyContains(pair.drugSets, code);
-      if (drugHit) {
+      const drugVs = code ? firstContaining(pair.drugSets, code) : null;
+      if (drugVs) {
         const matched = chartAllergies.find((a) => {
           const snomed = String(a?.substance_snomed ?? "").trim();
           return !!snomed && anyContains(pair.allergenSets, snomed);
         });
         if (matched) {
+          const allergenVs = firstContaining(
+            pair.allergenSets,
+            String(matched.substance_snomed ?? "").trim(),
+          );
           const ruleKey = `rule1-drug-allergy:${pair.pairId}`;
           if (!(await alreadyFired(mrn, ruleKey, code, sinceIso))) {
             await fireAlert({
@@ -356,6 +371,9 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
               drug: name || code,
               allergy_name: String(matched.substance ?? ""),
               medication_order_id: evt.medication_order_id ?? null,
+              valueSetNames: [drugVs.name, allergenVs?.name].filter(
+                (v): v is string => !!v,
+              ),
             });
           }
         }
@@ -416,6 +434,10 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           drug: name || code,
           drug_b: conflict.name,
           medication_order_id: evt.medication_order_id ?? null,
+          valueSetNames:
+            conflict.kind === "nsaid"
+              ? ["Anticoagulants", "NSAIDs"]
+              : ["Anticoagulants"],
         });
       }
     }
@@ -505,6 +527,7 @@ export async function runNlpApprovalRules(auditRow: {
           triggerCode: code,
           triggerDisplay: display,
           drug: display,
+          valueSetNames: ["High-Acuity ED Presentations"],
         });
       }
     }
@@ -522,6 +545,7 @@ export async function runNlpApprovalRules(auditRow: {
           triggerCode: code,
           triggerDisplay: display,
           drug: display,
+          valueSetNames: ["Sepsis Indicators"],
         });
       }
     }
