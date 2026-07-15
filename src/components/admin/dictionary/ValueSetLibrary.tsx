@@ -568,6 +568,7 @@ export function ValueSetLibrary() {
                   <div><span className="font-semibold">Name:</span> {vsacResult.name ?? "—"}</div>
                   <div><span className="font-semibold">Title:</span> {vsacResult.title ?? "—"}</div>
                   <div><span className="font-semibold">Total codes:</span> {vsacResult.total}</div>
+                  <div><span className="font-semibold">Type:</span> <span className="capitalize">{vsacResult.type}</span></div>
                 </div>
 
                 <div>
