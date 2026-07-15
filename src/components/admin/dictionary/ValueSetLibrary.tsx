@@ -68,6 +68,7 @@ export function ValueSetLibrary() {
     name: string | null;
     title: string | null;
     total: number;
+    type: "grouping" | "intensional" | "extensional";
     codes: Array<{ code: string; display: string; vocabulary: string }>;
   } | null>(null);
   const [vsacName, setVsacName] = useState("");
@@ -195,6 +196,9 @@ export function ValueSetLibrary() {
         name: data.name ?? null,
         title: data.title ?? null,
         total: Number(data.total ?? 0),
+        type: (data.type === "grouping" || data.type === "intensional"
+          ? data.type
+          : "extensional") as "grouping" | "intensional" | "extensional",
         codes: Array.isArray(data.codes) ? data.codes : [],
       };
       setVsacResult(result);
@@ -225,7 +229,7 @@ export function ValueSetLibrary() {
         oid: vsacResult.oid,
         vocabulary: dominantVocab,
         system: dominantVocab ? dominantVocab.replace(" ", "-") : null,
-        type: "extensional",
+        type: vsacResult.type,
         codes,
         status: "draft",
         description: "Imported from VSAC",
@@ -564,6 +568,7 @@ export function ValueSetLibrary() {
                   <div><span className="font-semibold">Name:</span> {vsacResult.name ?? "—"}</div>
                   <div><span className="font-semibold">Title:</span> {vsacResult.title ?? "—"}</div>
                   <div><span className="font-semibold">Total codes:</span> {vsacResult.total}</div>
+                  <div><span className="font-semibold">Type:</span> <span className="capitalize">{vsacResult.type}</span></div>
                 </div>
 
                 <div>

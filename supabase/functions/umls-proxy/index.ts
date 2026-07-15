@@ -421,6 +421,7 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
       name: string | null;
       title: string | null;
       total: number;
+      type: "grouping" | "intensional" | "extensional";
       codes: Array<{ code: string; display: string; vocabulary: string }>;
     }
   | { error: string; status: number }
@@ -461,11 +462,38 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
       vocabulary: VSAC_SYSTEM_TO_VOCAB[String(c?.system ?? "")] ?? String(c?.system ?? ""),
     })).filter((c) => c.code);
 
+    // Fetch the ValueSet definition (without $expand) to detect its authoring
+    // type: grouping (compose.include[].valueSet), intensional (…filter), or
+    // extensional (…concept). Fall back to "extensional" if unavailable.
+    let vsType: "grouping" | "intensional" | "extensional" = "extensional";
+    try {
+      const defRes = await fetch(
+        `https://cts.nlm.nih.gov/fhir/ValueSet/${encodeURIComponent(oid)}`,
+        { headers: { Accept: "application/json", Authorization: `Basic ${auth}` } },
+      );
+      if (defRes.ok) {
+        const def: any = await defRes.json();
+        const includes: any[] = Array.isArray(def?.compose?.include) ? def.compose.include : [];
+        const hasGrouping = includes.some(
+          (inc) => Array.isArray(inc?.valueSet) && inc.valueSet.length > 0,
+        );
+        const hasFilter = includes.some(
+          (inc) => Array.isArray(inc?.filter) && inc.filter.length > 0,
+        );
+        if (hasGrouping) vsType = "grouping";
+        else if (hasFilter) vsType = "intensional";
+        else vsType = "extensional";
+      }
+    } catch {
+      // ignore — keep default "extensional"
+    }
+
     return {
       oid,
       name: resource?.name ?? null,
       title: resource?.title ?? null,
       total: typeof expansion.total === "number" ? expansion.total : codes.length,
+      type: vsType,
       codes,
     };
   } catch (e) {
