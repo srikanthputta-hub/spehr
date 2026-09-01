@@ -3,7 +3,7 @@ import { LogOut, Construction, Users, Hand, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import spehrLogo from "@/assets/spehr-logo.png.asset.json";
+import spehrLogo from "@/assets/spehr-logo.jpg";
 
 import {
   DropdownMenu,
@@ -46,7 +46,7 @@ export function BoardHeader({
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
       <div className="flex items-center gap-3">
         <Link to="/" className="flex items-center">
-          <img src={spehrLogo.url} alt="S Group Private Network" className="h-8 w-auto" />
+          <img src={spehrLogo} alt="S Group Private Network" className="h-8 w-auto" />
         </Link>
         <div className="leading-tight">
           <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">

@@ -21,7 +21,7 @@ import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { admitPatient, type AdmitInput } from "@/lib/admit-patient";
 import { AdmitPatientModal } from "@/components/admissions/AdmitPatientModal";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
-import spehrLogo from "@/assets/spehr-logo.png.asset.json";
+import spehrLogo from "@/assets/spehr-logo.jpg";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
 
@@ -135,7 +135,7 @@ function AdmissionsBoard() {
             <div className="relative flex items-center justify-center">
               <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(20,80,80,0.15)_0%,transparent_70%)] blur-2xl scale-150" />
               <img
-                src={spehrLogo.url}
+                src={spehrLogo}
                 alt="S Group Private Network"
                 className="relative h-96 w-auto md:h-[28rem] drop-shadow-2xl"
               />

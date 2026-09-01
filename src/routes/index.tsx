@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FACILITIES, useFacility, STAFF_BY_FACILITY, type StaffRole } from "@/lib/facility-context";
-import spehrLogo from "@/assets/spehr-logo.png.asset.json";
+import spehrLogo from "@/assets/spehr-logo.jpg";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -103,7 +103,7 @@ function LoginScreen() {
 
       <header className="relative flex items-center justify-between px-6 sm:px-10 py-5 border-b border-white/5">
         <div className="flex items-center gap-3">
-          <img src={spehrLogo.url} alt="S Group Private Network" className="h-10 w-auto" />
+          <img src={spehrLogo} alt="S Group Private Network" className="h-10 w-auto" />
           <div className="leading-tight">
             <div className="text-[10px] uppercase tracking-[0.28em] text-slate-400">
               S Group
@@ -129,7 +129,7 @@ function LoginScreen() {
         {view === "hub" && (
           <div className="text-center">
             <div className="flex justify-center mb-8">
-              <img src={spehrLogo.url} alt="S Group Private Network" className="h-40 w-auto scale-125" />
+              <img src={spehrLogo} alt="S Group Private Network" className="h-40 w-auto scale-125" />
             </div>
             <h1 className="text-3xl font-bold tracking-tight">S.P.E.H.R</h1>
             <p className="mt-2 text-sm text-slate-400">
