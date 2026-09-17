@@ -168,6 +168,36 @@ export type Database = {
           },
         ]
       }
+      allied_health_consults: {
+        Row: {
+          id: string
+          mrn: string
+          requested_at: string
+          requested_by: string | null
+          service_name: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          mrn: string
+          requested_at?: string
+          requested_by?: string | null
+          service_name: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          mrn?: string
+          requested_at?: string
+          requested_by?: string | null
+          service_name?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       api_health_pings: {
         Row: {
           created_at: string
@@ -430,6 +460,39 @@ export type Database = {
           room_number?: string
           status?: string | null
           status_updated_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      care_plan_goals: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          goal_text: string
+          id: string
+          mrn: string
+          status: string
+          target_date: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          goal_text: string
+          id?: string
+          mrn: string
+          status?: string
+          target_date?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          goal_text?: string
+          id?: string
+          mrn?: string
+          status?: string
+          target_date?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -788,6 +851,36 @@ export type Database = {
         }
         Relationships: []
       }
+      code_status_changes: {
+        Row: {
+          changed_at: string
+          changed_by: string | null
+          id: string
+          mrn: string
+          new_status: string
+          previous_status: string | null
+          reason: string | null
+        }
+        Insert: {
+          changed_at?: string
+          changed_by?: string | null
+          id?: string
+          mrn: string
+          new_status: string
+          previous_status?: string | null
+          reason?: string | null
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string | null
+          id?: string
+          mrn?: string
+          new_status?: string
+          previous_status?: string | null
+          reason?: string | null
+        }
+        Relationships: []
+      }
       conditions: {
         Row: {
           category: string | null
@@ -857,6 +950,66 @@ export type Database = {
           umls_cui?: string | null
           updated_at?: string
           verification_status?: string | null
+        }
+        Relationships: []
+      }
+      critical_value_acknowledgments: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          acknowledged_role: string | null
+          analyte: string
+          created_at: string
+          facility_name: string | null
+          id: string
+          lab_order_id: string | null
+          mrn: string
+          patient_name: string | null
+          read_back_confirmed: boolean
+          reference_range: string | null
+          status: string
+          test_type: string | null
+          unit: string | null
+          updated_at: string
+          value: string | null
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          acknowledged_role?: string | null
+          analyte: string
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          lab_order_id?: string | null
+          mrn: string
+          patient_name?: string | null
+          read_back_confirmed?: boolean
+          reference_range?: string | null
+          status?: string
+          test_type?: string | null
+          unit?: string | null
+          updated_at?: string
+          value?: string | null
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          acknowledged_role?: string | null
+          analyte?: string
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          lab_order_id?: string | null
+          mrn?: string
+          patient_name?: string | null
+          read_back_confirmed?: boolean
+          reference_range?: string | null
+          status?: string
+          test_type?: string | null
+          unit?: string | null
+          updated_at?: string
+          value?: string | null
         }
         Relationships: []
       }
@@ -1644,6 +1797,84 @@ export type Database = {
         }
         Relationships: []
       }
+      immunizations: {
+        Row: {
+          administered_by: string | null
+          created_at: string
+          date_administered: string
+          dose_number: string | null
+          id: string
+          lot_number: string | null
+          mrn: string
+          route: string | null
+          site: string | null
+          status: string
+          vaccine_code: string | null
+          vaccine_name: string
+        }
+        Insert: {
+          administered_by?: string | null
+          created_at?: string
+          date_administered?: string
+          dose_number?: string | null
+          id?: string
+          lot_number?: string | null
+          mrn: string
+          route?: string | null
+          site?: string | null
+          status?: string
+          vaccine_code?: string | null
+          vaccine_name: string
+        }
+        Update: {
+          administered_by?: string | null
+          created_at?: string
+          date_administered?: string
+          dose_number?: string | null
+          id?: string
+          lot_number?: string | null
+          mrn?: string
+          route?: string | null
+          site?: string | null
+          status?: string
+          vaccine_code?: string | null
+          vaccine_name?: string
+        }
+        Relationships: []
+      }
+      intake_output_entries: {
+        Row: {
+          category: string
+          created_at: string
+          entry_type: string
+          id: string
+          mrn: string
+          recorded_at: string
+          recorded_by: string | null
+          volume_ml: number
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          entry_type: string
+          id?: string
+          mrn: string
+          recorded_at?: string
+          recorded_by?: string | null
+          volume_ml: number
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          entry_type?: string
+          id?: string
+          mrn?: string
+          recorded_at?: string
+          recorded_by?: string | null
+          volume_ml?: number
+        }
+        Relationships: []
+      }
       lab_orders: {
         Row: {
           author_id: string | null
@@ -1882,6 +2113,7 @@ export type Database = {
           dose: string | null
           drug: string | null
           drug_name: string | null
+          duration: string | null
           facility_name: string | null
           frequency: string | null
           id: string
@@ -1916,6 +2148,7 @@ export type Database = {
           dose?: string | null
           drug?: string | null
           drug_name?: string | null
+          duration?: string | null
           facility_name?: string | null
           frequency?: string | null
           id?: string
@@ -1950,6 +2183,7 @@ export type Database = {
           dose?: string | null
           drug?: string | null
           drug_name?: string | null
+          duration?: string | null
           facility_name?: string | null
           frequency?: string | null
           id?: string
@@ -2221,6 +2455,48 @@ export type Database = {
         }
         Relationships: []
       }
+      nursing_assessments: {
+        Row: {
+          created_at: string
+          fall_risk: string | null
+          id: string
+          iv_access: string | null
+          loc: string | null
+          mobility: string | null
+          mrn: string
+          pain_score: string | null
+          recorded_at: string
+          recorded_by: string | null
+          skin_integrity: string | null
+        }
+        Insert: {
+          created_at?: string
+          fall_risk?: string | null
+          id?: string
+          iv_access?: string | null
+          loc?: string | null
+          mobility?: string | null
+          mrn: string
+          pain_score?: string | null
+          recorded_at?: string
+          recorded_by?: string | null
+          skin_integrity?: string | null
+        }
+        Update: {
+          created_at?: string
+          fall_risk?: string | null
+          id?: string
+          iv_access?: string | null
+          loc?: string | null
+          mobility?: string | null
+          mrn?: string
+          pain_score?: string | null
+          recorded_at?: string
+          recorded_by?: string | null
+          skin_integrity?: string | null
+        }
+        Relationships: []
+      }
       observations: {
         Row: {
           abnormal_flag: string | null
@@ -2296,6 +2572,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      patient_allergies: {
+        Row: {
+          allergen: string
+          allergy_type: string
+          created_at: string
+          id: string
+          mrn: string
+          noted_date: string | null
+          reaction: string | null
+          recorded_by: string | null
+          severity: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          allergen: string
+          allergy_type?: string
+          created_at?: string
+          id?: string
+          mrn: string
+          noted_date?: string | null
+          reaction?: string | null
+          recorded_by?: string | null
+          severity?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          allergen?: string
+          allergy_type?: string
+          created_at?: string
+          id?: string
+          mrn?: string
+          noted_date?: string | null
+          reaction?: string | null
+          recorded_by?: string | null
+          severity?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       patient_assignments: {
         Row: {
@@ -2452,8 +2770,10 @@ export type Database = {
       }
       patients: {
         Row: {
+          activity_order: string | null
           address: string | null
           admission_time: string | null
+          advance_directive_on_file: boolean
           age: number | null
           allergies: string | null
           assigned_department: string | null
@@ -2468,6 +2788,7 @@ export type Database = {
           created_by_type: Database["public"]["Enums"]["provenance_origin"]
           current_medications: string | null
           diagnosis: string | null
+          diet_order: string | null
           discharge_summary: string | null
           discharge_summary_generated: boolean | null
           discharge_time: string | null
@@ -2505,6 +2826,7 @@ export type Database = {
           past_surgical_history: string | null
           patient_id: string | null
           phone: string | null
+          precautions: string | null
           primary_care_physician: string | null
           room: string | null
           rr: number | null
@@ -2518,8 +2840,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          activity_order?: string | null
           address?: string | null
           admission_time?: string | null
+          advance_directive_on_file?: boolean
           age?: number | null
           allergies?: string | null
           assigned_department?: string | null
@@ -2534,6 +2858,7 @@ export type Database = {
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           current_medications?: string | null
           diagnosis?: string | null
+          diet_order?: string | null
           discharge_summary?: string | null
           discharge_summary_generated?: boolean | null
           discharge_time?: string | null
@@ -2571,6 +2896,7 @@ export type Database = {
           past_surgical_history?: string | null
           patient_id?: string | null
           phone?: string | null
+          precautions?: string | null
           primary_care_physician?: string | null
           room?: string | null
           rr?: number | null
@@ -2584,8 +2910,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          activity_order?: string | null
           address?: string | null
           admission_time?: string | null
+          advance_directive_on_file?: boolean
           age?: number | null
           allergies?: string | null
           assigned_department?: string | null
@@ -2600,6 +2928,7 @@ export type Database = {
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           current_medications?: string | null
           diagnosis?: string | null
+          diet_order?: string | null
           discharge_summary?: string | null
           discharge_summary_generated?: boolean | null
           discharge_time?: string | null
@@ -2637,6 +2966,7 @@ export type Database = {
           past_surgical_history?: string | null
           patient_id?: string | null
           phone?: string | null
+          precautions?: string | null
           primary_care_physician?: string | null
           room?: string | null
           rr?: number | null
@@ -2690,6 +3020,39 @@ export type Database = {
           status?: string
           table_name?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      preventive_screenings: {
+        Row: {
+          completed_date: string | null
+          created_at: string
+          id: string
+          item_name: string
+          mrn: string
+          status: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          completed_date?: string | null
+          created_at?: string
+          id?: string
+          item_name: string
+          mrn: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          completed_date?: string | null
+          created_at?: string
+          id?: string
+          item_name?: string
+          mrn?: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
@@ -2788,6 +3151,7 @@ export type Database = {
       }
       provider_notes: {
         Row: {
+          assessment: string | null
           author_id: string | null
           author_name: string | null
           author_role: string | null
@@ -2795,12 +3159,17 @@ export type Database = {
           created_at: string
           created_by_type: Database["public"]["Enums"]["provenance_origin"]
           id: string
+          linked_problem_ids: string[]
           note_type: string
+          objective: string | null
           patient_mrn: string
+          plan: string | null
           signed_at: string | null
+          subjective: string | null
           updated_at: string
         }
         Insert: {
+          assessment?: string | null
           author_id?: string | null
           author_name?: string | null
           author_role?: string | null
@@ -2808,12 +3177,17 @@ export type Database = {
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
+          linked_problem_ids?: string[]
           note_type: string
+          objective?: string | null
           patient_mrn: string
+          plan?: string | null
           signed_at?: string | null
+          subjective?: string | null
           updated_at?: string
         }
         Update: {
+          assessment?: string | null
           author_id?: string | null
           author_name?: string | null
           author_role?: string | null
@@ -2821,9 +3195,13 @@ export type Database = {
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
           id?: string
+          linked_problem_ids?: string[]
           note_type?: string
+          objective?: string | null
           patient_mrn?: string
+          plan?: string | null
           signed_at?: string | null
+          subjective?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -2909,6 +3287,60 @@ export type Database = {
           status?: string
           svcreq_fhir_id?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      rapid_response_alerts: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          acknowledged_role: string | null
+          action_taken: string | null
+          created_at: string
+          facility_name: string | null
+          id: string
+          mrn: string
+          news2_score: number
+          patient_name: string | null
+          resolved_at: string | null
+          status: string
+          trigger_reason: string
+          updated_at: string
+          vitals_snapshot: Json | null
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          acknowledged_role?: string | null
+          action_taken?: string | null
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          mrn: string
+          news2_score: number
+          patient_name?: string | null
+          resolved_at?: string | null
+          status?: string
+          trigger_reason: string
+          updated_at?: string
+          vitals_snapshot?: Json | null
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          acknowledged_role?: string | null
+          action_taken?: string | null
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          mrn?: string
+          news2_score?: number
+          patient_name?: string | null
+          resolved_at?: string | null
+          status?: string
+          trigger_reason?: string
+          updated_at?: string
+          vitals_snapshot?: Json | null
         }
         Relationships: []
       }
@@ -3750,6 +4182,7 @@ export type Database = {
           value_num: number
         }[]
       }
+      simulate_vitals_tick: { Args: never; Returns: undefined }
       sweep_stalled_clinical_orders: { Args: never; Returns: undefined }
       text_to_bytea: { Args: { data: string }; Returns: string }
       urlencode:
@@ -3807,12 +4240,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3836,11 +4269,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3861,11 +4294,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3886,11 +4319,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3903,11 +4336,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

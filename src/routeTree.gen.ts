@@ -9,90 +9,35 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TasksRouteImport } from './routes/tasks'
-import { Route as SystemAdminRouteImport } from './routes/system-admin'
-import { Route as RadiologyBoardRouteImport } from './routes/radiology-board'
-import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
-import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
-import { Route as NursingBoardRouteImport } from './routes/nursing-board'
-import { Route as McpRouteImport } from './routes/mcp'
-import { Route as LabBoardRouteImport } from './routes/lab-board'
-import { Route as FinanceBoardRouteImport } from './routes/finance-board'
-import { Route as AncillaryServicesRouteImport } from './routes/ancillary-services'
-import { Route as AnalyticsRouteImport } from './routes/analytics'
-import { Route as AdmissionsBoardRouteImport } from './routes/admissions-board'
-import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
-import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
-import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
+import { Route as AdmissionsBoardRouteImport } from './routes/admissions-board'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as AncillaryServicesRouteImport } from './routes/ancillary-services'
+import { Route as FinanceBoardRouteImport } from './routes/finance-board'
+import { Route as LabBoardRouteImport } from './routes/lab-board'
+import { Route as McpRouteImport } from './routes/mcp'
+import { Route as NursingBoardRouteImport } from './routes/nursing-board'
+import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
+import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
+import { Route as RadiologyBoardRouteImport } from './routes/radiology-board'
+import { Route as SystemAdminRouteImport } from './routes/system-admin'
+import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
-import { Route as ApiPublicUmlsValidateCodeRouteImport } from './routes/api/public/umls-validate-code'
-import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
-import { Route as ApiPublicDirectoryRouteImport } from './routes/api/public/directory'
+import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
+import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
-import { Route as ApiPublicHooksGenerateInvoiceRouteImport } from './routes/api/public/hooks/generate-invoice'
-import { Route as ApiPublicHooksBackfillRadiologyRouteImport } from './routes/api/public/hooks/backfill-radiology'
+import { Route as ApiPublicDirectoryRouteImport } from './routes/api/public/directory'
+import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
+import { Route as ApiPublicUmlsValidateCodeRouteImport } from './routes/api/public/umls-validate-code'
 import { Route as ApiPublicHooksAutoDocRouteImport } from './routes/api/public/hooks/auto-doc'
+import { Route as ApiPublicHooksBackfillRadiologyRouteImport } from './routes/api/public/hooks/backfill-radiology'
+import { Route as ApiPublicHooksGenerateInvoiceRouteImport } from './routes/api/public/hooks/generate-invoice'
 
-const TasksRoute = TasksRouteImport.update({
-  id: '/tasks',
-  path: '/tasks',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SystemAdminRoute = SystemAdminRouteImport.update({
-  id: '/system-admin',
-  path: '/system-admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RadiologyBoardRoute = RadiologyBoardRouteImport.update({
-  id: '/radiology-board',
-  path: '/radiology-board',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PhysicianBoardRoute = PhysicianBoardRouteImport.update({
-  id: '/physician-board',
-  path: '/physician-board',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PharmacyQueueRoute = PharmacyQueueRouteImport.update({
-  id: '/pharmacy-queue',
-  path: '/pharmacy-queue',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const NursingBoardRoute = NursingBoardRouteImport.update({
-  id: '/nursing-board',
-  path: '/nursing-board',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const McpRoute = McpRouteImport.update({
-  id: '/mcp',
-  path: '/mcp',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LabBoardRoute = LabBoardRouteImport.update({
-  id: '/lab-board',
-  path: '/lab-board',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FinanceBoardRoute = FinanceBoardRouteImport.update({
-  id: '/finance-board',
-  path: '/finance-board',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AncillaryServicesRoute = AncillaryServicesRouteImport.update({
-  id: '/ancillary-services',
-  path: '/ancillary-services',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AnalyticsRoute = AnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdmissionsBoardRoute = AdmissionsBoardRouteImport.update({
-  id: '/admissions-board',
-  path: '/admissions-board',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminDashboardRoute = AdminDashboardRouteImport.update({
@@ -100,47 +45,86 @@ const AdminDashboardRoute = AdminDashboardRouteImport.update({
   path: '/admin-dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AdmissionsBoardRoute = AdmissionsBoardRouteImport.update({
+  id: '/admissions-board',
+  path: '/admissions-board',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PatientMrnRoute = PatientMrnRouteImport.update({
-  id: '/patient/$mrn',
-  path: '/patient/$mrn',
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ChartMrnRoute = ChartMrnRouteImport.update({
-  id: '/chart/$mrn',
-  path: '/chart/$mrn',
+const AncillaryServicesRoute = AncillaryServicesRouteImport.update({
+  id: '/ancillary-services',
+  path: '/ancillary-services',
   getParentRoute: () => rootRouteImport,
 } as any)
-const Char91DotwellKnownChar93OauthProtectedResourceRoute =
-  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
-    id: '/.well-known/oauth-protected-resource',
-    path: '/.well-known/oauth-protected-resource',
-    getParentRoute: () => rootRouteImport,
-  } as any)
+const FinanceBoardRoute = FinanceBoardRouteImport.update({
+  id: '/finance-board',
+  path: '/finance-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LabBoardRoute = LabBoardRouteImport.update({
+  id: '/lab-board',
+  path: '/lab-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NursingBoardRoute = NursingBoardRouteImport.update({
+  id: '/nursing-board',
+  path: '/nursing-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PharmacyQueueRoute = PharmacyQueueRouteImport.update({
+  id: '/pharmacy-queue',
+  path: '/pharmacy-queue',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PhysicianBoardRoute = PhysicianBoardRouteImport.update({
+  id: '/physician-board',
+  path: '/physician-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RadiologyBoardRoute = RadiologyBoardRouteImport.update({
+  id: '/radiology-board',
+  path: '/radiology-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SystemAdminRoute = SystemAdminRouteImport.update({
+  id: '/system-admin',
+  path: '/system-admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TasksRoute = TasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const Char91DotmcpChar93ListToolsRoute =
   Char91DotmcpChar93ListToolsRouteImport.update({
     id: '/.mcp/list-tools',
     path: '/.mcp/list-tools',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicUmlsValidateCodeRoute =
-  ApiPublicUmlsValidateCodeRouteImport.update({
-    id: '/api/public/umls-validate-code',
-    path: '/api/public/umls-validate-code',
+const Char91DotwellKnownChar93OauthProtectedResourceRoute =
+  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
+    id: '/.well-known/oauth-protected-resource',
+    path: '/.well-known/oauth-protected-resource',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicUmlsSearchRoute = ApiPublicUmlsSearchRouteImport.update({
-  id: '/api/public/umls-search',
-  path: '/api/public/umls-search',
+const ChartMrnRoute = ChartMrnRouteImport.update({
+  id: '/chart/$mrn',
+  path: '/chart/$mrn',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicDirectoryRoute = ApiPublicDirectoryRouteImport.update({
-  id: '/api/public/directory',
-  path: '/api/public/directory',
+const PatientMrnRoute = PatientMrnRouteImport.update({
+  id: '/patient/$mrn',
+  path: '/patient/$mrn',
   getParentRoute: () => rootRouteImport,
 } as any)
 const Char91DotmcpChar93InvokeToolToolRoute =
@@ -149,16 +133,20 @@ const Char91DotmcpChar93InvokeToolToolRoute =
     path: '/.mcp/invoke-tool/$tool',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicHooksGenerateInvoiceRoute =
-  ApiPublicHooksGenerateInvoiceRouteImport.update({
-    id: '/api/public/hooks/generate-invoice',
-    path: '/api/public/hooks/generate-invoice',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicHooksBackfillRadiologyRoute =
-  ApiPublicHooksBackfillRadiologyRouteImport.update({
-    id: '/api/public/hooks/backfill-radiology',
-    path: '/api/public/hooks/backfill-radiology',
+const ApiPublicDirectoryRoute = ApiPublicDirectoryRouteImport.update({
+  id: '/api/public/directory',
+  path: '/api/public/directory',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicUmlsSearchRoute = ApiPublicUmlsSearchRouteImport.update({
+  id: '/api/public/umls-search',
+  path: '/api/public/umls-search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicUmlsValidateCodeRoute =
+  ApiPublicUmlsValidateCodeRouteImport.update({
+    id: '/api/public/umls-validate-code',
+    path: '/api/public/umls-validate-code',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPublicHooksAutoDocRoute = ApiPublicHooksAutoDocRouteImport.update({
@@ -166,6 +154,18 @@ const ApiPublicHooksAutoDocRoute = ApiPublicHooksAutoDocRouteImport.update({
   path: '/api/public/hooks/auto-doc',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicHooksBackfillRadiologyRoute =
+  ApiPublicHooksBackfillRadiologyRouteImport.update({
+    id: '/api/public/hooks/backfill-radiology',
+    path: '/api/public/hooks/backfill-radiology',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicHooksGenerateInvoiceRoute =
+  ApiPublicHooksGenerateInvoiceRouteImport.update({
+    id: '/api/public/hooks/generate-invoice',
+    path: '/api/public/hooks/generate-invoice',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -363,88 +363,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/tasks': {
-      id: '/tasks'
-      path: '/tasks'
-      fullPath: '/tasks'
-      preLoaderRoute: typeof TasksRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/system-admin': {
-      id: '/system-admin'
-      path: '/system-admin'
-      fullPath: '/system-admin'
-      preLoaderRoute: typeof SystemAdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/radiology-board': {
-      id: '/radiology-board'
-      path: '/radiology-board'
-      fullPath: '/radiology-board'
-      preLoaderRoute: typeof RadiologyBoardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/physician-board': {
-      id: '/physician-board'
-      path: '/physician-board'
-      fullPath: '/physician-board'
-      preLoaderRoute: typeof PhysicianBoardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/pharmacy-queue': {
-      id: '/pharmacy-queue'
-      path: '/pharmacy-queue'
-      fullPath: '/pharmacy-queue'
-      preLoaderRoute: typeof PharmacyQueueRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/nursing-board': {
-      id: '/nursing-board'
-      path: '/nursing-board'
-      fullPath: '/nursing-board'
-      preLoaderRoute: typeof NursingBoardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/mcp': {
-      id: '/mcp'
-      path: '/mcp'
-      fullPath: '/mcp'
-      preLoaderRoute: typeof McpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lab-board': {
-      id: '/lab-board'
-      path: '/lab-board'
-      fullPath: '/lab-board'
-      preLoaderRoute: typeof LabBoardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/finance-board': {
-      id: '/finance-board'
-      path: '/finance-board'
-      fullPath: '/finance-board'
-      preLoaderRoute: typeof FinanceBoardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ancillary-services': {
-      id: '/ancillary-services'
-      path: '/ancillary-services'
-      fullPath: '/ancillary-services'
-      preLoaderRoute: typeof AncillaryServicesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/analytics': {
-      id: '/analytics'
-      path: '/analytics'
-      fullPath: '/analytics'
-      preLoaderRoute: typeof AnalyticsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admissions-board': {
-      id: '/admissions-board'
-      path: '/admissions-board'
-      fullPath: '/admissions-board'
-      preLoaderRoute: typeof AdmissionsBoardRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin-dashboard': {
@@ -454,32 +377,88 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/admissions-board': {
+      id: '/admissions-board'
+      path: '/admissions-board'
+      fullPath: '/admissions-board'
+      preLoaderRoute: typeof AdmissionsBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/patient/$mrn': {
-      id: '/patient/$mrn'
-      path: '/patient/$mrn'
-      fullPath: '/patient/$mrn'
-      preLoaderRoute: typeof PatientMrnRouteImport
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/chart/$mrn': {
-      id: '/chart/$mrn'
-      path: '/chart/$mrn'
-      fullPath: '/chart/$mrn'
-      preLoaderRoute: typeof ChartMrnRouteImport
+    '/ancillary-services': {
+      id: '/ancillary-services'
+      path: '/ancillary-services'
+      fullPath: '/ancillary-services'
+      preLoaderRoute: typeof AncillaryServicesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.well-known/oauth-protected-resource': {
-      id: '/.well-known/oauth-protected-resource'
-      path: '/.well-known/oauth-protected-resource'
-      fullPath: '/.well-known/oauth-protected-resource'
-      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
+    '/finance-board': {
+      id: '/finance-board'
+      path: '/finance-board'
+      fullPath: '/finance-board'
+      preLoaderRoute: typeof FinanceBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lab-board': {
+      id: '/lab-board'
+      path: '/lab-board'
+      fullPath: '/lab-board'
+      preLoaderRoute: typeof LabBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/nursing-board': {
+      id: '/nursing-board'
+      path: '/nursing-board'
+      fullPath: '/nursing-board'
+      preLoaderRoute: typeof NursingBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pharmacy-queue': {
+      id: '/pharmacy-queue'
+      path: '/pharmacy-queue'
+      fullPath: '/pharmacy-queue'
+      preLoaderRoute: typeof PharmacyQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/physician-board': {
+      id: '/physician-board'
+      path: '/physician-board'
+      fullPath: '/physician-board'
+      preLoaderRoute: typeof PhysicianBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/radiology-board': {
+      id: '/radiology-board'
+      path: '/radiology-board'
+      fullPath: '/radiology-board'
+      preLoaderRoute: typeof RadiologyBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/system-admin': {
+      id: '/system-admin'
+      path: '/system-admin'
+      fullPath: '/system-admin'
+      preLoaderRoute: typeof SystemAdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tasks': {
+      id: '/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof TasksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.mcp/list-tools': {
@@ -489,25 +468,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotmcpChar93ListToolsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/umls-validate-code': {
-      id: '/api/public/umls-validate-code'
-      path: '/api/public/umls-validate-code'
-      fullPath: '/api/public/umls-validate-code'
-      preLoaderRoute: typeof ApiPublicUmlsValidateCodeRouteImport
+    '/.well-known/oauth-protected-resource': {
+      id: '/.well-known/oauth-protected-resource'
+      path: '/.well-known/oauth-protected-resource'
+      fullPath: '/.well-known/oauth-protected-resource'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/umls-search': {
-      id: '/api/public/umls-search'
-      path: '/api/public/umls-search'
-      fullPath: '/api/public/umls-search'
-      preLoaderRoute: typeof ApiPublicUmlsSearchRouteImport
+    '/chart/$mrn': {
+      id: '/chart/$mrn'
+      path: '/chart/$mrn'
+      fullPath: '/chart/$mrn'
+      preLoaderRoute: typeof ChartMrnRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/directory': {
-      id: '/api/public/directory'
-      path: '/api/public/directory'
-      fullPath: '/api/public/directory'
-      preLoaderRoute: typeof ApiPublicDirectoryRouteImport
+    '/patient/$mrn': {
+      id: '/patient/$mrn'
+      path: '/patient/$mrn'
+      fullPath: '/patient/$mrn'
+      preLoaderRoute: typeof PatientMrnRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.mcp/invoke-tool/$tool': {
@@ -517,11 +496,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotmcpChar93InvokeToolToolRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/hooks/generate-invoice': {
-      id: '/api/public/hooks/generate-invoice'
-      path: '/api/public/hooks/generate-invoice'
-      fullPath: '/api/public/hooks/generate-invoice'
-      preLoaderRoute: typeof ApiPublicHooksGenerateInvoiceRouteImport
+    '/api/public/directory': {
+      id: '/api/public/directory'
+      path: '/api/public/directory'
+      fullPath: '/api/public/directory'
+      preLoaderRoute: typeof ApiPublicDirectoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/umls-search': {
+      id: '/api/public/umls-search'
+      path: '/api/public/umls-search'
+      fullPath: '/api/public/umls-search'
+      preLoaderRoute: typeof ApiPublicUmlsSearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/umls-validate-code': {
+      id: '/api/public/umls-validate-code'
+      path: '/api/public/umls-validate-code'
+      fullPath: '/api/public/umls-validate-code'
+      preLoaderRoute: typeof ApiPublicUmlsValidateCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/auto-doc': {
+      id: '/api/public/hooks/auto-doc'
+      path: '/api/public/hooks/auto-doc'
+      fullPath: '/api/public/hooks/auto-doc'
+      preLoaderRoute: typeof ApiPublicHooksAutoDocRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/hooks/backfill-radiology': {
@@ -531,11 +531,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksBackfillRadiologyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/hooks/auto-doc': {
-      id: '/api/public/hooks/auto-doc'
-      path: '/api/public/hooks/auto-doc'
-      fullPath: '/api/public/hooks/auto-doc'
-      preLoaderRoute: typeof ApiPublicHooksAutoDocRouteImport
+    '/api/public/hooks/generate-invoice': {
+      id: '/api/public/hooks/generate-invoice'
+      path: '/api/public/hooks/generate-invoice'
+      fullPath: '/api/public/hooks/generate-invoice'
+      preLoaderRoute: typeof ApiPublicHooksGenerateInvoiceRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
