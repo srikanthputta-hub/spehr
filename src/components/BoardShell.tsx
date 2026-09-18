@@ -3,7 +3,7 @@ import { LogOut, Construction, Users, Hand, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { FacilitySwitcher, useFacility } from "@/lib/facility-context";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import spehrLogo from "@/assets/spehr-logo.jpg";
+import spehrLogo from "@/assets/spehr-logo.png";
 
 import {
   DropdownMenu,

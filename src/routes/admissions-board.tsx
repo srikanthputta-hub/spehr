@@ -21,7 +21,7 @@ import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { admitPatient, type AdmitInput } from "@/lib/admit-patient";
 import { AdmitPatientModal } from "@/components/admissions/AdmitPatientModal";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
-import spehrLogo from "@/assets/spehr-logo.jpg";
+import spehrLogo from "@/assets/spehr-logo.png";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
 
