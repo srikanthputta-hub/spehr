@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { defineTool } from "@lovable.dev/mcp-js";
+import { defineTool } from "../define-tool";
 import { z } from "zod";
 
 export default defineTool({

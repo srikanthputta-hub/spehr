@@ -23,11 +23,8 @@ import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as RadiologyBoardRouteImport } from './routes/radiology-board'
 import { Route as SystemAdminRouteImport } from './routes/system-admin'
 import { Route as TasksRouteImport } from './routes/tasks'
-import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
-import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
-import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as ApiPublicDirectoryRouteImport } from './routes/api/public/directory'
 import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
 import { Route as ApiPublicUmlsValidateCodeRouteImport } from './routes/api/public/umls-validate-code'
@@ -105,18 +102,6 @@ const TasksRoute = TasksRouteImport.update({
   path: '/tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
-const Char91DotmcpChar93ListToolsRoute =
-  Char91DotmcpChar93ListToolsRouteImport.update({
-    id: '/.mcp/list-tools',
-    path: '/.mcp/list-tools',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const Char91DotwellKnownChar93OauthProtectedResourceRoute =
-  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
-    id: '/.well-known/oauth-protected-resource',
-    path: '/.well-known/oauth-protected-resource',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ChartMrnRoute = ChartMrnRouteImport.update({
   id: '/chart/$mrn',
   path: '/chart/$mrn',
@@ -127,12 +112,6 @@ const PatientMrnRoute = PatientMrnRouteImport.update({
   path: '/patient/$mrn',
   getParentRoute: () => rootRouteImport,
 } as any)
-const Char91DotmcpChar93InvokeToolToolRoute =
-  Char91DotmcpChar93InvokeToolToolRouteImport.update({
-    id: '/.mcp/invoke-tool/$tool',
-    path: '/.mcp/invoke-tool/$tool',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiPublicDirectoryRoute = ApiPublicDirectoryRouteImport.update({
   id: '/api/public/directory',
   path: '/api/public/directory',
@@ -182,11 +161,8 @@ export interface FileRoutesByFullPath {
   '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
-  '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
-  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
-  '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/api/public/directory': typeof ApiPublicDirectoryRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
@@ -209,11 +185,8 @@ export interface FileRoutesByTo {
   '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
-  '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
-  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
-  '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/api/public/directory': typeof ApiPublicDirectoryRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
@@ -237,11 +210,8 @@ export interface FileRoutesById {
   '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
-  '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
-  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
-  '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/api/public/directory': typeof ApiPublicDirectoryRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
   '/api/public/umls-validate-code': typeof ApiPublicUmlsValidateCodeRoute
@@ -266,11 +236,8 @@ export interface FileRouteTypes {
     | '/radiology-board'
     | '/system-admin'
     | '/tasks'
-    | '/.mcp/list-tools'
-    | '/.well-known/oauth-protected-resource'
     | '/chart/$mrn'
     | '/patient/$mrn'
-    | '/.mcp/invoke-tool/$tool'
     | '/api/public/directory'
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
@@ -293,11 +260,8 @@ export interface FileRouteTypes {
     | '/radiology-board'
     | '/system-admin'
     | '/tasks'
-    | '/.mcp/list-tools'
-    | '/.well-known/oauth-protected-resource'
     | '/chart/$mrn'
     | '/patient/$mrn'
-    | '/.mcp/invoke-tool/$tool'
     | '/api/public/directory'
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
@@ -320,11 +284,8 @@ export interface FileRouteTypes {
     | '/radiology-board'
     | '/system-admin'
     | '/tasks'
-    | '/.mcp/list-tools'
-    | '/.well-known/oauth-protected-resource'
     | '/chart/$mrn'
     | '/patient/$mrn'
-    | '/.mcp/invoke-tool/$tool'
     | '/api/public/directory'
     | '/api/public/umls-search'
     | '/api/public/umls-validate-code'
@@ -348,11 +309,8 @@ export interface RootRouteChildren {
   RadiologyBoardRoute: typeof RadiologyBoardRoute
   SystemAdminRoute: typeof SystemAdminRoute
   TasksRoute: typeof TasksRoute
-  Char91DotmcpChar93ListToolsRoute: typeof Char91DotmcpChar93ListToolsRoute
-  Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
-  Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiPublicDirectoryRoute: typeof ApiPublicDirectoryRoute
   ApiPublicUmlsSearchRoute: typeof ApiPublicUmlsSearchRoute
   ApiPublicUmlsValidateCodeRoute: typeof ApiPublicUmlsValidateCodeRoute
@@ -461,20 +419,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.mcp/list-tools': {
-      id: '/.mcp/list-tools'
-      path: '/.mcp/list-tools'
-      fullPath: '/.mcp/list-tools'
-      preLoaderRoute: typeof Char91DotmcpChar93ListToolsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.well-known/oauth-protected-resource': {
-      id: '/.well-known/oauth-protected-resource'
-      path: '/.well-known/oauth-protected-resource'
-      fullPath: '/.well-known/oauth-protected-resource'
-      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/chart/$mrn': {
       id: '/chart/$mrn'
       path: '/chart/$mrn'
@@ -487,13 +431,6 @@ declare module '@tanstack/react-router' {
       path: '/patient/$mrn'
       fullPath: '/patient/$mrn'
       preLoaderRoute: typeof PatientMrnRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/.mcp/invoke-tool/$tool': {
-      id: '/.mcp/invoke-tool/$tool'
-      path: '/.mcp/invoke-tool/$tool'
-      fullPath: '/.mcp/invoke-tool/$tool'
-      preLoaderRoute: typeof Char91DotmcpChar93InvokeToolToolRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/directory': {
@@ -556,12 +493,8 @@ const rootRouteChildren: RootRouteChildren = {
   RadiologyBoardRoute: RadiologyBoardRoute,
   SystemAdminRoute: SystemAdminRoute,
   TasksRoute: TasksRoute,
-  Char91DotmcpChar93ListToolsRoute: Char91DotmcpChar93ListToolsRoute,
-  Char91DotwellKnownChar93OauthProtectedResourceRoute:
-    Char91DotwellKnownChar93OauthProtectedResourceRoute,
   ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
-  Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiPublicDirectoryRoute: ApiPublicDirectoryRoute,
   ApiPublicUmlsSearchRoute: ApiPublicUmlsSearchRoute,
   ApiPublicUmlsValidateCodeRoute: ApiPublicUmlsValidateCodeRoute,

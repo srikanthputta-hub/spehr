@@ -1,5 +1,6 @@
 // nlp-extract-concepts — extract atomic clinical SNOMED-codeable concepts
-// from a raw Chief Complaint + HPI narrative using the Lovable AI Gateway.
+// from a raw Chief Complaint + HPI narrative via the Google Gemini API
+// (free tier — no billing required).
 //
 // Body:  { cc: string, hpi?: string }
 // Reply: { concepts: [{ term: string, negated: boolean }] }
@@ -16,9 +17,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// OpenAI Responses API. All AI features use OPENAI_API_KEY.
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const MODEL = "gpt-5-mini";
+// Gemini API (Google AI Studio). All AI features use GEMINI_API_KEY.
+const MODEL = "gemini-3.5-flash-lite";
+const GEMINI_URL =
+  `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 const SYSTEM_PROMPT = `You are a clinical NLP extractor. Read the patient's
 Chief Complaint and HPI and split it into atomic, codeable SNOMED CT
@@ -37,9 +39,9 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
   try {
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
+    const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) {
-      return json({ concepts: [], error: "Missing OPENAI_API_KEY" }, 500);
+      return json({ concepts: [], error: "Missing GEMINI_API_KEY" }, 500);
     }
     const body = await req.json().catch(() => ({}));
     const cc = String(body?.cc ?? "").trim();
@@ -48,20 +50,35 @@ Deno.serve(async (req) => {
 
     const userMsg =
       `Chief Complaint: ${cc || "(none)"}\n` +
-      `HPI: ${hpi || "(none)"}\n\n` +
-      `Return JSON only in the shape {"concepts":[{"term":string,"negated":boolean}]}.`;
+      `HPI: ${hpi || "(none)"}`;
 
-    const gwRes = await fetch(OPENAI_RESPONSES_URL, {
+    const gwRes = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: MODEL,
-        instructions: SYSTEM_PROMPT,
-        input: userMsg,
-        text: { format: { type: "json_object" } },
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: "user", parts: [{ text: userMsg }] }],
+        generationConfig: {
+          maxOutputTokens: 1024,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "object",
+            properties: {
+              concepts: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    term: { type: "string" },
+                    negated: { type: "boolean" },
+                  },
+                  required: ["term", "negated"],
+                },
+              },
+            },
+            required: ["concepts"],
+          },
+        },
       }),
     });
 
@@ -77,15 +94,13 @@ Deno.serve(async (req) => {
     }
 
     const payload = await gwRes.json();
-    // Responses API: prefer `output_text` convenience field; fall back to
-    // walking `output[].content[].text` for older/newer shapes.
-    let raw: string = payload?.output_text ?? "";
-    if (!raw && Array.isArray(payload?.output)) {
-      for (const item of payload.output) {
-        const parts = Array.isArray(item?.content) ? item.content : [];
-        for (const p of parts) {
-          if (typeof p?.text === "string") raw += p.text;
-        }
+    // generateContent: walk candidates[0].content.parts[] for text. A
+    // safety-blocked response has no parts — falls through to "{}" default.
+    let raw = "";
+    const parts = payload?.candidates?.[0]?.content?.parts;
+    if (Array.isArray(parts)) {
+      for (const p of parts) {
+        if (typeof p?.text === "string") raw += p.text;
       }
     }
     if (!raw) raw = "{}";
