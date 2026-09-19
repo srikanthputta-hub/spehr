@@ -41,6 +41,73 @@ const corsHeaders = {
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
+// Shape 2 (generic passthrough) is invoked from the browser with the anon
+// key, so it must not become an arbitrary FHIR client — restrict it to
+// exactly what the app's own call sites use. Any caller-supplied path/method
+// combination outside this allowlist is rejected before it ever reaches the
+// upstream FHIR server. See src/hooks/useBackgroundFhirSync.ts,
+// src/components/patient/RadiologyFhirCard.tsx, and
+// src/components/physician/RadiologyOrderPanel.tsx for the real usage this
+// mirrors.
+const PASSTHROUGH_METHODS = new Set(["GET", "PUT", "DELETE"]);
+const PASSTHROUGH_RESOURCE_TYPES = new Set([
+  "Condition",
+  "AllergyIntolerance",
+  "MedicationRequest",
+  "MedicationAdministration",
+  "Observation",
+  "Composition",
+  "ServiceRequest",
+  "DiagnosticReport",
+]);
+// FHIR ids: HAPI generates plain alphanumeric/dash/dot ids; this also blocks
+// path traversal ("..") and FHIR operations ("$everything", "$expunge", ...).
+const FHIR_ID_RE = /^[A-Za-z0-9._-]+$/;
+
+// Every entry the app ever constructs is a PUT-with-stable-id upsert (see
+// src/lib/fhir-bundle.ts's requestFor(): "Every resource is PUT with its
+// deterministic stable ID... the FHIR UPSERT contract"). A transaction Bundle
+// is otherwise a second, unvalidated path into the FHIR server — reject any
+// entry that isn't that exact shape rather than trusting caller-supplied
+// bundles wholesale.
+function validateBundleEntries(bundle: any): { ok: true } | { ok: false; error: string } {
+  const entries: any[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
+  for (const entry of entries) {
+    const method = String(entry?.request?.method ?? "").toUpperCase();
+    if (method !== "PUT") {
+      return { ok: false, error: `Bundle entries must use PUT (upsert); got ${method || "(none)"}` };
+    }
+    const url = String(entry?.request?.url ?? "");
+    if (!/^[A-Za-z0-9]+\/[A-Za-z0-9._-]+$/.test(url)) {
+      return { ok: false, error: `Bundle entry request.url must be ResourceType/id; got ${url}` };
+    }
+  }
+  return { ok: true };
+}
+
+function validatePassthroughRequest(method: string, path: string | undefined): { ok: true } | { ok: false; error: string } {
+  if (!PASSTHROUGH_METHODS.has(method)) {
+    return { ok: false, error: `Method ${method} is not permitted on this endpoint` };
+  }
+  const segments = (path ?? "").replace(/^\/+/, "").split("/").filter(Boolean);
+  if (segments.length < 1 || segments.length > 2) {
+    return { ok: false, error: "Path must be ResourceType or ResourceType/id" };
+  }
+  const [resourceType, id] = segments;
+  if (!PASSTHROUGH_RESOURCE_TYPES.has(resourceType)) {
+    return { ok: false, error: `Resource type ${resourceType} is not permitted on this endpoint` };
+  }
+  if (id !== undefined && !FHIR_ID_RE.test(id)) {
+    return { ok: false, error: "Invalid resource id" };
+  }
+  // DELETE must target one specific resource — never a bare resource type,
+  // which HAPI would treat as a conditional/bulk delete against the query.
+  if (method === "DELETE" && segments.length !== 2) {
+    return { ok: false, error: "DELETE requires a specific ResourceType/id path" };
+  }
+  return { ok: true };
+}
+
 // HAPI FHIR throws HTTP 409 "version constraint failure" when two concurrent
 // transactions touch the same resource. Retry transparently with jittered
 // backoff so the live 400ms sync loop self-heals instead of surfacing 502s.
@@ -111,6 +178,13 @@ serve(async (req) => {
       if (!fhirBundle || fhirBundle.resourceType !== "Bundle") {
         throw new Error("Payload.bundle must be a FHIR Bundle resource");
       }
+      const bundleValidation = validateBundleEntries(fhirBundle);
+      if (!bundleValidation.ok) {
+        return new Response(
+          JSON.stringify({ success: false, error: bundleValidation.error }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 403 },
+        );
+      }
       const upstream = await fetchWithRetry(FHIR_SERVER_URL, {
         method: "POST",
         headers: withSecureHeaders(),
@@ -140,7 +214,19 @@ serve(async (req) => {
     if (!ALLOWED_METHODS.has(method)) {
       throw new Error(`Unsupported HTTP method: ${method}`);
     }
-    const upstreamUrl = buildUpstreamUrl(payload?.path, payload?.query);
+    const validation = validatePassthroughRequest(method, payload?.path);
+    if (!validation.ok) {
+      return new Response(
+        JSON.stringify({ success: false, error: validation.error }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 403 },
+      );
+    }
+    // DELETE must never carry caller-supplied query params — HAPI JPA
+    // supports _cascade=delete and conditional-delete-by-search, either of
+    // which would let a validated single-resource DELETE fan out to
+    // resources never checked by the allowlist above.
+    const effectiveQuery = method === "DELETE" ? undefined : payload?.query;
+    const upstreamUrl = buildUpstreamUrl(payload?.path, effectiveQuery);
     const hasBody = method !== "GET" && method !== "DELETE" && payload?.body !== undefined;
 
     const upstream = await fetchWithRetry(upstreamUrl, {
