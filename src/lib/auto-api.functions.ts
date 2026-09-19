@@ -46,6 +46,28 @@ async function logEvent(
   }
 }
 
+/* ─────────────────────────── System Settings (service-role) ──────────── */
+
+/**
+ * `system_settings` now has anon SELECT-only / authenticated UPDATE-only RLS
+ * (no anon INSERT/UPSERT), so the on/off toggles (AUTO API, System
+ * Automation) can no longer upsert directly from the anon client. This
+ * routes those writes through the service-role admin client instead.
+ */
+export const updateSystemSettings = createServerFn({ method: "POST" })
+  .inputValidator(
+    (d: { automation_enabled?: boolean; auto_api_enabled?: boolean }) => d,
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
+    const { error } = await supabaseAdmin
+      .from("system_settings")
+      .upsert({ id: 1, ...data } as any);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
 /* ─────────────────────────── QA Governance Queue ─────────────────────── */
 
 export const getQaQueue = createServerFn({ method: "GET" }).handler(

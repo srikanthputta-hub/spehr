@@ -15,7 +15,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { getAutoApiLoopStatus, flushQaQueue } from "@/lib/auto-api.functions";
+import { getAutoApiLoopStatus, flushQaQueue, updateSystemSettings } from "@/lib/auto-api.functions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
 
@@ -88,14 +88,11 @@ export function AutoApiCard() {
 
   const toggle = async (next: boolean) => {
     setEnabled(next);
-    const { error } = await fetchWithTimeout(
-      () =>
-        supabase
-          .from("system_settings")
-          .upsert({ id: 1, auto_api_enabled: next } as any),
-      { data: null, error: new Error("system_settings write timeout") } as any,
+    const { ok } = await fetchWithTimeout(
+      () => updateSystemSettings({ data: { auto_api_enabled: next } }),
+      { ok: false, error: "system_settings write timeout" },
     );
-    if (error) supabase.functions.invoke("apply-grants", { body: { reason: "auto-api-write-failed" } }).catch(() => {});
+    if (!ok) supabase.functions.invoke("apply-grants", { body: { reason: "auto-api-write-failed" } }).catch(() => {});
   };
 
   const forceSync = async () => {

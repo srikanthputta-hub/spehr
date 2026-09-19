@@ -96,6 +96,7 @@ import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle
 import { ErrorLogPanel } from "@/components/admin/ErrorLogPanel";
 import { AUTOMATION_STORAGE_KEY, getAutomationEnabled, setLocalAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { updateSystemSettings } from "@/lib/auto-api.functions";
 
 export const Route = createFileRoute("/system-admin")({
   component: SystemAdminPage,
@@ -573,15 +574,12 @@ function SystemAdminPage() {
     setAutomation(next);
     setLocalAutomationEnabled(next);
     setAutomationSaving(true);
-    const { error } = await fetchWithTimeout(
-      () =>
-        supabase
-          .from("system_settings")
-          .upsert({ id: 1, automation_enabled: next } as any),
-      { data: null, error: new Error("system_settings write timeout") } as any,
+    const { ok } = await fetchWithTimeout(
+      () => updateSystemSettings({ data: { automation_enabled: next } }),
+      { ok: false, error: "system_settings write timeout" },
     );
     setAutomationSaving(false);
-    if (error) {
+    if (!ok) {
       try {
         window.localStorage.setItem(AUTOMATION_STORAGE_KEY, String(next));
       } catch {
