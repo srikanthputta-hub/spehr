@@ -106,21 +106,33 @@ Status so far:
 
   \`auto\_discharge\_ghost\_patients\`, \`auto\_report\_pending\_radiology\_orders\`, \`cascade\_clinical\_automation\` (retired
 
-  no-op), \`auto\_order\_ghost\_labs\`, \`auto\_code\_patient\_complaint\`, \`sweep\_stalled\_clinical\_orders\`. Whether the
+  no-op), \`auto\_order\_ghost\_labs\`, \`auto\_code\_patient\_complaint\`, \`sweep\_stalled\_clinical\_orders\`. The two
 
-  two \`pg\_cron\` schedules (\`auto\_admit\_appointments\_job\`, \`auto\_report\_radiology\_job\`) are actually registered on
+  \`pg\_cron\` schedules (\`auto\_admit\_appointments\_job\`, \`auto\_report\_radiology\_job\`) \*\*are confirmed registered and
 
-  the new project is \*\*unverified\*\* — direct DB introspection is blocked on this network (no IPv6 route to
+  active\*\* on the new project (verified 2026-09-19 via \`cron.job\`, both \`schedule: "\* \* \* \* \*"\`, \`active: true\`) —
 
-  Supabase's direct Postgres host, and the user has declined to share the raw DB password). This matters less than
+  the earlier "unverified" status is resolved.
 
-  it sounds: the core admission engine is client-side (\`useAutomationWatchdog.ts\`'s ghost-tick calling
+\- \*\*End-to-end admission/discharge automation confirmed working live on \`qxyvmvtecnnwqeqaouzh\`, verified
 
-  \`auto\_admit\_ghost\_patient\` directly), not cron-dependent.
+  2026-09-19.\*\* Called \`auto\_admit\_ghost\_patient\` and \`auto\_discharge\_ghost\_patients\` directly via REST RPC using
 
-\- Next step when resumed: point a dev/preview build at the new project and confirm admissions/discharges actually
+  the project's own anon/publishable key (i.e. exactly the call \`useAutomationWatchdog.ts\`'s ghost-tick makes, not
 
-  start flowing before considering any production cutover.
+  an elevated/service-role bypass) and confirmed real, self-consistent state changes: \`patients\` went from
+
+  12 admitted/12 total → 16 admitted/16 total (4 new ghost admissions across 3 facilities, matching \`bed\_management\`
+
+  occupied count 12 → 16), then a discharge call moved 3 of those to \`status: 'Discharged'\` with \`bed\_management\`
+
+  occupied dropping 16 → 13 in lockstep. Anon read access to \`patients\` (needed for the UI to display admissions)
+
+  also confirmed working post-RLS-hardening. This closes the "next step when resumed" item — the automation layer
+
+  itself is proven functional on the new project; what's left before any cutover consideration is running the actual
+
+  frontend against it (dev/preview build) for a UI-level check, which hasn't been done yet.
 
 \- Do NOT attempt bulk data export/import between the two Supabase projects by delegating to Lovable's AI agent with
 
