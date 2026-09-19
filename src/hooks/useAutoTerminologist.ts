@@ -39,35 +39,95 @@ const LEADER_KEY = "spehr.autoterm.leader";
 const LEADER_LEASE_MS = 3 * 60_000;
 const TAB_ID = Math.random().toString(36).slice(2);
 
-/** Read the last-run timestamp from the activity log (max run_at). */
-async function getLastRunAt(): Promise<number | null> {
+/* ------------------------------------------------------------------ */
+/*  Atomic DB-backed lease (replaces the old localStorage              */
+/*  tryAcquireLeader() read-then-write + getLastRunAt() check-then-act  */
+/*  pair — see docs/leader-election-fix-design.md).                    */
+/*                                                                      */
+/*  *** PAIRED CHANGE ***                                               */
+/*  These RPCs (claim_automation_lease / heartbeat_automation_lease)    */
+/*  are defined in supabase/migrations/20260918000000_automation_leases */
+/*  .sql, which is NOT yet applied to any Supabase project — it is a    */
+/*  reviewable migration file only. This code path must not be deployed */
+/*  ahead of that migration being applied to the target project: until  */
+/*  then the RPCs don't exist, every claim/heartbeat call errors, and   */
+/*  claimLease() below fails safe by returning false (tick() no-ops,    */
+/*  same as "another tab is leader" today) — so it degrades safely but  */
+/*  the engine simply never runs. Apply the migration first.            */
+/*                                                                      */
+/*  LEADER_KEY is no longer read or written — removing it from this     */
+/*  file entirely is a separate follow-up commit per the design doc.    */
+/*  TAB_ID is reused below as the lease `holder` identifier.            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Atomically claim the auto_terminologist lease via a single UPDATE ...
+ * WHERE ... RETURNING call in Postgres (claim_automation_lease). Zero rows
+ * returned means another tab currently holds the lease or the cadence
+ * interval hasn't elapsed — this cycle should be skipped. One row means
+ * this tab now owns the cycle and `last_run_at` has already been advanced
+ * atomically (same "heartbeat first, never drift" guarantee as before).
+ */
+export async function claimLease(): Promise<boolean> {
   try {
-    const { data } = await supabase
-      .from("auto_terminologist_log" as any)
-      .select("run_at")
-      .order("run_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const ts = (data as any)?.run_at;
-    return ts ? new Date(ts).getTime() : null;
-  } catch {
-    return null;
+    const { data, error } = await supabase.rpc("claim_automation_lease" as any, {
+      _engine: "auto_terminologist",
+      _holder: TAB_ID,
+      _lease_ms: LEADER_LEASE_MS,
+      _min_interval_ms: RUN_INTERVAL_MS,
+    } as any);
+    if (error) {
+      console.warn("[auto-term] claim_automation_lease failed", error);
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  } catch (e) {
+    console.warn("[auto-term] claim_automation_lease threw", e);
+    return false;
   }
 }
 
-function tryAcquireLeader(): boolean {
-  if (typeof window === "undefined") return false;
+/**
+ * Best-effort mid-cycle lease renewal (heartbeat_automation_lease) so a
+ * long-running cycle can't have its lease stolen by another tab before it
+ * finishes. Never throws — a failed renewal just means the lease may lapse
+ * and another tab could pick up the *next* cycle, which is an acceptable
+ * degradation, not a correctness bug.
+ */
+export async function heartbeatLease(): Promise<void> {
   try {
-    const raw = localStorage.getItem(LEADER_KEY);
-    const now = Date.now();
-    if (raw) {
-      const { id, ts } = JSON.parse(raw);
-      if (id !== TAB_ID && now - ts < LEADER_LEASE_MS) return false;
-    }
-    localStorage.setItem(LEADER_KEY, JSON.stringify({ id: TAB_ID, ts: now }));
-    return true;
+    const { error } = await supabase.rpc("heartbeat_automation_lease" as any, {
+      _engine: "auto_terminologist",
+      _holder: TAB_ID,
+      _lease_ms: LEADER_LEASE_MS,
+    } as any);
+    if (error) console.warn("[auto-term] heartbeat_automation_lease failed", error);
+  } catch (e) {
+    console.warn("[auto-term] heartbeat_automation_lease threw", e);
+  }
+}
+
+/**
+ * Best-effort release on unmount, purely as an optimisation (per the design
+ * doc) — never awaited, never lets cleanup depend on it succeeding. Reuses
+ * heartbeat_automation_lease with a negative lease so `leased_until` moves
+ * into the past, making the row immediately claimable by the next tab
+ * rather than making that tab wait out the full TTL.
+ */
+export function releaseLeaseBestEffort(): void {
+  try {
+    // supabase-js query/rpc builders are thenables — the HTTP request is
+    // only actually sent once `.then()` (or `.catch()`) is called on them.
+    // A bare `void supabase.rpc(...)` never fires the request at all. Chain
+    // a no-op `.then()` so it executes, without awaiting it here — React
+    // cleanup functions can't be async and this must stay fire-and-forget.
+    supabase.rpc("heartbeat_automation_lease" as any, {
+      _engine: "auto_terminologist",
+      _holder: TAB_ID,
+      _lease_ms: -1000,
+    } as any).then(() => {}, () => {});
   } catch {
-    return false;
+    /* best-effort only — cleanup must not depend on this */
   }
 }
 
@@ -397,7 +457,7 @@ type SeedCode = { code: string; display: string; vocabulary: string };
 
 const VALID_VOCABS = new Set(["SNOMED CT", "ICD-10", "RxNorm", "LOINC"]);
 
-function codeShapeMatches(vocab: string, code: string): boolean {
+export function codeShapeMatches(vocab: string, code: string): boolean {
   const c = String(code ?? "").trim();
   if (!c) return false;
   if (vocab === "SNOMED CT") return /^\d{6,18}$/.test(c);
@@ -545,7 +605,7 @@ async function processPendingTerminologyRequests(): Promise<{
   const { data: pending, error } = await supabase
     .from("terminology_requests" as any)
     .select(
-      "id, requesting_consumer, requested_name, justification, priority, vocabulary, seed_codes, clinical_application, related_mrn, quality_gate_notes, request_type, target_value_set_id",
+      "id, requesting_consumer, requested_name, justification, priority, vocabulary, seed_codes, clinical_application, related_mrn, quality_gate_notes, request_type, target_value_set_id, requested_at",
     )
     .eq("status", "pending");
   if (error || !pending) return { drafted, gated, deprecationSuggested, rejected, scanned: 0 };
@@ -820,6 +880,20 @@ async function processPendingTerminologyRequests(): Promise<{
       drafted += 1;
     } catch (e) {
       console.warn("[auto-term] request processing failed", req?.id, e);
+      const errorNote = `Processing error: ${e instanceof Error ? e.message : String(e)}`;
+      try {
+        await supabase
+          .from("terminology_requests" as any)
+          .update({ quality_gate_notes: errorNote, updated_at: new Date().toISOString() } as any)
+          .eq("id", req.id);
+        await logActivity({
+          action: "error",
+          message: `Terminology request from ${req?.requesting_consumer ?? "unknown"} ('${req?.requested_name ?? "unknown"}') failed to process: ${errorNote}`,
+          theme: req?.requested_name ?? null,
+        });
+      } catch (e2) {
+        console.warn("[auto-term] failed to record processing error", req?.id, e2);
+      }
     }
   }
 
@@ -919,54 +993,70 @@ async function runAutoTerminologistCycle() {
     return;
   }
 
-  // Demand-mode only: fulfill pending terminology_requests. There is no
-  // opportunistic scanner anymore — Auto Terminologist behaves like VSAC.
-  let demand = { drafted: 0, gated: 0, deprecationSuggested: 0, rejected: 0, scanned: 0 };
+  // Mid-cycle lease renewal — the demand pass below is unbounded (loops
+  // over every pending request, each with its own UMLS/crosswalk/Gemini
+  // network calls) and can easily run longer than LEADER_LEASE_MS. A single
+  // heartbeatLease() call at one fixed point isn't enough to guarantee that.
+  // Instead, renew on a fixed ~30s cadence for the entire lifetime of this
+  // cycle, independent of what the cycle is doing, and clear it in the
+  // `finally` below on every exit path (success, error, or early return)
+  // so it can never leak. See docs/leader-election-fix-design.md.
+  const heartbeatIntervalId = setInterval(() => {
+    void heartbeatLease();
+  }, 30_000);
+
   try {
-    demand = await processPendingTerminologyRequests();
-  } catch (e) {
-    console.warn("[auto-term] demand pass failed", e);
+    // Demand-mode only: fulfill pending terminology_requests. There is no
+    // opportunistic scanner anymore — Auto Terminologist behaves like VSAC.
+    let demand = { drafted: 0, gated: 0, deprecationSuggested: 0, rejected: 0, scanned: 0 };
+    try {
+      demand = await processPendingTerminologyRequests();
+    } catch (e) {
+      console.warn("[auto-term] demand pass failed", e);
+    }
+
+    // Pair auto-link pass: wire up any value_set_dependencies rows whose
+    // matching published `custom_value_sets` row now exists but that were
+    // registered before the value set was published. Only ever touches
+    // NULL value_set_id rows — never re-links or downgrades.
+    let pairsLinked = 0;
+    try {
+      pairsLinked = await runPairAutoLinkPass();
+    } catch (e) {
+      console.warn("[auto-term] pair auto-link pass failed", e);
+    }
+
+    const totalActed =
+      demand.drafted + demand.gated + demand.deprecationSuggested + demand.rejected;
+    const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    await logActivity({
+      action: totalActed === 0 ? "heartbeat" : "cycle_summary",
+      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.drafted} drafted, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}.`,
+      codes_count: 0,
+    });
+
+    enginesChecked["auto_terminologist"] = {
+      requests_scanned: demand.scanned,
+      requests_drafted: demand.drafted,
+      requests_gated: demand.gated,
+      deprecation_suggested: demand.deprecationSuggested,
+      requests_rejected: demand.rejected,
+      drug_allergy_pairs_linked: pairsLinked,
+    };
+    actions.push(
+      `auto_terminologist: demand queue — scanned ${demand.scanned}, drafted ${demand.drafted}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}.`,
+    );
+
+    await supabase.from("automation_watchdog_logs").insert({
+      global_control_status: "ON",
+      engines_checked: enginesChecked,
+      issues_detected: false,
+      actions_taken: actions.join(" "),
+      healed_engines: [],
+    } as any);
+  } finally {
+    clearInterval(heartbeatIntervalId);
   }
-
-  // Pair auto-link pass: wire up any value_set_dependencies rows whose
-  // matching published `custom_value_sets` row now exists but that were
-  // registered before the value set was published. Only ever touches
-  // NULL value_set_id rows — never re-links or downgrades.
-  let pairsLinked = 0;
-  try {
-    pairsLinked = await runPairAutoLinkPass();
-  } catch (e) {
-    console.warn("[auto-term] pair auto-link pass failed", e);
-  }
-
-  const totalActed =
-    demand.drafted + demand.gated + demand.deprecationSuggested + demand.rejected;
-  const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  await logActivity({
-    action: totalActed === 0 ? "heartbeat" : "cycle_summary",
-    message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.drafted} drafted, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}.`,
-    codes_count: 0,
-  });
-
-  enginesChecked["auto_terminologist"] = {
-    requests_scanned: demand.scanned,
-    requests_drafted: demand.drafted,
-    requests_gated: demand.gated,
-    deprecation_suggested: demand.deprecationSuggested,
-    requests_rejected: demand.rejected,
-    drug_allergy_pairs_linked: pairsLinked,
-  };
-  actions.push(
-    `auto_terminologist: demand queue — scanned ${demand.scanned}, drafted ${demand.drafted}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}.`,
-  );
-
-  await supabase.from("automation_watchdog_logs").insert({
-    global_control_status: "ON",
-    engines_checked: enginesChecked,
-    issues_detected: false,
-    actions_taken: actions.join(" "),
-    healed_engines: [],
-  } as any);
 }
 
 export function useAutoTerminologist() {
@@ -975,11 +1065,16 @@ export function useAutoTerminologist() {
     if (ran.current) return;
     ran.current = true;
     const tick = async () => {
-      if (!tryAcquireLeader()) return;
-      const last = await getLastRunAt();
-      if (last && Date.now() - last < RUN_INTERVAL_MS) return;
-      // Insert a heartbeat FIRST so last_run_at advances even if the cycle
-      // errors mid-flight — prevents multi-hour drift.
+      // Single atomic claim replaces the old localStorage leader check +
+      // getLastRunAt() cadence check (two separate check-then-act races).
+      // Zero rows / false = another tab holds the lease or the interval
+      // hasn't elapsed — skip this cycle, same outcome as before.
+      const claimed = await claimLease();
+      if (!claimed) return;
+      // last_run_at was already advanced atomically inside the claim RPC
+      // (same "advance before running" anti-drift guarantee as the old
+      // pre-cycle heartbeat insert). This log insert is just the audit-trail
+      // row, not part of the gating logic anymore.
       await supabase.from("auto_terminologist_log" as any).insert({
         message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Cycle started.`,
         action: "heartbeat",
@@ -994,6 +1089,9 @@ export function useAutoTerminologist() {
     return () => {
       clearTimeout(boot);
       clearInterval(id);
+      // Best-effort lease release — purely an optimisation so another tab
+      // doesn't have to wait out the full TTL. Never blocks unmount.
+      releaseLeaseBestEffort();
     };
   }, []);
 }
