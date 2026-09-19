@@ -104,25 +104,29 @@ function AdmissionsBoard() {
       />
 
       <div className="sticky top-0 z-10 border-b border-border bg-[var(--navy)] text-white">
-        <div className="max-w-[1400px] mx-auto px-5 h-12 flex items-center gap-1">
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.key;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-semibold transition ${
-                  active
-                    ? "bg-[var(--teal)] text-white shadow"
-                    : "text-white/70 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" /> {t.label}
-              </button>
-            );
-          })}
-          <div className="ml-auto text-[11px] text-white/60 inline-flex items-center gap-1">
+        <div className="max-w-[1400px] mx-auto px-3 md:px-5 h-12 flex items-center gap-2">
+          <div className="flex-1 min-w-0 overflow-x-auto snap-x snap-mandatory board-tabs-scroll">
+            <div className="flex items-center gap-1 w-max">
+              {tabs.map((t) => {
+                const Icon = t.icon;
+                const active = tab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => setTab(t.key)}
+                    className={`snap-start shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-semibold transition ${
+                      active
+                        ? "bg-[var(--teal)] text-white shadow"
+                        : "text-white/70 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" /> {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="hidden sm:inline-flex shrink-0 text-[11px] text-white/60 items-center gap-1">
             {bedCounts.available} / {bedCounts.total} beds open
             <InfoHint text={`Beds where bed_management.status = "Available" at ${facility}. Beds in "Cleaning" or "Disinfecting" are not counted as open — they roll back to Available automatically when the cleaning cycle finishes.`} />
           </div>

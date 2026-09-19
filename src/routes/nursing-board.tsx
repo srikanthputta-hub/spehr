@@ -723,7 +723,7 @@ function Dashboard() {
         badge="RN"
       />
       <div className="sticky top-0 z-10 border-b border-border bg-[var(--navy)] text-white">
-        <div className="max-w-[1400px] mx-auto px-5 h-12 flex items-center gap-4">
+        <div className="max-w-[1400px] mx-auto px-3 md:px-5 h-12 flex items-center gap-4">
           <div className="flex-1 max-w-md">
             <div className="flex items-center gap-2 h-9 rounded-md bg-white/10 ring-1 ring-white/10 px-3 focus-within:bg-white/15 focus-within:ring-[var(--teal)]/40 transition">
               <Search className="h-4 w-4 text-white/60" />
