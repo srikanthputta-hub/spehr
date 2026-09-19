@@ -26,6 +26,22 @@ const corsHeaders = {
 const UTS = "https://uts-ws.nlm.nih.gov/rest";
 const RXNAV = "https://rxnav.nlm.nih.gov/REST";
 
+// ─── Secret redaction ────────────────────────────────────────────────────────
+//
+// UMLS authenticates via an `apiKey` query parameter, so every upstream URL we
+// build embeds the secret. Deno's fetch errors also quote the request URL in
+// their message. Run anything that leaves this function — logs and HTTP
+// response bodies alike — through this first so the key never escapes.
+
+function redactSecrets(input: unknown): string {
+  let s = typeof input === "string" ? input : String(input ?? "");
+  // Query-param form: ?apiKey=xxx / &apiKey=xxx (any casing/underscore variant)
+  s = s.replace(/([?&](?:apikey|api_key)=)[^&\s"'\\)]+/gi, "$1***");
+  // Belt-and-braces: scrub the literal key wherever else it may appear.
+  if (UMLS_API_KEY) s = s.split(UMLS_API_KEY).join("***");
+  return s;
+}
+
 // ─── Existing helper: crosswalk CUI fallback ─────────────────────────────────
 
 async function crosswalkCuiFallback(
@@ -61,7 +77,7 @@ async function crosswalkCuiFallback(
     }
     return { matches };
   } catch (e) {
-    console.log("[umls-proxy] crosswalk fallback error:", (e as Error).message);
+    console.log("[umls-proxy] crosswalk fallback error:", redactSecrets((e as Error).message));
     return { matches: [] };
   }
 }
@@ -164,7 +180,7 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
       }
     }
   } catch (e) {
-    console.log("[umls-proxy] atoms lookup error for CUI", cui, (e as Error).message);
+    console.log("[umls-proxy] atoms lookup error for CUI", cui, redactSecrets((e as Error).message));
   }
 
   if (!resolvedSourceCode) {
@@ -497,7 +513,7 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
       codes,
     };
   } catch (e) {
-    return { error: `VSAC request failed: ${(e as Error).message ?? "unknown error"}`, status: 502 };
+    return { error: `VSAC request failed: ${redactSecrets((e as Error).message ?? "unknown error")}`, status: 502 };
   }
 }
 
@@ -970,7 +986,7 @@ Deno.serve(async (req) => {
 
     const started = Date.now();
     if (action === "crosswalk") {
-      console.log("[umls-proxy] crosswalk upstream URL:", url);
+      console.log("[umls-proxy] crosswalk upstream URL:", redactSecrets(url));
     }
     const upstream = await fetch(url, {
       headers: { Accept: "application/json" },
@@ -992,7 +1008,7 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           error: `Upstream ${upstream.status}`,
-          detail: text.slice(0, 500),
+          detail: redactSecrets(text).slice(0, 500),
         }),
         {
           status: 502,
@@ -1049,7 +1065,7 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     return new Response(
-      JSON.stringify({ error: (err as Error).message ?? "Unknown error" }),
+      JSON.stringify({ error: redactSecrets((err as Error).message ?? "Unknown error") }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
