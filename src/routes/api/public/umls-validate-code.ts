@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { corsHeadersFor, rejectDisallowedOrigin } from "@/lib/cors-allowlist";
 
 /**
  * Value-set $validate-code proxy.
@@ -14,19 +15,25 @@ import type { Database } from "@/integrations/supabase/types";
  * or root in UMLS ancestors of code.
  *
  * Non-SNOMED intensional or unknown types resolve as valid (nothing to check).
+ *
+ * Origin allowlist below is defense-in-depth only (see src/lib/cors-allowlist.ts):
+ * it stops a hostile web page from calling this from a visitor's browser, not
+ * curl or server-to-server callers, which send no Origin header at all.
  */
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Max-Age": "86400",
-};
+function corsFor(request: Request) {
+  return {
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Max-Age": "86400",
+    ...corsHeadersFor(request.headers.get("Origin")),
+  };
+}
 
-function json(body: unknown, status = 200): Response {
+function json(body: unknown, status = 200, cors: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS },
+    headers: { "Content-Type": "application/json", ...cors },
   });
 }
 
@@ -72,20 +79,27 @@ async function fetchSnomedAncestors(code: string, apiKey: string): Promise<Set<s
 export const Route = createFileRoute("/api/public/umls-validate-code")({
   server: {
     handlers: {
-      OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
+      OPTIONS: async ({ request }) => {
+        const rejected = rejectDisallowedOrigin(request);
+        if (rejected) return rejected;
+        return new Response(null, { status: 204, headers: corsFor(request) });
+      },
       POST: async ({ request }) => {
+        const rejected = rejectDisallowedOrigin(request);
+        if (rejected) return rejected;
+        const cors = corsFor(request);
         const apiKey = process.env.UMLS_API_KEY;
         const supabaseUrl = process.env.SUPABASE_URL;
         const supabaseKey = process.env.SUPABASE_PUBLISHABLE_KEY;
-        if (!supabaseUrl || !supabaseKey) return json({ ok: false, error: "Supabase not configured" }, 500);
+        if (!supabaseUrl || !supabaseKey) return json({ ok: false, error: "Supabase not configured" }, 500, cors);
 
         let body: any = null;
         try { body = await request.json(); } catch {
-          return json({ ok: false, error: "Invalid JSON body" }, 400);
+          return json({ ok: false, error: "Invalid JSON body" }, 400, cors);
         }
         const code = String(body?.code ?? "").trim();
         const oid = String(body?.valueSetOid ?? "").trim();
-        if (!code || !oid) return json({ ok: false, error: "code and valueSetOid required" }, 400);
+        if (!code || !oid) return json({ ok: false, error: "code and valueSetOid required" }, 400, cors);
 
         const sb = createClient<Database>(supabaseUrl, supabaseKey, {
           auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
@@ -95,8 +109,8 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
           .select("name, vocabulary, type, codes, intensional_rule")
           .eq("oid", oid)
           .maybeSingle();
-        if (error) return json({ ok: false, error: `value set lookup failed: ${error.message}` }, 502);
-        if (!vs) return json({ ok: false, error: "value set not found" }, 404);
+        if (error) return json({ ok: false, error: `value set lookup failed: ${error.message}` }, 502, cors);
+        if (!vs) return json({ ok: false, error: "value set not found" }, 404, cors);
 
         const type = (vs as any).type as string;
         const vocabulary = String((vs as any).vocabulary ?? "").toUpperCase();
@@ -104,27 +118,27 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
         if (type === "extensional") {
           const codes: any[] = ((vs as any).codes ?? []) as any[];
           const valid = codes.some((c) => String(c?.code ?? "").trim() === code);
-          return json({ ok: true, valid, reason: valid ? undefined : "not in extensional list" });
+          return json({ ok: true, valid, reason: valid ? undefined : "not in extensional list" }, 200, cors);
         }
 
         if (type === "intensional") {
           const rule = ((vs as any).intensional_rule ?? null) as any;
           const root = String(rule?.root_concept ?? FALLBACK_ROOTS[(vs as any).name] ?? "").trim();
           const isSnomed = vocabulary.includes("SNOMED");
-          if (!isSnomed || !root) return json({ ok: true, valid: true });
-          if (code === root) return json({ ok: true, valid: true });
-          if (!apiKey) return json({ ok: false, error: "UMLS_API_KEY not configured" }, 500);
+          if (!isSnomed || !root) return json({ ok: true, valid: true }, 200, cors);
+          if (code === root) return json({ ok: true, valid: true }, 200, cors);
+          if (!apiKey) return json({ ok: false, error: "UMLS_API_KEY not configured" }, 500, cors);
           try {
             const ancestors = await fetchSnomedAncestors(code, apiKey);
             const valid = ancestors.has(root);
-            return json({ ok: true, valid, reason: valid ? undefined : `not a descendant of ${root}` });
+            return json({ ok: true, valid, reason: valid ? undefined : `not a descendant of ${root}` }, 200, cors);
           } catch (err: any) {
             // Fail-open with 200 so callers treat as "errored" (valid=true) instead of surfacing a 502 runtime error.
-            return json({ ok: false, error: String(err?.message ?? err) });
+            return json({ ok: false, error: String(err?.message ?? err) }, 200, cors);
           }
         }
 
-        return json({ ok: true, valid: true });
+        return json({ ok: true, valid: true }, 200, cors);
       },
     },
   },
