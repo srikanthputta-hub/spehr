@@ -200,24 +200,62 @@ async function runWatchdogCycle() {
 }
 
 // Singleton guard — only one tab should drive the watchdog so we don't
-// spam duplicate heartbeats. Tabs use a randomized leader election via
-// a shared localStorage key with a short heartbeat lease.
-const LEADER_KEY = "spehr.watchdog.leader";
+// spam duplicate heartbeats.
 const LEADER_LEASE_MS = 90_000;
 const TAB_ID = Math.random().toString(36).slice(2);
 
-function tryAcquireLeader(): boolean {
-  if (typeof window === "undefined") return false;
+/* ------------------------------------------------------------------ */
+/*  Atomic DB-backed lease (replaces the old localStorage              */
+/*  tryAcquireLeader() read-then-write race — see                      */
+/*  docs/leader-election-fix-design.md).                               */
+/*                                                                      */
+/*  *** PAIRED CHANGE ***                                               */
+/*  These RPCs (claim_automation_lease / heartbeat_automation_lease)    */
+/*  are defined in supabase/migrations/20260918000000_automation_leases */
+/*  .sql, which is NOT yet applied to any Supabase project — it is a    */
+/*  reviewable migration file only. This code path must not be deployed */
+/*  ahead of that migration being applied to the target project: until  */
+/*  then the RPCs don't exist, every claim call errors, and claimLease()*/
+/*  below fails safe by returning false (tick()/ghostTick() no-op, same */
+/*  as "another tab is leader" today) — so it degrades safely but the   */
+/*  watchdog simply never runs. Apply the migration first.              */
+/*                                                                      */
+/*  Two independent cadences (tick() and ghostTick()) share this file   */
+/*  but must NOT share one lease engine — a shared row with two         */
+/*  different min_interval_ms callers would corrupt cadence tracking —  */
+/*  so this claimLease() is parameterized by engine name, unlike        */
+/*  useAutoTerminologist's single-engine version.                       */
+/*                                                                      */
+/*  TAB_ID is reused below as the lease `holder` identifier. Both       */
+/*  cycles here are short one-shot cycles (a query + maybe one RPC      */
+/*  call), so no mid-cycle heartbeat renewal or release-on-unmount is   */
+/*  needed — the lease naturally expiring after LEADER_LEASE_MS is      */
+/*  fine.                                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Atomically claim the named lease via a single UPDATE ... WHERE ...
+ * RETURNING call in Postgres (claim_automation_lease). Zero rows returned
+ * means another tab currently holds the lease or the cadence interval
+ * hasn't elapsed — this cycle should be skipped. One row means this tab
+ * now owns the cycle and `last_run_at` has already been advanced
+ * atomically.
+ */
+export async function claimLease(engine: string, minIntervalMs: number): Promise<boolean> {
   try {
-    const raw = localStorage.getItem(LEADER_KEY);
-    const now = Date.now();
-    if (raw) {
-      const { id, ts } = JSON.parse(raw);
-      if (id !== TAB_ID && now - ts < LEADER_LEASE_MS) return false;
+    const { data, error } = await supabase.rpc("claim_automation_lease" as any, {
+      _engine: engine,
+      _holder: TAB_ID,
+      _lease_ms: LEADER_LEASE_MS,
+      _min_interval_ms: minIntervalMs,
+    } as any);
+    if (error) {
+      console.warn(`[watchdog] claim_automation_lease failed (${engine})`, error);
+      return false;
     }
-    localStorage.setItem(LEADER_KEY, JSON.stringify({ id: TAB_ID, ts: now }));
-    return true;
-  } catch {
+    return Array.isArray(data) && data.length > 0;
+  } catch (e) {
+    console.warn(`[watchdog] claim_automation_lease threw (${engine})`, e);
     return false;
   }
 }
@@ -232,8 +270,8 @@ export function useAutomationWatchdog() {
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
-    const tick = () => {
-      if (!tryAcquireLeader()) return;
+    const tick = async () => {
+      if (!(await claimLease("automation_watchdog", WATCHDOG_INTERVAL_MS))) return;
       runWatchdogCycle().catch((e) =>
         console.warn("[watchdog] cycle failed", e),
       );
@@ -245,7 +283,7 @@ export function useAutomationWatchdog() {
     // engines are active so the census keeps churning even without
     // a stalled-engine trigger.
     const ghostTick = async () => {
-      if (!tryAcquireLeader()) return;
+      if (!(await claimLease("automation_watchdog_ghost", GHOST_ADMIT_INTERVAL_MS))) return;
       const on = await getAutomationEnabled();
       if (!on) return;
       try {
