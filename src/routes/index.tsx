@@ -7,8 +7,6 @@ import {
   ArrowRight,
   ArrowLeft,
   Stethoscope,
-  FlaskConical,
-  BarChart3,
 } from "lucide-react";
 import {
   Select,
@@ -27,7 +25,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "S Group Private Network hub. Choose Clinical, Ancillary, or Analytics workspace to enter the live network.",
+          "S Group Private Network hub. Enter the Clinical workspace to access the live network.",
       },
     ],
   }),
@@ -52,9 +50,6 @@ const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = 
   { value: "/finance-board", label: "Corporate Finance & Accounts", abbrev: "Finance" },
   { value: "/system-admin", label: "Command Center · System Administration", abbrev: "EHR" },
 ];
-
-const ANCILLARY_URL = "https://www.spehrancillary.live";
-const ANALYTICS_URL = "https://www.spehranalytics.live";
 
 function LoginScreen() {
   const navigate = useNavigate();
@@ -151,34 +146,6 @@ function LoginScreen() {
                 </span>
                 <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-[#5cbdb9] transition" />
               </button>
-
-              <a
-                href={ANCILLARY_URL}
-                className="w-full flex items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] px-5 py-4 text-left shadow-lg shadow-black/30 hover:border-[#5cbdb9]/40 hover:bg-white/[0.06] transition cursor-pointer group"
-              >
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2d8a9e]/15 text-[#5cbdb9]">
-                  <FlaskConical className="h-5 w-5" />
-                </span>
-                <span className="flex-1">
-                  <span className="block text-sm font-semibold">Ancillary Workspace</span>
-                  <span className="block text-[11px] text-slate-400">Labs · Pharmacy · Radiology</span>
-                </span>
-                <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-[#5cbdb9] transition" />
-              </a>
-
-              <a
-                href={ANALYTICS_URL}
-                className="w-full flex items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.015] px-5 py-4 text-left shadow-lg shadow-black/30 hover:border-[#5cbdb9]/40 hover:bg-white/[0.06] transition cursor-pointer group"
-              >
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2d8a9e]/15 text-[#5cbdb9]">
-                  <BarChart3 className="h-5 w-5" />
-                </span>
-                <span className="flex-1">
-                  <span className="block text-sm font-semibold">Analytics Workspace</span>
-                  <span className="block text-[11px] text-slate-400">Billing · RCM · Population Health</span>
-                </span>
-                <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-[#5cbdb9] transition" />
-              </a>
             </div>
 
             <p className="mt-8 text-[11px] text-slate-600 text-center max-w-sm mx-auto">
