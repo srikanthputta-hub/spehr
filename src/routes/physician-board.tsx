@@ -451,6 +451,7 @@ function PhysicianBoard() {
                       setSelectedMrn(p.mrn);
                       setActionsMrn(p.mrn);
                     }}
+                    aria-label={`Select patient ${p.first_name ?? ""} ${p.last_name ?? ""}, room ${p.room ?? "unassigned"}, ${p.diagnosis || p.chief_complaint || "no diagnosis listed"}`}
                     className={`w-full text-left px-3 py-2.5 transition cursor-pointer ${
                       active ? "bg-[#0c2340] text-white hover:bg-[#0c2340]/95" : "hover:bg-slate-100"
                     }`}
@@ -601,6 +602,7 @@ function PhysicianBoard() {
                       onChange={setDrug}
                       placeholder="e.g. Furosemide"
                       vocabulary="RxNorm"
+                      ariaLabel="Drug Name"
                     />
                   </Field>
                   <Field label="Dose" className="col-span-6 md:col-span-3">
@@ -608,6 +610,7 @@ function PhysicianBoard() {
                       value={dose}
                       onChange={(e) => setDose(e.target.value)}
                       placeholder="40 mg"
+                      aria-label="Dose"
                       className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                     />
                   </Field>
@@ -615,6 +618,7 @@ function PhysicianBoard() {
                     <select
                       value={route}
                       onChange={(e) => setRoute(e.target.value)}
+                      aria-label="Route"
                       className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                     >
                       {ROUTES.map((r) => (
@@ -626,6 +630,7 @@ function PhysicianBoard() {
                     <select
                       value={freq}
                       onChange={(e) => setFreq(e.target.value)}
+                      aria-label="Frequency"
                       className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                     >
                       {FREQS.map((f) => (
@@ -973,6 +978,7 @@ function PhysicianBoard() {
                           value={drug}
                           onChange={(e) => setDrug(e.target.value)}
                           placeholder="e.g. Vancomycin"
+                          aria-label="Drug Name"
                           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                         />
                       </Field>
@@ -981,6 +987,7 @@ function PhysicianBoard() {
                           value={dose}
                           onChange={(e) => setDose(e.target.value)}
                           placeholder="1 g"
+                          aria-label="Dose"
                           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                         />
                       </Field>
@@ -988,6 +995,7 @@ function PhysicianBoard() {
                         <select
                           value={route}
                           onChange={(e) => setRoute(e.target.value)}
+                          aria-label="Route"
                           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                         >
                           {ROUTES.map((r) => (
@@ -999,6 +1007,7 @@ function PhysicianBoard() {
                         <select
                           value={freq}
                           onChange={(e) => setFreq(e.target.value)}
+                          aria-label="Frequency"
                           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                         >
                           {FREQS.map((f) => (

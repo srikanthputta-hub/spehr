@@ -19,6 +19,7 @@ interface Props {
   placeholder?: string;
   vocabulary?: "RxNorm" | "SNOMED-CT" | "LOINC" | "ICD-10-CM";
   className?: string;
+  ariaLabel?: string;
 }
 
 export function SemanticAutocomplete({
@@ -28,6 +29,7 @@ export function SemanticAutocomplete({
   placeholder,
   vocabulary = "RxNorm",
   className,
+  ariaLabel,
 }: Props) {
   const autoApi = useAutoApiEnabled();
   const [open, setOpen] = useState(false);
@@ -99,6 +101,7 @@ export function SemanticAutocomplete({
         placeholder={placeholder}
         onFocus={() => items.length > 0 && setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
+        aria-label={ariaLabel}
         className={
           className ??
           "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
