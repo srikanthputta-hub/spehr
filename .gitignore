@@ -20,6 +20,25 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Env files — keep out of git even though today's .env only holds the
+# Supabase publishable key/URL (safe to ship client-side); this prevents a
+# future secret from landing in history by accident.
+.env
+.env.*
+!.env.example
+
+# RuFlo/claude-flow local runtime state and caches — machine/session-specific,
+# not source (agents/store.json placeholders are recreated by the office bridge)
+.claude-flow/
+.swarm/
+.agents/
+
+# Supabase CLI local link cache
+supabase/.temp/
+
+# Claude Code local, machine-specific permission overrides (not shared config)
+.claude/settings.local.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
