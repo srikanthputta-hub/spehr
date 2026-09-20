@@ -1203,20 +1203,8 @@ function PhysicianBoard() {
                                 `Discharge summary failed for ${fullName}`,
                                 { description: result.reason ?? "Ghost discharge worker returned an error — patient record was not updated." },
                               );
-                              setDischargeLoading(false);
-                              setActionsMrn(null);
                               return;
                             }
-                          } catch (error) {
-                            console.error("Discharge Summary Error:", error);
-                            toast.error(
-                              `Discharge summary error for ${fullName}`,
-                              { description: error instanceof Error ? error.message : "Unexpected error while generating discharge summary." },
-                            );
-                            setDischargeLoading(false);
-                            setActionsMrn(null);
-                            return;
-                          } finally {
                             setPatients((prev) => prev.filter((x) => x.mrn !== mrn));
                             if (selectedMrn === mrn) setSelectedMrn(null);
                             toast.success(
@@ -1230,6 +1218,13 @@ function PhysicianBoard() {
                                 },
                               },
                             );
+                          } catch (error) {
+                            console.error("Discharge Summary Error:", error);
+                            toast.error(
+                              `Discharge summary error for ${fullName}`,
+                              { description: error instanceof Error ? error.message : "Unexpected error while generating discharge summary." },
+                            );
+                          } finally {
                             setDischargeLoading(false);
                             setActionsMrn(null);
                           }

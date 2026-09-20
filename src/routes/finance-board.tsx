@@ -802,7 +802,6 @@ function BillModal({
                     <span className="font-bold">TOTAL DUE</span>
                     <span className="font-mono font-bold">{money(total)}</span>
                   </div>
-                  {onPaid && void 0}
                 </div>
               </section>
 

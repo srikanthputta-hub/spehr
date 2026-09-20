@@ -479,7 +479,7 @@ function AdminDashboard() {
             label="Total Active Census"
             value={loading ? "…" : activePatients.length}
             tint="bg-sky-50 text-sky-700"
-            info={`Facility-scoped count of patients where status ≠ "Discharged" at ${facility}. Includes "Admitted" and any other non-discharged status values — not strictly = "Admitted".`}
+            info={`Facility-scoped count of patients where status = "Admitted" at ${facility}.`}
           />
           <MetricCard
             icon={<PillBottle className="h-5 w-5" />}

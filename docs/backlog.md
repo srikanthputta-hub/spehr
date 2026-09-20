@@ -41,20 +41,23 @@ verified against code/docs on 2026-09-18 (not just prose claims).
    **implemented, migration not yet applied to any Supabase project** — per the migration file's own
    header, the RPCs don't exist until it's applied, so shipping the hook change first against an
    unmigrated project makes every tick a silent no-op. Doc: `docs/leader-election-fix-design.md`.
-   **New finding (`docs/recommendations/architect.md` R4):** the identical
-   read-then-write-`localStorage` pattern still exists, unfixed, in `useAutomationWatchdog.ts`
-   (gates the core ghost-tick admission engine — `auto_admit_ghost_patient`) and
-   `useCodingPipelineSweep.ts`. The `automation_leases` table/design already supports more rows
-   (PK is `engine`), so generalizing is additive (new engine rows + a shared `useEngineLease` hook),
-   not new SQL. Not yet done — track as a follow-up once the terminologist lease is applied and
-   verified.
+   **Generalization to the other two hooks is now done**, per `cc7da2c` ("fix: extend atomic DB
+   lease to watchdog and coding-sweep hooks"): `useAutomationWatchdog.ts` now runs two independent
+   lease engines (`automation_watchdog` for the heartbeat tick, `automation_watchdog_ghost` for the
+   ghost-admission tick, which gates `auto_admit_ghost_patient`), and `useCodingPipelineSweep.ts`
+   gets the full `claimLease`/`heartbeatLease`/`releaseLeaseBestEffort` pattern with mid-cycle
+   renewal under engine `coding_pipeline_sweep`. Seed migration
+   `supabase/migrations/20260919000000_seed_watchdog_sweep_leases.sql` adds the three new
+   `automation_leases` rows (applied live to `qxyvmvtecnnwqeqaouzh` per the commit message).
 4. **Test coverage** — was zero-to-minimal (one test file). `src/hooks/useAutoTerminologist.test.ts`
    now has **18 tests** (up from 10), including coverage of the `claim_automation_lease`/
    `heartbeat_automation_lease` RPC names/arguments and the no-op behavior when the RPC doesn't
-   exist. `vitest.config.ts` is tracked/in place. Effort: L. Status: meaningfully improved for this
-   one file; still the only test file repo-wide. Per `docs/recommendations/architect.md` R6, further
-   investment should go to schema-drift CI + Edge Function contract tests rather than generic
-   component coverage.
+   exist. `vitest.config.ts` is tracked/in place. Per `cc7da2c`, two more test files now exist
+   alongside it — `src/hooks/useAutomationWatchdog.test.ts` and
+   `src/hooks/useCodingPipelineSweep.test.ts` (13 new tests, 31 total across all three hooks) —
+   so this is **three test files repo-wide**, not one. Effort: L. Status: meaningfully improved for
+   the lease-related hooks. Per `docs/recommendations/architect.md` R6, further investment should go
+   to schema-drift CI + Edge Function contract tests rather than generic component coverage.
 5. **Accessibility gaps** — was: unlabeled patient rows, placeholder-text-as-label on CPOE fields.
    **Now fixed** on the physician board: `src/routes/physician-board.tsx` has `aria-label` on patient
    census rows (`Select patient {name}, room {room}, {diagnosis}`) and on CPOE dose/route/frequency/

@@ -731,6 +731,7 @@ function Dashboard() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search chart — name, MRN, room, dx…"
+                aria-label="Search patients by name, MRN, room, or diagnosis"
                 className="w-full bg-transparent outline-none text-sm placeholder:text-white/45"
               />
             </div>

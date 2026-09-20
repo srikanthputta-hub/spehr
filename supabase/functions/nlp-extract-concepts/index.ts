@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
   try {
     const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) {
-      return json({ concepts: [], error: "Missing GEMINI_API_KEY" }, 500);
+      return json({ concepts: [], error: "Missing GEMINI_API_KEY" });
     }
     const body = await req.json().catch(() => ({}));
     const cc = String(body?.cc ?? "").trim();

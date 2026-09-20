@@ -1,0 +1,15 @@
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+
+# Fonts
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
