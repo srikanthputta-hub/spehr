@@ -611,3 +611,37 @@ to one tier for everything: simple/mechanical tasks (a single lookup, running on
 typical coding/debugging/investigation → Sonnet (default); complex architecture, deep multi-file debugging, or
 
 high-stakes production changes → Opus. Say which tier and why when it's not the default.
+
+
+
+\*\*Dispatch-first, not hands-on-first.\*\* For any real chunk of spehr work — bug fixes, investigations, UI/UX
+
+changes, docs, tests, verification — the primary Claude Code session (\`boss\` on the Office board) should dispatch
+
+it to the matching role from the 12-role roster in the Ruflo Office section above via
+
+\`node .claude/helpers/office-task-bridge.cjs start --id <id> --type <role> --model <tier> --desc "<what>"\` \+ the
+
+Agent tool, picking both role and model tier by the difficulty rule immediately above, then \`complete\`/\`fail\` when
+
+the subagent finishes and review its output before moving on. \*\*This is the default for real implementation work,\*\*
+
+not an occasional nicety — an elaborate role/model/pipeline system that boss narrates while quietly doing everything
+
+itself in the main thread defeats the entire point of building it. What stays with boss directly, not delegated:
+
+deciding priorities and what to dispatch next; registering/completing tasks in the bridge; reviewing subagent output
+
+and deciding pass/fail; git operations (commit/push — no dispatched role has this access, see the per-role access
+
+table above); Supabase migrations/deploys; and the standing hard-exception approvals (migration cutover, force-push,
+
+data deletion, pushing to the live branch). Genuinely trivial one-line read-only checks (e.g. confirming a subagent's
+
+fix compiles) can be done directly too — that's a judgment call, but the default leans toward dispatching, not doing
+
+it yourself. \*\*This applies identically to a fresh cloud Claude Code session picking up the handover doc\*\* — it has
+
+no access to any prior session's local memory, so this paragraph (not a memory file) is the durable source of truth
+
+for the dispatch-first expectation.
