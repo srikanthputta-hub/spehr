@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 export const Route = createFileRoute("/office")({
@@ -10,8 +11,11 @@ export const Route = createFileRoute("/office")({
 // type-gen pass) -- a standalone client keeps this page decoupled from that
 // regeneration rather than casting the shared typed client to `any`.
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+const supabaseKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
 const officeClient = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+
+type RoomKey = "exec_suite" | "ops_tech" | "open_workspace" | "conference" | "breakroom" | "lobby";
 
 interface BoardRow {
   id: string;
@@ -26,6 +30,12 @@ interface BoardRow {
   is_placeholder: boolean;
   started_at: string | null;
   updated_at: string;
+  // Room simulation (see supabase/migrations/20260924210000_office_board_rooms.sql).
+  // home_room is static per role; room only differs from it during a 5s
+  // coffee break (breakroom) or a shared-pipeline meeting (conference).
+  home_room: RoomKey | null;
+  room: RoomKey | null;
+  on_break_until: string | null;
 }
 
 const ROLE_ORDER = [
@@ -60,28 +70,137 @@ const ROLE_LABEL: Record<string, string> = {
   researcher: "researcher",
 };
 
+// Short on-avatar monograms so 13 chips stay legible at ~36px.
+const ROLE_INITIALS: Record<string, string> = {
+  coder: "Co",
+  reviewer: "Rv",
+  tester: "Te",
+  architect: "Ar",
+  devops: "Do",
+  "data-engineer": "DE",
+  "product-manager": "PM",
+  "ux-designer": "UX",
+  "clinical-informaticist": "CI",
+  "security-auditor": "SA",
+  analyst: "An",
+  researcher: "Rs",
+};
+
 const PALETTE = [
-  "#ff7a8f", "#3fe6c8", "#7aa6ff", "#ffdd7a", "#c1a3ff", "#7ad6f5",
-  "#ffb583", "#9cf0b4", "#ff9ecf", "#8fd6ff", "#d9e26a", "#b98cff",
+  "#ff7a8f",
+  "#3fe6c8",
+  "#7aa6ff",
+  "#ffdd7a",
+  "#c1a3ff",
+  "#7ad6f5",
+  "#ffb583",
+  "#9cf0b4",
+  "#ff9ecf",
+  "#8fd6ff",
+  "#d9e26a",
+  "#b98cff",
 ];
 const BOSS_ACCENT = "#ffd700";
 
 const MODEL_META: Record<string, { badge: string; color: string; label: string; tier: string }> = {
-  haiku: { badge: "H", color: "#35e08a", label: "Haiku", tier: "Low complexity — simple/mechanical" },
-  sonnet: { badge: "S", color: "#7aa6ff", label: "Sonnet", tier: "Medium complexity — default for typical work" },
-  opus: { badge: "O", color: "#c1a3ff", label: "Opus", tier: "High complexity — architecture / high-stakes" },
+  haiku: {
+    badge: "H",
+    color: "#35e08a",
+    label: "Haiku",
+    tier: "Low complexity — simple/mechanical",
+  },
+  sonnet: {
+    badge: "S",
+    color: "#7aa6ff",
+    label: "Sonnet",
+    tier: "Medium complexity — default for typical work",
+  },
+  opus: {
+    badge: "O",
+    color: "#c1a3ff",
+    label: "Opus",
+    tier: "High complexity — architecture / high-stakes",
+  },
 };
 const ROUTED_BY_LABEL: Record<string, string> = {
   "task-difficulty": "routed by task complexity",
   default: "standing roster (no task run yet)",
 };
 
-// Positions are computed dynamically so any number of role pods fits around
-// the hub without overlapping -- no fixed slot count. Desktop only.
-function posFor(i: number, total: number) {
-  const angle = (2 * Math.PI * i) / total - Math.PI / 2;
-  const rx = 38, ry = 33; // ellipse radii (%) — wider than tall to fit the viewport
-  return { top: 50 + ry * Math.sin(angle), left: 50 + rx * Math.cos(angle) };
+// Mirrors the migration's static home_room CASE -- only used as a fallback
+// if a row somehow arrives without home_room/room populated.
+const HOME_ROOM_BY_ROLE: Record<string, RoomKey> = {
+  boss: "exec_suite",
+  "security-auditor": "ops_tech",
+  devops: "ops_tech",
+  coder: "open_workspace",
+  "data-engineer": "open_workspace",
+  tester: "open_workspace",
+  reviewer: "open_workspace",
+};
+
+const ROOMS: {
+  key: RoomKey;
+  label: string;
+  sub: string;
+  tint: string;
+  door: "left" | "right" | null;
+}[] = [
+  {
+    key: "exec_suite",
+    label: "Executive Suite",
+    sub: "the boss's desk",
+    tint: BOSS_ACCENT,
+    door: "right",
+  },
+  { key: "ops_tech", label: "Ops & Tech", sub: "security · devops", tint: "#7ad6f5", door: "left" },
+  {
+    key: "lobby",
+    label: "Lobby",
+    sub: "floating roles · connects every room",
+    tint: "#9db2ff",
+    door: null,
+  },
+  {
+    key: "open_workspace",
+    label: "Open Workspace",
+    sub: "coder · data-eng · tester · reviewer",
+    tint: "#3fe6c8",
+    door: "left",
+  },
+  {
+    key: "breakroom",
+    label: "Breakroom",
+    sub: "5s coffee after every finished task",
+    tint: "#ffb583",
+    door: "right",
+  },
+  {
+    key: "conference",
+    label: "Conference",
+    sub: "2+ agents on one pipeline",
+    tint: "#c1a3ff",
+    door: "left",
+  },
+];
+const ROOM_KEYS = new Set<string>(ROOMS.map((r) => r.key));
+const ROOM_LABEL: Record<string, string> = Object.fromEntries(ROOMS.map((r) => [r.key, r.label]));
+
+// The backend's room logic keys off status='working'. The bridge script has
+// historically written 'active' for dispatched tasks, so treat both as "at
+// work" here rather than letting a live agent render as idle.
+function isWorking(r: BoardRow) {
+  return r.status === "working" || r.status === "active";
+}
+
+function roomOf(r: BoardRow): RoomKey {
+  const cand = r.room ?? r.home_room ?? HOME_ROOM_BY_ROLE[r.role] ?? "lobby";
+  return (ROOM_KEYS.has(cand) ? cand : "lobby") as RoomKey;
+}
+
+function roleRank(role: string) {
+  const i = ROLE_ORDER.indexOf(role);
+  return i === -1 ? ROLE_ORDER.length : i;
 }
 
 function timeAgo(iso: string | null): string {
@@ -92,34 +211,74 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(s / 3600)}h ago`;
 }
 
-function svgLine(x1: number, y1: number, x2: number, y2: number) {
-  const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2 - 4;
-  return `M ${x1} ${y1} Q ${midX} ${midY} ${x2} ${y2}`;
+function elapsed(iso: string | null, now: number): string {
+  if (!iso) return "—";
+  const s = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60),
+    sec = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${String(sec).padStart(2, "0")}s`;
+  return `${sec}s`;
 }
 
 function pipelineTag(row: BoardRow | undefined | null) {
   if (!row || !row.pipeline_name) return null;
-  const stageStr = row.pipeline_stage && row.pipeline_total ? ` ${row.pipeline_stage}/${row.pipeline_total}` : "";
+  const stageStr =
+    row.pipeline_stage && row.pipeline_total ? ` ${row.pipeline_stage}/${row.pipeline_total}` : "";
   return `🔗 ${row.pipeline_name}${stageStr}`;
 }
 
-interface TickerItem { id: string; text: string; }
-interface Tip { x: number; y: number; html: string; }
-type Selection = { kind: "group"; type: string } | { kind: "hub" } | null;
+function CoffeeIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        d="M5 1.5c-.6.8.6 1.4 0 2.3M8 1.5c-.6.8.6 1.4 0 2.3"
+        stroke="#e7eaf3"
+        strokeWidth="1"
+        fill="none"
+        strokeLinecap="round"
+        opacity=".7"
+      />
+      <path d="M2.5 6h9v4.2A3.8 3.8 0 0 1 7.7 14H6.3a3.8 3.8 0 0 1-3.8-3.8z" fill="#c98a55" />
+      <path
+        d="M11.5 7.2h1a1.8 1.8 0 0 1 0 3.6h-1.2"
+        stroke="#c98a55"
+        strokeWidth="1.3"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
+interface TickerItem {
+  id: string;
+  text: string;
+}
+interface PopPos {
+  top: number;
+  left: number;
+}
+
+const MOVE_MS = 750;
+const POP_W = 290;
 
 function OfficePage() {
   const [rows, setRows] = useState<BoardRow[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState("");
-  const [collapsed, setCollapsed] = useState(false);
-  const [selected, setSelected] = useState<Selection>(null);
-  const [ringPulse, setRingPulse] = useState(0);
   const [ticker, setTicker] = useState<TickerItem[]>([]);
-  const [tip, setTip] = useState<Tip | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [popPos, setPopPos] = useState<PopPos | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
-  const prevActiveIds = useRef<Set<string> | null>(null);
+  const prevState = useRef<Map<string, { working: boolean; room: RoomKey }> | null>(null);
   const tickIdRef = useRef(0);
+  const floorRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const avatarEls = useRef(new Map<string, HTMLButtonElement>());
+  const lastPos = useRef(new Map<string, { x: number; y: number }>());
 
   const pushTick = useCallback((text: string) => {
     const id = `t${tickIdRef.current++}`;
@@ -134,7 +293,9 @@ function OfficePage() {
     }
     const { data, error: err } = await officeClient
       .from("office_board")
-      .select("*")
+      .select(
+        "id, role, status, description, model, model_routed_by, pipeline_name, pipeline_stage, pipeline_total, is_placeholder, started_at, updated_at, home_room, room, on_break_until",
+      )
       .order("started_at", { ascending: true });
     if (err) {
       setConnected(false);
@@ -145,18 +306,30 @@ function OfficePage() {
     setError(null);
     const next = (data ?? []) as BoardRow[];
 
-    const activeIds = new Set(next.filter((r) => !r.is_placeholder).map((r) => r.id));
-    if (prevActiveIds.current) {
+    const nextState = new Map(next.map((r) => [r.id, { working: isWorking(r), room: roomOf(r) }]));
+    if (prevState.current) {
       for (const r of next) {
-        if (!r.is_placeholder && !prevActiveIds.current.has(r.id)) {
-          pushTick(`🟢 ${ROLE_LABEL[r.role] ?? r.role} started: ${r.description ?? "(no description)"}`);
+        const label = ROLE_LABEL[r.role] ?? r.role;
+        const before = prevState.current.get(r.id);
+        const after = nextState.get(r.id)!;
+        if (after.working && !before?.working) {
+          pushTick(`🟢 ${label} started: ${r.description ?? "(no description)"}`);
+        } else if (before?.working && !after.working) {
+          pushTick(
+            after.room === "breakroom"
+              ? `☕ ${label} finished — coffee break`
+              : `✅ ${label} finished`,
+          );
+        }
+        if (after.room === "conference" && before && before.room !== "conference") {
+          pushTick(`🤝 ${label} joined ${r.pipeline_name ?? "a"} meeting`);
         }
       }
-      for (const id of prevActiveIds.current) {
-        if (!activeIds.has(id)) pushTick(`✅ finished`);
+      for (const [id, s] of prevState.current) {
+        if (!nextState.has(id) && s.working) pushTick("✅ finished");
       }
     }
-    prevActiveIds.current = activeIds;
+    prevState.current = nextState;
     setRows(next);
   }, [pushTick]);
 
@@ -166,94 +339,364 @@ function OfficePage() {
     return () => clearInterval(poll);
   }, [fetchBoard]);
 
-  const byRole = useMemo(() => {
-    const m = new Map<string, BoardRow[]>();
-    for (const row of rows) {
-      const list = m.get(row.role) ?? [];
-      list.push(row);
-      m.set(row.role, list);
-    }
+  const accentByRole = useMemo(() => {
+    const map = new Map<string, string>();
+    ROLE_ORDER.forEach((role, i) =>
+      map.set(role, role === "boss" ? BOSS_ACCENT : PALETTE[i % PALETTE.length]),
+    );
+    return map;
+  }, []);
+  const accentFor = (role: string) => accentByRole.get(role) ?? "#7aa6ff";
+
+  const byRoom = useMemo(() => {
+    const m = new Map<RoomKey, BoardRow[]>();
+    for (const r of ROOMS) m.set(r.key, []);
+    for (const row of rows) m.get(roomOf(row))!.push(row);
+    for (const list of m.values())
+      list.sort((a, b) => roleRank(a.role) - roleRank(b.role) || a.id.localeCompare(b.id));
     return m;
   }, [rows]);
 
-  const fullGroupList = useMemo(
-    () => ROLE_ORDER.map((role) => [role, byRole.get(role) ?? []] as [string, BoardRow[]]),
-    [byRole]
-  );
-  const groupList = filterText
-    ? fullGroupList.filter(([role]) => (ROLE_LABEL[role] ?? role).toLowerCase().includes(filterText.toLowerCase()))
-    : fullGroupList;
+  const workingEntries = rows.filter(isWorking);
+  const selected = selectedId ? (rows.find((r) => r.id === selectedId) ?? null) : null;
 
-  const accentByType = useMemo(() => {
-    const map = new Map<string, string>();
-    fullGroupList.forEach(([role], i) => map.set(role, role === "boss" ? BOSS_ACCENT : PALETTE[i % PALETTE.length]));
-    return map;
-  }, [fullGroupList]);
+  // ---------- FLIP room-change animation ----------
+  // Agents re-parent into a different room panel when `room` changes, so a
+  // plain CSS transition can't animate it. Instead: remember each avatar's
+  // position (relative to the floor plan) after every layout, and when the
+  // placement changes, start the avatar at its old spot and transition the
+  // transform back to zero.
+  const layoutKey = rows
+    .map((r) => `${r.id}:${roomOf(r)}:${r.pipeline_name ?? ""}:${isWorking(r) ? 1 : 0}`)
+    .join("|");
 
-  const activeEntries = rows.filter((r) => !r.is_placeholder);
-  const anyActive = activeEntries.length > 0;
+  const measureAll = useCallback(() => {
+    const floor = floorRef.current;
+    if (!floor) return new Map<string, { x: number; y: number }>();
+    const base = floor.getBoundingClientRect();
+    const m = new Map<string, { x: number; y: number }>();
+    avatarEls.current.forEach((el, id) => {
+      const r = el.getBoundingClientRect();
+      m.set(id, { x: r.left - base.left, y: r.top - base.top });
+    });
+    return m;
+  }, []);
 
-  const activePipelines = useMemo(() => {
-    const p = new Map<string, { name: string; stage: number | null; total: number | null }>();
-    for (const r of activeEntries) {
-      if (r.pipeline_name) p.set(r.pipeline_name, { name: r.pipeline_name, stage: r.pipeline_stage, total: r.pipeline_total });
+  useLayoutEffect(() => {
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    // Clear any in-flight transforms before measuring the new layout.
+    avatarEls.current.forEach((el) => {
+      el.style.transition = "none";
+      el.style.transform = "";
+    });
+    const next = measureAll();
+    if (!reduce) {
+      next.forEach((pos, id) => {
+        const prev = lastPos.current.get(id);
+        const el = avatarEls.current.get(id);
+        if (!prev || !el) return;
+        const dx = prev.x - pos.x,
+          dy = prev.y - pos.y;
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+        el.style.transform = `translate(${dx}px, ${dy}px)`;
+        el.classList.add("moving");
+        void el.offsetWidth; // commit the starting position
+        requestAnimationFrame(() => {
+          el.style.transition = `transform ${MOVE_MS}ms cubic-bezier(.22,.8,.24,1)`;
+          el.style.transform = "";
+          window.setTimeout(() => el.classList.remove("moving"), MOVE_MS + 50);
+        });
+      });
     }
-    return [...p.values()];
-  }, [activeEntries]);
+    lastPos.current = next;
+  }, [layoutKey, measureAll]);
 
-  // Shared drawer/sheet content — same markup renders in the desktop
-  // right-side drawer and the mobile bottom sheet so the two layouts never
-  // drift out of sync.
-  let selectedTitle: string | null = null;
-  let selectedSub: string | null = null;
-  let selectedBody: React.ReactNode = null;
-  if (selected?.kind === "group") {
-    selectedTitle = (ROLE_LABEL[selected.type] ?? selected.type).toUpperCase();
-    const list = (byRole.get(selected.type) ?? []).filter((r) => !r.is_placeholder);
-    selectedSub = `${list.length} active on this desk`;
-    selectedBody = list.length === 0 ? (
-      <div className="drawer-empty">Idle — no active work for this role.</div>
-    ) : (
-      list.map((r) => {
-        const m = r.model ? MODEL_META[r.model] : undefined;
-        const tag = pipelineTag(r);
-        return (
-          <div key={r.id} className="agent-row">
-            <span className="status-dot" />
-            <span className="info">
-              <div className="id">{r.id}</div>
-              <div className="stats">{timeAgo(r.started_at)}</div>
-              {m && (
-                <div className="stats" style={{ marginTop: 2 }}>
-                  <span className="model-chip" style={{ background: `${m.color}22`, color: m.color }}>
-                    <span className="sw" style={{ background: m.color }} />{m.label}
-                  </span> · {ROUTED_BY_LABEL[r.model_routed_by ?? ""] ?? "routing unknown"}
-                </div>
-              )}
-              <div className="stats task">{r.description ?? "(no description)"}</div>
-              {tag && <span className="pipeline-tag">{tag}</span>}
+  useEffect(() => {
+    const onResize = () => {
+      lastPos.current = measureAll();
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [measureAll]);
+
+  // ---------- Inspect popover ----------
+  const placePopover = useCallback(() => {
+    if (!selectedId) return;
+    const el = avatarEls.current.get(selectedId);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const vw = window.innerWidth,
+      vh = window.innerHeight;
+    const popH = popRef.current?.offsetHeight ?? 220;
+    let left = r.left + r.width / 2 - POP_W / 2;
+    left = Math.max(12, Math.min(left, vw - POP_W - 12));
+    let top = r.bottom + 10;
+    if (top + popH > vh - 12 && r.top - popH - 10 > 12) top = r.top - popH - 10;
+    setPopPos({ top, left });
+  }, [selectedId]);
+
+  useLayoutEffect(() => {
+    if (!selectedId) {
+      setPopPos(null);
+      return;
+    }
+    placePopover();
+    // Re-place once the transition (if any) has landed.
+    const t = window.setTimeout(placePopover, MOVE_MS + 80);
+    return () => window.clearTimeout(t);
+  }, [selectedId, layoutKey, placePopover]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const closeAndRefocus = () => {
+      const trigger = avatarEls.current.get(selectedId);
+      setSelectedId(null);
+      trigger?.focus();
+    };
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const t = e.target as Node;
+      if (popRef.current?.contains(t)) return;
+      if (avatarEls.current.get(selectedId)?.contains(t)) return;
+      if ((t as Element).closest?.("[data-agent-trigger]")) return; // another avatar/row: its own onClick switches selection
+      setSelectedId(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAndRefocus();
+    };
+    const onScroll = () => placePopover();
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    setNow(Date.now());
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+      window.clearInterval(tick);
+    };
+  }, [selectedId, placePopover]);
+
+  // If the selected agent vanishes from the board (bridge row deleted), close.
+  useEffect(() => {
+    if (selectedId && !rows.some((r) => r.id === selectedId)) setSelectedId(null);
+  }, [rows, selectedId]);
+
+  const toggleSelect = (id: string) => setSelectedId((cur) => (cur === id ? null : id));
+
+  const filterLc = filterText.trim().toLowerCase();
+  const matchesFilter = (r: BoardRow) =>
+    !filterLc || (ROLE_LABEL[r.role] ?? r.role).toLowerCase().includes(filterLc);
+
+  const renderAgent = (r: BoardRow, style?: CSSProperties) => {
+    const working = isWorking(r);
+    const room = roomOf(r);
+    const onBreak = room === "breakroom";
+    const accent = accentFor(r.role);
+    const m = working && r.model ? MODEL_META[r.model] : undefined;
+    const label = ROLE_LABEL[r.role] ?? r.role;
+    const isSel = selectedId === r.id;
+    const stateText = onBreak ? "on break" : working ? "working" : "idle";
+    return (
+      <button
+        key={r.id}
+        type="button"
+        data-agent-trigger=""
+        ref={(el) => {
+          if (el) avatarEls.current.set(r.id, el);
+          else avatarEls.current.delete(r.id);
+        }}
+        className={`agent ${working ? "working" : ""} ${onBreak ? "on-break" : ""} ${isSel ? "selected" : ""} ${matchesFilter(r) ? "" : "dimmed"}`}
+        style={{ ["--accent" as string]: accent, ...style }}
+        onClick={() => toggleSelect(r.id)}
+        aria-haspopup="dialog"
+        aria-expanded={isSel}
+        aria-label={`${label}, ${stateText}${working && r.description ? `: ${r.description}` : ""}. Show details`}
+        title={`${label} · ${stateText}`}
+      >
+        <span className="agent-av">
+          <span className="agent-mono">
+            {r.role === "boss" ? "👑" : (ROLE_INITIALS[r.role] ?? r.role.slice(0, 2))}
+          </span>
+          {working && <span className="presence" aria-hidden="true" />}
+          {m && (
+            <span className="model-badge" style={{ background: m.color }} aria-hidden="true">
+              {m.badge}
             </span>
-          </div>
-        );
-      })
+          )}
+          {onBreak && (
+            <span className="cup" aria-hidden="true">
+              <CoffeeIcon />
+            </span>
+          )}
+        </span>
+        <span className="agent-name">{label}</span>
+        {onBreak && <span className="agent-state brk">on break</span>}
+      </button>
     );
-  } else if (selected?.kind === "hub") {
-    selectedTitle = "SWARM CORE";
-    selectedSub = "spehr.live · office_board";
-    selectedBody = (
+  };
+
+  const renderConference = (list: BoardRow[]) => {
+    // Cluster by pipeline: each 2+ group of working agents sits around its
+    // own table. Anyone else in here (shouldn't normally happen) renders as a
+    // plain occupant so the page never breaks on an odd row.
+    const groups = new Map<string, BoardRow[]>();
+    const loose: BoardRow[] = [];
+    for (const r of list) {
+      if (isWorking(r) && r.pipeline_name) {
+        const g = groups.get(r.pipeline_name) ?? [];
+        g.push(r);
+        groups.set(r.pipeline_name, g);
+      } else loose.push(r);
+    }
+    const meetings: [string, BoardRow[]][] = [];
+    for (const [name, g] of groups) {
+      if (g.length >= 2) meetings.push([name, g]);
+      else loose.push(...g);
+    }
+    return (
       <>
-        <div className="drawer-stat-row">
-          <div className="drawer-stat"><div className="n">{activeEntries.length}</div><div className="l">Active</div></div>
-          <div className="drawer-stat"><div className="n">{ROLE_ORDER.length - new Set(activeEntries.map((r) => r.role)).size}</div><div className="l">Idle roles</div></div>
-        </div>
-        {activePipelines.length > 0 && (
-          <div className="drawer-stat">
-            <div className="l" style={{ marginBottom: 4 }}>Active pipelines</div>
-            {activePipelines.map((p) => (
-              <div key={p.name} style={{ fontSize: 11, color: "#cfd6ea" }}>🔗 {p.name} — stage {p.stage}/{p.total}</div>
-            ))}
+        {meetings.map(([name, g]) => {
+          const n = g.length;
+          const w = Math.min(300, 170 + n * 14),
+            h = Math.min(220, 140 + n * 8);
+          const rx = w / 2 - 26,
+            ry = h / 2 - 26;
+          const sample = g[0];
+          const stage = sample.pipeline_total
+            ? ` · ${g.length} of ${sample.pipeline_total} stages`
+            : "";
+          return (
+            <div key={name} className="meeting">
+              <div className="meeting-label">
+                <span className="meeting-dot" />
+                meeting · 🔗 {name}
+                {stage}
+              </div>
+              <div className="meeting-floor" style={{ width: w, height: h }}>
+                <div className="meeting-table" style={{ width: w - 110, height: h - 100 }} />
+                {g.map((r, i) => {
+                  const a = (2 * Math.PI * i) / n - Math.PI / 2;
+                  return renderAgent(r, {
+                    position: "absolute",
+                    left: w / 2 + rx * Math.cos(a) - 30,
+                    top: h / 2 + ry * Math.sin(a) - 20,
+                  });
+                })}
+              </div>
+            </div>
+          );
+        })}
+        {loose.length > 0 && <div className="occupants">{loose.map((r) => renderAgent(r))}</div>}
+      </>
+    );
+  };
+
+  let popBody: ReactNode = null;
+  if (selected) {
+    const working = isWorking(selected);
+    const room = roomOf(selected);
+    const m = selected.model ? MODEL_META[selected.model] : undefined;
+    const accent = accentFor(selected.role);
+    popBody = (
+      <>
+        <div className="pop-head">
+          <div>
+            <div className="pop-title" id="agent-pop-title" style={{ color: accent }}>
+              {selected.role === "boss" ? "👑 " : ""}
+              {(ROLE_LABEL[selected.role] ?? selected.role).toUpperCase()}
+            </div>
+            <div className="pop-sub">
+              <span className={`pop-state ${working ? "on" : ""}`} />
+              {room === "breakroom" ? "on a coffee break" : working ? "working" : "idle"} ·{" "}
+              {ROOM_LABEL[room]}
+              {room !== (selected.home_room ?? room)
+                ? ` (home: ${ROOM_LABEL[selected.home_room ?? ""] ?? selected.home_room})`
+                : ""}
+            </div>
           </div>
-        )}
+          <button
+            type="button"
+            className="pop-close"
+            onClick={() => {
+              const t = avatarEls.current.get(selected.id);
+              setSelectedId(null);
+              t?.focus();
+            }}
+            aria-label="Close details"
+          >
+            &times;
+          </button>
+        </div>
+        <div className="pop-task">
+          {working ? (
+            (selected.description ?? "(no description)")
+          ) : (
+            <span className="muted">Idle — no active task.</span>
+          )}
+        </div>
+        <dl className="pop-grid">
+          {m && (
+            <>
+              <dt>Model</dt>
+              <dd>
+                <span
+                  className="model-chip"
+                  style={{ background: `${m.color}22`, color: m.color }}
+                  title={m.tier}
+                >
+                  <span className="sw" style={{ background: m.color }} />
+                  {m.label}
+                </span>
+                <span className="muted">
+                  {" "}
+                  · {ROUTED_BY_LABEL[selected.model_routed_by ?? ""] ?? "routing unknown"}
+                </span>
+              </dd>
+            </>
+          )}
+          {selected.pipeline_name && (
+            <>
+              <dt>Pipeline</dt>
+              <dd>
+                <span className="pipeline-tag" style={{ marginTop: 0 }}>
+                  🔗 {selected.pipeline_name}
+                </span>
+                {selected.pipeline_stage != null && (
+                  <span className="muted">
+                    {" "}
+                    stage {selected.pipeline_stage}
+                    {selected.pipeline_total ? `/${selected.pipeline_total}` : ""}
+                  </span>
+                )}
+              </dd>
+            </>
+          )}
+          {working && (
+            <>
+              <dt>Elapsed</dt>
+              <dd className="mono">{elapsed(selected.started_at, now)}</dd>
+            </>
+          )}
+          {room === "breakroom" && selected.on_break_until && (
+            <>
+              <dt>Break</dt>
+              <dd className="mono">
+                {new Date(selected.on_break_until).getTime() > now
+                  ? `${Math.ceil((new Date(selected.on_break_until).getTime() - now) / 1000)}s left`
+                  : "heading back"}
+              </dd>
+            </>
+          )}
+          <dt>Row</dt>
+          <dd className="mono muted">{selected.id}</dd>
+        </dl>
       </>
     );
   }
@@ -268,477 +711,345 @@ function OfficePage() {
           background: radial-gradient(ellipse 90% 70% at 50% 38%, #1a2540 0%, #0a0c14 62%, #060709 100%);
           color: #e7eaf3; font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
         }
-        .mobile-view { display: none; }
-        @media (max-width: 700px) {
-          .desktop-view { display: none; }
-          .mobile-view { display: block; }
-        }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 
-        /* ================= DESKTOP (hub-and-spoke) ================= */
-        .office { position: relative; width: 100%; height: 100vh; overflow: hidden; }
-        header.office-header { position: absolute; top: 0; left: 0; right: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; padding: 16px 22px; }
-        .brand { font-weight: 800; letter-spacing: .12em; font-size: 13px; color: #cfd6ea; }
+        /* ================= MASTHEAD ================= */
+        header.office-header { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 22px; background: rgba(6,7,10,.78); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,.06); }
+        .brand { font-weight: 800; letter-spacing: .12em; font-size: 13px; color: #cfd6ea; white-space: nowrap; }
         .brand span { color: #6d7690; font-weight: 600; }
         .brand .live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #35e08a; margin-right: 8px; box-shadow: 0 0 8px #35e08a; animation: pulse 1.6s infinite; vertical-align: 1px; }
+        .swarm-count { font-size: 11px; color: #9aa2ba; margin-left: 12px; letter-spacing: .02em; font-weight: 600; }
+        .swarm-count b { color: #35e08a; }
         .conn-row { display: flex; gap: 6px; align-items: center; }
-        .conn-chip { display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); padding: 5px 10px; border-radius: 999px; font-size: 11px; color: #9aa2ba; backdrop-filter: blur(6px); }
+        .conn-chip { display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); padding: 5px 10px; border-radius: 999px; font-size: 11px; color: #9aa2ba; }
         .conn-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: #4a5170; }
         .conn-chip.on .dot { background: #35e08a; box-shadow: 0 0 6px #35e08a; }
         .conn-chip.off .dot { background: #e0435c; }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-        .stage { position: absolute; inset: 0; }
-        .floor { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px); background-size: 46px 46px; mask-image: radial-gradient(ellipse 75% 65% at 50% 48%, black 40%, transparent 78%); }
-        .wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-        .wires path.wire { fill: none; stroke: rgba(140,160,255,.28); stroke-width: .18; stroke-dasharray: .6 1.1; animation: flow 12s linear infinite; vector-effect: non-scaling-stroke; }
-        .wires path.wire.hot { stroke: rgba(160,220,255,.55); }
-        .wires circle.pulse { fill: #9db2ff; filter: drop-shadow(0 0 3px #9db2ff); }
-        @keyframes flow { to { stroke-dashoffset: -60; } }
-        .hub { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 84px; height: 84px; z-index: 5; cursor: pointer; }
-        .hub-ring { position: absolute; inset: -10px; border-radius: 50%; border: 1px solid rgba(140,160,255,.35); opacity: 0; }
-        .hub-ring.pulsing { animation: ringpulse 1.1s ease-out; }
-        @keyframes ringpulse { 0% { opacity: .9; transform: scale(.85); } 100% { opacity: 0; transform: scale(1.7); } }
-        .hub-core { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #9db2ff, #4b5bd6 55%, #222a5c 100%); box-shadow: 0 0 40px 6px rgba(90,110,255,.45), 0 0 0 1px rgba(255,255,255,.15) inset; animation: breathe 3.4s ease-in-out infinite; transition: box-shadow .3s ease; }
-        .hub.active .hub-core { box-shadow: 0 0 54px 10px rgba(120,150,255,.65), 0 0 0 1px rgba(255,255,255,.2) inset; }
-        @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-        .hub-label { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 8px; font-size: 10px; font-weight: 800; letter-spacing: .1em; color: #9aa2ba; white-space: nowrap; text-align: center; }
-        .hub-sub { font-size: 9px; color: #565e78; font-weight: 600; display: block; margin-top: 1px; }
-        .platform-wrap { position: absolute; z-index: 4; transform: translate(-50%,-50%); }
-        .pod-bob { animation: bob 4.4s ease-in-out infinite; }
-        @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-        .pod { position: relative; cursor: pointer; background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015)), #12151f; border: 1px solid var(--accent-dim, rgba(255,255,255,.12)); border-radius: 14px; padding: 10px 12px 9px; min-width: 100px; max-width: 210px; box-shadow: 0 18px 34px -16px rgba(0,0,0,.7), 0 0 0 1px rgba(0,0,0,.3) inset; transition: filter .2s ease, transform .2s ease, box-shadow .3s ease; }
-        .pod::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; height: 3px; background: var(--accent, #7aa6ff); border-radius: 0 0 3px 3px; opacity: .9; }
-        .pod::after { content: ''; position: absolute; inset: -5px; border-radius: 18px; border: 1.5px solid var(--accent, #7aa6ff); opacity: 0; pointer-events: none; }
-        .platform-wrap.has-active .pod::after { opacity: .55; animation: activering 1.6s ease-in-out infinite; }
-        @keyframes activering { 0%,100% { opacity: .25; } 50% { opacity: .85; } }
-        .platform-wrap.selected .pod { filter: brightness(1.22); }
-        .platform-wrap:hover .pod { filter: brightness(1.15); }
-        .pod-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 9px; padding-top: 2px; }
-        .pod-team { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--accent, #7aa6ff); white-space: nowrap; }
-        .pod-count { font-size: 10.5px; font-weight: 700; color: #9aa2ba; }
-        .desks { display: flex; flex-wrap: wrap; gap: 12px 10px; justify-content: center; max-width: 186px; }
-        .desk { position: relative; width: 34px; display: flex; flex-direction: column; align-items: center; }
-        .desk .worker { font-size: 21px; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,.55)); transition: transform .18s ease; }
-        .desk:hover .worker { transform: scale(1.18) translateY(-1px); }
-        .desk .mat { width: 28px; height: 5px; border-radius: 3px; margin-top: 3px; background: var(--accent, #7aa6ff); opacity: .8; box-shadow: 0 3px 6px -1px rgba(0,0,0,.5); }
-        .desk .light { position: absolute; top: -3px; right: 1px; width: 7px; height: 7px; border-radius: 50%; border: 1px solid rgba(0,0,0,.4); }
-        .desk .light.green { background: #35e08a; box-shadow: 0 0 7px 1px #35e08a; animation: lightpulse 1.5s ease-in-out infinite; }
-        @keyframes lightpulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
-        .desk .model-badge { position: absolute; top: -3px; left: 1px; width: 12px; height: 12px; border-radius: 4px; font-size: 8px; font-weight: 800; line-height: 12px; text-align: center; color: #0a0c14; border: 1px solid rgba(0,0,0,.35); box-shadow: 0 1px 3px rgba(0,0,0,.5); }
-        .pod-idle { font-size: 10.5px; color: #565e78; text-align: center; padding: 4px 0 2px; }
-        .pod-model-legend { font-size: 8.5px; color: #6d7690; margin-top: 6px; text-align: center; letter-spacing: .01em; }
+        .search-box { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 11.5px; color: #e7eaf3; width: 140px; transition: width .2s ease, background .2s ease; }
+        .search-box::placeholder { color: #6d7690; }
+        .search-box:focus { outline: none; width: 180px; background: rgba(255,255,255,.08); border-color: rgba(140,160,255,.4); }
+        .legend-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; margin: 14px auto 0; width: fit-content; max-width: calc(100% - 32px); background: rgba(16,19,30,.85); border: 1px solid rgba(255,255,255,.08); border-radius: 999px; padding: 6px 14px; font-size: 10.5px; color: #9aa2ba; }
+        .legend-bar .sep { color: #565e78; }
+        .legend-key { display: inline-flex; align-items: center; gap: 5px; }
+        .legend-key .pd { width: 7px; height: 7px; border-radius: 50%; background: #35e08a; box-shadow: 0 0 6px #35e08a; }
         .model-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; padding: 1px 6px 1px 4px; border-radius: 999px; }
         .model-chip .sw { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
-        .legend-bar { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; gap: 10px; align-items: center; background: rgba(16,19,30,.85); border: 1px solid rgba(255,255,255,.08); border-radius: 999px; padding: 6px 14px; font-size: 10.5px; color: #9aa2ba; backdrop-filter: blur(8px); pointer-events: none; white-space: nowrap; }
-        .desk-tip { position: fixed; z-index: 60; max-width: 230px; pointer-events: none; background: #f4f6fb; color: #191b22; font-size: 11.5px; line-height: 1.35; padding: 8px 11px; border-radius: 12px; border-bottom-left-radius: 3px; box-shadow: 0 12px 28px -10px rgba(0,0,0,.6); }
-        .desk-tip b { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #6b7080; margin-bottom: 3px; font-weight: 800; }
-        .search-box { pointer-events: auto; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 11.5px; color: #e7eaf3; width: 140px; transition: width .2s ease, background .2s ease; }
-        .search-box::placeholder { color: #6d7690; }
-        .search-box:focus { outline: none; width: 190px; background: rgba(255,255,255,.08); border-color: rgba(140,160,255,.4); }
-        .work-panel { position: fixed; left: 16px; top: 64px; z-index: 22; width: 250px; max-height: calc(100vh - 100px); display: flex; flex-direction: column; background: rgba(11,13,20,.9); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 14px 30px -12px rgba(0,0,0,.6); transition: transform .22s ease; }
-        .work-panel.collapsed { transform: translateX(calc(-100% + 34px)); }
-        .work-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,.07); cursor: pointer; flex-shrink: 0; }
+        .pipeline-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; color: #ffdd7a; background: rgba(255,221,122,.12); border: 1px solid rgba(255,221,122,.25); border-radius: 999px; padding: 1px 7px; margin-top: 3px; width: fit-content; }
+
+        /* ================= PAGE LAYOUT ================= */
+        .office-body { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; padding: 16px 22px 90px; max-width: 1440px; margin: 0 auto; align-items: start; }
+        @media (max-width: 1100px) { .office-body { grid-template-columns: minmax(0, 1fr); } .work-panel { order: 2; position: static !important; max-height: none !important; } }
+        @media (max-width: 600px) { .office-body { padding: 12px 12px 90px; } header.office-header { padding: 12px 14px; } .swarm-count { display: block; margin: 4px 0 0; } }
+
+        /* Who's working on what */
+        .work-panel { position: sticky; top: 72px; max-height: calc(100vh - 96px); display: flex; flex-direction: column; background: rgba(11,13,20,.9); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; box-shadow: 0 14px 30px -12px rgba(0,0,0,.6); }
+        .work-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,.07); flex-shrink: 0; }
         .work-panel-head .t { font-size: 10px; font-weight: 800; letter-spacing: .08em; color: #9aa2ba; }
         .work-panel-head .n { font-size: 10px; font-weight: 800; color: #35e08a; background: rgba(53,224,138,.12); padding: 1px 7px; border-radius: 999px; }
         .work-panel-body { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-        .work-row { display: flex; flex-direction: column; gap: 2px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); border-left: 3px solid var(--accent, #7aa6ff); border-radius: 7px; padding: 6px 9px; cursor: pointer; transition: background .15s ease; }
+        .work-row { display: flex; flex-direction: column; gap: 2px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); border-left: 3px solid var(--accent, #7aa6ff); border-radius: 7px; padding: 6px 9px; cursor: pointer; transition: background .15s ease; text-align: left; color: inherit; font: inherit; width: 100%; }
         .work-row:hover { background: rgba(255,255,255,.07); }
+        .work-row:focus-visible { outline: 2px solid rgba(140,160,255,.6); outline-offset: 1px; }
         .work-row .role { font-size: 9.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--accent, #7aa6ff); }
         .work-row .desc { font-size: 11px; color: #cfd6ea; line-height: 1.3; margin-top: 1px; }
         .work-row .meta { font-size: 9.5px; color: #565e78; margin-top: 2px; }
         .work-empty { color: #565e78; font-size: 11px; text-align: center; padding: 14px 8px; }
-        .pipeline-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; color: #ffdd7a; background: rgba(255,221,122,.12); border: 1px solid rgba(255,221,122,.25); border-radius: 999px; padding: 1px 7px; margin-top: 3px; width: fit-content; }
-        .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; max-width: 90vw; z-index: 50; background: rgba(11,13,20,.97); border-left: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(14px); display: flex; flex-direction: column; transform: translateX(100%); transition: transform .28s ease; }
-        .drawer.open { transform: translateX(0); }
-        .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
-        .drawer-head .title { font-weight: 800; font-size: 13px; letter-spacing: .05em; }
-        .drawer-head .sub { font-size: 10.5px; color: #6d7690; margin-top: 2px; }
-        .drawer-close { background: none; border: none; color: #6d7690; font-size: 18px; cursor: pointer; padding: 2px 6px; }
-        .drawer-body { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 
-        /* ================= SHARED (both layouts) ================= */
-        .drawer-empty { color: #565e78; font-size: 12px; text-align: center; margin-top: 30px; }
-        .drawer-stat-row { display: flex; gap: 8px; }
-        .drawer-stat { flex: 1; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 9px; padding: 8px 10px; }
-        .drawer-stat .n { font-size: 17px; font-weight: 800; }
-        .drawer-stat .l { font-size: 9.5px; color: #6d7690; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
-        .agent-row { display: flex; align-items: center; gap: 9px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 9px; padding: 8px 10px; }
-        .agent-row .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #35e08a; box-shadow: 0 0 6px #35e08a; flex-shrink: 0; }
-        .agent-row .info { flex: 1; min-width: 0; }
-        .agent-row .id { font-size: 10.5px; font-family: ui-monospace, monospace; color: #9aa2ba; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .agent-row .stats { font-size: 10px; color: #565e78; margin-top: 1px; }
-        .agent-row .stats.task { color: #9db2ff; margin-top: 2px; }
+        /* ================= FLOOR PLAN ================= */
+        .floorplan { position: relative; display: grid; gap: 10px; padding: 12px; border-radius: 18px;
+          grid-template-columns: minmax(0, 1fr) minmax(0, .9fr) minmax(0, 1.25fr);
+          grid-template-rows: minmax(150px, auto) minmax(110px, auto) minmax(110px, auto) minmax(170px, auto);
+          grid-template-areas:
+            "exec_suite lobby ops_tech"
+            "exec_suite lobby open_workspace"
+            "breakroom  lobby open_workspace"
+            "breakroom  lobby conference";
+          background: #0b0e17; border: 2px solid rgba(157,178,255,.16);
+          box-shadow: 0 30px 60px -30px rgba(0,0,0,.8), inset 0 0 0 1px rgba(0,0,0,.4);
+          background-image: linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+          background-size: 23px 23px;
+        }
+        @media (max-width: 900px) {
+          .floorplan { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: none;
+            grid-template-areas: "exec_suite ops_tech" "lobby lobby" "open_workspace open_workspace" "breakroom conference"; }
+          .door { display: none; }
+        }
+        @media (max-width: 560px) {
+          .floorplan { grid-template-columns: minmax(0, 1fr); padding: 8px; gap: 8px;
+            grid-template-areas: "exec_suite" "ops_tech" "lobby" "open_workspace" "conference" "breakroom"; }
+        }
+        .room { position: relative; min-width: 0; display: flex; flex-direction: column; border-radius: 12px; padding: 10px 12px 12px;
+          background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012)), #12151f;
+          border: 1px solid rgba(255,255,255,.09); box-shadow: 0 18px 34px -20px rgba(0,0,0,.7); }
+        .room::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; height: 3px; background: var(--tint); border-radius: 0 0 3px 3px; opacity: .75; }
+        .room.lobby { background: radial-gradient(ellipse 80% 60% at 50% 50%, rgba(120,150,255,.09), transparent 70%), rgba(18,21,31,.72); border-style: dashed; border-color: rgba(157,178,255,.2); }
+        .room-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding-top: 2px; }
+        .room-name { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--tint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .room-sub { display: block; font-size: 9.5px; color: #565e78; font-weight: 600; letter-spacing: .01em; text-transform: none; margin-top: 1px; white-space: normal; }
+        .room-count { font-size: 10.5px; font-weight: 700; color: #9aa2ba; flex-shrink: 0; }
+        .room-count .w { color: #35e08a; }
+        .room-empty { font-size: 10.5px; color: #3f465e; text-align: center; margin: auto 0; padding: 10px 0; font-style: italic; }
+        .occupants { display: flex; flex-wrap: wrap; gap: 10px 6px; align-content: flex-start; justify-content: center; }
+        .room.lobby .occupants { flex: 1; align-content: center; }
+        .door { position: absolute; top: 50%; width: 5px; height: 38px; transform: translateY(-50%); background: #0b0e17; border-radius: 2px; }
+        .door::after { content: ''; position: absolute; inset: 6px 1.5px; border-radius: 2px; background: var(--tint); opacity: .45; }
+        .door.left { left: -3px; } .door.right { right: -3px; }
+        .room-deco { position: absolute; right: 10px; bottom: 8px; opacity: .14; pointer-events: none; font-size: 26px; line-height: 1; filter: grayscale(.3); }
+
+        /* ================= AGENTS ================= */
+        .agent { position: relative; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 2px 3px; background: none; border: none; border-radius: 10px; color: inherit; font: inherit; cursor: pointer; transition: opacity .3s ease, background .15s ease; }
+        .agent:hover { background: rgba(255,255,255,.05); }
+        .agent:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+        .agent.moving { z-index: 15; }
+        .agent.dimmed { opacity: .22; }
+        .agent-av { position: relative; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+          background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 38%, #12151f), #151925 78%);
+          border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+          box-shadow: 0 6px 12px -6px rgba(0,0,0,.8); transition: transform .18s ease, border-color .2s ease, box-shadow .3s ease; }
+        .agent:hover .agent-av { transform: translateY(-1px) scale(1.06); }
+        .agent.working .agent-av { border-color: var(--accent); box-shadow: 0 0 14px -3px var(--accent), 0 6px 12px -6px rgba(0,0,0,.8); }
+        .agent.selected .agent-av { box-shadow: 0 0 0 3px rgba(255,255,255,.14), 0 0 16px -2px var(--accent); }
+        .agent-mono { font-size: 11px; font-weight: 800; letter-spacing: .02em; color: var(--accent); line-height: 1; }
+        .agent-name { max-width: 62px; font-size: 9px; font-weight: 600; color: #9aa2ba; line-height: 1.15; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .agent.working .agent-name { color: #cfd6ea; }
+        .agent-state.brk { font-size: 8.5px; font-weight: 700; color: #ffb583; background: rgba(255,181,131,.12); border: 1px solid rgba(255,181,131,.25); border-radius: 999px; padding: 0 5px; line-height: 13px; }
+        .presence { position: absolute; right: -2px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; background: #35e08a; border: 2px solid #12151f; }
+        .presence::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; border: 1.5px solid #35e08a; animation: presence 1.8s ease-out infinite; }
+        @keyframes presence { 0% { transform: scale(.6); opacity: .8; } 80%,100% { transform: scale(1.7); opacity: 0; } }
+        .model-badge { position: absolute; top: -4px; left: -4px; width: 13px; height: 13px; border-radius: 4px; font-size: 8px; font-weight: 800; line-height: 11px; text-align: center; color: #0a0c14; border: 1px solid rgba(0,0,0,.35); box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+        .cup { position: absolute; top: -6px; right: -8px; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1b1f2c; border: 1px solid rgba(255,181,131,.35); animation: sip 2.4s ease-in-out infinite; }
+        @keyframes sip { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-10deg) translateY(-1px); } }
+
+        /* Conference meetings */
+        .meeting { display: flex; flex-direction: column; align-items: center; margin: 0 auto 8px; }
+        .meeting-label { font-size: 9.5px; font-weight: 700; color: #c1a3ff; letter-spacing: .03em; margin-bottom: 2px; display: flex; align-items: center; gap: 5px; text-align: center; }
+        .meeting-dot { width: 6px; height: 6px; border-radius: 50%; background: #c1a3ff; animation: pulse 1.6s infinite; flex-shrink: 0; }
+        .meeting-floor { position: relative; max-width: 100%; }
+        .meeting-table { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(ellipse at 40% 35%, rgba(193,163,255,.2), rgba(193,163,255,.05) 70%); border: 1px solid rgba(193,163,255,.35); box-shadow: inset 0 0 18px rgba(0,0,0,.4); }
+
+        /* ================= INSPECT POPOVER ================= */
+        .agent-pop { position: fixed; z-index: 70; width: ${POP_W}px; background: rgba(13,15,22,.98); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; box-shadow: 0 20px 44px -14px rgba(0,0,0,.8); padding: 12px 14px 12px; animation: popIn .16s ease; }
+        @keyframes popIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+        @media (max-width: 560px) { .agent-pop { left: 12px !important; right: 12px; top: auto !important; bottom: 12px; width: auto; } }
+        .pop-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+        .pop-title { font-weight: 800; font-size: 12.5px; letter-spacing: .05em; }
+        .pop-sub { font-size: 10.5px; color: #6d7690; margin-top: 2px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+        .pop-state { width: 7px; height: 7px; border-radius: 50%; background: #4a5170; flex-shrink: 0; }
+        .pop-state.on { background: #35e08a; box-shadow: 0 0 6px #35e08a; }
+        .pop-close { background: rgba(255,255,255,.06); border: none; color: #9aa2ba; font-size: 16px; width: 26px; height: 26px; border-radius: 999px; cursor: pointer; flex-shrink: 0; line-height: 1; }
+        .pop-close:hover { color: #e7eaf3; background: rgba(255,255,255,.1); }
+        .pop-close:focus-visible { outline: 2px solid rgba(140,160,255,.6); }
+        .pop-task { margin-top: 10px; font-size: 12px; color: #cfd6ea; line-height: 1.4; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); border-radius: 8px; padding: 8px 10px; word-break: break-word; }
+        .pop-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; margin: 10px 0 0; font-size: 11px; align-items: center; }
+        .pop-grid dt { color: #565e78; font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+        .pop-grid dd { margin: 0; color: #cfd6ea; min-width: 0; overflow-wrap: anywhere; }
+        .muted { color: #6d7690; }
+        .mono { font-family: ui-monospace, monospace; font-size: 10.5px; }
+
+        .office-footer-note { text-align: center; font-size: 10.5px; color: #565e78; margin-top: 16px; line-height: 1.5; }
         .ticker { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; flex-direction: column-reverse; gap: 6px; z-index: 25; pointer-events: none; align-items: center; width: min(560px, 90vw); }
-        .ticker-item { background: rgba(14,17,28,.92); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 6px 14px; font-size: 11.5px; color: #cfd6ea; backdrop-filter: blur(8px); animation: tickerIn .35s ease; box-shadow: 0 8px 20px -8px rgba(0,0,0,.6); white-space: nowrap; }
+        .ticker-item { background: rgba(14,17,28,.92); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 6px 14px; font-size: 11.5px; color: #cfd6ea; backdrop-filter: blur(8px); animation: tickerIn .35s ease; box-shadow: 0 8px 20px -8px rgba(0,0,0,.6); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
         @keyframes tickerIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         @media (max-width: 700px) { .ticker { bottom: 12px; width: calc(100vw - 24px); } .ticker-item { white-space: normal; text-align: center; } }
-
-        /* ================= MOBILE (vertical list) ================= */
-        .m-wrap { min-height: 100vh; padding: 0 14px calc(90px + env(safe-area-inset-bottom,0px)); max-width: 560px; margin: 0 auto; }
-        .m-header { position: sticky; top: 0; z-index: 20; background: rgba(6,7,10,.92); backdrop-filter: blur(10px); margin: 0 -14px; padding: calc(14px + env(safe-area-inset-top,0px)) 14px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
-        .m-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-        .m-title { font-weight: 800; letter-spacing: .08em; font-size: 14px; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-        .m-title span { color: #6d7690; font-weight: 600; }
-        .m-status-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; color: #9aa2ba; flex-wrap: wrap; }
-        .m-search { margin-top: 10px; width: 100%; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; color: #e7eaf3; }
-        .m-search::placeholder { color: #6d7690; }
-        .m-body { padding-top: 14px; }
-        .m-hub-card { width: 100%; display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, rgba(120,150,255,.16), rgba(80,60,180,.08)); border: 1px solid rgba(140,160,255,.32); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; text-align: left; color: inherit; font: inherit; }
-        .m-hub-orb { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; background: radial-gradient(circle at 35% 30%, #9db2ff, #4b5bd6 55%, #222a5c 100%); box-shadow: 0 0 22px 4px rgba(90,110,255,.5); animation: breathe 3.4s ease-in-out infinite; }
-        .m-hub-text { min-width: 0; }
-        .m-hub-text b { display: block; font-size: 13.5px; letter-spacing: .06em; }
-        .m-hub-text span { font-size: 11.5px; color: #9aa2ba; }
-        .m-section-title { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #6d7690; margin: 2px 2px 8px; }
-        .m-work-row { background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.08); border-left: 3px solid var(--accent,#7aa6ff); border-radius: 10px; padding: 11px 13px; margin-bottom: 8px; width: 100%; text-align: left; color: inherit; font: inherit; }
-        .m-work-row .role { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--accent,#7aa6ff); }
-        .m-work-row .desc { font-size: 13px; color: #cfd6ea; margin-top: 3px; line-height: 1.35; }
-        .m-work-row .meta { font-size: 10.5px; color: #565e78; margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .m-role-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
-        .m-role-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 13px 14px; color: inherit; font: inherit; }
-        .m-role-row.has-active { border-color: var(--accent); background: rgba(255,255,255,.065); }
-        .m-role-row.is-boss { border-color: rgba(255,215,0,.4); }
-        .m-desk { position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(255,255,255,.04); border-radius: 10px; }
-        .m-desk .worker { font-size: 20px; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
-        .m-desk .light { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #0d0f16; }
-        .m-desk .light.green { background: #35e08a; box-shadow: 0 0 7px 1px #35e08a; animation: lightpulse 1.5s ease-in-out infinite; }
-        .m-desk .light.red { background: #6b2f38; }
-        .m-role-main { flex: 1; min-width: 0; }
-        .m-role-name { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
-        .m-role-sub { font-size: 11.5px; color: #6d7690; margin-top: 2px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .m-role-badges { display: flex; gap: 4px; flex-shrink: 0; }
-        .m-chev { color: #565e78; font-size: 20px; flex-shrink: 0; line-height: 1; }
-        .m-legend { display: flex; gap: 8px; overflow-x: auto; margin: 14px 0 16px; padding-bottom: 2px; -webkit-overflow-scrolling: touch; }
-        .m-legend::-webkit-scrollbar { display: none; }
-        .m-footer-note { text-align: center; font-size: 10.5px; color: #565e78; margin-top: 18px; line-height: 1.5; }
-
-        .m-sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
-        .m-sheet-backdrop.open { opacity: 1; pointer-events: auto; }
-        .m-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; max-height: 80vh; background: #0d0f16; border-top-left-radius: 18px; border-top-right-radius: 18px; border: 1px solid rgba(255,255,255,.1); border-bottom: none; transform: translateY(100%); transition: transform .28s ease; display: flex; flex-direction: column; box-shadow: 0 -20px 50px -20px rgba(0,0,0,.7); }
-        .m-sheet.open { transform: translateY(0); }
-        .m-sheet-handle { width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.22); margin: 10px auto 2px; flex-shrink: 0; }
-        .m-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px 12px; border-bottom: 1px solid rgba(255,255,255,.08); flex-shrink: 0; }
-        .m-sheet-head .title { font-weight: 800; font-size: 14px; letter-spacing: .04em; }
-        .m-sheet-head .sub { font-size: 11px; color: #6d7690; margin-top: 2px; }
-        .m-sheet-close { background: rgba(255,255,255,.06); border: none; color: #9aa2ba; font-size: 18px; width: 30px; height: 30px; border-radius: 999px; cursor: pointer; flex-shrink: 0; }
-        .m-sheet-body { flex: 1; overflow-y: auto; padding: 14px 18px calc(20px + env(safe-area-inset-bottom,0px)); display: flex; flex-direction: column; gap: 10px; -webkit-overflow-scrolling: touch; }
+        @media (prefers-reduced-motion: reduce) {
+          .presence::after, .cup, .meeting-dot, .brand .live { animation: none; }
+        }
       `}</style>
 
       <div className="office-root">
-        {/* ================= DESKTOP VIEW ================= */}
-        <div className="desktop-view">
-          <div className="office">
-            <header className="office-header">
-              <div className="brand"><span className="live" />RUFLO <span>OFFICE</span></div>
-              <div className="conn-row">
-                <span className={`conn-chip ${connected ? "on" : "off"}`}><span className="dot" />supabase</span>
-                <input
-                  className="search-box"
-                  placeholder="Filter role…"
-                  value={filterText}
-                  onChange={(e) => setFilterText(e.target.value)}
-                />
-              </div>
-            </header>
+        <header className="office-header">
+          <div>
+            <span className="brand">
+              <span className="live" />
+              RUFLO <span>OFFICE</span>
+            </span>
+            <span className="swarm-count">
+              SWARM · <b>{workingEntries.length}</b> working · {rows.length || ROLE_ORDER.length}{" "}
+              agents
+            </span>
+          </div>
+          <div className="conn-row">
+            <span className={`conn-chip ${connected ? "on" : "off"}`}>
+              <span className="dot" />
+              supabase
+            </span>
+            <input
+              className="search-box"
+              placeholder="Filter role…"
+              aria-label="Filter agents by role"
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+            />
+          </div>
+        </header>
 
-            <div className="legend-bar">
-              Model tier:
-              {Object.entries(MODEL_META).map(([key, m]) => (
-                <span key={key} className="model-chip" style={{ background: `${m.color}22`, color: m.color }}>
-                  <span className="sw" style={{ background: m.color }} />{m.badge}={m.label}
-                </span>
-              ))}
-              <span style={{ color: "#565e78" }}>— switches automatically by task complexity</span>
+        <div className="legend-bar">
+          Model tier:
+          {Object.entries(MODEL_META).map(([key, m]) => (
+            <span
+              key={key}
+              className="model-chip"
+              style={{ background: `${m.color}22`, color: m.color }}
+            >
+              <span className="sw" style={{ background: m.color }} />
+              {m.badge}={m.label}
+            </span>
+          ))}
+          <span className="sep">·</span>
+          <span className="legend-key">
+            <span className="pd" />
+            working
+          </span>
+          <span className="legend-key">
+            <CoffeeIcon />
+            on break
+          </span>
+          <span className="sep">— click any agent to inspect</span>
+        </div>
+
+        <div className="office-body">
+          <aside className="work-panel" aria-label="Who's working on what">
+            <div className="work-panel-head">
+              <span className="t">WHO'S WORKING ON WHAT</span>
+              <span className="n">{workingEntries.length}</span>
             </div>
-
-            <div className={`work-panel ${collapsed ? "collapsed" : ""}`}>
-              <div className="work-panel-head" onClick={() => setCollapsed((c) => !c)}>
-                <span className="t">WHO'S WORKING ON WHAT</span>
-                <span className="n">{activeEntries.length}</span>
-              </div>
-              <div className="work-panel-body">
-                {activeEntries.length === 0 ? (
-                  <div className="work-empty">Nobody is working right now.</div>
-                ) : (
-                  [...activeEntries]
-                    .sort((a, b) => (a.role === "boss" ? -1 : b.role === "boss" ? 1 : 0))
-                    .map((r) => {
-                      const accent = accentByType.get(r.role) ?? "#7aa6ff";
-                      const roleLabel = r.role === "boss" ? "👑 boss" : (ROLE_LABEL[r.role] ?? r.role);
-                      const tag = pipelineTag(r);
-                      return (
-                        <div
-                          key={r.id}
-                          className="work-row"
-                          style={{ ["--accent" as string]: accent }}
-                          onClick={() => setSelected({ kind: "group", type: r.role })}
-                        >
-                          <span className="role">{roleLabel}</span>
-                          <span className="desc">{r.description ?? "(no description)"}</span>
-                          {tag && <span className="pipeline-tag">{tag}</span>}
-                          <span className="meta">{timeAgo(r.started_at)}</span>
-                        </div>
-                      );
-                    })
-                )}
-              </div>
+            <div className="work-panel-body">
+              {workingEntries.length === 0 ? (
+                <div className="work-empty">Nobody is working right now.</div>
+              ) : (
+                [...workingEntries]
+                  .sort((a, b) =>
+                    a.role === "boss"
+                      ? -1
+                      : b.role === "boss"
+                        ? 1
+                        : roleRank(a.role) - roleRank(b.role),
+                  )
+                  .map((r) => {
+                    const roleLabel =
+                      r.role === "boss" ? "👑 boss" : (ROLE_LABEL[r.role] ?? r.role);
+                    const tag = pipelineTag(r);
+                    const room = roomOf(r);
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        data-agent-trigger=""
+                        className="work-row"
+                        style={{ ["--accent" as string]: accentFor(r.role) }}
+                        onClick={() => toggleSelect(r.id)}
+                      >
+                        <span className="role">{roleLabel}</span>
+                        <span className="desc">{r.description ?? "(no description)"}</span>
+                        {tag && <span className="pipeline-tag">{tag}</span>}
+                        <span className="meta">
+                          {timeAgo(r.started_at)} · {ROOM_LABEL[room]}
+                        </span>
+                      </button>
+                    );
+                  })
+              )}
             </div>
+          </aside>
 
-            <div className="stage">
-              <div className="floor" />
-              <svg className="wires" viewBox="0 0 100 100" preserveAspectRatio="none">
-                {groupList.map(([role, list], i) => {
-                  const pos = posFor(i, groupList.length);
-                  const hasActive = list.some((r) => !r.is_placeholder);
-                  const wireId = `wire-${role}`;
-                  return (
-                    <g key={role}>
-                      <path id={wireId} className={`wire ${hasActive ? "hot" : ""}`} d={svgLine(pos.left, pos.top, 50, 50)} />
-                      {hasActive && (
-                        <circle r=".7" className="pulse">
-                          <animateMotion dur={`${2.2 + (i % 3) * 0.4}s`} repeatCount="indefinite">
-                            <mpath xlinkHref={`#${wireId}`} />
-                          </animateMotion>
-                        </circle>
-                      )}
-                    </g>
-                  );
-                })}
-              </svg>
-
-              <div className={`hub ${anyActive ? "active" : ""}`} onClick={() => { setSelected({ kind: "hub" }); setRingPulse((p) => p + 1); }}>
-                <div key={ringPulse} className={ringPulse ? "hub-ring pulsing" : "hub-ring"} />
-                <div className="hub-core" />
-                <div className="hub-label">SWARM<span className="hub-sub">{activeEntries.length} active · {ROLE_ORDER.length} roles</span></div>
-              </div>
-
-              {groupList.map(([role, list], i) => {
-                const pos = posFor(i, groupList.length);
-                const accent = accentByType.get(role) ?? PALETTE[i % PALETTE.length];
-                const active = list.filter((r) => !r.is_placeholder);
-                const hasActive = active.length > 0;
-                const isSelected = selected?.kind === "group" && selected.type === role;
-                const modelCounts = new Map<string, number>();
-                for (const r of active) {
-                  const m = r.model ? MODEL_META[r.model] : undefined;
-                  if (m) modelCounts.set(m.label, (modelCounts.get(m.label) ?? 0) + 1);
-                }
-                const modelSummary = [...modelCounts.entries()].map(([label, n]) => `${n} ${label}`).join(" · ");
-
+          <main>
+            <div className="floorplan" ref={floorRef} aria-label="Office floor plan">
+              {ROOMS.map((room) => {
+                const list = byRoom.get(room.key) ?? [];
+                const w = list.filter(isWorking).length;
                 return (
-                  <div
-                    key={role}
-                    className={`platform-wrap ${hasActive ? "has-active" : ""} ${isSelected ? "selected" : ""}`}
-                    style={{ top: `${pos.top}%`, left: `${pos.left}%` }}
-                    onClick={() => setSelected({ kind: "group", type: role })}
+                  <section
+                    key={room.key}
+                    className={`room ${room.key === "lobby" ? "lobby" : ""}`}
+                    style={{ gridArea: room.key, ["--tint" as string]: room.tint }}
+                    aria-label={`${room.label}: ${list.length} ${list.length === 1 ? "agent" : "agents"}`}
                   >
-                    <div className="pod-bob">
-                      <div className="pod" style={{ ["--accent" as string]: accent, ["--accent-dim" as string]: `${accent}33` }}>
-                        <div className="pod-head">
-                          <span className="pod-team">{ROLE_LABEL[role] ?? role}</span>
-                          <span className="pod-count">{active.length}</span>
-                        </div>
-                        {active.length === 0 ? (
-                          <div className="pod-idle">idle</div>
-                        ) : (
-                          <div className="desks">
-                            {active.map((r) => {
-                              const m = r.model ? MODEL_META[r.model] : undefined;
-                              const workerIcon = role === "boss" ? "👑" : "🧑‍💻";
-                              return (
-                                <div
-                                  key={r.id}
-                                  className="desk"
-                                  onMouseEnter={(e) => {
-                                    const modelLine = m
-                                      ? `<div style="margin-top:4px;color:#565e78">${m.label} (${m.tier}) — ${ROUTED_BY_LABEL[r.model_routed_by ?? ""] ?? "routing unknown"}</div>`
-                                      : "";
-                                    const tag = pipelineTag(r);
-                                    setTip({
-                                      x: e.clientX + 14,
-                                      y: e.clientY + 14,
-                                      html: `<b>${ROLE_LABEL[role] ?? role} · ${r.id.slice(0, 18)}</b>${r.description ?? "(no description)"}${modelLine}${tag ? `<div style="margin-top:4px">${tag}</div>` : ""}`,
-                                    });
-                                  }}
-                                  onMouseMove={(e) => setTip((t) => (t ? { ...t, x: e.clientX + 14, y: e.clientY + 14 } : t))}
-                                  onMouseLeave={() => setTip(null)}
-                                >
-                                  <span className="light green" />
-                                  {m && (
-                                    <span className="model-badge" style={{ background: m.color }} title={`${m.label} · ${m.tier}`}>
-                                      {m.badge}
-                                    </span>
-                                  )}
-                                  <span className="worker">{workerIcon}</span>
-                                  <div className="mat" />
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {role === "boss" && <div className="pod-model-legend" style={{ color: "#ffd700cc" }}>the primary session, not a dispatched role</div>}
-                        {modelSummary && <div className="pod-model-legend">{modelSummary}</div>}
-                      </div>
+                    {room.door && <span className={`door ${room.door}`} aria-hidden="true" />}
+                    <div className="room-head">
+                      <span className="room-name">
+                        {room.label}
+                        <span className="room-sub">{room.sub}</span>
+                      </span>
+                      <span className="room-count">
+                        {list.length}
+                        {w > 0 && <span className="w"> · {w} busy</span>}
+                      </span>
                     </div>
-                  </div>
+                    {list.length === 0 ? (
+                      <div className="room-empty">
+                        {room.key === "conference"
+                          ? "no meetings right now"
+                          : room.key === "breakroom"
+                            ? "nobody on break"
+                            : "empty"}
+                      </div>
+                    ) : room.key === "conference" ? (
+                      renderConference(list)
+                    ) : (
+                      <div className="occupants">{list.map((r) => renderAgent(r))}</div>
+                    )}
+                    <span className="room-deco" aria-hidden="true">
+                      {room.key === "exec_suite"
+                        ? "🗄️"
+                        : room.key === "ops_tech"
+                          ? "🖥️"
+                          : room.key === "open_workspace"
+                            ? "💻"
+                            : room.key === "conference"
+                              ? "📋"
+                              : room.key === "breakroom"
+                                ? "☕"
+                                : "🪴"}
+                    </span>
+                  </section>
                 );
               })}
             </div>
-
-            <div className={`drawer ${selected ? "open" : ""}`}>
-              <div className="drawer-head">
-                <div>
-                  {selectedTitle && <div className="title">{selectedTitle}</div>}
-                  {selectedSub && <div className="sub">{selectedSub}</div>}
-                </div>
-                <button className="drawer-close" onClick={() => setSelected(null)}>&times;</button>
-              </div>
-              <div className="drawer-body">{selectedBody}</div>
+            <div className="office-footer-note">
+              Monitoring only — nothing here can spawn or control an agent. State lives in Supabase,
+              not on any one machine.
             </div>
-          </div>
+          </main>
         </div>
 
-        {/* ================= MOBILE VIEW ================= */}
-        <div className="mobile-view">
-          <div className="m-wrap">
-            <div className="m-header">
-              <div className="m-title-row">
-                <div className="m-title">RUFLO <span>OFFICE</span></div>
-                <span className={`conn-chip ${connected ? "on" : "off"}`}><span className="dot" />supabase</span>
-              </div>
-              <div className="m-status-row">
-                <span className={`m-role-dot ${anyActive ? "" : ""}`} style={{ background: anyActive ? "#35e08a" : "#4a5170", width: 6, height: 6 }} />
-                {activeEntries.length} active · {ROLE_ORDER.length} roles
-              </div>
-              <input
-                className="m-search"
-                placeholder="Filter role…"
-                value={filterText}
-                onChange={(e) => setFilterText(e.target.value)}
-              />
-            </div>
-
-            <div className="m-body">
-              <button className="m-hub-card" onClick={() => setSelected({ kind: "hub" })}>
-                <div className="m-hub-orb" />
-                <div className="m-hub-text">
-                  <b>SWARM CORE</b>
-                  <span>{activeEntries.length} active · {activePipelines.length} pipeline{activePipelines.length === 1 ? "" : "s"} running</span>
-                </div>
-              </button>
-
-              {activeEntries.length > 0 && (
-                <>
-                  <div className="m-section-title">Working now</div>
-                  {[...activeEntries]
-                    .sort((a, b) => (a.role === "boss" ? -1 : b.role === "boss" ? 1 : 0))
-                    .map((r) => {
-                      const accent = accentByType.get(r.role) ?? "#7aa6ff";
-                      const roleLabel = r.role === "boss" ? "👑 boss" : (ROLE_LABEL[r.role] ?? r.role);
-                      const m = r.model ? MODEL_META[r.model] : undefined;
-                      const tag = pipelineTag(r);
-                      return (
-                        <button
-                          key={r.id}
-                          className="m-work-row"
-                          style={{ ["--accent" as string]: accent }}
-                          onClick={() => setSelected({ kind: "group", type: r.role })}
-                        >
-                          <span className="role">{roleLabel}</span>
-                          <div className="desc">{r.description ?? "(no description)"}</div>
-                          <div className="meta">
-                            <span>{timeAgo(r.started_at)}</span>
-                            {m && (
-                              <span className="model-chip" style={{ background: `${m.color}22`, color: m.color }}>
-                                <span className="sw" style={{ background: m.color }} />{m.label}
-                              </span>
-                            )}
-                            {tag && <span className="pipeline-tag" style={{ marginTop: 0 }}>{tag}</span>}
-                          </div>
-                        </button>
-                      );
-                    })}
-                </>
-              )}
-
-              <div className="m-section-title">All roles</div>
-              <div className="m-role-list">
-                {groupList.map(([role, list]) => {
-                  const accent = accentByType.get(role) ?? "#7aa6ff";
-                  const active = list.filter((r) => !r.is_placeholder);
-                  const hasActive = active.length > 0;
-                  const primary = active[0];
-                  const sub = hasActive
-                    ? (primary?.description ?? "working")
-                    : "idle";
-                  return (
-                    <button
-                      key={role}
-                      className={`m-role-row ${hasActive ? "has-active" : ""} ${role === "boss" ? "is-boss" : ""}`}
-                      style={{ ["--accent" as string]: accent }}
-                      onClick={() => setSelected({ kind: "group", type: role })}
-                    >
-                      <span className="m-desk">
-                        <span className="worker">{role === "boss" ? "👑" : "🧑‍💻"}</span>
-                        <span className={`light ${hasActive ? "green" : "red"}`} />
-                      </span>
-                      <div className="m-role-main">
-                        <span className="m-role-name">{ROLE_LABEL[role] ?? role}</span>
-                        <span className="m-role-sub">{sub}</span>
-                      </div>
-                      {hasActive && (
-                        <div className="m-role-badges">
-                          {active.slice(0, 3).map((r) => {
-                            const m = r.model ? MODEL_META[r.model] : undefined;
-                            if (!m) return null;
-                            return (
-                              <span key={r.id} className="model-chip" style={{ background: `${m.color}22`, color: m.color, padding: "1px 5px" }}>
-                                {m.badge}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <span className="m-chev">›</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="m-legend">
-                {Object.entries(MODEL_META).map(([key, m]) => (
-                  <span key={key} className="model-chip" style={{ background: `${m.color}22`, color: m.color, flexShrink: 0 }}>
-                    <span className="sw" style={{ background: m.color }} />{m.badge}={m.label}
-                  </span>
-                ))}
-              </div>
-
-              <div className="m-footer-note">Monitoring only — nothing here can spawn or control an agent.<br />State lives in Supabase, not on any one machine.</div>
-            </div>
+        {selected && (
+          <div
+            ref={popRef}
+            className="agent-pop"
+            role="dialog"
+            aria-labelledby="agent-pop-title"
+            style={{ top: popPos?.top ?? -9999, left: popPos?.left ?? -9999 }}
+          >
+            {popBody}
           </div>
-
-          <div className={`m-sheet-backdrop ${selected ? "open" : ""}`} onClick={() => setSelected(null)} />
-          <div className={`m-sheet ${selected ? "open" : ""}`}>
-            <div className="m-sheet-handle" />
-            <div className="m-sheet-head">
-              <div>
-                {selectedTitle && <div className="title">{selectedTitle}</div>}
-                {selectedSub && <div className="sub">{selectedSub}</div>}
-              </div>
-              <button className="m-sheet-close" onClick={() => setSelected(null)}>&times;</button>
-            </div>
-            <div className="m-sheet-body">{selectedBody}</div>
-          </div>
-        </div>
-
-        <div className="ticker">
-          {ticker.map((t) => <div key={t.id} className="ticker-item">{t.text}</div>)}
-        </div>
-
-        {tip && (
-          <div className="desk-tip" style={{ left: tip.x, top: tip.y }} dangerouslySetInnerHTML={{ __html: tip.html }} />
         )}
 
+        <div className="ticker" aria-live="polite">
+          {ticker.map((t) => (
+            <div key={t.id} className="ticker-item">
+              {t.text}
+            </div>
+          ))}
+        </div>
+
         {error && (
-          <div style={{ position: "fixed", bottom: 16, right: 16, left: 16, maxWidth: 320, marginInline: "auto", background: "rgba(224,67,92,.15)", border: "1px solid rgba(224,67,92,.4)", color: "#ff9fae", padding: "8px 14px", borderRadius: 10, fontSize: 11.5, zIndex: 30 }}>
+          <div
+            style={{
+              position: "fixed",
+              bottom: 16,
+              right: 16,
+              left: 16,
+              maxWidth: 320,
+              marginInline: "auto",
+              background: "rgba(224,67,92,.15)",
+              border: "1px solid rgba(224,67,92,.4)",
+              color: "#ff9fae",
+              padding: "8px 14px",
+              borderRadius: 10,
+              fontSize: 11.5,
+              zIndex: 30,
+            }}
+          >
             {error}
           </div>
         )}
