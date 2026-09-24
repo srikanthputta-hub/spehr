@@ -396,8 +396,11 @@ function OfficePage() {
         .m-role-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 13px 14px; color: inherit; font: inherit; }
         .m-role-row.has-active { border-color: var(--accent); background: rgba(255,255,255,.065); }
         .m-role-row.is-boss { border-color: rgba(255,215,0,.4); }
-        .m-role-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent,#7aa6ff); flex-shrink: 0; }
-        .m-role-row.has-active .m-role-dot { box-shadow: 0 0 8px 1px var(--accent); animation: lightpulse 1.5s ease-in-out infinite; }
+        .m-desk { position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(255,255,255,.04); border-radius: 10px; }
+        .m-desk .worker { font-size: 20px; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
+        .m-desk .light { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #0d0f16; }
+        .m-desk .light.green { background: #35e08a; box-shadow: 0 0 7px 1px #35e08a; animation: lightpulse 1.5s ease-in-out infinite; }
+        .m-desk .light.red { background: #6b2f38; }
         .m-role-main { flex: 1; min-width: 0; }
         .m-role-name { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
         .m-role-sub { font-size: 11.5px; color: #6d7690; margin-top: 2px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -673,9 +676,12 @@ function OfficePage() {
                       style={{ ["--accent" as string]: accent }}
                       onClick={() => setSelected({ kind: "group", type: role })}
                     >
-                      <span className="m-role-dot" />
+                      <span className="m-desk">
+                        <span className="worker">{role === "boss" ? "👑" : "🧑‍💻"}</span>
+                        <span className={`light ${hasActive ? "green" : "red"}`} />
+                      </span>
                       <div className="m-role-main">
-                        <span className="m-role-name">{role === "boss" && "👑"} {ROLE_LABEL[role] ?? role}</span>
+                        <span className="m-role-name">{ROLE_LABEL[role] ?? role}</span>
                         <span className="m-role-sub">{sub}</span>
                       </div>
                       {hasActive && (
