@@ -77,7 +77,7 @@ const ROUTED_BY_LABEL: Record<string, string> = {
 };
 
 // Positions are computed dynamically so any number of role pods fits around
-// the hub without overlapping -- no fixed slot count.
+// the hub without overlapping -- no fixed slot count. Desktop only.
 function posFor(i: number, total: number) {
   const angle = (2 * Math.PI * i) / total - Math.PI / 2;
   const rx = 38, ry = 33; // ellipse radii (%) — wider than tall to fit the viewport
@@ -105,6 +105,7 @@ function pipelineTag(row: BoardRow | undefined | null) {
 
 interface TickerItem { id: string; text: string; }
 interface Tip { x: number; y: number; html: string; }
+type Selection = { kind: "group"; type: string } | { kind: "hub" } | null;
 
 function OfficePage() {
   const [rows, setRows] = useState<BoardRow[]>([]);
@@ -112,13 +113,12 @@ function OfficePage() {
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState("");
   const [collapsed, setCollapsed] = useState(false);
-  const [selected, setSelected] = useState<{ kind: "group"; type: string } | { kind: "hub" } | null>(null);
+  const [selected, setSelected] = useState<Selection>(null);
   const [ringPulse, setRingPulse] = useState(0);
   const [ticker, setTicker] = useState<TickerItem[]>([]);
   const [tip, setTip] = useState<Tip | null>(null);
 
   const prevActiveIds = useRef<Set<string> | null>(null);
-  const prevGroupCounts = useRef<Map<string, number>>(new Map());
   const tickIdRef = useRef(0);
 
   const pushTick = useCallback((text: string) => {
@@ -201,17 +201,81 @@ function OfficePage() {
     return [...p.values()];
   }, [activeEntries]);
 
+  // Shared drawer/sheet content — same markup renders in the desktop
+  // right-side drawer and the mobile bottom sheet so the two layouts never
+  // drift out of sync.
+  let selectedTitle: string | null = null;
+  let selectedSub: string | null = null;
+  let selectedBody: React.ReactNode = null;
+  if (selected?.kind === "group") {
+    selectedTitle = (ROLE_LABEL[selected.type] ?? selected.type).toUpperCase();
+    const list = (byRole.get(selected.type) ?? []).filter((r) => !r.is_placeholder);
+    selectedSub = `${list.length} active on this desk`;
+    selectedBody = list.length === 0 ? (
+      <div className="drawer-empty">Idle — no active work for this role.</div>
+    ) : (
+      list.map((r) => {
+        const m = r.model ? MODEL_META[r.model] : undefined;
+        const tag = pipelineTag(r);
+        return (
+          <div key={r.id} className="agent-row">
+            <span className="status-dot" />
+            <span className="info">
+              <div className="id">{r.id}</div>
+              <div className="stats">{timeAgo(r.started_at)}</div>
+              {m && (
+                <div className="stats" style={{ marginTop: 2 }}>
+                  <span className="model-chip" style={{ background: `${m.color}22`, color: m.color }}>
+                    <span className="sw" style={{ background: m.color }} />{m.label}
+                  </span> · {ROUTED_BY_LABEL[r.model_routed_by ?? ""] ?? "routing unknown"}
+                </div>
+              )}
+              <div className="stats task">{r.description ?? "(no description)"}</div>
+              {tag && <span className="pipeline-tag">{tag}</span>}
+            </span>
+          </div>
+        );
+      })
+    );
+  } else if (selected?.kind === "hub") {
+    selectedTitle = "SWARM CORE";
+    selectedSub = "spehr.live · office_board";
+    selectedBody = (
+      <>
+        <div className="drawer-stat-row">
+          <div className="drawer-stat"><div className="n">{activeEntries.length}</div><div className="l">Active</div></div>
+          <div className="drawer-stat"><div className="n">{ROLE_ORDER.length - new Set(activeEntries.map((r) => r.role)).size}</div><div className="l">Idle roles</div></div>
+        </div>
+        {activePipelines.length > 0 && (
+          <div className="drawer-stat">
+            <div className="l" style={{ marginBottom: 4 }}>Active pipelines</div>
+            {activePipelines.map((p) => (
+              <div key={p.name} style={{ fontSize: 11, color: "#cfd6ea" }}>🔗 {p.name} — stage {p.stage}/{p.total}</div>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       <style>{`
         .office-root { color-scheme: dark; }
         .office-root * { box-sizing: border-box; }
         .office-root {
-          margin: 0; min-height: 100vh; position: relative; overflow: hidden;
+          margin: 0; min-height: 100vh; position: relative;
           background: radial-gradient(ellipse 90% 70% at 50% 38%, #1a2540 0%, #0a0c14 62%, #060709 100%);
           color: #e7eaf3; font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
         }
-        .office { position: relative; width: 100%; height: 100vh; }
+        .mobile-view { display: none; }
+        @media (max-width: 700px) {
+          .desktop-view { display: none; }
+          .mobile-view { display: block; }
+        }
+
+        /* ================= DESKTOP (hub-and-spoke) ================= */
+        .office { position: relative; width: 100%; height: 100vh; overflow: hidden; }
         header.office-header { position: absolute; top: 0; left: 0; right: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; padding: 16px 22px; }
         .brand { font-weight: 800; letter-spacing: .12em; font-size: 13px; color: #cfd6ea; }
         .brand span { color: #6d7690; font-weight: 600; }
@@ -283,9 +347,6 @@ function OfficePage() {
         .work-row .meta { font-size: 9.5px; color: #565e78; margin-top: 2px; }
         .work-empty { color: #565e78; font-size: 11px; text-align: center; padding: 14px 8px; }
         .pipeline-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; color: #ffdd7a; background: rgba(255,221,122,.12); border: 1px solid rgba(255,221,122,.25); border-radius: 999px; padding: 1px 7px; margin-top: 3px; width: fit-content; }
-        .ticker { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; flex-direction: column-reverse; gap: 6px; z-index: 25; pointer-events: none; align-items: center; width: min(560px, 90vw); }
-        .ticker-item { background: rgba(14,17,28,.92); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 6px 14px; font-size: 11.5px; color: #cfd6ea; backdrop-filter: blur(8px); animation: tickerIn .35s ease; box-shadow: 0 8px 20px -8px rgba(0,0,0,.6); white-space: nowrap; }
-        @keyframes tickerIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; max-width: 90vw; z-index: 50; background: rgba(11,13,20,.97); border-left: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(14px); display: flex; flex-direction: column; transform: translateX(100%); transition: transform .28s ease; }
         .drawer.open { transform: translateX(0); }
         .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
@@ -293,6 +354,8 @@ function OfficePage() {
         .drawer-head .sub { font-size: 10.5px; color: #6d7690; margin-top: 2px; }
         .drawer-close { background: none; border: none; color: #6d7690; font-size: 18px; cursor: pointer; padding: 2px 6px; }
         .drawer-body { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+        /* ================= SHARED (both layouts) ================= */
         .drawer-empty { color: #565e78; font-size: 12px; text-align: center; margin-top: 30px; }
         .drawer-stat-row { display: flex; gap: 8px; }
         .drawer-stat { flex: 1; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 9px; padding: 8px 10px; }
@@ -304,230 +367,359 @@ function OfficePage() {
         .agent-row .id { font-size: 10.5px; font-family: ui-monospace, monospace; color: #9aa2ba; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .agent-row .stats { font-size: 10px; color: #565e78; margin-top: 1px; }
         .agent-row .stats.task { color: #9db2ff; margin-top: 2px; }
-        .footer-note { position: fixed; left: 50%; bottom: 4px; transform: translateX(-50%); font-size: 10px; color: #565e78; z-index: 15; pointer-events: none; white-space: nowrap; }
+        .ticker { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; flex-direction: column-reverse; gap: 6px; z-index: 25; pointer-events: none; align-items: center; width: min(560px, 90vw); }
+        .ticker-item { background: rgba(14,17,28,.92); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 6px 14px; font-size: 11.5px; color: #cfd6ea; backdrop-filter: blur(8px); animation: tickerIn .35s ease; box-shadow: 0 8px 20px -8px rgba(0,0,0,.6); white-space: nowrap; }
+        @keyframes tickerIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 700px) { .ticker { bottom: 12px; width: calc(100vw - 24px); } .ticker-item { white-space: normal; text-align: center; } }
+
+        /* ================= MOBILE (vertical list) ================= */
+        .m-wrap { min-height: 100vh; padding: 0 14px calc(90px + env(safe-area-inset-bottom,0px)); max-width: 560px; margin: 0 auto; }
+        .m-header { position: sticky; top: 0; z-index: 20; background: rgba(6,7,10,.92); backdrop-filter: blur(10px); margin: 0 -14px; padding: calc(14px + env(safe-area-inset-top,0px)) 14px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+        .m-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .m-title { font-weight: 800; letter-spacing: .08em; font-size: 14px; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+        .m-title span { color: #6d7690; font-weight: 600; }
+        .m-status-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; color: #9aa2ba; flex-wrap: wrap; }
+        .m-search { margin-top: 10px; width: 100%; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; color: #e7eaf3; }
+        .m-search::placeholder { color: #6d7690; }
+        .m-body { padding-top: 14px; }
+        .m-hub-card { width: 100%; display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, rgba(120,150,255,.16), rgba(80,60,180,.08)); border: 1px solid rgba(140,160,255,.32); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; text-align: left; color: inherit; font: inherit; }
+        .m-hub-orb { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; background: radial-gradient(circle at 35% 30%, #9db2ff, #4b5bd6 55%, #222a5c 100%); box-shadow: 0 0 22px 4px rgba(90,110,255,.5); animation: breathe 3.4s ease-in-out infinite; }
+        .m-hub-text { min-width: 0; }
+        .m-hub-text b { display: block; font-size: 13.5px; letter-spacing: .06em; }
+        .m-hub-text span { font-size: 11.5px; color: #9aa2ba; }
+        .m-section-title { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #6d7690; margin: 2px 2px 8px; }
+        .m-work-row { background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.08); border-left: 3px solid var(--accent,#7aa6ff); border-radius: 10px; padding: 11px 13px; margin-bottom: 8px; width: 100%; text-align: left; color: inherit; font: inherit; }
+        .m-work-row .role { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--accent,#7aa6ff); }
+        .m-work-row .desc { font-size: 13px; color: #cfd6ea; margin-top: 3px; line-height: 1.35; }
+        .m-work-row .meta { font-size: 10.5px; color: #565e78; margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .m-role-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+        .m-role-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 13px 14px; color: inherit; font: inherit; }
+        .m-role-row.has-active { border-color: var(--accent); background: rgba(255,255,255,.065); }
+        .m-role-row.is-boss { border-color: rgba(255,215,0,.4); }
+        .m-role-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent,#7aa6ff); flex-shrink: 0; }
+        .m-role-row.has-active .m-role-dot { box-shadow: 0 0 8px 1px var(--accent); animation: lightpulse 1.5s ease-in-out infinite; }
+        .m-role-main { flex: 1; min-width: 0; }
+        .m-role-name { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+        .m-role-sub { font-size: 11.5px; color: #6d7690; margin-top: 2px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .m-role-badges { display: flex; gap: 4px; flex-shrink: 0; }
+        .m-chev { color: #565e78; font-size: 20px; flex-shrink: 0; line-height: 1; }
+        .m-legend { display: flex; gap: 8px; overflow-x: auto; margin: 14px 0 16px; padding-bottom: 2px; -webkit-overflow-scrolling: touch; }
+        .m-legend::-webkit-scrollbar { display: none; }
+        .m-footer-note { text-align: center; font-size: 10.5px; color: #565e78; margin-top: 18px; line-height: 1.5; }
+
+        .m-sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+        .m-sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+        .m-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; max-height: 80vh; background: #0d0f16; border-top-left-radius: 18px; border-top-right-radius: 18px; border: 1px solid rgba(255,255,255,.1); border-bottom: none; transform: translateY(100%); transition: transform .28s ease; display: flex; flex-direction: column; box-shadow: 0 -20px 50px -20px rgba(0,0,0,.7); }
+        .m-sheet.open { transform: translateY(0); }
+        .m-sheet-handle { width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.22); margin: 10px auto 2px; flex-shrink: 0; }
+        .m-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px 12px; border-bottom: 1px solid rgba(255,255,255,.08); flex-shrink: 0; }
+        .m-sheet-head .title { font-weight: 800; font-size: 14px; letter-spacing: .04em; }
+        .m-sheet-head .sub { font-size: 11px; color: #6d7690; margin-top: 2px; }
+        .m-sheet-close { background: rgba(255,255,255,.06); border: none; color: #9aa2ba; font-size: 18px; width: 30px; height: 30px; border-radius: 999px; cursor: pointer; flex-shrink: 0; }
+        .m-sheet-body { flex: 1; overflow-y: auto; padding: 14px 18px calc(20px + env(safe-area-inset-bottom,0px)); display: flex; flex-direction: column; gap: 10px; -webkit-overflow-scrolling: touch; }
       `}</style>
 
       <div className="office-root">
-        <div className="office">
-          <header className="office-header">
-            <div className="brand"><span className="live" />RUFLO <span>OFFICE</span></div>
-            <div className="conn-row">
-              <span className={`conn-chip ${connected ? "on" : "off"}`}><span className="dot" />supabase</span>
+        {/* ================= DESKTOP VIEW ================= */}
+        <div className="desktop-view">
+          <div className="office">
+            <header className="office-header">
+              <div className="brand"><span className="live" />RUFLO <span>OFFICE</span></div>
+              <div className="conn-row">
+                <span className={`conn-chip ${connected ? "on" : "off"}`}><span className="dot" />supabase</span>
+                <input
+                  className="search-box"
+                  placeholder="Filter role…"
+                  value={filterText}
+                  onChange={(e) => setFilterText(e.target.value)}
+                />
+              </div>
+            </header>
+
+            <div className="legend-bar">
+              Model tier:
+              {Object.entries(MODEL_META).map(([key, m]) => (
+                <span key={key} className="model-chip" style={{ background: `${m.color}22`, color: m.color }}>
+                  <span className="sw" style={{ background: m.color }} />{m.badge}={m.label}
+                </span>
+              ))}
+              <span style={{ color: "#565e78" }}>— switches automatically by task complexity</span>
+            </div>
+
+            <div className={`work-panel ${collapsed ? "collapsed" : ""}`}>
+              <div className="work-panel-head" onClick={() => setCollapsed((c) => !c)}>
+                <span className="t">WHO'S WORKING ON WHAT</span>
+                <span className="n">{activeEntries.length}</span>
+              </div>
+              <div className="work-panel-body">
+                {activeEntries.length === 0 ? (
+                  <div className="work-empty">Nobody is working right now.</div>
+                ) : (
+                  [...activeEntries]
+                    .sort((a, b) => (a.role === "boss" ? -1 : b.role === "boss" ? 1 : 0))
+                    .map((r) => {
+                      const accent = accentByType.get(r.role) ?? "#7aa6ff";
+                      const roleLabel = r.role === "boss" ? "👑 boss" : (ROLE_LABEL[r.role] ?? r.role);
+                      const tag = pipelineTag(r);
+                      return (
+                        <div
+                          key={r.id}
+                          className="work-row"
+                          style={{ ["--accent" as string]: accent }}
+                          onClick={() => setSelected({ kind: "group", type: r.role })}
+                        >
+                          <span className="role">{roleLabel}</span>
+                          <span className="desc">{r.description ?? "(no description)"}</span>
+                          {tag && <span className="pipeline-tag">{tag}</span>}
+                          <span className="meta">{timeAgo(r.started_at)}</span>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </div>
+
+            <div className="stage">
+              <div className="floor" />
+              <svg className="wires" viewBox="0 0 100 100" preserveAspectRatio="none">
+                {groupList.map(([role, list], i) => {
+                  const pos = posFor(i, groupList.length);
+                  const hasActive = list.some((r) => !r.is_placeholder);
+                  const wireId = `wire-${role}`;
+                  return (
+                    <g key={role}>
+                      <path id={wireId} className={`wire ${hasActive ? "hot" : ""}`} d={svgLine(pos.left, pos.top, 50, 50)} />
+                      {hasActive && (
+                        <circle r=".7" className="pulse">
+                          <animateMotion dur={`${2.2 + (i % 3) * 0.4}s`} repeatCount="indefinite">
+                            <mpath xlinkHref={`#${wireId}`} />
+                          </animateMotion>
+                        </circle>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
+
+              <div className={`hub ${anyActive ? "active" : ""}`} onClick={() => { setSelected({ kind: "hub" }); setRingPulse((p) => p + 1); }}>
+                <div key={ringPulse} className={ringPulse ? "hub-ring pulsing" : "hub-ring"} />
+                <div className="hub-core" />
+                <div className="hub-label">SWARM<span className="hub-sub">{activeEntries.length} active · {ROLE_ORDER.length} roles</span></div>
+              </div>
+
+              {groupList.map(([role, list], i) => {
+                const pos = posFor(i, groupList.length);
+                const accent = accentByType.get(role) ?? PALETTE[i % PALETTE.length];
+                const active = list.filter((r) => !r.is_placeholder);
+                const hasActive = active.length > 0;
+                const isSelected = selected?.kind === "group" && selected.type === role;
+                const modelCounts = new Map<string, number>();
+                for (const r of active) {
+                  const m = r.model ? MODEL_META[r.model] : undefined;
+                  if (m) modelCounts.set(m.label, (modelCounts.get(m.label) ?? 0) + 1);
+                }
+                const modelSummary = [...modelCounts.entries()].map(([label, n]) => `${n} ${label}`).join(" · ");
+
+                return (
+                  <div
+                    key={role}
+                    className={`platform-wrap ${hasActive ? "has-active" : ""} ${isSelected ? "selected" : ""}`}
+                    style={{ top: `${pos.top}%`, left: `${pos.left}%` }}
+                    onClick={() => setSelected({ kind: "group", type: role })}
+                  >
+                    <div className="pod-bob">
+                      <div className="pod" style={{ ["--accent" as string]: accent, ["--accent-dim" as string]: `${accent}33` }}>
+                        <div className="pod-head">
+                          <span className="pod-team">{ROLE_LABEL[role] ?? role}</span>
+                          <span className="pod-count">{active.length}</span>
+                        </div>
+                        {active.length === 0 ? (
+                          <div className="pod-idle">idle</div>
+                        ) : (
+                          <div className="desks">
+                            {active.map((r) => {
+                              const m = r.model ? MODEL_META[r.model] : undefined;
+                              const workerIcon = role === "boss" ? "👑" : "🧑‍💻";
+                              return (
+                                <div
+                                  key={r.id}
+                                  className="desk"
+                                  onMouseEnter={(e) => {
+                                    const modelLine = m
+                                      ? `<div style="margin-top:4px;color:#565e78">${m.label} (${m.tier}) — ${ROUTED_BY_LABEL[r.model_routed_by ?? ""] ?? "routing unknown"}</div>`
+                                      : "";
+                                    const tag = pipelineTag(r);
+                                    setTip({
+                                      x: e.clientX + 14,
+                                      y: e.clientY + 14,
+                                      html: `<b>${ROLE_LABEL[role] ?? role} · ${r.id.slice(0, 18)}</b>${r.description ?? "(no description)"}${modelLine}${tag ? `<div style="margin-top:4px">${tag}</div>` : ""}`,
+                                    });
+                                  }}
+                                  onMouseMove={(e) => setTip((t) => (t ? { ...t, x: e.clientX + 14, y: e.clientY + 14 } : t))}
+                                  onMouseLeave={() => setTip(null)}
+                                >
+                                  <span className="light green" />
+                                  {m && (
+                                    <span className="model-badge" style={{ background: m.color }} title={`${m.label} · ${m.tier}`}>
+                                      {m.badge}
+                                    </span>
+                                  )}
+                                  <span className="worker">{workerIcon}</span>
+                                  <div className="mat" />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {role === "boss" && <div className="pod-model-legend" style={{ color: "#ffd700cc" }}>the primary session, not a dispatched role</div>}
+                        {modelSummary && <div className="pod-model-legend">{modelSummary}</div>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className={`drawer ${selected ? "open" : ""}`}>
+              <div className="drawer-head">
+                <div>
+                  {selectedTitle && <div className="title">{selectedTitle}</div>}
+                  {selectedSub && <div className="sub">{selectedSub}</div>}
+                </div>
+                <button className="drawer-close" onClick={() => setSelected(null)}>&times;</button>
+              </div>
+              <div className="drawer-body">{selectedBody}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ================= MOBILE VIEW ================= */}
+        <div className="mobile-view">
+          <div className="m-wrap">
+            <div className="m-header">
+              <div className="m-title-row">
+                <div className="m-title">RUFLO <span>OFFICE</span></div>
+                <span className={`conn-chip ${connected ? "on" : "off"}`}><span className="dot" />supabase</span>
+              </div>
+              <div className="m-status-row">
+                <span className={`m-role-dot ${anyActive ? "" : ""}`} style={{ background: anyActive ? "#35e08a" : "#4a5170", width: 6, height: 6 }} />
+                {activeEntries.length} active · {ROLE_ORDER.length} roles
+              </div>
               <input
-                className="search-box"
+                className="m-search"
                 placeholder="Filter role…"
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
               />
             </div>
-          </header>
 
-          <div className="legend-bar">
-            Model tier:
-            {Object.entries(MODEL_META).map(([key, m]) => (
-              <span key={key} className="model-chip" style={{ background: `${m.color}22`, color: m.color }}>
-                <span className="sw" style={{ background: m.color }} />{m.badge}={m.label}
-              </span>
-            ))}
-            <span style={{ color: "#565e78" }}>— switches automatically by task complexity</span>
-          </div>
+            <div className="m-body">
+              <button className="m-hub-card" onClick={() => setSelected({ kind: "hub" })}>
+                <div className="m-hub-orb" />
+                <div className="m-hub-text">
+                  <b>SWARM CORE</b>
+                  <span>{activeEntries.length} active · {activePipelines.length} pipeline{activePipelines.length === 1 ? "" : "s"} running</span>
+                </div>
+              </button>
 
-          <div className={`work-panel ${collapsed ? "collapsed" : ""}`}>
-            <div className="work-panel-head" onClick={() => setCollapsed((c) => !c)}>
-              <span className="t">WHO'S WORKING ON WHAT</span>
-              <span className="n">{activeEntries.length}</span>
-            </div>
-            <div className="work-panel-body">
-              {activeEntries.length === 0 ? (
-                <div className="work-empty">Nobody is working right now.</div>
-              ) : (
-                [...activeEntries]
-                  .sort((a, b) => (a.role === "boss" ? -1 : b.role === "boss" ? 1 : 0))
-                  .map((r) => {
-                    const accent = accentByType.get(r.role) ?? "#7aa6ff";
-                    const roleLabel = r.role === "boss" ? "👑 boss" : (ROLE_LABEL[r.role] ?? r.role);
-                    const tag = pipelineTag(r);
-                    return (
-                      <div
-                        key={r.id}
-                        className="work-row"
-                        style={{ ["--accent" as string]: accent }}
-                        onClick={() => setSelected({ kind: "group", type: r.role })}
-                      >
-                        <span className="role">{roleLabel}</span>
-                        <span className="desc">{r.description ?? "(no description)"}</span>
-                        {tag && <span className="pipeline-tag">{tag}</span>}
-                        <span className="meta">{timeAgo(r.started_at)}</span>
-                      </div>
-                    );
-                  })
+              {activeEntries.length > 0 && (
+                <>
+                  <div className="m-section-title">Working now</div>
+                  {[...activeEntries]
+                    .sort((a, b) => (a.role === "boss" ? -1 : b.role === "boss" ? 1 : 0))
+                    .map((r) => {
+                      const accent = accentByType.get(r.role) ?? "#7aa6ff";
+                      const roleLabel = r.role === "boss" ? "👑 boss" : (ROLE_LABEL[r.role] ?? r.role);
+                      const m = r.model ? MODEL_META[r.model] : undefined;
+                      const tag = pipelineTag(r);
+                      return (
+                        <button
+                          key={r.id}
+                          className="m-work-row"
+                          style={{ ["--accent" as string]: accent }}
+                          onClick={() => setSelected({ kind: "group", type: r.role })}
+                        >
+                          <span className="role">{roleLabel}</span>
+                          <div className="desc">{r.description ?? "(no description)"}</div>
+                          <div className="meta">
+                            <span>{timeAgo(r.started_at)}</span>
+                            {m && (
+                              <span className="model-chip" style={{ background: `${m.color}22`, color: m.color }}>
+                                <span className="sw" style={{ background: m.color }} />{m.label}
+                              </span>
+                            )}
+                            {tag && <span className="pipeline-tag" style={{ marginTop: 0 }}>{tag}</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                </>
               )}
-            </div>
-          </div>
 
-          <div className="stage">
-            <div className="floor" />
-            <svg className="wires" viewBox="0 0 100 100" preserveAspectRatio="none">
-              {groupList.map(([role, list], i) => {
-                const pos = posFor(i, groupList.length);
-                const hasActive = list.some((r) => !r.is_placeholder);
-                const wireId = `wire-${role}`;
-                return (
-                  <g key={role}>
-                    <path id={wireId} className={`wire ${hasActive ? "hot" : ""}`} d={svgLine(pos.left, pos.top, 50, 50)} />
-                    {hasActive && (
-                      <circle r=".7" className="pulse">
-                        <animateMotion dur={`${2.2 + (i % 3) * 0.4}s`} repeatCount="indefinite">
-                          <mpath xlinkHref={`#${wireId}`} />
-                        </animateMotion>
-                      </circle>
-                    )}
-                  </g>
-                );
-              })}
-            </svg>
-
-            <div className={`hub ${anyActive ? "active" : ""}`} onClick={() => { setSelected({ kind: "hub" }); setRingPulse((p) => p + 1); }}>
-              <div key={ringPulse} className={ringPulse ? "hub-ring pulsing" : "hub-ring"} />
-              <div className="hub-core" />
-              <div className="hub-label">SWARM<span className="hub-sub">{activeEntries.length} active · {ROLE_ORDER.length} roles</span></div>
-            </div>
-
-            {groupList.map(([role, list], i) => {
-              const pos = posFor(i, groupList.length);
-              const accent = accentByType.get(role) ?? PALETTE[i % PALETTE.length];
-              const active = list.filter((r) => !r.is_placeholder);
-              const hasActive = active.length > 0;
-              const isSelected = selected?.kind === "group" && selected.type === role;
-              const modelCounts = new Map<string, number>();
-              for (const r of active) {
-                const m = r.model ? MODEL_META[r.model] : undefined;
-                if (m) modelCounts.set(m.label, (modelCounts.get(m.label) ?? 0) + 1);
-              }
-              const modelSummary = [...modelCounts.entries()].map(([label, n]) => `${n} ${label}`).join(" · ");
-
-              return (
-                <div
-                  key={role}
-                  className={`platform-wrap ${hasActive ? "has-active" : ""} ${isSelected ? "selected" : ""}`}
-                  style={{ top: `${pos.top}%`, left: `${pos.left}%` }}
-                  onClick={() => setSelected({ kind: "group", type: role })}
-                >
-                  <div className="pod-bob">
-                    <div className="pod" style={{ ["--accent" as string]: accent, ["--accent-dim" as string]: `${accent}33` }}>
-                      <div className="pod-head">
-                        <span className="pod-team">{ROLE_LABEL[role] ?? role}</span>
-                        <span className="pod-count">{active.length}</span>
+              <div className="m-section-title">All roles</div>
+              <div className="m-role-list">
+                {groupList.map(([role, list]) => {
+                  const accent = accentByType.get(role) ?? "#7aa6ff";
+                  const active = list.filter((r) => !r.is_placeholder);
+                  const hasActive = active.length > 0;
+                  const primary = active[0];
+                  const sub = hasActive
+                    ? (primary?.description ?? "working")
+                    : "idle";
+                  return (
+                    <button
+                      key={role}
+                      className={`m-role-row ${hasActive ? "has-active" : ""} ${role === "boss" ? "is-boss" : ""}`}
+                      style={{ ["--accent" as string]: accent }}
+                      onClick={() => setSelected({ kind: "group", type: role })}
+                    >
+                      <span className="m-role-dot" />
+                      <div className="m-role-main">
+                        <span className="m-role-name">{role === "boss" && "👑"} {ROLE_LABEL[role] ?? role}</span>
+                        <span className="m-role-sub">{sub}</span>
                       </div>
-                      {active.length === 0 ? (
-                        <div className="pod-idle">idle</div>
-                      ) : (
-                        <div className="desks">
-                          {active.map((r) => {
+                      {hasActive && (
+                        <div className="m-role-badges">
+                          {active.slice(0, 3).map((r) => {
                             const m = r.model ? MODEL_META[r.model] : undefined;
-                            const workerIcon = role === "boss" ? "👑" : "🧑‍💻";
+                            if (!m) return null;
                             return (
-                              <div
-                                key={r.id}
-                                className="desk"
-                                onMouseEnter={(e) => {
-                                  const modelLine = m
-                                    ? `<div style="margin-top:4px;color:#565e78">${m.label} (${m.tier}) — ${ROUTED_BY_LABEL[r.model_routed_by ?? ""] ?? "routing unknown"}</div>`
-                                    : "";
-                                  const tag = pipelineTag(r);
-                                  setTip({
-                                    x: e.clientX + 14,
-                                    y: e.clientY + 14,
-                                    html: `<b>${ROLE_LABEL[role] ?? role} · ${r.id.slice(0, 18)}</b>${r.description ?? "(no description)"}${modelLine}${tag ? `<div style="margin-top:4px">${tag}</div>` : ""}`,
-                                  });
-                                }}
-                                onMouseMove={(e) => setTip((t) => (t ? { ...t, x: e.clientX + 14, y: e.clientY + 14 } : t))}
-                                onMouseLeave={() => setTip(null)}
-                              >
-                                <span className="light green" />
-                                {m && (
-                                  <span className="model-badge" style={{ background: m.color }} title={`${m.label} · ${m.tier}`}>
-                                    {m.badge}
-                                  </span>
-                                )}
-                                <span className="worker">{workerIcon}</span>
-                                <div className="mat" />
-                              </div>
+                              <span key={r.id} className="model-chip" style={{ background: `${m.color}22`, color: m.color, padding: "1px 5px" }}>
+                                {m.badge}
+                              </span>
                             );
                           })}
                         </div>
                       )}
-                      {role === "boss" && <div className="pod-model-legend" style={{ color: "#ffd700cc" }}>the primary session, not a dispatched role</div>}
-                      {modelSummary && <div className="pod-model-legend">{modelSummary}</div>}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                      <span className="m-chev">›</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="m-legend">
+                {Object.entries(MODEL_META).map(([key, m]) => (
+                  <span key={key} className="model-chip" style={{ background: `${m.color}22`, color: m.color, flexShrink: 0 }}>
+                    <span className="sw" style={{ background: m.color }} />{m.badge}={m.label}
+                  </span>
+                ))}
+              </div>
+
+              <div className="m-footer-note">Monitoring only — nothing here can spawn or control an agent.<br />State lives in Supabase, not on any one machine.</div>
+            </div>
           </div>
 
-          <div className={`drawer ${selected ? "open" : ""}`}>
-            <div className="drawer-head">
+          <div className={`m-sheet-backdrop ${selected ? "open" : ""}`} onClick={() => setSelected(null)} />
+          <div className={`m-sheet ${selected ? "open" : ""}`}>
+            <div className="m-sheet-handle" />
+            <div className="m-sheet-head">
               <div>
-                {selected?.kind === "group" && (
-                  <>
-                    <div className="title">{(ROLE_LABEL[selected.type] ?? selected.type).toUpperCase()}</div>
-                    <div className="sub">{(byRole.get(selected.type)?.filter((r) => !r.is_placeholder).length ?? 0)} active on this desk</div>
-                  </>
-                )}
-                {selected?.kind === "hub" && (
-                  <>
-                    <div className="title">SWARM CORE</div>
-                    <div className="sub">spehr.live · office_board</div>
-                  </>
-                )}
+                {selectedTitle && <div className="title">{selectedTitle}</div>}
+                {selectedSub && <div className="sub">{selectedSub}</div>}
               </div>
-              <button className="drawer-close" onClick={() => setSelected(null)}>&times;</button>
+              <button className="m-sheet-close" onClick={() => setSelected(null)}>&times;</button>
             </div>
-            <div className="drawer-body">
-              {selected?.kind === "group" && (() => {
-                const list = (byRole.get(selected.type) ?? []).filter((r) => !r.is_placeholder);
-                if (list.length === 0) return <div className="drawer-empty">Idle — no active work for this role.</div>;
-                return list.map((r) => {
-                  const m = r.model ? MODEL_META[r.model] : undefined;
-                  const tag = pipelineTag(r);
-                  return (
-                    <div key={r.id} className="agent-row">
-                      <span className="status-dot" />
-                      <span className="info">
-                        <div className="id">{r.id}</div>
-                        <div className="stats">{timeAgo(r.started_at)}</div>
-                        {m && (
-                          <div className="stats" style={{ marginTop: 2 }}>
-                            <span className="model-chip" style={{ background: `${m.color}22`, color: m.color }}>
-                              <span className="sw" style={{ background: m.color }} />{m.label}
-                            </span> · {ROUTED_BY_LABEL[r.model_routed_by ?? ""] ?? "routing unknown"}
-                          </div>
-                        )}
-                        <div className="stats task">{r.description ?? "(no description)"}</div>
-                        {tag && <span className="pipeline-tag">{tag}</span>}
-                      </span>
-                    </div>
-                  );
-                });
-              })()}
-              {selected?.kind === "hub" && (
-                <>
-                  <div className="drawer-stat-row">
-                    <div className="drawer-stat"><div className="n">{activeEntries.length}</div><div className="l">Active</div></div>
-                    <div className="drawer-stat"><div className="n">{ROLE_ORDER.length - new Set(activeEntries.map((r) => r.role)).size}</div><div className="l">Idle roles</div></div>
-                  </div>
-                  {activePipelines.length > 0 && (
-                    <div className="drawer-stat">
-                      <div className="l" style={{ marginBottom: 4 }}>Active pipelines</div>
-                      {activePipelines.map((p) => (
-                        <div key={p.name} style={{ fontSize: 11, color: "#cfd6ea" }}>🔗 {p.name} — stage {p.stage}/{p.total}</div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+            <div className="m-sheet-body">{selectedBody}</div>
           </div>
         </div>
 
@@ -540,12 +732,10 @@ function OfficePage() {
         )}
 
         {error && (
-          <div style={{ position: "fixed", bottom: 16, right: 16, maxWidth: 280, background: "rgba(224,67,92,.15)", border: "1px solid rgba(224,67,92,.4)", color: "#ff9fae", padding: "8px 14px", borderRadius: 10, fontSize: 11.5, zIndex: 30 }}>
+          <div style={{ position: "fixed", bottom: 16, right: 16, left: 16, maxWidth: 320, marginInline: "auto", background: "rgba(224,67,92,.15)", border: "1px solid rgba(224,67,92,.4)", color: "#ff9fae", padding: "8px 14px", borderRadius: 10, fontSize: 11.5, zIndex: 30 }}>
             {error}
           </div>
         )}
-
-        <div className="footer-note">Monitoring only — nothing here can spawn or control an agent. State lives in Supabase, not on any one machine.</div>
       </div>
     </>
   );
