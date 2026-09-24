@@ -64,83 +64,85 @@ either.
 
 
 
-\## CRITICAL — Supabase project migration in progress (as of 2026-09-18)
+\## CRITICAL — Supabase migration cutover complete (as of 2026-09-23)
 
-Production (\`spehr.live\`/\`www.spehr.live\`) currently still runs on \`fjncfbqwyrenoavhkvdr\` — a Supabase project
+Production (\`spehr.live\`/\`www.spehr.live\`) now runs on \`qxyvmvtecnnwqeqaouzh\` — your own Supabase project.
 
-that Lovable manages, not one you own. You are migrating to \`qxyvmvtecnnwqeqaouzh\`, a project in your own Supabase
+The old Lovable-managed project (\`fjncfbqwyrenoavhkvdr\`) is no longer receiving traffic from spehr.live; Lovable is
 
-account, so Lovable is out of the picture entirely. \*\*Do not flip production over to the new project without
+out of the picture for this repo entirely. Cutover was verified end-to-end: a live admission (\`MRN-137559\`) flowed
 
-explicit re-confirmation\*\* — this is a deliberate, staged migration, not yet cut over.
+through the real app, landed in \`qxyvmvtecnnwqeqaouzh\`, and successfully pushed to the Medblocks FHIR server, all
 
-Status so far:
+within ~2 minutes of the deploy going live.
 
-\- New project (\`qxyvmvtecnnwqeqaouzh\`): schema present (~69 tables), all 14 Edge Functions deployed, all required
+Cutover mechanics, in case this ever needs redoing (e.g. for MySpehr or another app on the same pattern):
 
-  secrets set (\`UMLS\_API\_KEY\`, \`FHIR\_SERVER\_URL\`, \`FHIR\_BEARER\_TOKEN\`, \`GEMINI\_API\_KEY\`, Supabase built-ins).
+\- Cloudflare Workers Build has \*\*two separate, easy-to-confuse variable surfaces\*\* for a Worker: "Runtime variables
 
-  \`FHIR\_APIKEY\` intentionally left unset (optional, not needed for this FHIR token type).
+  and secrets" (Settings tab, read via \`process.env\` at request time) and "Build Variables" (Settings → Builds,
 
-\- Reference/seed data verified already correct on the new project: \`bed\_management\` (100 beds, self-consistent
+  read by Vite at build time for \`import.meta.env.VITE\_\*\` inlining). Updating the Runtime list does \*\*not\*\* affect
 
-  with its 12 existing test patients), \`system\_settings\` (automation\_enabled=true), \`custom\_value\_sets\` (15
+  the client bundle — \`VITE\_SUPABASE\_URL\`/\`VITE\_SUPABASE\_PUBLISHABLE\_KEY\` must be set in Build Variables specifically,
 
-  starter value sets covering the key safety-alert categories — different from production's 53, left as-is).
+  or every rebuild silently keeps serving the old bundle with no error anywhere. Check a build's detail page
 
-  \`fhir\_sync\_state\` is empty and blocked by an RLS anomaly even for \`service\_role\` — minor/non-blocking, not yet
+  (Deployments → click a version → "Build Variables" row) to confirm what a given build actually saw.
 
-  fixed (the poll functions fail open on missing cursor state).
+\- Dashboard variable edits create a new Worker "version" but do \*\*not\*\* trigger an actual rebuild — Vite/the build
 
-\- \*\*Simulation data (patients, orders, notes, vitals, billing, logs — the ~400K rows on the old project) is\*\*
+  step only reruns on a genuine git push. An empty commit (\`git commit --allow-empty\`) is a safe way to force one.
 
-  \*\*deliberately NOT being migrated.\*\* S.P.E.H.R. is a simulation that generates its own data by admitting and
+\- Production had \*\*11 pg\_cron jobs\*\*, several set up manually via the SQL editor and never captured in any
 
-  discharging patients on a schedule — once the new project's automation is actually running, it will regenerate
+  migration file: \`ghost\_triage\_job\` (auto\_admit\_ghost\_patient, \*/5min), \`ghost\_physician\_job\`
 
-  a fresh population organically, the same way the old project's data built up in the first place. Confirmed via
+  (auto\_order\_ghost\_labs, \*/15min), \`ghost-discharge-worker\` (HTTP call, \*/5min), \`fhir-outbound-poll-45s\` /
 
-  PostgREST's OpenAPI schema (read-only, no side effects) that all automation DB functions exist on the new
+  \`fhir-inbound-poll-45s\` (HTTP calls, every ~30-45s), \`sweep\_stalled\_clinical\_orders\_job\` (\*/1min),
 
-  project: \`auto\_admit\_ghost\_patient\`, \`auto\_admit\_due\_appointments\`, \`admit\_patient\_from\_appointment\`,
+  \`vitals-simulation-tick-1min\` (\*/1min), \`backfill-invoices-every-10min\` (HTTP call — \*\*was pointed at a Lovable
 
-  \`auto\_discharge\_ghost\_patients\`, \`auto\_report\_pending\_radiology\_orders\`, \`cascade\_clinical\_automation\` (retired
+  preview URL on production\*\*, now points at spehr.live's own \`/api/public/hooks/generate-invoice\` route instead).
 
-  no-op), \`auto\_order\_ghost\_labs\`, \`auto\_code\_patient\_complaint\`, \`sweep\_stalled\_clinical\_orders\`. The two
+  Only \`auto\_admit\_appointments\_job\`/\`auto\_report\_radiology\_job\`/\`purge-expired-local-cache-daily\` had been
 
-  \`pg\_cron\` schedules (\`auto\_admit\_appointments\_job\`, \`auto\_report\_radiology\_job\`) \*\*are confirmed registered and
+  migrated originally — the rest were missing on \`qxyvmvtecnnwqeqaouzh\` until this cutover and had to be recreated
 
-  active\*\* on the new project (verified 2026-09-19 via \`cron.job\`, both \`schedule: "\* \* \* \* \*"\`, \`active: true\`) —
+  by reading production's \`cron.job\` table directly and porting each command over (rewriting URLs/keys to the new
 
-  the earlier "unverified" status is resolved.
+  project). If any of these ever look stalled, check \`cron.job\` on both projects for drift again.
 
-\- \*\*End-to-end admission/discharge automation confirmed working live on \`qxyvmvtecnnwqeqaouzh\`, verified
+\- Also manually recreated (same "never migrated" pattern): the \`rapid\_response\_alerts\` table + \`simulate\_vitals\_tick()\`
 
-  2026-09-19.\*\* Called \`auto\_admit\_ghost\_patient\` and \`auto\_discharge\_ghost\_patients\` directly via REST RPC using
+  function (vitals simulation + NEWS2 rapid-response alerting), and — the one that actually mattered most — a
 
-  the project's own anon/publishable key (i.e. exactly the call \`useAutomationWatchdog.ts\`'s ghost-tick makes, not
+  \`BEFORE INSERT\` trigger on \`patients\` calling \`set\_target\_discharge\_at()\`. That function existed on the new
 
-  an elevated/service-role bypass) and confirmed real, self-consistent state changes: \`patients\` went from
+  project but was never attached as a trigger, so every ghost-admitted patient got \`target\_discharge\_at = NULL\`
 
-  12 admitted/12 total → 16 admitted/16 total (4 new ghost admissions across 3 facilities, matching \`bed\_management\`
+  and could never be selected by \`ghost-discharge-worker\`'s \`.lte('target\_discharge\_at', now)\` query — the whole
 
-  occupied count 12 → 16), then a discharge call moved 3 of those to \`status: 'Discharged'\` with \`bed\_management\`
+  admit/discharge cycle silently froze once census hit the hardcoded 85-patient cap (which is exactly what had
 
-  occupied dropping 16 → 13 in lockstep. Anon read access to \`patients\` (needed for the UI to display admissions)
+  happened by the time this was caught). Fixed by attaching the trigger \*\*and\*\* backfilling \`target\_discharge\_at\`
 
-  also confirmed working post-RLS-hardening. This closes the "next step when resumed" item — the automation layer
+  on the 85 already-stuck patients. If census ever looks frozen again, check \`target\_discharge\_at\` distribution
 
-  itself is proven functional on the new project; what's left before any cutover consideration is running the actual
+  first.
 
-  frontend against it (dev/preview build) for a UI-level check, which hasn't been done yet.
+\- \`fhir\_sync\_state\`'s RLS anomaly (mentioned in earlier notes) turned out to be moot — the poll functions read/write
 
-\- Do NOT attempt bulk data export/import between the two Supabase projects by delegating to Lovable's AI agent with
+  it fine via their own service-role client; only ad-hoc \`anon\`/dashboard queries against it were ever blocked.
 
-  live credentials in the instructions — Claude Code's own safety classifier blocks this pattern (flagged as Data
+\- Do NOT attempt bulk data export/import between Supabase projects by delegating to Lovable's AI agent with live
 
-  Exfiltration) and correctly so. Any data movement between the two projects should be done directly, in small,
+  credentials in the instructions — Claude Code's own safety classifier blocks this pattern (flagged as Data
 
-  auditable, tool-visible steps — not delegated to a third-party agent.
+  Exfiltration) and correctly so. Any data movement between projects should be done directly, in small, auditable,
+
+  tool-visible steps — not delegated to a third-party agent.
 
 
 
@@ -288,21 +290,41 @@ project — it is NOT set up to spawn or run its own agents to do spehr work, an
 
 Specifically:
 
-\- RuFlo Office (the dashboard at \`dashboard/server.mjs\`, typically \`http://localhost:4173\`) is for watching
+\- \*\*Architecture rewritten 2026-09-24 — Office is no longer tied to this one PC.\*\* The dashboard used to be a
 
-  Claude Code's own activity in this project. Do NOT click its "Spawn" / "+" controls — that creates live,
+  Node process (\`dashboard/server.mjs\`) tunneled out via \`cloudflared\`, and \`office-task-bridge.cjs\` wrote to
 
-  independently-running agents with broad tool access, which is exactly the pattern Claude Code's own safety
+  local \`.claude-flow/*.json\` files — both genuinely broke the moment a different machine (e.g. a cloud Claude
 
-  classifier has blocked twice in this project's history (reasons: "Create Unsafe Agents", "Data Exfiltration").
+  Code session) tried to use them, since that session would see its own local filesystem, not this PC's. The
 
-\- The ruflo daemon (\`ruflo daemon start\`) runs local-only bookkeeping workers (\`map\`/\`audit\`/\`optimize\`) with AI
+  dashboard is now a real route on this already-deployed Worker, \*\*\`src/routes/office.tsx\`, live at
 
-  workers disabled by default — this is the safe mode and should stay that way. Starting it is itself sometimes
+  spehr.live/office\*\*, and the shared state lives in a Supabase table (\`office_board\` on \`qxyvmvtecnnwqeqaouzh\`,
 
-  blocked by the auto-mode classifier when Claude Code attempts it directly; if so, ask the user to run it
+  RLS open to anon since it only ever holds dev-activity visualization, never patient data) instead of local
 
-  themselves (\`! ruflo daemon start\`).
+  files. Any Claude Code session — this PC or a cloud sandbox — runs the exact same
+
+  \`office-task-bridge.cjs\` and sees the exact same board, because the state lives in Supabase, not on a disk.
+
+  The old \`dashboard/server.mjs\` + \`cloudflared\` tunnel setup (still present in the repo, not yet deleted) is
+
+  superseded — don't bother starting it, it was left as-is rather than deleted mid-session.
+
+\- Do NOT click Office's "Spawn" / "+" controls if they ever resurface in some other view — creating live,
+
+  independently-running agents with broad tool access is exactly the pattern Claude Code's own safety classifier
+
+  has blocked twice in this project's history (reasons: "Create Unsafe Agents", "Data Exfiltration").
+
+\- The ruflo daemon (\`ruflo daemon start\`) and its local-only bookkeeping workers (\`map\`/\`audit\`/\`optimize\`) are
+
+  a separate, unrelated thing from the Office board above — pure local housekeeping, AI workers disabled by
+
+  default, still fine to leave as-is. It has its own 12h self-shutdown TTL; don't read "daemon stopped" as
+
+  something being broken.
 
 \- Model routing for subagents Claude Code spawns via its own Agent tool (not ruflo's) should scale with task
 
@@ -310,13 +332,15 @@ Specifically:
 
   files declare for its own (currently unused) agent-spawning path.
 
-\- \*\*Office bridge (added 2026-09-18):\*\* \`.claude/helpers/office-task-bridge.cjs\` lets Claude Code register its
+\- \*\*Office bridge:\*\* \`.claude/helpers/office-task-bridge.cjs\` lets Claude Code register its own Agent-tool
 
-  own Agent-tool subagent spawns as ruflo tasks/agents purely so Office can visualize them — it does NOT spawn,
+  subagent spawns (and the primary session's own direct work) as rows in the shared \`office_board\` Supabase
 
-  run, or control anything itself, and never touches the hook chain in \`hook-handler.cjs\` (zero regression risk
+  table, purely so the dashboard can visualize them — it does NOT spawn, run, or control anything itself. Works
 
-  to ruflo's own intelligence/session tracking). Call it manually around meaningful subagent work:
+  identically from any environment with network access; no local file dependency left. Call it manually around
+
+  meaningful subagent work:
 
   \`node .claude/helpers/office-task-bridge.cjs start --id <correlationId> --type <agentType> --model <model> --desc "<description>"\`
 
@@ -330,15 +354,29 @@ Specifically:
 
   the model tier actually used for that subagent (haiku/sonnet/opus), per the difficulty-based routing rule.
 
-  Tested working 2026-09-18: registering a task makes its node go green/active with a connecting line to the
+  Tested working 2026-09-24 on the new Supabase-backed board: a \`start\` call makes that role's card active with
 
-  swarm core in Office; completing it returns the node to idle. To start Office itself: \`ruflo daemon start\`
+  its live description within one poll cycle (~4s); \`complete\`/\`fail\` removes it, leaving the idle placeholder.
 
-  (safe default — AI workers disabled, local-only bookkeeping only) and
+  Office itself needs nothing started anymore — \`spehr.live/office\` is live whenever spehr.live is.
 
-  \`node dashboard/server.mjs\` (serves on \`http://localhost:4173\`, or set \`RUFLO\_DASHBOARD\_PORT\`).
+  \*\*The paragraph below describes \`dashboard/server.mjs\`'s old, more elaborate local UI (hub-and-spoke layout,
 
-  \*\*Office board behavior (as of 2026-09-18):\*\* \`start\`/\`complete\`/\`fail\` in the bridge now delete the agent+task
+  drawers, a "WHO'S WORKING ON WHAT" panel, per-agent model-tier badges merged from \`ruflo agent list\`'s CLI
+
+  output) — kept for historical reference since that file is still in the repo, unused. \`src/routes/office.tsx\`\`
+
+  replaces it with a deliberately simpler grid (one card per role, active entries only, pipeline tags inline) and
+
+  does not reproduce every one of these specific UI details. If Office's UI ever needs one of these features back,
+
+  add it to \`office.tsx\` directly — don't resurrect \`dashboard/server.mjs\`, it can't read the new Supabase-backed
+
+  state without its own rewrite, and \`ruflo agent list\` was always a local-only CLI, not something a cloud
+
+  session can invoke either.\*\*
+
+  \*\*Office board behavior (as of 2026-09-18, describing the legacy local dashboard):\*\* \`start\`/\`complete\`/\`fail\` in the bridge now delete the agent+task
 
   entry entirely rather than resetting it to idle — a board only shows agents that are either a standing-roster
 
