@@ -18,6 +18,7 @@ import { Route as FinanceBoardRouteImport } from './routes/finance-board'
 import { Route as LabBoardRouteImport } from './routes/lab-board'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as NursingBoardRouteImport } from './routes/nursing-board'
+import { Route as OfficeRouteImport } from './routes/office'
 import { Route as PharmacyQueueRouteImport } from './routes/pharmacy-queue'
 import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as RadiologyBoardRouteImport } from './routes/radiology-board'
@@ -75,6 +76,11 @@ const McpRoute = McpRouteImport.update({
 const NursingBoardRoute = NursingBoardRouteImport.update({
   id: '/nursing-board',
   path: '/nursing-board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OfficeRoute = OfficeRouteImport.update({
+  id: '/office',
+  path: '/office',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PharmacyQueueRoute = PharmacyQueueRouteImport.update({
@@ -156,6 +162,7 @@ export interface FileRoutesByFullPath {
   '/lab-board': typeof LabBoardRoute
   '/mcp': typeof McpRoute
   '/nursing-board': typeof NursingBoardRoute
+  '/office': typeof OfficeRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
   '/radiology-board': typeof RadiologyBoardRoute
@@ -180,6 +187,7 @@ export interface FileRoutesByTo {
   '/lab-board': typeof LabBoardRoute
   '/mcp': typeof McpRoute
   '/nursing-board': typeof NursingBoardRoute
+  '/office': typeof OfficeRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
   '/radiology-board': typeof RadiologyBoardRoute
@@ -205,6 +213,7 @@ export interface FileRoutesById {
   '/lab-board': typeof LabBoardRoute
   '/mcp': typeof McpRoute
   '/nursing-board': typeof NursingBoardRoute
+  '/office': typeof OfficeRoute
   '/pharmacy-queue': typeof PharmacyQueueRoute
   '/physician-board': typeof PhysicianBoardRoute
   '/radiology-board': typeof RadiologyBoardRoute
@@ -231,6 +240,7 @@ export interface FileRouteTypes {
     | '/lab-board'
     | '/mcp'
     | '/nursing-board'
+    | '/office'
     | '/pharmacy-queue'
     | '/physician-board'
     | '/radiology-board'
@@ -255,6 +265,7 @@ export interface FileRouteTypes {
     | '/lab-board'
     | '/mcp'
     | '/nursing-board'
+    | '/office'
     | '/pharmacy-queue'
     | '/physician-board'
     | '/radiology-board'
@@ -279,6 +290,7 @@ export interface FileRouteTypes {
     | '/lab-board'
     | '/mcp'
     | '/nursing-board'
+    | '/office'
     | '/pharmacy-queue'
     | '/physician-board'
     | '/radiology-board'
@@ -304,6 +316,7 @@ export interface RootRouteChildren {
   LabBoardRoute: typeof LabBoardRoute
   McpRoute: typeof McpRoute
   NursingBoardRoute: typeof NursingBoardRoute
+  OfficeRoute: typeof OfficeRoute
   PharmacyQueueRoute: typeof PharmacyQueueRoute
   PhysicianBoardRoute: typeof PhysicianBoardRoute
   RadiologyBoardRoute: typeof RadiologyBoardRoute
@@ -382,6 +395,13 @@ declare module '@tanstack/react-router' {
       path: '/nursing-board'
       fullPath: '/nursing-board'
       preLoaderRoute: typeof NursingBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/office': {
+      id: '/office'
+      path: '/office'
+      fullPath: '/office'
+      preLoaderRoute: typeof OfficeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pharmacy-queue': {
@@ -488,6 +508,7 @@ const rootRouteChildren: RootRouteChildren = {
   LabBoardRoute: LabBoardRoute,
   McpRoute: McpRoute,
   NursingBoardRoute: NursingBoardRoute,
+  OfficeRoute: OfficeRoute,
   PharmacyQueueRoute: PharmacyQueueRoute,
   PhysicianBoardRoute: PhysicianBoardRoute,
   RadiologyBoardRoute: RadiologyBoardRoute,
