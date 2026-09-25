@@ -26,14 +26,67 @@ function tagCode(resource: any, system: string): string | null {
   return hit?.code ?? null;
 }
 
+function hasTag(resource: any, system: string, code: string): boolean {
+  const tags = resource?.meta?.tag;
+  if (!Array.isArray(tags)) return false;
+  return tags.some((t: any) => t?.system === system && t?.code === code);
+}
+
+// Body-level extension (not `meta.tag`) — see buildAppointment in
+// fhir-outbound-poll/index.ts, which stamps `urn:spehr:last-writer` on
+// every appointment it PUTs. `meta.tag` carry-forward across HAPI resource
+// versions is unverified, so this is a second, independent signal for the
+// self-echo check below.
+function extCode(resource: any, url: string): string | null {
+  const exts = resource?.extension;
+  if (!Array.isArray(exts)) return null;
+  const hit = exts.find((e: any) => e?.url === url);
+  return hit?.valueCode ?? null;
+}
+
+// FHIR Appointment.status rank for the monotonicity check in
+// handleAppointment. Terminal statuses (cancelled/noshow/entered-in-error)
+// are handled separately, not via this rank.
+const APPOINTMENT_STATUS_RANK: Record<string, number> = {
+  proposed: 1,
+  pending: 2,
+  booked: 3,
+  arrived: 4,
+  "checked-in": 4,
+  fulfilled: 5,
+};
+const TERMINAL_APPOINTMENT_STATUSES = new Set(["cancelled", "noshow", "entered-in-error"]);
+
 async function handleAppointment(admin: any, resource: any): Promise<IngestOutcome> {
   const fhirId = String(resource?.id ?? "");
   if (!fhirId) return { ok: false, reason: "missing_id" };
 
-  // Skip our own writes so we never echo-loop.
-  if (tagCode(resource, "urn:spehr:source") === "spehr") {
+  // Skip our own writes so we never echo-loop. Three independent signals,
+  // any of which is sufficient:
+  //  1. The classic single-tag check (`meta.tag` system=source code=spehr).
+  //  2. The body-level `urn:spehr:last-writer` extension spehr stamps on
+  //     every push — survives even if HAPI drops/rewrites `meta.tag` across
+  //     versions, which is unverified behavior on this tenant.
+  //  3. Has the spehr source tag AND does NOT have the myspehr source tag —
+  //     covers a HAPI that carries tags forward additively (both present)
+  //     vs. one that replaces them outright.
+  const hasSpehrTag = hasTag(resource, "urn:spehr:source", "spehr");
+  const hasMyspehrTag = hasTag(resource, "urn:spehr:source", "myspehr");
+  if (
+    tagCode(resource, "urn:spehr:source") === "spehr" ||
+    extCode(resource, "urn:spehr:last-writer") === "spehr" ||
+    (hasSpehrTag && !hasMyspehrTag)
+  ) {
     return { ok: true, skipped: "self-tagged" };
   }
+
+  // Look up the existing local row (if any) by fhir_id for the
+  // monotonicity check and the facility-name / origin preservation below.
+  const { data: existing } = await admin
+    .from("fhir_appointments")
+    .select("id, status, origin, facility_name")
+    .eq("fhir_id", fhirId)
+    .maybeSingle();
 
   let patientMrn: string | null = null;
   let patientName: string | null = null;
@@ -69,9 +122,53 @@ async function handleAppointment(admin: any, resource: any): Promise<IngestOutco
       if (pat?.facility_name) facilityName = pat.facility_name;
     } catch (_) { /* ignore */ }
   }
-  if (!facilityName) facilityName = "MySPEHR Portal";
+  if (!facilityName) {
+    // Don't clobber a real local facility_name with the generic portal
+    // fallback just because THIS particular FHIR write didn't carry a
+    // location — e.g. a myspehr status-only PUT that omits `location`.
+    facilityName =
+      existing?.facility_name && existing.facility_name !== "MySPEHR Portal"
+        ? existing.facility_name
+        : "MySPEHR Portal";
+  }
 
-  const row = {
+  // Monotonic status: a stale FHIR read arriving after a local change (e.g.
+  // reception already confirmed `booked`, then an out-of-order webhook
+  // delivery re-delivers the patient's earlier `proposed` write) must not
+  // regress the local record. Terminal statuses are always accepted as an
+  // exception, UNLESS the local appointment already reached `fulfilled`
+  // (a completed visit can't un-complete).
+  const incomingStatus = String(resource?.status ?? "booked").toLowerCase();
+  const existingStatus = existing?.status ? String(existing.status).toLowerCase() : null;
+  let finalStatus = incomingStatus;
+  let needsFhirPush = false;
+  if (existingStatus) {
+    const isTerminal = TERMINAL_APPOINTMENT_STATUSES.has(incomingStatus);
+    if (isTerminal) {
+      if (existingStatus === "fulfilled") {
+        // Local already completed — keep it, and push it back out so FHIR
+        // reconciles to `fulfilled` instead of the stale terminal status.
+        finalStatus = existingStatus;
+        needsFhirPush = true;
+      } else {
+        finalStatus = incomingStatus;
+      }
+    } else {
+      const existingRank = APPOINTMENT_STATUS_RANK[existingStatus] ?? 0;
+      const incomingRank = APPOINTMENT_STATUS_RANK[incomingStatus] ?? 0;
+      if (existingRank > 0 && incomingRank > 0 && incomingRank < existingRank) {
+        // Stale/regressive write — keep the local (higher-ranked) status,
+        // but flag it dirty so the next outbound push reconciles FHIR back
+        // up to the correct status.
+        finalStatus = existingStatus;
+        needsFhirPush = true;
+      } else {
+        finalStatus = incomingStatus;
+      }
+    }
+  }
+
+  const row: Record<string, unknown> = {
     fhir_id: fhirId,
     facility_name: facilityName,
     patient_mrn: patientMrn,
@@ -84,9 +181,13 @@ async function handleAppointment(admin: any, resource: any): Promise<IngestOutco
     description: resource?.description ?? null,
     start_time: start,
     end_time: end,
-    status: resource?.status ?? "booked",
+    status: finalStatus,
     comment: resource?.comment ?? null,
+    last_ingested_status: incomingStatus,
+    last_ingested_at: new Date().toISOString(),
+    origin: existing?.origin ?? "myspehr",
   };
+  if (needsFhirPush) row.needs_fhir_push = true;
 
   const { data, error } = await admin
     .from("fhir_appointments")
@@ -154,6 +255,22 @@ async function handlePaymentNotice(admin: any, resource: any): Promise<IngestOut
     "paid";
   const created = resource?.created ?? new Date().toISOString();
 
+  // Derive payment_origin from the inbound resource's own source tag —
+  // 'myspehr' means the patient actually paid through the portal,
+  // 'billing-pophealth' is the billing/pop-health partner account. Any
+  // other/absent tag is left null so the `set_payment_notice_origin` DB
+  // trigger falls back to 'staff'. (This ingest path only ever sees
+  // resources NOT self-tagged 'spehr' — see the early return above — so
+  // it never re-classifies our own auto-pay-timeout notices, which are
+  // inserted directly by auto_pay_overdue_invoices(), not ingested here.)
+  const sourceTag = tagCode(resource, "urn:spehr:source");
+  const paymentOrigin: string | null =
+    sourceTag === "myspehr"
+      ? "patient-portal"
+      : sourceTag === "billing-pophealth"
+        ? "billing-pophealth"
+        : null;
+
   const row = {
     fhir_id: fhirId,
     invoice_id: invoiceRow.id,
@@ -166,6 +283,7 @@ async function handlePaymentNotice(admin: any, resource: any): Promise<IngestOut
       resource?.paymentMethod?.text ??
       resource?.paymentMethod?.coding?.[0]?.display ??
       null,
+    payment_origin: paymentOrigin,
     payload: resource,
   };
 

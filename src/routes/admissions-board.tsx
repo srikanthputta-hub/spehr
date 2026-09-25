@@ -363,30 +363,62 @@ interface AppointmentRow {
   end_time: string;
   status: string;
   comment: string | null;
+  fhir_id: string | null;
+  origin: string | null;
+  accepted_by: string | null;
 }
 
 const APPT_STATUSES = ["proposed", "pending", "booked", "arrived", "fulfilled", "cancelled", "noshow"] as const;
 
+// Statuses that no longer belong on the "Upcoming" list.
+const CLOSED_APPT_STATUSES = ["fulfilled", "cancelled", "noshow"];
+
 function SchedulingTab({ facility }: { facility: string }) {
-  const [rows, setRows] = useState<AppointmentRow[]>([]);
+  const [upcomingRows, setUpcomingRows] = useState<AppointmentRow[]>([]);
+  const [historyRows, setHistoryRows] = useState<AppointmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const initialLoadRef = useRef(true);
 
   const load = async () => {
     if (initialLoadRef.current) setLoading(true);
-    const { data, error } = await fetchWithTimeout(
-      () =>
-        (supabase as any)
-          .from("fhir_appointments")
-          .select("*")
-          .eq("facility_name", facility)
-          .order("start_time", { ascending: true })
-          .limit(100),
-      { data: [], error: null } as any,
-    );
-    if (error) toast.error("Could not load appointments", { description: error.message });
-    setRows((data ?? []) as AppointmentRow[]);
+    // Two independent queries instead of one ascending-sorted, limit-100
+    // query: with a single query, old fulfilled/cancelled rows (which never
+    // stop being "in the past") crowd out real upcoming appointments once a
+    // facility accumulates more than ~100 total rows. Upcoming looks back
+    // 6h (so a visit that just started/ran slightly over doesn't vanish
+    // mid-visit) and excludes closed statuses; History is the closed
+    // statuses, most-recent first.
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+    const [upcomingRes, historyRes] = await Promise.all([
+      fetchWithTimeout(
+        () =>
+          (supabase as any)
+            .from("fhir_appointments")
+            .select("*")
+            .eq("facility_name", facility)
+            .not("status", "in", `(${CLOSED_APPT_STATUSES.join(",")})`)
+            .gte("start_time", sixHoursAgo)
+            .order("start_time", { ascending: true })
+            .limit(200),
+        { data: [], error: null } as any,
+      ),
+      fetchWithTimeout(
+        () =>
+          (supabase as any)
+            .from("fhir_appointments")
+            .select("*")
+            .eq("facility_name", facility)
+            .in("status", CLOSED_APPT_STATUSES)
+            .order("start_time", { ascending: false })
+            .limit(50),
+        { data: [], error: null } as any,
+      ),
+    ]);
+    if (upcomingRes.error) toast.error("Could not load upcoming appointments", { description: upcomingRes.error.message });
+    if (historyRes.error) toast.error("Could not load appointment history", { description: historyRes.error.message });
+    setUpcomingRows((upcomingRes.data ?? []) as AppointmentRow[]);
+    setHistoryRows((historyRes.data ?? []) as AppointmentRow[]);
     setLoading(false);
     initialLoadRef.current = false;
   };
@@ -416,49 +448,19 @@ function SchedulingTab({ facility }: { facility: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facility]);
 
+  // FHIR write-back for a local status/time change is no longer done here
+  // directly (that was the source of the duplicate-FHIR-resource bug: this
+  // PUT'd `Appointment/{local-uuid}` while the outbound poller separately
+  // PUT'd `Appointment/appt-{local-uuid}` for the same row). The
+  // `needs_fhir_push` DB trigger + `fhir-outbound-poll` now own all
+  // outbound Appointment writes, keyed uniformly off `fhir_id`.
   const updateStatus = async (id: string, status: string) => {
-    const row = rows.find((r) => r.id === id);
     const { error } = await (supabase as any)
       .from("fhir_appointments")
       .update({ status })
       .eq("id", id);
     if (error) toast.error("Update failed", { description: error.message });
     else toast.success(`Appointment marked ${status}`);
-    // Push status change to external FHIR server (PUT)
-    if (!error && row) {
-      try {
-        const appt = {
-          resourceType: "Appointment",
-          id: row.id,
-          status,
-          description: row.description ?? undefined,
-          start: row.start_time,
-          end: row.end_time,
-          comment: row.comment ?? undefined,
-          participant: [
-            {
-              actor: {
-                reference: row.patient_mrn ? `Patient/${row.patient_mrn}` : undefined,
-                display: row.patient_name,
-              },
-              required: "required",
-              status: "accepted",
-            },
-          ],
-        };
-        await supabase.functions.invoke("fhir-proxy", {
-          body: {
-            bundle: {
-              resourceType: "Bundle",
-              type: "transaction",
-              entry: [{ resource: appt, request: { method: "PUT", url: `Appointment/${row.id}` } }],
-            },
-          },
-        });
-      } catch {
-        /* non-fatal */
-      }
-    }
   };
 
   const reschedule = async (id: string, start: string, end: string) => {
@@ -474,9 +476,6 @@ function SchedulingTab({ facility }: { facility: string }) {
     }
     toast.success("Appointment rescheduled");
   };
-
-  const upcoming = useMemo(() => rows.filter((r) => !["fulfilled", "cancelled", "noshow"].includes(r.status)), [rows]);
-  const past = useMemo(() => rows.filter((r) => ["fulfilled", "cancelled", "noshow"].includes(r.status)), [rows]);
 
   return (
     <div className="space-y-4">
@@ -494,7 +493,7 @@ function SchedulingTab({ facility }: { facility: string }) {
           </button>
         </div>
         <AppointmentTable
-          rows={upcoming}
+          rows={upcomingRows}
           loading={loading}
           onUpdateStatus={updateStatus}
           onReschedule={reschedule}
@@ -507,7 +506,7 @@ function SchedulingTab({ facility }: { facility: string }) {
           <CheckCircle2 className="h-4 w-4 text-slate-500 mr-2" />
           <h2 className="text-sm font-semibold">Completed / Cancelled</h2>
         </div>
-        <AppointmentTable rows={past} loading={loading} onUpdateStatus={updateStatus} onReschedule={reschedule} />
+        <AppointmentTable rows={historyRows} loading={loading} onUpdateStatus={updateStatus} onReschedule={reschedule} />
       </section>
 
       {open && (
@@ -522,6 +521,25 @@ function SchedulingTab({ facility }: { facility: string }) {
       )}
     </div>
   );
+}
+
+// Small provenance chip: "Auto-accepted" (accepted_by set, e.g. by the
+// reception auto-accept feature) takes precedence over the origin-based
+// label. Falls back to "Reception" for reception-booked / legacy rows.
+function originChip(r: AppointmentRow): { label: string; cls: string } | null {
+  if (r.accepted_by) {
+    return { label: "Auto-accepted", cls: "border-violet-200 bg-violet-50 text-violet-700" };
+  }
+  switch (r.origin) {
+    case "recall":
+      return { label: "Recall", cls: "border-sky-200 bg-sky-50 text-sky-700" };
+    case "myspehr":
+      return { label: "Portal", cls: "border-indigo-200 bg-indigo-50 text-indigo-700" };
+    case "reception":
+      return { label: "Reception", cls: "border-slate-200 bg-slate-50 text-slate-600" };
+    default:
+      return null;
+  }
 }
 
 function AppointmentTable({
@@ -581,7 +599,7 @@ function AppointmentTable({
               <Fragment key={r.id}>
               <tr
                 className={`border-b border-slate-200 ${
-                  r.status === "proposed"
+                  r.status === "proposed" || r.status === "pending"
                     ? "bg-amber-50/70 ring-1 ring-amber-200"
                     : i % 2 === 1
                     ? "bg-slate-50/60"
@@ -591,7 +609,17 @@ function AppointmentTable({
                 <td className="px-3 py-2 font-mono text-[11.5px] text-slate-700 whitespace-nowrap">{fmtTs(r.start_time)}</td>
                 <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">{fmtTs(r.end_time)}</td>
                 <td className="px-3 py-2">
-                  <div className="font-semibold text-slate-900">{r.patient_name}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-900">{r.patient_name}</span>
+                    {(() => {
+                      const chip = originChip(r);
+                      return chip ? (
+                        <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${chip.cls}`}>
+                          {chip.label}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                   {r.patient_mrn && <div className="font-mono text-[11px] text-slate-500">{r.patient_mrn}</div>}
                 </td>
                 <td className="px-3 py-2 text-slate-700">{r.practitioner_name ?? "—"}</td>
@@ -602,7 +630,7 @@ function AppointmentTable({
                 <td className="px-3 py-2">
                   <span
                     className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ${
-                      r.status === "proposed"
+                      r.status === "proposed" || r.status === "pending"
                         ? "bg-amber-100 text-amber-800 ring-amber-300"
                         : r.status === "booked"
                         ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
@@ -611,7 +639,7 @@ function AppointmentTable({
                         : "bg-slate-100 text-slate-700 ring-slate-300"
                     }`}
                   >
-                    {r.status === "proposed" && (
+                    {(r.status === "proposed" || r.status === "pending") && (
                       <span className="mr-1 h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
                     )}
                     {r.status}
@@ -620,7 +648,7 @@ function AppointmentTable({
                 {showActions && (
                   <td className="px-3 py-2 text-right pr-4">
                     <div className="inline-flex items-center gap-1.5">
-                      {r.status === "proposed" && (
+                      {(r.status === "proposed" || r.status === "pending") && (
                         <>
                           <button
                             onClick={() => onUpdateStatus(r.id, "booked")}
@@ -851,10 +879,17 @@ function BookAppointmentModal({
     setSubmitting(true);
     const startIso = new Date(form.start_time).toISOString();
     const endIso = new Date(form.end_time).toISOString();
+    const mrnTrim = form.patient_mrn.trim();
+    // Insert only. The `fhir_appointments_mark_dirty` trigger assigns a
+    // stable `fhir_id` (`appt-<uuid>`) and flags `needs_fhir_push` — the
+    // outbound poller owns the actual FHIR PUT from here, keyed off that
+    // same `fhir_id`, so there is exactly one writer and one resource id
+    // per appointment (previously this booking flow PUT directly AND the
+    // poller separately PUT under a different id for the same row).
     const { data: inserted, error } = await (supabase as any).from("fhir_appointments").insert({
       facility_name: facility,
       patient_name: form.patient_name.trim(),
-      patient_mrn: form.patient_mrn.trim() || null,
+      patient_mrn: mrnTrim || null,
       practitioner_name: form.practitioner_name.trim() || null,
       service_type: form.service_type.trim() || null,
       description: form.description.trim() || null,
@@ -862,6 +897,7 @@ function BookAppointmentModal({
       end_time: endIso,
       status: form.status,
       comment: form.comment.trim() || null,
+      origin: "reception",
     }).select().maybeSingle();
     if (error) {
       setSubmitting(false);
@@ -869,12 +905,10 @@ function BookAppointmentModal({
       return;
     }
 
-    // Build strict FHIR R4 Appointment and push to external FHIR server + local mirror
-    const apptId = (inserted as any)?.id ?? crypto.randomUUID();
-    const mrnTrim = form.patient_mrn.trim();
+    const fhirId = (inserted as any)?.fhir_id ?? `appt-${(inserted as any)?.id}`;
     const appt: any = {
       resourceType: "Appointment",
-      id: apptId,
+      id: fhirId,
       status: form.status,
       serviceType: form.service_type.trim()
         ? [{ text: form.service_type.trim() }]
@@ -906,35 +940,15 @@ function BookAppointmentModal({
           : []),
       ],
     };
-    try {
-      const bundle = {
-        resourceType: "Bundle",
-        type: "transaction",
-        entry: [
-          {
-            resource: appt,
-            request: { method: "PUT", url: `Appointment/${apptId}` },
-          },
-        ],
-      };
-      const { error: fnError } = await supabase.functions.invoke("fhir-proxy", {
-        body: { bundle },
-      });
-      if (fnError) {
-        toast.warning("Saved locally, FHIR sync deferred", { description: fnError.message });
-      }
-    } catch (err) {
-      toast.warning("Saved locally, FHIR sync deferred", {
-        description: (err as Error).message,
-      });
-    }
 
-    // Persist a local FHIR resource mirror so the patient portal can query
-    // Appointment?actor=Patient/[MRN] without round-tripping to the external server.
+    // Persist a local FHIR resource mirror (keyed off the SAME fhir_id the
+    // outbound poller will PUT under) so the patient portal can query
+    // Appointment?actor=Patient/[MRN] without round-tripping to the
+    // external server while the poll cycle is in flight.
     try {
       await (supabase as any).rpc("persist_fhir_resource", {
         _resource_type: "Appointment",
-        _resource_id: apptId,
+        _resource_id: fhirId,
         _mrn: mrnTrim || null,
         _payload: appt,
         _source: "reception-booking",

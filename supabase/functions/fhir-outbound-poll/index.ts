@@ -17,9 +17,14 @@
 //
 // Notes on scoping:
 //  • fhir_charge_items has no `updated_at` — we use `created_at`.
-//  • fhir_appointments rows with a non-null `fhir_id` originated on the
-//    myspehr side (already live on the server), so we skip them here to
-//    avoid needlessly re-writing them under a `spehr`-source id.
+//  • fhir_appointments selection is driven by the `needs_fhir_push` dirty
+//    flag (set by a DB trigger on status/time/facility/practitioner change,
+//    cleared only by an explicit ack after a confirmed push here) — NOT by
+//    a null `fhir_id`. Every appointment row, reception- or
+//    myspehr-originated, carries a stable `fhir_id` from insert onward
+//    (backfilled `appt-<uuid>` for pre-existing rows), and every writer PUTs
+//    to that SAME id, so a myspehr-originated row's local status changes
+//    now round-trip back out instead of being silently dropped.
 //  • Clinical push does NOT gate on discharge status. Matches the client
 //    hook (`useBackgroundFhirSync` line 385-390: "Full live sync mode:
 //    every patient is eligible regardless of admission status.").
@@ -171,6 +176,13 @@ function buildInvoice(row: any) {
   const currency = row.currency ?? "USD";
   const subtotal = Number(row.subtotal ?? 0);
   const total = Number(row.total ?? subtotal);
+  const paymentOrigin: string | null = row.payment_origin ?? null;
+  const paymentTerms =
+    status === "balanced" && row.paid_at
+      ? paymentOrigin === "auto-pay-timeout"
+        ? `Auto-paid ${row.paid_at} (no portal payment within timeout of discharge)`
+        : `Paid ${row.paid_at}`
+      : undefined;
   return tagged({
     resourceType: "Invoice",
     id: fhirSafeId(row.invoice_no),
@@ -185,7 +197,10 @@ function buildInvoice(row: any) {
     issuer: row.facility_name ? { display: row.facility_name } : undefined,
     totalNet: { value: subtotal, currency },
     totalGross: { value: total, currency },
-    paymentTerms: status === "balanced" && row.paid_at ? `Paid ${row.paid_at}` : undefined,
+    paymentTerms,
+    ...(paymentOrigin
+      ? { extension: [{ url: "urn:spehr:payment-origin", valueCode: paymentOrigin }] }
+      : {}),
   });
 }
 
@@ -222,21 +237,44 @@ function buildChargeItem(row: any, invoiceNo?: string | null) {
   });
 }
 
+// v2-0276 appointment-type code used for recall-originated appointments
+// (rows inserted by the discharge-recall feature, `origin = 'recall'`).
+const V2_0276 = "http://terminology.hl7.org/CodeSystem/v2-0276";
+
 function buildAppointment(row: any) {
   const status = String(row.status ?? "booked").toLowerCase();
+  const origin = row.origin ?? "reception";
   const participants: any[] = [];
   if (row.patient_mrn) {
     participants.push({
-      actor: { reference: `Patient/${row.patient_mrn}`, display: row.patient_name ?? undefined },
+      actor: { reference: `Patient/${fhirSafeId(row.patient_mrn)}`, display: row.patient_name ?? undefined },
       status: "accepted",
     });
   }
   if (row.practitioner_name) {
     participants.push({ actor: { display: row.practitioner_name }, status: "accepted" });
   }
-  return tagged({
+
+  // Body-level extension marking spehr as the last writer of this
+  // resource version, independent of `meta.tag` (which HAPI may or may not
+  // carry forward across versions — see fhir-ingest.ts's self-echo check).
+  const extension: any[] = [{ url: "urn:spehr:last-writer", valueCode: "spehr" }];
+  // The Composition this appointment was recalled from, if any. Kept as a
+  // soft string extension rather than a hard FHIR `supportingInformation`
+  // Reference — HAPI's referential-integrity check would reject the whole
+  // transaction bundle if that Composition doesn't exist yet on the server.
+  if (row.source_composition_id) {
+    extension.push({ url: "urn:spehr:source-composition-id", valueString: String(row.source_composition_id) });
+  }
+
+  // Stable id: every writer (reception insert trigger, outbound poller,
+  // client-side background sync) keys off `fhir_id`, so there is exactly
+  // one FHIR Appointment resource per row regardless of who wrote it last.
+  const id = fhirSafeId(row.fhir_id ?? `appt-${row.id}`);
+
+  return {
     resourceType: "Appointment",
-    id: fhirSafeId(`appt-${row.id}`),
+    id,
     identifier: [{ system: "urn:spehr:appointment-uuid", value: row.id }],
     status,
     description: row.description ?? row.service_type ?? undefined,
@@ -244,12 +282,26 @@ function buildAppointment(row: any) {
     start: row.start_time,
     end: row.end_time,
     serviceType: row.service_type ? [{ text: row.service_type }] : undefined,
+    ...(origin === "recall"
+      ? {
+          appointmentType: {
+            coding: [{ system: V2_0276, code: "FOLLOWUP", display: "A follow up visit from a previous appointment" }],
+          },
+        }
+      : {}),
     participant:
       participants.length > 0
         ? participants
         : [{ status: "needs-action", actor: { display: "Unknown" } }],
     ...(row.facility_name ? { location: [{ display: row.facility_name }] } : {}),
-  });
+    extension,
+    meta: {
+      tag: [
+        { ...SPEHR_TAG },
+        { system: "urn:spehr:appointment-origin", code: String(origin) },
+      ],
+    },
+  };
 }
 
 /* ---------------- Clinical builders (mirror src/lib/fhir-bundle.ts) ------ */
@@ -738,7 +790,7 @@ async function pollInvoices(admin: any) {
   const cutoff = new Date().toISOString();
   const { data, error } = await admin
     .from("fhir_invoices")
-    .select("id, invoice_no, mrn, patient_name, facility_name, status, subtotal, tax, total, currency, issued_at, paid_at, updated_at")
+    .select("id, invoice_no, mrn, patient_name, facility_name, status, subtotal, tax, total, currency, issued_at, paid_at, updated_at, payment_origin, discharged_at")
     .gt("updated_at", since)
     .order("updated_at", { ascending: true })
     .limit(BATCH_LIMIT);
@@ -756,6 +808,41 @@ async function pollInvoices(admin: any) {
   // Rows sorted asc; last row is newest updated_at (raw postgres text —
   // full microsecond precision, so .gt won't re-match it next run).
   await writeState(admin, "outbound_invoice_last_synced_at", rows[rows.length - 1].updated_at);
+  return stats;
+}
+
+// Push auto-pay-timeout PaymentNotice resources (created directly by the
+// `auto_pay_overdue_invoices()` DB function, not through this poller's
+// normal builder path) out to the FHIR server. These already carry a
+// fully-formed FHIR payload (built in SQL), so this just PUTs the stored
+// payload as-is and marks it pushed — no rebuilding needed.
+async function pollPaymentNotices(admin: any) {
+  const { data, error } = await admin
+    .from("fhir_payment_notices")
+    .select("id, fhir_id, payload")
+    .eq("payment_origin", "auto-pay-timeout")
+    .is("fhir_pushed_at", null)
+    .order("created_at", { ascending: true })
+    .limit(BATCH_LIMIT);
+  if (error) throw new Error(`payment notice query: ${error.message}`);
+  const rows = (data ?? []) as any[];
+  const stats: any = { fetched: rows.length, pushed: 0, failed: 0 };
+  if (rows.length === 0) return stats;
+
+  const entries = rows
+    .filter((r) => r.payload && r.fhir_id)
+    .map((r) => entryFor({ ...r.payload, id: r.fhir_id }));
+  const result = await pushBundle(entries);
+  if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
+  stats.pushed = rows.length;
+
+  const nowIso = new Date().toISOString();
+  const ids = rows.map((r) => r.id);
+  const { error: updErr } = await admin
+    .from("fhir_payment_notices")
+    .update({ fhir_pushed_at: nowIso })
+    .in("id", ids);
+  if (updErr) { stats.markFailed = updErr.message; }
   return stats;
 }
 
@@ -791,28 +878,103 @@ async function pollChargeItems(admin: any) {
   return stats;
 }
 
+// Per-row consecutive-failure counter for appointments, mirroring the
+// clinical poll's `clinical_failcounts` pattern. Persisted under a single
+// `fhir_sync_state` row keyed `appointment_failcounts` as
+// `{ counts: { [appointmentId]: n } }`.
+const APPT_FAILCOUNT_KEY = "appointment_failcounts";
+
+async function readApptFailCounts(admin: any): Promise<Record<string, number>> {
+  const { data } = await admin
+    .from("fhir_sync_state").select("value").eq("key", APPT_FAILCOUNT_KEY).maybeSingle();
+  const c = (data?.value?.counts ?? {}) as Record<string, number>;
+  return typeof c === "object" && c ? c : {};
+}
+
+async function writeApptFailCounts(admin: any, counts: Record<string, number>) {
+  await admin
+    .from("fhir_sync_state")
+    .upsert({ key: APPT_FAILCOUNT_KEY, value: { counts } }, { onConflict: "key" });
+}
+
+// Ack a batch of successfully-pushed appointment rows: clears
+// `needs_fhir_push` via the SECURITY DEFINER RPC, which only touches rows
+// whose `updated_at` still matches what we read (so a mid-push local edit
+// isn't silently swallowed — that row stays dirty and gets picked up again
+// next tick).
+async function ackAppointmentPush(admin: any, rows: any[]) {
+  if (rows.length === 0) return;
+  const p_ids = rows.map((r) => r.id);
+  const p_updated = rows.map((r) => r.updated_at);
+  const { error } = await admin.rpc("ack_fhir_appointment_push", { p_ids, p_updated });
+  if (error) console.error("[pollAppointments] ack_fhir_appointment_push failed", error);
+}
+
 async function pollAppointments(admin: any) {
-  const since = await readState(admin, "outbound_appointment_last_synced_at");
-  const cutoff = new Date().toISOString();
   const { data, error } = await admin
     .from("fhir_appointments")
-    .select("id, facility_name, patient_mrn, patient_name, practitioner_name, service_type, description, start_time, end_time, status, comment, updated_at, fhir_id")
-    .gt("updated_at", since)
-    .is("fhir_id", null) // skip myspehr-originated rows
+    .select(
+      "id, facility_name, patient_mrn, patient_name, practitioner_name, service_type, description, start_time, end_time, status, comment, updated_at, fhir_id, origin, source_composition_id",
+    )
+    .eq("needs_fhir_push", true)
     .order("updated_at", { ascending: true })
     .limit(BATCH_LIMIT);
   if (error) throw new Error(`appointment query: ${error.message}`);
   const rows = (data ?? []) as any[];
-  const stats: any = { since, cutoff, fetched: rows.length, pushed: 0, failed: 0 };
-  if (rows.length === 0) {
-    await writeState(admin, "outbound_appointment_last_synced_at", cutoff);
+  const stats: any = { fetched: rows.length, pushed: 0, failed: 0, forceCleared: 0 };
+  if (rows.length === 0) return stats;
+
+  const entries = rows.map((r) => entryFor(buildAppointment(r)));
+  const batchResult = await pushBundle(entries);
+
+  if (batchResult.ok) {
+    stats.pushed = rows.length;
+    await ackAppointmentPush(admin, rows);
     return stats;
   }
-  const entries = rows.map((r) => entryFor(buildAppointment(r)));
-  const result = await pushBundle(entries);
-  if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
-  stats.pushed = rows.length;
-  await writeState(admin, "outbound_appointment_last_synced_at", rows[rows.length - 1].updated_at);
+
+  // Whole-batch transaction failed (or one bad entry poisoned it) — fall
+  // back to per-row PUTs so one bad appointment can't block every other
+  // row from reconciling.
+  stats.batchError = batchResult.body;
+  const failCounts = await readApptFailCounts(admin);
+  let failCountsDirty = false;
+  const acked: any[] = [];
+  for (const row of rows) {
+    const rowResult = await pushBundle([entryFor(buildAppointment(row))]);
+    if (rowResult.ok) {
+      stats.pushed += 1;
+      acked.push(row);
+      if (failCounts[row.id]) { delete failCounts[row.id]; failCountsDirty = true; }
+      continue;
+    }
+    stats.failed += 1;
+    const n = (failCounts[row.id] ?? 0) + 1;
+    failCounts[row.id] = n;
+    failCountsDirty = true;
+    if (n >= FAILCOUNT_THRESHOLD) {
+      // Force-clear the dirty flag so a single unpushable appointment
+      // (e.g. a permanently rejected resource) can't retry forever and
+      // starve the rest of the batch on every tick. Guard on updated_at so
+      // we don't clobber a fresh local edit that raced with this failure.
+      await admin
+        .from("fhir_appointments")
+        .update({ needs_fhir_push: false })
+        .eq("id", row.id)
+        .eq("updated_at", row.updated_at);
+      delete failCounts[row.id];
+      stats.forceCleared += 1;
+      await logEvent(admin, {
+        mrn: row.patient_mrn ?? "n/a",
+        stage: "fhir-outbound-poll:appointment",
+        level: "warn",
+        message: `Force-clearing needs_fhir_push for appointment ${row.id} after ${n} consecutive failures`,
+        meta: { appointmentId: row.id, consecutive_failures: n, error: rowResult.body },
+      });
+    }
+  }
+  if (failCountsDirty) await writeApptFailCounts(admin, failCounts);
+  await ackAppointmentPush(admin, acked);
   return stats;
 }
 
@@ -1206,12 +1368,13 @@ Deno.serve(async (req) => {
 
   try {
     const invoice = await pollInvoices(admin);
+    const paymentNotice = await pollPaymentNotices(admin);
     const chargeItem = await pollChargeItems(admin);
     const appointment = await pollAppointments(admin);
     // Clinical push runs last so a slow/blocked FHIR write on many entries
     // never delays billing (which is the tighter demo dependency).
     const clinical = await pollClinical(admin);
-    const result = { ok: true, ranAt: new Date().toISOString(), invoice, chargeItem, appointment, clinical };
+    const result = { ok: true, ranAt: new Date().toISOString(), invoice, paymentNotice, chargeItem, appointment, clinical };
     await logEvent(admin, result);
     return json(result);
   } catch (e) {

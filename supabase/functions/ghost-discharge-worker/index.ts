@@ -56,6 +56,143 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const FHIR_SERVER_URL = (Deno.env.get("FHIR_SERVER_URL") ?? "").replace(/\/+$/, "");
 const FHIR_BEARER_TOKEN = Deno.env.get("FHIR_BEARER_TOKEN") ?? "";
 const FHIR_APIKEY = Deno.env.get("FHIR_APIKEY") ?? "";
+const SPEHR_APP_URL = (Deno.env.get("SPEHR_APP_URL") ?? "https://www.spehr.live").replace(/\/+$/, "");
+
+// Phase D: recall/follow-up appointment settings, read fresh per discharge
+// (cheap single-row lookup) rather than cached, since an operator may flip
+// `recall_enabled`/`recall_rate` between worker invocations.
+async function fetchRecallSettings(admin: any): Promise<{
+  recall_enabled: boolean;
+  recall_rate: number;
+  recall_offset_min_hours: number;
+  recall_offset_max_hours: number;
+}> {
+  const { data } = await admin
+    .from("system_settings")
+    .select("recall_enabled, recall_rate, recall_offset_min_hours, recall_offset_max_hours")
+    .eq("id", 1)
+    .maybeSingle();
+  return {
+    recall_enabled: !!(data as any)?.recall_enabled,
+    recall_rate: Number((data as any)?.recall_rate ?? 0.3),
+    recall_offset_min_hours: Number((data as any)?.recall_offset_min_hours ?? 26),
+    recall_offset_max_hours: Number((data as any)?.recall_offset_max_hours ?? 32),
+  };
+}
+
+/** FHIR id constraint: [A-Za-z0-9-.]{1,64}. */
+function sanitizeFhirId(id: string): string {
+  return id.replace(/[^A-Za-z0-9-.]/g, "-").slice(0, 64);
+}
+
+/** Round a Date to the nearest 15 minutes. */
+function roundToNearest15Min(d: Date): Date {
+  const ms = 15 * 60_000;
+  return new Date(Math.round(d.getTime() / ms) * ms);
+}
+
+/**
+ * Decide whether this discharge earns a recall appointment and, if so,
+ * insert the local `fhir_appointments` row for it (with `needs_fhir_push:
+ * false` — the discharge bundle transaction pushes it directly, in the same
+ * atomic bundle as the Composition, so the outbound poller must not also
+ * try). Returns the id + timing to pass into `buildDischargeTransactionBundle`,
+ * or null when no recall was scheduled. Never throws — any failure here is
+ * logged and swallowed so it can never block the actual discharge.
+ */
+async function maybeScheduleRecall(
+  admin: any,
+  mrn: string,
+  patient: any,
+  dischargeTimeMs: number,
+  compositionId: string | undefined,
+): Promise<{ id: string; start: string; end: string; practitioner?: string; facility?: string; description?: string } | null> {
+  try {
+    const settings = await fetchRecallSettings(admin);
+    if (!settings.recall_enabled) return null;
+    if (!(Math.random() < settings.recall_rate)) return null;
+    // Chain-breaker: a patient currently admitted BECAUSE of a recall does
+    // not get another recall scheduled on this discharge.
+    if (patient.admission_source === "recall") return null;
+    const facility = patient.facility_name as string | null;
+    if (!facility) return null;
+
+    const minH = settings.recall_offset_min_hours;
+    const maxH = settings.recall_offset_max_hours;
+    const offsetHours = minH + Math.random() * Math.max(0, maxH - minH);
+    const start = roundToNearest15Min(new Date(dischargeTimeMs + offsetHours * 3_600_000));
+    const end = new Date(start.getTime() + 30 * 60_000);
+
+    const id = sanitizeFhirId(`recall-${mrn}-${Math.floor(dischargeTimeMs / 1000)}`);
+    const patientName = [patient.first_name, patient.last_name].filter(Boolean).join(" ") || patient.name || mrn;
+    const description = `Post-discharge follow-up for ${patient.chief_complaint ?? "recent admission"}`;
+
+    const { error } = await admin.from("fhir_appointments").insert({
+      fhir_id: id,
+      origin: "recall",
+      status: "proposed",
+      facility_name: facility,
+      patient_mrn: mrn,
+      patient_name: patientName,
+      practitioner_name: patient.primary_care_physician ?? null,
+      service_type: "Post-discharge follow-up",
+      description,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      comment: "Auto-scheduled from discharge summary",
+      source_composition_id: compositionId ?? null,
+      needs_fhir_push: false,
+    });
+    if (error) {
+      console.error(`[ghost-discharge-worker] recall appointment insert failed for ${mrn}:`, error.message);
+      return null;
+    }
+
+    return {
+      id,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      practitioner: patient.primary_care_physician ?? undefined,
+      facility,
+      description,
+    };
+  } catch (e) {
+    console.error(`[ghost-discharge-worker] maybeScheduleRecall exception for ${mrn}:`, (e as Error).message);
+    return null;
+  }
+}
+
+/** If the discharge bundle push failed, flag the recall row dirty so Phase
+ * B's outbound poller retries it independently on the next tick instead of
+ * it being silently lost (it was inserted with needs_fhir_push:false on the
+ * assumption the bundle push would succeed). */
+async function markRecallDirtyIfBundlePushFailed(admin: any, recallFhirId: string | undefined, pushOk: boolean) {
+  if (!recallFhirId || pushOk) return;
+  const { error } = await admin
+    .from("fhir_appointments")
+    .update({ needs_fhir_push: true })
+    .eq("fhir_id", recallFhirId);
+  if (error) {
+    console.error(`[ghost-discharge-worker] failed to mark recall appt ${recallFhirId} dirty:`, error.message);
+  }
+}
+
+// Fire-and-forget: ask the app to generate the FHIR Invoice for this MRN
+// right away, instead of waiting for the next backfill-invoices-every-10min
+// cron tick. Best-effort only — a failure here must never block or fail
+// the discharge itself, so every branch of this is swallowed.
+async function triggerInvoiceGeneration(mrn: string): Promise<void> {
+  try {
+    await fetch(`${SPEHR_APP_URL}/api/public/hooks/generate-invoice`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mrn }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (e) {
+    console.warn(`[ghost-discharge-worker] generate-invoice hook failed for ${mrn}:`, (e as Error).message);
+  }
+}
 
 async function pushDischargeBundleToFhir(bundle: unknown): Promise<{ ok: boolean; status: number }> {
   if (!FHIR_SERVER_URL || !FHIR_BEARER_TOKEN) {
@@ -299,10 +436,31 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
     .eq("mrn", mrn);
   if (pErr) return { mrn, ok: false, reason: `patient_update_failed: ${pErr.message}` };
 
+  // Phase D: independent of the invoice hook below — a configurable chance
+  // of a real recall/follow-up Appointment, only for a genuine new discharge
+  // (never on a force-backfill re-run of an already-discharged patient).
+  // Populated below; passed into buildDischargeTransactionBundle further
+  // down so the Appointment rides the SAME atomic FHIR transaction as the
+  // Composition.
+  let recallAppt: Awaited<ReturnType<typeof maybeScheduleRecall>> = null;
+
   // Free the bed only for a fresh discharge — backfill on an already
   // discharged patient must not touch bed_management (the bed may have
   // been reassigned in the meantime).
   if (!alreadyDischarged) {
+    // Prompt Auto Doc to bill this discharge immediately (myspehr's
+    // billing section should show it promptly, not wait up to 10 minutes
+    // for the next backfill-invoices cron tick). Awaited so its own
+    // 8s timeout bounds this call, but any failure is swallowed inside
+    // triggerInvoiceGeneration and never blocks/fails the discharge.
+    await triggerInvoiceGeneration(mrn);
+
+    // Independent of the invoice hook above: maybe schedule a recall
+    // appointment. Never blocks/fails the discharge (all errors swallowed
+    // inside maybeScheduleRecall).
+    const dischargeTimeMs = new Date(patientUpdate.discharge_time as string).getTime();
+    recallAppt = await maybeScheduleRecall(admin, mrn, patient, dischargeTimeMs, undefined);
+
     await admin
       .from("bed_management")
       .update({
@@ -383,7 +541,24 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
           recorded_at: rawVitals.recorded_at ?? null,
         }
       : null;
-    const { bundle } = buildDischargeTransactionBundle({
+    // Phase D: compressed-timeline follow-up text. Default stays "within 2
+    // days" (the confirmed simulated-timeline decision) whether or not a
+    // real appointment exists; when one does, name it explicitly so the
+    // patient knows to confirm it in MySPEHR.
+    const pcpText = admissionPatient.primary_care_physician ?? "your PCP";
+    const followUpText = recallAppt
+      ? (() => {
+          const hours = Math.max(
+            1,
+            (new Date(recallAppt!.start).getTime() - new Date(admissionPatient.discharge_time ?? Date.now()).getTime()) /
+              3_600_000,
+          );
+          const startUtc = new Date(recallAppt!.start).toISOString();
+          return `Follow up with ${pcpText} within ${Math.ceil(hours / 24)} day(s). Hospital follow-up appointment scheduled for ${startUtc} at ${recallAppt!.facility ?? "your facility"} — confirm it in MySPEHR.`;
+        })()
+      : `Follow up with ${pcpText} within 2 days.`;
+
+    const { bundle, compositionId: pushedCompositionId } = buildDischargeTransactionBundle({
       patient: admissionPatient,
       labs: fhirLabs,
       dischargeMeds: fhirMeds,
@@ -393,6 +568,7 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
       conditionAtDischarge: "Stable, improved.",
       diet: "Regular as tolerated",
       activity: "Activity as tolerated",
+      followUp: followUpText,
       physicalExam: {
         general: "Awake, alert, in no acute distress on admission.",
         cardiovascular: "Regular rate and rhythm, no murmurs.",
@@ -400,11 +576,32 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
         abdomen: "Soft, non-tender, non-distended.",
         neurologic: "Alert and oriented x3, no focal deficits.",
       },
+      followUpAppointment: recallAppt ?? undefined,
     });
     composition_push = await pushDischargeBundleToFhir(bundle);
+
+    // Backfill the recall row's source_composition_id now that we know it
+    // (deterministic, but only computed inside buildDischargeTransactionBundle).
+    if (recallAppt && pushedCompositionId) {
+      await admin
+        .from("fhir_appointments")
+        .update({ source_composition_id: pushedCompositionId })
+        .eq("fhir_id", recallAppt.id);
+    }
+
+    // If the bundle push failed, the recall Appointment (inserted with
+    // needs_fhir_push:false on the assumption this same-transaction push
+    // would carry it) never reached FHIR — flag it dirty so Phase B's
+    // outbound poller retries it independently on the next tick.
+    if (recallAppt) {
+      await markRecallDirtyIfBundlePushFailed(admin, recallAppt.id, composition_push.ok);
+    }
   } catch (e) {
     composition_push = { ok: false, status: -1 };
     console.error("[ghost-discharge-worker] composition push failed:", (e as Error).message);
+    if (recallAppt) {
+      await markRecallDirtyIfBundlePushFailed(admin, recallAppt.id, false);
+    }
   }
 
   return { mrn, ok: true, note_id: noteRow?.id, summary_len: summary.length, composition_push };

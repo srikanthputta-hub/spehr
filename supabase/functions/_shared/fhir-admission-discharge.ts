@@ -645,6 +645,57 @@ function buildDischargeMedRequest(patientId: string, encounterId: string, m: Dis
   };
 }
 
+/**
+ * Phase D: the optional real recall/follow-up Appointment created on
+ * discharge. Tagged the same way Phase B's outbound poller tags every
+ * spehr-written Appointment (`urn:spehr:source`=spehr) plus a dedicated
+ * `urn:spehr:appointment-origin`=recall tag, and carries the body-level
+ * `urn:spehr:last-writer` extension so fhir-ingest.ts's self-echo check
+ * (see handleAppointment) skips it on the next inbound poll instead of
+ * re-ingesting our own write.
+ */
+function buildFollowUpAppointment(
+  patientId: string,
+  appt: { id: string; start: string; end: string; practitioner?: string; facility?: string; description?: string },
+) {
+  const participant: AnyRecord[] = [
+    { actor: { reference: urn(patientId) }, status: "accepted" },
+  ];
+  if (appt.practitioner) {
+    participant.push({ actor: { display: appt.practitioner }, status: "accepted" });
+  }
+  if (appt.facility) {
+    participant.push({ actor: { display: appt.facility }, status: "accepted" });
+  }
+  return {
+    resourceType: "Appointment",
+    id: appt.id,
+    meta: {
+      tag: [
+        { system: "urn:spehr:source", code: "spehr" },
+        { system: "urn:spehr:appointment-origin", code: "recall" },
+      ],
+    },
+    extension: [{ url: "urn:spehr:last-writer", valueCode: "spehr" }],
+    status: "proposed",
+    appointmentType: {
+      coding: [
+        {
+          system: "http://terminology.hl7.org/CodeSystem/v2-0276",
+          code: "FOLLOWUP",
+          display: "A follow up visit from a previous appointment",
+        },
+      ],
+    },
+    serviceType: [{ text: "Post-discharge follow-up" }],
+    description: appt.description ?? "Post-discharge follow-up",
+    start: appt.start,
+    end: appt.end,
+    participant,
+    location: appt.facility ? [{ display: appt.facility }] : undefined,
+  } as AnyRecord;
+}
+
 function narrativeSection(title: string, text: string, refs: Array<{ reference: string }> = []) {
   if (!text && refs.length === 0) return null;
   return {
@@ -724,6 +775,18 @@ export function buildDischargeTransactionBundle(opts: {
   admittingDiagnosis?: string;
   dischargeDiagnosis?: string;
   conditionAtDischarge?: string;
+  /** Phase D: when present, a real recall/follow-up Appointment is added to
+   * this same transaction bundle (PUT-upsert) and referenced from the
+   * Follow-Up Care narrative section. Optional — omitting it leaves prior
+   * behavior unchanged. */
+  followUpAppointment?: {
+    id: string;
+    start: string;
+    end: string;
+    practitioner?: string;
+    facility?: string;
+    description?: string;
+  };
 }) {
   const { patient: p } = opts;
   const patientId = fhirId("", p.mrn).replace(/^-/, "");
@@ -732,6 +795,9 @@ export function buildDischargeTransactionBundle(opts: {
 
   const patient = buildPatient(p, patientId);
   const encounter = buildEncounter(p, patientId, encounterId);
+  const followUpAppt = opts.followUpAppointment
+    ? buildFollowUpAppointment(patientId, opts.followUpAppointment)
+    : null;
 
   const labEntriesAll = (opts.labs ?? []).map((l) => buildLabObservation(p, patientId, encounterId, l));
   const medEntriesAll = (opts.dischargeMeds ?? []).map((m) => buildDischargeMedRequest(patientId, encounterId, m));
@@ -870,7 +936,14 @@ export function buildDischargeTransactionBundle(opts: {
         medEntries.map((m) => ({ reference: urn(m.id) })),
       ),
       narrativeSection("Diet & Activity", [opts.diet && `Diet: ${opts.diet}`, opts.activity && `Activity: ${opts.activity}`].filter(Boolean).join(" ")),
-      narrativeSection("Follow-Up Care", opts.followUp ?? (p.primary_care_physician ? `Follow up with ${p.primary_care_physician} within 7 days.` : "Follow up with PCP within 7 days.")),
+      narrativeSection(
+        "Follow-Up Care",
+        opts.followUp ??
+          (p.primary_care_physician
+            ? `Follow up with ${p.primary_care_physician} within 2 days.`
+            : "Follow up with PCP within 2 days."),
+        followUpAppt ? [{ reference: urn(followUpAppt.id as string) }] : [],
+      ),
       narrativeSection("Return Precautions", opts.returnPrecautions ?? "Return immediately for worsening symptoms, chest pain, shortness of breath, fever > 101.5°F, or new neurological deficits."),
       narrativeSection("Patient Education", opts.patientEducation ?? "Educated on diagnosis, medication adherence, and follow-up plan."),
       narrativeSection("Condition at Discharge", opts.conditionAtDischarge ?? "Stable, improved."),
@@ -884,7 +957,8 @@ export function buildDischargeTransactionBundle(opts: {
     ...labEntries.map((l) => entryFor(urn(l.id), l.resource)),
     ...medEntries.map((m) => entryFor(urn(m.id), m.resource)),
     ...vitalEntries.map((v) => entryFor(urn(v.id), v.resource)),
+    ...(followUpAppt ? [entryFor(urn(followUpAppt.id as string), followUpAppt)] : []),
   ];
 
-  return { bundle: wrapTransaction(entries), compositionId, patientId, encounterId };
+  return { bundle: wrapTransaction(entries), compositionId, patientId, encounterId, followUpAppointmentId: followUpAppt?.id as string | undefined };
 }
