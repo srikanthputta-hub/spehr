@@ -915,6 +915,39 @@ export type Database = {
         }
         Relationships: []
       }
+      data_retention_policies: {
+        Row: {
+          enabled: boolean
+          extra_predicate: string | null
+          guard_active_patient: boolean
+          mode: string
+          mrn_column: string | null
+          purge_order: number
+          table_name: string
+          ts_column: string
+        }
+        Insert: {
+          enabled?: boolean
+          extra_predicate?: string | null
+          guard_active_patient?: boolean
+          mode?: string
+          mrn_column?: string | null
+          purge_order?: number
+          table_name: string
+          ts_column: string
+        }
+        Update: {
+          enabled?: boolean
+          extra_predicate?: string | null
+          guard_active_patient?: boolean
+          mode?: string
+          mrn_column?: string | null
+          purge_order?: number
+          table_name?: string
+          ts_column?: string
+        }
+        Relationships: []
+      }
       drug_interaction_rules: {
         Row: {
           author_id: string | null
@@ -2179,6 +2212,7 @@ export type Database = {
       patients: {
         Row: {
           address: string | null
+          admission_source: string | null
           admission_time: string | null
           age: number
           ai_clinical_summary: string | null
@@ -2249,6 +2283,7 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          admission_source?: string | null
           admission_time?: string | null
           age: number
           ai_clinical_summary?: string | null
@@ -2319,6 +2354,7 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          admission_source?: string | null
           admission_time?: string | null
           age?: number
           ai_clinical_summary?: string | null
@@ -2704,6 +2740,21 @@ export type Database = {
         }
         Relationships: []
       }
+      retired_mrns: {
+        Row: {
+          mrn: string
+          retired_at: string
+        }
+        Insert: {
+          mrn: string
+          retired_at?: string
+        }
+        Update: {
+          mrn?: string
+          retired_at?: string
+        }
+        Relationships: []
+      }
       role_permissions: {
         Row: {
           author_id: string | null
@@ -2850,8 +2901,13 @@ export type Database = {
           autopay_after_minutes: number
           created_at: string
           created_by_type: Database["public"]["Enums"]["provenance_origin"]
+          data_retention_hours: number
           ghost_safety_demo_counter: number
           id: number
+          recall_enabled: boolean
+          recall_offset_max_hours: number
+          recall_offset_min_hours: number
+          recall_rate: number
           updated_at: string | null
         }
         Insert: {
@@ -2864,8 +2920,13 @@ export type Database = {
           autopay_after_minutes?: number
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          data_retention_hours?: number
           ghost_safety_demo_counter?: number
           id?: number
+          recall_enabled?: boolean
+          recall_offset_max_hours?: number
+          recall_offset_min_hours?: number
+          recall_rate?: number
           updated_at?: string | null
         }
         Update: {
@@ -2878,8 +2939,13 @@ export type Database = {
           autopay_after_minutes?: number
           created_at?: string
           created_by_type?: Database["public"]["Enums"]["provenance_origin"]
+          data_retention_hours?: number
           ghost_safety_demo_counter?: number
           id?: number
+          recall_enabled?: boolean
+          recall_offset_max_hours?: number
+          recall_offset_min_hours?: number
+          recall_rate?: number
           updated_at?: string | null
         }
         Relationships: []
@@ -3279,6 +3345,10 @@ export type Database = {
         Args: { p_appointment_id: string }
         Returns: undefined
       }
+      auto_accept_upcoming_appointments: {
+        Args: { p_lead?: string; p_limit?: number }
+        Returns: Json
+      }
       auto_admit_due_appointments: { Args: never; Returns: undefined }
       auto_admit_ghost_patient: { Args: never; Returns: undefined }
       auto_code_patient_complaint: {
@@ -3317,6 +3387,7 @@ export type Database = {
           mrn: string
         }[]
       }
+      gen_ghost_mrn: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -3354,6 +3425,10 @@ export type Database = {
         Returns: string
       }
       purge_expired_local_cache: { Args: never; Returns: Json }
+      purge_simulation_data: {
+        Args: { p_batch?: number; p_dry_run?: boolean; p_max_batches?: number }
+        Returns: Json
+      }
       simulate_vitals_tick: { Args: never; Returns: undefined }
       sweep_stalled_clinical_orders: { Args: never; Returns: undefined }
     }
