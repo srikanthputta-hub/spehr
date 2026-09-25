@@ -339,15 +339,40 @@ function buildEncounterResource(p: any) {
     id: stableIds.encounter(p.mrn),
     identifier: [{ system: "urn:spehr:encounter", value: stableIds.encounter(p.mrn) }],
     status,
+    // spehr's admissions are inpatient ward stays (Cardiology, Neurology,
+    // etc. -- there is no "Emergency Department" in this hospital's
+    // assigned_department values), so IMP is the correct class. EMER was
+    // hardcoded here regardless of actual department.
     class: {
       system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
-      code: "EMER",
-      display: "Emergency",
+      code: "IMP",
+      display: "inpatient encounter",
     },
     subject: { reference: `Patient/${p.mrn}` },
     period: { start: p.admission_time ?? undefined, end: p.discharge_time ?? undefined },
     reasonCode: p.chief_complaint ? [{ text: p.chief_complaint }] : undefined,
     serviceProvider: p.facility_name ? { display: p.facility_name } : undefined,
+    location: p.room
+      ? [{ location: { display: p.assigned_department ? `${p.room} (${p.assigned_department})` : p.room } }]
+      : undefined,
+    participant: p.primary_care_physician
+      ? [
+          {
+            type: [
+              {
+                coding: [
+                  {
+                    system: "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+                    code: "ATND",
+                    display: "attender",
+                  },
+                ],
+              },
+            ],
+            individual: { display: p.primary_care_physician },
+          },
+        ]
+      : undefined,
   });
 }
 
@@ -888,7 +913,7 @@ async function collectChangedMrns(
 // active clinical rows and mapping them through the builders above.
 async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: any[]; skipped: string | null }> {
   const [patientRes, medsRes, labsRes, radsRes, resultsRes, notesRes, condsRes, provNotesRes, shiftNotesRes] = await Promise.all([
-    admin.from("patients").select("mrn, name, first_name, last_name, dob, gender, biological_sex, phone, address, facility_name, admission_time, discharge_time, status, chief_complaint, diagnosis").eq("mrn", mrn).maybeSingle(),
+    admin.from("patients").select("mrn, name, first_name, last_name, dob, gender, biological_sex, phone, address, facility_name, admission_time, discharge_time, status, chief_complaint, diagnosis, room, assigned_department, primary_care_physician").eq("mrn", mrn).maybeSingle(),
     admin.from("medication_orders")
       .select("id, drug_name, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, created_at, updated_at, rxnorm_code, rxnorm_display")
       .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(200),

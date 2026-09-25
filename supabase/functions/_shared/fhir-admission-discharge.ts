@@ -48,6 +48,8 @@ export interface AdmissionPatient {
   insurance_policy_number?: string | null;
   guarantor?: string | null;
   primary_care_physician?: string | null;
+  room?: string | null;
+  assigned_department?: string | null;
 
   // CC + HPI
   chief_complaint?: string | null;
@@ -119,6 +121,7 @@ const HL7 = {
   OBS_CATEGORY: "http://terminology.hl7.org/CodeSystem/observation-category",
   V3_ACT_CODE: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
   V3_ROLE_CODE: "http://terminology.hl7.org/CodeSystem/v3-RoleCode",
+  V3_PARTICIPATION_TYPE: "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
   CONSENT_SCOPE: "http://terminology.hl7.org/CodeSystem/consentscope",
   CONSENT_CATEGORY: "http://terminology.hl7.org/CodeSystem/consentcategorycodes",
   GENDER_IDENTITY_EXT: "http://hl7.org/fhir/StructureDefinition/patient-genderIdentity",
@@ -306,11 +309,36 @@ function buildEncounter(p: AdmissionPatient, patientId: string, id: string) {
     id,
     identifier: [{ system: "urn:spehr:encounter", value: `enc-${p.mrn}` }],
     status: isFinished ? "finished" : "in-progress",
-    class: { system: HL7.V3_ACT_CODE, code: "EMER", display: "Emergency" },
+    // spehr's admissions are inpatient ward stays (Cardiology, Neurology,
+    // etc. -- there is no "Emergency Department" among this hospital's
+    // assigned_department values), so IMP is the correct class. EMER was
+    // hardcoded here regardless of actual department.
+    class: { system: HL7.V3_ACT_CODE, code: "IMP", display: "inpatient encounter" },
     subject: { reference: urn(patientId) },
     period: { start: p.admission_time ?? undefined, end: p.discharge_time ?? undefined },
     reasonCode: p.chief_complaint ? [{ text: p.chief_complaint }] : undefined,
     serviceProvider: p.facility_name ? { display: p.facility_name } : undefined,
+    location: p.room
+      ? [{ location: { display: p.assigned_department ? `${p.room} (${p.assigned_department})` : p.room } }]
+      : undefined,
+    participant: p.primary_care_physician
+      ? [
+          {
+            type: [
+              {
+                coding: [
+                  {
+                    system: HL7.V3_PARTICIPATION_TYPE,
+                    code: "ATND",
+                    display: "attender",
+                  },
+                ],
+              },
+            ],
+            individual: { display: p.primary_care_physician },
+          },
+        ]
+      : undefined,
   };
 }
 

@@ -368,6 +368,8 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
       allergies: freshPatient.allergies ?? null,
       environmental_allergies: freshPatient.environmental_allergies ?? null,
       primary_care_physician: freshPatient.primary_care_physician ?? null,
+      room: freshPatient.room ?? null,
+      assigned_department: freshPatient.assigned_department ?? null,
       discharge_summary: summary,
     };
     const fhirVitals: FhirDischargeVitals | null = rawVitals

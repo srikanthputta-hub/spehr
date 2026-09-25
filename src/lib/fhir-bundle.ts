@@ -699,6 +699,9 @@ export type EncounterPatient = {
   temp?: number | null;
   allergies?: string | null;
   past_medical_history?: string | null;
+  room?: string | null;
+  assigned_department?: string | null;
+  primary_care_physician?: string | null;
 };
 
 
@@ -786,10 +789,14 @@ function buildEncounterResource(p: EncounterPatient) {
       { system: "urn:spehr:encounter", value: `enc-${p.mrn}` },
     ],
     status,
+    // spehr's admissions are inpatient ward stays (Cardiology, Neurology,
+    // etc. -- there is no "Emergency Department" among this hospital's
+    // assigned_department values), so IMP is the correct class. EMER was
+    // hardcoded here regardless of actual department.
     class: {
       system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
-      code: "EMER",
-      display: "Emergency",
+      code: "IMP",
+      display: "inpatient encounter",
     },
     subject: { reference: `Patient/${p.mrn}` },
     period: {
@@ -798,6 +805,27 @@ function buildEncounterResource(p: EncounterPatient) {
     },
     reasonCode: p.chief_complaint
       ? [{ text: p.chief_complaint }]
+      : undefined,
+    location: p.room
+      ? [{ location: { display: p.assigned_department ? `${p.room} (${p.assigned_department})` : p.room } }]
+      : undefined,
+    participant: p.primary_care_physician
+      ? [
+          {
+            type: [
+              {
+                coding: [
+                  {
+                    system: "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+                    code: "ATND",
+                    display: "attender",
+                  },
+                ],
+              },
+            ],
+            individual: { display: p.primary_care_physician },
+          },
+        ]
       : undefined,
     serviceProvider: p.facility_name ? { display: p.facility_name } : undefined,
   };
