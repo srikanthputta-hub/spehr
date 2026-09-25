@@ -1300,8 +1300,8 @@ function OfficePage() {
            a glance, none clashing with the green "working" accent, gold boss
            accent or teal meeting color used elsewhere on the stage. */
         .desk-tag { font-family: ui-monospace, monospace; font-weight: 800; paint-order: stroke; }
-        .desk-tag-tier { font-size: 11px; fill: #00f0ff;
-          filter: drop-shadow(0 0 .5px #00f0ff) drop-shadow(0 0 1.6px #00f0ff) drop-shadow(0 0 3.6px rgba(0,240,255,.85)); }
+        .desk-tag-tier { font-size: 11px; fill: #0a0a0a;
+          filter: drop-shadow(0 0 .6px #00f0ff) drop-shadow(0 0 2px #00f0ff) drop-shadow(0 0 4.5px rgba(0,240,255,.95)); }
         .desk-tag-ver { font-size: 7px; fill: #ff36e0;
           filter: drop-shadow(0 0 .5px #ff36e0) drop-shadow(0 0 1.4px #ff36e0) drop-shadow(0 0 3px rgba(255,54,224,.85)); }
         .desk-tag-effort { font-size: 5.4px; letter-spacing: .03em; fill: #aef22c;
