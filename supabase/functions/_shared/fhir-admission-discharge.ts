@@ -86,6 +86,16 @@ export interface DischargeLab {
   performing_lab?: string | null;
 }
 
+export interface DischargeVitals {
+  hr?: number | string | null;
+  bp_systolic?: number | string | null;
+  bp_diastolic?: number | string | null;
+  spo2?: number | string | null;
+  temp_c?: number | string | null;
+  rr?: number | string | null;
+  recorded_at?: string | null;
+}
+
 export interface DischargeMed {
   id?: string;
   drug?: string | null;
@@ -525,6 +535,59 @@ function buildLabObservation(p: AdmissionPatient, patientId: string, encounterId
   };
 }
 
+// Standard LOINC codes for discrete vital signs. The `vitals` table's own
+// loinc_code/loinc_display/loinc_map columns are always null in practice
+// (nothing populates them), so these are hardcoded rather than read from
+// the row.
+type VitalKey = "hr" | "bp_systolic" | "bp_diastolic" | "spo2" | "temp_c" | "rr";
+
+const VITAL_LOINC: Record<VitalKey, { code: string; display: string; unit: string }> = {
+  hr: { code: "8867-4", display: "Heart rate", unit: "/min" },
+  bp_systolic: { code: "8480-6", display: "Systolic blood pressure", unit: "mm[Hg]" },
+  bp_diastolic: { code: "8462-4", display: "Diastolic blood pressure", unit: "mm[Hg]" },
+  spo2: { code: "59408-5", display: "Oxygen saturation in Arterial blood by Pulse oximetry", unit: "%" },
+  temp_c: { code: "8310-5", display: "Body temperature", unit: "Cel" },
+  rr: { code: "9279-1", display: "Respiratory rate", unit: "/min" },
+};
+
+/**
+ * One Observation per discrete vital captured on the patient's last
+ * `vitals` row at/before discharge. Each vital gets its own resource
+ * (rather than a single panel Observation) to match how buildLabObservation
+ * already models individual lab results.
+ */
+function buildVitalSignObservations(p: AdmissionPatient, patientId: string, encounterId: string, v: DischargeVitals) {
+  const effective = v.recorded_at ?? p.discharge_time ?? p.admission_time ?? undefined;
+  return (Object.keys(VITAL_LOINC) as Array<keyof typeof VITAL_LOINC>)
+    .map((key) => {
+      const raw = v[key];
+      if (raw === null || raw === undefined || raw === "") return null;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) return null;
+      const meta = VITAL_LOINC[key];
+      const id = stableId("obs-vital", p.mrn, key);
+      return {
+        id,
+        resource: {
+          resourceType: "Observation",
+          id,
+          status: "final",
+          category: [
+            {
+              coding: [{ system: HL7.OBS_CATEGORY, code: "vital-signs", display: "Vital Signs" }],
+            },
+          ],
+          code: { coding: [{ system: LOINC, code: meta.code, display: meta.display }], text: meta.display },
+          subject: { reference: urn(patientId) },
+          encounter: { reference: urn(encounterId) },
+          effectiveDateTime: effective,
+          valueQuantity: { value, unit: meta.unit, system: "http://unitsofmeasure.org", code: meta.unit },
+        } as AnyRecord,
+      };
+    })
+    .filter((o): o is { id: string; resource: AnyRecord } => o !== null);
+}
+
 function buildDischargeMedRequest(patientId: string, encounterId: string, m: DischargeMed) {
   const name = m.drug ?? m.drug_name ?? m.medication_name ?? "medication";
   // patientId is already the bare MRN under the unified convention.
@@ -615,6 +678,7 @@ export function buildDischargeTransactionBundle(opts: {
   patient: AdmissionPatient;
   labs?: DischargeLab[];
   dischargeMeds?: DischargeMed[];
+  vitals?: DischargeVitals | null;
   hospitalCourse?: string;
   physicalExam?: {
     general?: string;
@@ -659,6 +723,7 @@ export function buildDischargeTransactionBundle(opts: {
   };
   const labEntries = dedupeById(labEntriesAll);
   const medEntries = dedupeById(medEntriesAll);
+  const vitalEntries = opts.vitals ? buildVitalSignObservations(p, patientId, encounterId, opts.vitals) : [];
 
   const exam = opts.physicalExam ?? {};
   const examText = [
@@ -718,6 +783,23 @@ export function buildDischargeTransactionBundle(opts: {
       narrativeSection("Past Medical History & Allergies", pmhText),
       narrativeSection("Physical Examination on Admission", examText),
       narrativeSection(
+        "Vital Signs at Discharge",
+        vitalEntries.length === 0
+          ? "No vital signs recorded at discharge."
+          : `Last recorded ${opts.vitals?.recorded_at ?? "at discharge"}:\n` +
+            [
+              opts.vitals?.hr != null && `• Heart rate: ${opts.vitals.hr} /min`,
+              opts.vitals?.bp_systolic != null && opts.vitals?.bp_diastolic != null &&
+                `• Blood pressure: ${opts.vitals.bp_systolic}/${opts.vitals.bp_diastolic} mmHg`,
+              opts.vitals?.spo2 != null && `• SpO2: ${opts.vitals.spo2}%`,
+              opts.vitals?.temp_c != null && `• Temperature: ${opts.vitals.temp_c}°C`,
+              opts.vitals?.rr != null && `• Respiratory rate: ${opts.vitals.rr} /min`,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+        vitalEntries.map((v) => ({ reference: urn(v.id) })),
+      ),
+      narrativeSection(
         "Hospital Course",
         composeHospitalCourse(
           opts.dischargeMeds ?? [],
@@ -773,6 +855,7 @@ export function buildDischargeTransactionBundle(opts: {
     entryFor(urn(encounterId), encounter),
     ...labEntries.map((l) => entryFor(urn(l.id), l.resource)),
     ...medEntries.map((m) => entryFor(urn(m.id), m.resource)),
+    ...vitalEntries.map((v) => entryFor(urn(v.id), v.resource)),
   ];
 
   return { bundle: wrapTransaction(entries), compositionId, patientId, encounterId };

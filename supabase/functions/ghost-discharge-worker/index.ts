@@ -47,6 +47,7 @@ import {
   buildDischargeTransactionBundle,
   type DischargeLab as FhirDischargeLab,
   type DischargeMed as FhirDischargeMed,
+  type DischargeVitals as FhirDischargeVitals,
   type AdmissionPatient,
 } from "../_shared/fhir-admission-discharge.ts";
 
@@ -120,8 +121,9 @@ async function fetchClinicalContext(admin: any, mrn: string): Promise<{
   meds: any[];
   labs: any[];
   allergies: any[];
+  vitals: any | null;
 }> {
-  const [pRes, mRes, lRes, lrRes, aRes] = await Promise.all([
+  const [pRes, mRes, lRes, lrRes, aRes, vRes] = await Promise.all([
     admin.from("patients").select("*").eq("mrn", mrn).maybeSingle(),
     admin.from("medication_orders")
       .select("id, drug_name, medication_name, dose, route, status, ordered_by, ordering_physician, administered_at, rxnorm_code, rxnorm_display, frequency")
@@ -135,12 +137,22 @@ async function fetchClinicalContext(admin: any, mrn: string): Promise<{
     admin.from("allergies")
       .select("substance, reaction, severity")
       .eq("mrn", mrn),
+    // Last recorded vitals row at/before discharge — pushed as FHIR
+    // Observations so myspehr's Monitoring page has a discharge-time
+    // snapshot instead of showing nothing.
+    admin.from("vitals")
+      .select("hr, bp_systolic, bp_diastolic, spo2, temp_c, rr, recorded_at")
+      .eq("mrn", mrn)
+      .order("recorded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
   const patient = (pRes as any)?.data ?? null;
   const meds = ((mRes as any)?.data ?? []) as any[];
   const labOrders = ((lRes as any)?.data ?? []) as any[];
   const labResults = ((lrRes as any)?.data ?? []) as any[];
   const allergies = ((aRes as any)?.data ?? []) as any[];
+  const vitals = (vRes as any)?.data ?? null;
   const labs = [
     ...labOrders.map((l) => ({
       id: l.id,
@@ -165,7 +177,7 @@ async function fetchClinicalContext(admin: any, mrn: string): Promise<{
       unit: r.unit ?? null,
     })),
   ];
-  return { patient, meds, labs, allergies };
+  return { patient, meds, labs, allergies, vitals };
 }
 
 /**
@@ -315,7 +327,7 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
   // before any orders existed.
   let composition_push: { ok: boolean; status: number } | undefined;
   try {
-    const { patient: freshPatient, meds: rawMeds, labs: rawLabs } = await fetchClinicalContext(admin, mrn);
+    const { patient: freshPatient, meds: rawMeds, labs: rawLabs, vitals: rawVitals } = await fetchClinicalContext(admin, mrn);
     const fhirMeds: FhirDischargeMed[] = rawMeds.map((m: any) => ({
       id: m.id,
       drug: m.medication_name ?? m.drug_name ?? "medication",
@@ -358,10 +370,22 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
       primary_care_physician: freshPatient.primary_care_physician ?? null,
       discharge_summary: summary,
     };
+    const fhirVitals: FhirDischargeVitals | null = rawVitals
+      ? {
+          hr: rawVitals.hr ?? null,
+          bp_systolic: rawVitals.bp_systolic ?? null,
+          bp_diastolic: rawVitals.bp_diastolic ?? null,
+          spo2: rawVitals.spo2 ?? null,
+          temp_c: rawVitals.temp_c ?? null,
+          rr: rawVitals.rr ?? null,
+          recorded_at: rawVitals.recorded_at ?? null,
+        }
+      : null;
     const { bundle } = buildDischargeTransactionBundle({
       patient: admissionPatient,
       labs: fhirLabs,
       dischargeMeds: fhirMeds,
+      vitals: fhirVitals,
       admittingDiagnosis: freshPatient.chief_complaint ?? undefined,
       dischargeDiagnosis: freshPatient.diagnosis ?? freshPatient.chief_complaint ?? undefined,
       conditionAtDischarge: "Stable, improved.",
