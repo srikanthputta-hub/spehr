@@ -13,15 +13,42 @@
 // Worker route, not a locally-tunneled Node process, so it's up whenever
 // spehr.live is up — independent of any single machine.
 //
+// Rewritten again 2026-09-24 (same day, room-simulation migration
+// 20260924210000_office_board_rooms.sql) to target one of the 13 STABLE
+// role-<role> rows instead of upserting/deleting an arbitrary --id row.
+// The room simulation (home_room/room/on_break_until, the 5s coffee break,
+// conference-room meetings) is driven by status transitions (working <->
+// idle) on those 13 persistent rows — a row that gets INSERTed fresh and
+// then DELETEd on completion never goes through a working->idle UPDATE, so
+// it never gets a break, and deleting it removes it from its room instead
+// of sending it home. --id is now just the task's own correlation id,
+// stored in `description` for traceability; it no longer doubles as the
+// row's primary key. Unknown --type values (not one of the 13 canonical
+// roles) still work — they upsert a real board row under that id, they
+// just won't have a role-based home_room until the trigger's fallback
+// ('lobby') applies.
+//
 // Usage:
 //   node office-task-bridge.cjs start   --id <correlationId> --type <agentType> --model <model> --desc "<description>"
 //                                        [--pipeline <name> --stage <n> --of <totalStages>]
-//   node office-task-bridge.cjs complete --id <correlationId>
-//   node office-task-bridge.cjs fail     --id <correlationId>
+//   node office-task-bridge.cjs complete --id <correlationId> --type <agentType>
+//   node office-task-bridge.cjs fail     --id <correlationId> --type <agentType>
+//
+// --type is required on complete/fail too now (it's how the row is found).
 //
 // --pipeline/--stage/--of tag the task as one step of a coordinated handoff
 // chain so the dashboard can show "🔗 <pipeline> stage N/M" instead of
-// treating every dispatch as an independent, unrelated task.
+// treating every dispatch as an independent, unrelated task. It's also the
+// signal office_room_tick() uses to seat >=2 concurrently-working roles
+// together in the conference room.
+//
+// KNOWN_ROLES mirrors office.tsx's ROLE_ORDER and the migration's role ->
+// home_room CASE mapping. Keep all three in sync if the roster ever changes.
+const KNOWN_ROLES = [
+  'boss', 'coder', 'reviewer', 'tester', 'architect', 'devops',
+  'data-engineer', 'product-manager', 'ux-designer',
+  'clinical-informaticist', 'security-auditor', 'analyst', 'researcher',
+];
 
 const SUPABASE_URL = 'https://qxyvmvtecnnwqeqaouzh.supabase.co';
 // Publishable/anon key — not a secret, safe to commit. office_board's RLS
@@ -68,6 +95,13 @@ async function deleteRow(id) {
   }
 }
 
+// The row id to target: one of the 13 stable role-<role> rows for a known
+// role, otherwise the task's own --id (so an unrecognized --type still gets
+// a real, findable row instead of silently colliding with something else).
+function rowId(type, id) {
+  return KNOWN_ROLES.includes(type) ? `role-${type}` : id;
+}
+
 async function main() {
   const [, , cmd, ...rest] = process.argv;
   const args = parseArgs(rest);
@@ -79,9 +113,9 @@ async function main() {
       process.exit(1);
     }
     await upsertRow({
-      id,
+      id: rowId(type, id),
       role: type,
-      status: 'active',
+      status: 'working',
       description: desc || '(no description)',
       model: model || 'sonnet',
       model_routed_by: 'task-difficulty',
@@ -92,17 +126,41 @@ async function main() {
       started_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
-    console.log(`[office-bridge] registered "${id}" (role: ${type}) on the shared board`);
+    console.log(`[office-bridge] "${id}" started (role: ${type}) — status set to working`);
   } else if (cmd === 'complete' || cmd === 'fail') {
-    const { id } = args;
-    if (!id) {
-      console.error('Usage: complete|fail --id <correlationId>');
+    const { id, type } = args;
+    if (!id || !type) {
+      console.error('Usage: complete|fail --id <correlationId> --type <agentType>');
       process.exit(1);
     }
-    await deleteRow(id);
-    console.log(`[office-bridge] ${cmd}d "${id}" — removed from the shared board`);
+    const knownRole = KNOWN_ROLES.includes(type);
+    if (knownRole) {
+      // Set idle rather than delete: the room-simulation trigger fires the
+      // 5s coffee-break walk on this exact working -> idle transition. The
+      // 13 role rows are permanent board furniture, not per-task rows.
+      await upsertRow({
+        id: rowId(type, id),
+        role: type,
+        status: 'idle',
+        description: null,
+        model: null,
+        model_routed_by: 'default',
+        pipeline_name: null,
+        pipeline_stage: null,
+        pipeline_total: null,
+        is_placeholder: true,
+        started_at: null,
+        updated_at: new Date().toISOString(),
+      });
+      console.log(`[office-bridge] "${id}" ${cmd}d (role: ${type}) — back to idle`);
+    } else {
+      // Unrecognized role: this was its own standalone row (see rowId),
+      // so remove it entirely rather than leaving a permanent extra tile.
+      await deleteRow(rowId(type, id));
+      console.log(`[office-bridge] "${id}" ${cmd}d (role: ${type}) — removed from the shared board`);
+    }
   } else {
-    console.error('Usage: office-task-bridge.cjs <start|complete|fail> --id <correlationId> [...]');
+    console.error('Usage: office-task-bridge.cjs <start|complete|fail> --id <correlationId> --type <agentType> [...]');
     process.exit(1);
   }
 }
