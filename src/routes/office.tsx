@@ -111,6 +111,16 @@ const ROUTED_BY_LABEL: Record<string, string> = {
   default: "standing roster (no task run yet)",
 };
 
+// `office_board.model` holds a full model id (e.g. "claude-sonnet-5",
+// "claude-opus-5-5", "claude-haiku-4-5-20251001") -- not the short tier key
+// MODEL_META is keyed by, so that lookup misses for real rows and the H/S/O
+// badge above never lights up in practice. This just trims the id down to
+// something that fits on a desk: drop the "claude-" prefix and any trailing
+// date-stamp suffix.
+function shortModelLabel(model: string): string {
+  return model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+}
+
 // Mirrors the migration's static home_room CASE -- only used as a fallback
 // if a row somehow arrives without home_room/room populated.
 const HOME_ROOM_BY_ROLE: Record<string, RoomKey> = {
@@ -328,7 +338,17 @@ function CoffeeIcon({ size = 12 }: { size?: number }) {
 
 // Robot seated at a desk with a monitor. viewBox 0 0 100 90; the desk's
 // front-centre (100% bottom) is the anchor point on the stage.
-function RobotDesk({ accent, mode, boss }: { accent: string; mode: DeskMode; boss: boolean }) {
+function RobotDesk({
+  accent,
+  mode,
+  boss,
+  model,
+}: {
+  accent: string;
+  mode: DeskMode;
+  boss: boolean;
+  model?: string;
+}) {
   const onBreak = mode === "break";
   const working = mode === "working";
   const trim = boss ? BOSS_ACCENT : "#3a4a5e";
@@ -395,6 +415,22 @@ function RobotDesk({ accent, mode, boss }: { accent: string; mode: DeskMode; bos
       <rect x="4" y="84" width="92" height="3" rx="1.5" fill={trim} opacity={boss ? 0.9 : 0.5} />
       {/* keyboard */}
       <rect x="30" y="61.5" width="26" height="3.5" rx="1" fill="#6a7a8c" />
+      {/* model label, printed on the desk surface (left of the tower) while working */}
+      {working && model && (
+        <text
+          x="38"
+          y="79"
+          textAnchor="middle"
+          fontFamily="ui-monospace, monospace"
+          fontWeight="700"
+          fontSize="6"
+          fill="#1a2433"
+          textLength="62"
+          lengthAdjust="spacingAndGlyphs"
+        >
+          {model}
+        </text>
+      )}
       {/* tower */}
       <rect x="80" y="70" width="10" height="14" rx="1.5" fill="#8797a8" />
       <circle cx="85" cy="74" r="1.2" fill={working ? "#35e08a" : "#56667a"} />
@@ -748,7 +784,12 @@ function OfficePage() {
         title={`${label} · ${stateText(r)}`}
       >
         <span className="orb" aria-hidden="true" />
-        <RobotDesk accent={accent} mode={mode} boss={isBoss} />
+        <RobotDesk
+          accent={accent}
+          mode={mode}
+          boss={isBoss}
+          model={working && r.model ? shortModelLabel(r.model) : undefined}
+        />
         {m && (
           <span className="model-badge" style={{ background: m.color }} aria-hidden="true">
             {m.badge}
@@ -1395,6 +1436,10 @@ function OfficePage() {
                     aria-label={`${label}, ${stateText(r)}${working && r.description ? `: ${r.description}` : ""}. Show details`}
                   >
                     <span className="orb" aria-hidden="true" />
+                    {/* No on-desk model text here: the robot-desk SVG renders at
+                        46px wide in the mobile list, far too small for the
+                        label to stay legible -- the m-badge letter above already
+                        carries the tier for this view. */}
                     <RobotDesk accent={accentFor(r.role)} mode={mode} boss={r.role === "boss"} />
                     <span>
                       <span className="m-role">
