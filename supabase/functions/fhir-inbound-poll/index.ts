@@ -213,13 +213,67 @@ async function pollType(admin: any, target: PollTarget) {
     url = nextLink(bundle);
   }
 
-  // Persist the newest lastUpdated we processed. Fall back to the pre-poll
-  // wall clock so an empty poll still advances the cursor and we don't
-  // re-scan the same window forever.
-  const nextCursor = isoMax(cutoff, maxSeen);
+  // ── Cursor advancement (read before changing) ──────────────────────────
+  // `url` is non-null here iff we stopped because of MAX_PAGES while the
+  // server still had a `next` page, i.e. there is un-fetched data past
+  // `maxSeen`.
+  //
+  // BEFORE (data-loss bug): the cursor was always set to
+  // `isoMax(cutoff, maxSeen)`. `cutoff` is taken before the fetch, so it is
+  // >= every lastUpdated we saw, and the cursor landed on `cutoff` even when
+  // the page cap was hit. Example: since=10:00, 1,500 matching records
+  // stamped 10:00–10:04, cutoff=10:05. We fetch 20×50 = 1,000 (up to about
+  // 10:02:40) and write cursor=10:05. The next tick asks for
+  // `_lastUpdated=gt10:05`, so the other 500 records are never fetched. They
+  // are lost for good, not just delayed.
+  //
+  // AFTER: the cursor only jumps to `cutoff` when the poll drained the result
+  // set (no `next` link left). When the cap was hit, it moves only to the last
+  // record we actually processed, like `pollClinical`'s `lastAdvanced` in
+  // fhir-outbound-poll. The next tick picks up where this one stopped, so a
+  // spike takes several ticks instead of losing data. In the example the
+  // cursor becomes about 10:02:40 and the next tick fetches the other 500.
+  //
+  // Tie handling: the search uses `gt`, and the page cap can fall in the
+  // middle of a group of records that share the same lastUpdated (e.g. from
+  // one HAPI transaction bundle). Writing `maxSeen` itself would skip the
+  // unfetched members of that group. So on a capped poll we write
+  // `maxSeen - 1ms`. The next tick re-reads that millisecond, and
+  // re-ingesting those records is harmless because ingest upserts on
+  // fhir_id / rxnorm_code. One edge case: if a whole capped run sits inside
+  // a single millisecond (more than PAGE_SIZE*MAX_PAGES records with one
+  // timestamp), backing off would repeat the same window forever. In that
+  // case we move to `maxSeen` and log a warning. That skip is still much
+  // smaller than the old one, and the log makes it visible.
+  //
+  // The cursor never moves backwards (it is always >= `since`).
+  const truncated = url !== null;
+  let nextCursor: string;
+  if (!truncated) {
+    // Drained: nothing left on the server up to fetch time. Advance to the
+    // pre-poll wall clock so an empty poll doesn't rescan forever.
+    nextCursor = isoMax(cutoff, maxSeen);
+  } else {
+    const sinceMs = new Date(since).getTime();
+    const seenMs = new Date(maxSeen).getTime();
+    const resumeMs = seenMs - 1;
+    if (resumeMs > sinceMs) {
+      nextCursor = new Date(resumeMs).toISOString();
+    } else if (seenMs > sinceMs) {
+      console.warn(
+        `[fhir-inbound-poll] ${resourceType} (${tag}): >${PAGE_SIZE * MAX_PAGES} records share lastUpdated=${maxSeen}; ` +
+          `force-advancing cursor to it — remaining same-timestamp records may be skipped`,
+      );
+      nextCursor = maxSeen;
+    } else {
+      // Capped but made no forward progress (e.g. empty pages with a next
+      // link). Hold the cursor and retry next tick.
+      nextCursor = since;
+    }
+  }
   await writeState(admin, stateKey, nextCursor);
 
-  return { resourceType, tag, since, nextCursor, ...stats };
+  return { resourceType, tag, since, nextCursor, truncated, ...stats };
 }
 
 Deno.serve(async (req) => {
