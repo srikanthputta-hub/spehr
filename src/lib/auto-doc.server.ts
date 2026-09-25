@@ -1047,8 +1047,18 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     };
   }
 
-  // Pull clinical course
-  const [{ data: medRows }, { data: labRows }, { data: radRows }] = await Promise.all([
+  // Pull clinical course. These five reads are independent of one another
+  // (meds/labs/rad orders, conditions, and the Billing value sets), so they
+  // run concurrently instead of one sequential round-trip after another —
+  // at ~492 discharges in the backfill queue, every serialized round-trip
+  // here multiplies straight into total batch wall time.
+  const [
+    { data: medRows },
+    { data: labRows },
+    { data: radRows },
+    { data: condRows },
+    { data: billingVs },
+  ] = await Promise.all([
     sb
       .from("medication_orders")
       .select("medication_name,drug_name,drug,rxnorm_code,status,administered_at")
@@ -1061,6 +1071,17 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
       .from("radiology_orders")
       .select("snomed_code,exam_type,modality,body_part,status,ordered_at,indication_icd10_code,indication_icd10_display")
       .eq("patient_mrn", mrn),
+    sb
+      .from("conditions")
+      .select("icd10_code, icd10_display, onset_date, created_at, clinical_status")
+      .eq("mrn", mrn)
+      .order("onset_date", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true }),
+    sb
+      .from("custom_value_sets")
+      .select("name, codes, clinical_application, status")
+      .eq("status", "published")
+      .eq("clinical_application", "Billing"),
   ]);
 
   const meds = (medRows ?? [])
@@ -1094,14 +1115,9 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
       indication_icd10_display: r.indication_icd10_display ?? null,
     }));
 
-  // Pull ICD-10 codes for this MRN — prefer discrete conditions rows; fall
-  // back to the denormalised patients.icd10_codes array when empty.
-  const { data: condRows } = await sb
-    .from("conditions")
-    .select("icd10_code, icd10_display, onset_date, created_at, clinical_status")
-    .eq("mrn", mrn)
-    .order("onset_date", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: true });
+  // ICD-10 codes for this MRN — prefer discrete conditions rows (fetched
+  // concurrently above); fall back to the denormalised patients.icd10_codes
+  // array when empty.
   const condsWithIcd10 = ((condRows ?? []) as any[]).filter(
     (r) => typeof r?.icd10_code === "string" && r.icd10_code.length > 0,
   );
@@ -1128,13 +1144,8 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   }
   icd10Codes = Array.from(new Set(icd10Codes));
 
-  // Fetch published Billing value sets and compute matches.
-  const { data: billingVs } = await sb
-    .from("custom_value_sets")
-    .select("name, codes, clinical_application, status")
-    .eq("status", "published")
-    .eq("clinical_application", "Billing");
-
+  // Published Billing value sets (fetched concurrently above) — used below
+  // to compute ICD-10 matches.
   // Locate the Charge Master value set — used to substitute real CPT / UB-04
   // Revenue codes on room/board, nursing, physician time, pharmacy, and lab
   // charge lines. Kept as a separate concern from ICD-10 risk-adjustment
@@ -1174,9 +1185,18 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   // a change request directly against terminology_requests using the
   // admin client — mirrors the real-world "billing/quality team flags a
   // missing code" change-request trigger.
+  // Best-effort / non-blocking: with zero published Billing value sets this
+  // fires for essentially every discharge, and its insert-or-merge dance
+  // against a single shared "Billing Coverage Gaps" row is several extra
+  // sequential round-trips that have nothing to do with issuing the
+  // invoice itself. Fire it without awaiting so a slow or contended write
+  // here can never add to (or block) the per-patient invoice-issuance path
+  // — this matters a lot when backfillMissingInvoices() is looping over
+  // hundreds of discharges in one Worker invocation.
   const matchedIcd10 = new Set(billingMatches.map((m) => m.icd10));
   const unmatchedIcd10 = icd10Codes.filter((c) => !matchedIcd10.has(c));
   if (unmatchedIcd10.length > 0) {
+    void (async () => {
     try {
       const { data: dictRows } = await sb
         .from("medical_terminology")
@@ -1236,6 +1256,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     } catch (e) {
       console.warn("[billing] terminology gap request failed", (e as Error).message);
     }
+    })();
   }
 
   const input: BuildChargesInput = {
@@ -1251,13 +1272,15 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   const charges = composeCharges(input);
   const { subtotal, tax, total } = summarizeCharges(charges);
 
-  // Idempotency: replace previous invoice for this discharge if it exists
+  // Idempotency: match on invoice_no (unique per discharge via
+  // makeInvoiceNo(mrn, discharge_time)) rather than "latest invoice by
+  // MRN" — a patient re-admitted and discharged again produces a NEW
+  // invoice_no, and the old "latest by MRN" lookup could otherwise
+  // resurrect/overwrite an unrelated prior encounter's invoice row.
   const { data: existing } = await sb
     .from("fhir_invoices")
     .select("id,invoice_no,status")
-    .eq("mrn", mrn)
-    .order("issued_at", { ascending: false })
-    .limit(1)
+    .eq("invoice_no", invoiceNo)
     .maybeSingle();
 
   // Don't overwrite a balanced invoice
@@ -1282,6 +1305,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
         currency: "USD",
         issued_at: new Date().toISOString(),
         paid_at: null,
+        discharged_at: p.discharge_time,
         primary_diagnosis_icd10: primaryIcd10,
         primary_diagnosis_display: primaryIcd10Display,
         payload: {} as any,
@@ -1302,6 +1326,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
         tax,
         total,
         currency: "USD",
+        discharged_at: p.discharge_time,
         primary_diagnosis_icd10: primaryIcd10,
         primary_diagnosis_display: primaryIcd10Display,
         payload: {} as any,
@@ -1384,41 +1409,64 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
 
 export async function backfillMissingInvoices(): Promise<{ ok: true; generated: number; skipped: number }> {
   const sb = admin();
-  // Pull every discharged patient and every mrn that already has an
-  // invoice, then compute the set difference. The previous version capped
-  // the query at 500 rows, which meant that once the first 500 discharged
-  // MRNs (by arbitrary order) each had an invoice, the backfill produced
-  // 0 new invoices and every subsequent discharge stalled indefinitely.
-  const [{ data: discharged }, { data: invoiced }] = await Promise.all([
-    // FIFO drain: oldest unbilled discharge first, so the dashboard's
-    // discharge-time sort reflects real generation progress.
-    sb
-      .from("patients")
-      .select("mrn,discharge_time")
-      .ilike("status", "discharged")
-      .order("discharge_time", { ascending: true, nullsFirst: false }),
-    sb.from("fhir_invoices").select("mrn"),
-  ]);
-  const invoicedMrns = new Set(
-    ((invoiced ?? []) as Array<{ mrn: string | null }>)
-      .map((r) => r.mrn)
-      .filter((m): m is string => !!m),
+  // Delegate the "discharged but no invoice yet" set-difference to the DB
+  // via discharges_missing_invoice(), replacing the previous unbounded
+  // two-query fetch (patients + fhir_invoices pulled client-side and
+  // diffed in JS). PostgREST caps unbounded selects at 1000 rows by
+  // default — once discharged-patient or invoice counts crossed that
+  // cap, the client-side diff silently truncated and could miss real
+  // gaps. The RPC does the diff inside Postgres (no row cap issue) and
+  // already returns FIFO (oldest discharge first), matching the prior
+  // ordering.
+  // Bounded per-invocation batch size. generateInvoiceForPatient does
+  // several sequential DB round-trips per patient, and this endpoint is
+  // both the cron target (every 10 min, no explicit net.http_post timeout
+  // — pg_net's client-side wait gives up long before the Worker actually
+  // finishes) and a Cloudflare Worker request (which does not get an
+  // unlimited amount of time to run). A batch of 200 turned one invocation
+  // into a many-minute-long loop with no visible progress or error if
+  // anything mid-batch went wrong. Keeping the batch small means each
+  // invocation reliably finishes (or reliably fails loudly) well inside a
+  // single request, and the 10-minute cron cadence keeps picking up the
+  // next batch.
+  const { data: discharged, error } = await sb.rpc(
+    "discharges_missing_invoice" as never,
+    { p_limit: 25 } as never,
   );
-  const list = ((discharged ?? []) as Array<{ mrn: string | null }>)
-    .filter((r) => r.mrn && !invoicedMrns.has(r.mrn));
+  if (error) {
+    console.warn("[billing] discharges_missing_invoice RPC failed", error.message);
+    return { ok: true, generated: 0, skipped: 0 };
+  }
+  const list = ((discharged ?? []) as Array<{ mrn: string | null }>).filter((r) => r.mrn);
   let generated = 0;
   let skipped = 0;
-  // Cap per-invocation work to keep the cron under the request budget.
-  const MAX_PER_RUN = 200;
-  const batch = list.slice(0, MAX_PER_RUN);
-  skipped += list.length - batch.length;
-  for (const row of batch) {
+  for (const row of list) {
     if (!row.mrn) {
       skipped++;
       continue;
     }
-    const res = await generateInvoiceForPatient(row.mrn);
-    if (res.ok) generated++;
+    // Per-row isolation: one patient with malformed/unexpected clinical
+    // data must never throw and take the rest of the batch down with it —
+    // that previously meant the SAME leading row could block the entire
+    // 200-row queue forever, since a killed/thrown invocation never
+    // advances past whatever row it died on and the next cron tick starts
+    // again from the same (still-unbilled) front of the FIFO queue.
+    try {
+      const res = await generateInvoiceForPatient(row.mrn);
+      if (res.ok) {
+        generated++;
+      } else {
+        skipped++;
+        if (!res.skipped) {
+          await log(row.mrn, "error", `Auto Doc billing backfill: ${res.error ?? "invoice generation failed"}`);
+        }
+      }
+    } catch (e) {
+      skipped++;
+      const msg = (e as Error)?.message ?? String(e);
+      console.warn("[billing] backfill: generateInvoiceForPatient threw for", row.mrn, msg);
+      await log(row.mrn, "error", `Auto Doc billing backfill: unhandled error — ${msg}`);
+    }
   }
   return { ok: true, generated, skipped };
 }
@@ -1446,6 +1494,7 @@ export async function payInvoiceById(
       currency: "USD",
       status: "active",
       payment_method: method ?? "Card · Patient Portal",
+      payment_origin: "staff",
       payload: {} as any,
     } as never)
     .select("id")
@@ -1468,7 +1517,11 @@ export async function payInvoiceById(
 
   await sb
     .from("fhir_invoices")
-    .update({ status: "balanced", paid_at: new Date().toISOString() } as never)
+    .update({
+      status: "balanced",
+      paid_at: new Date().toISOString(),
+      payment_origin: "staff",
+    } as never)
     .eq("id", i.id);
 
   try {
