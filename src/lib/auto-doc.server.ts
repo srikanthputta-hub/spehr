@@ -3,8 +3,7 @@
  * function / route handlers — never from client code.
  */
 
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   templateForDepartment,
   type ConditionTemplate,
@@ -25,15 +24,19 @@ import {
   type BuildChargesInput,
 } from "./billing-pricing";
 
-export function admin() {
-  const url = process.env.SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SECRET_KEYS ||
-    process.env.SUPABASE_PUBLISHABLE_KEY!;
-  return createClient<Database>(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+// Delegate to the single shared service-role client (client.server.ts).
+// This function used to build its own ad hoc client with a
+// SUPABASE_SERVICE_ROLE_KEY -> SUPABASE_SECRET_KEYS -> SUPABASE_PUBLISHABLE_KEY
+// fallback chain. Whenever the service-role key wasn't the one actually
+// resolved, that fallback silently picked a publishable/anon-scoped key.
+// Calls made with it don't throw — PostgREST just 401s (or, for
+// non-SECURITY-DEFINER paths, RLS silently returns zero rows) — so every
+// caller (log(), generateInvoiceForPatient(), backfillMissingInvoices(),
+// payInvoiceById(), ...) looked like it succeeded while quietly doing
+// nothing. supabaseAdmin has no such fallback: it requires
+// SUPABASE_SERVICE_ROLE_KEY and throws loudly if it's missing.
+export function admin(): typeof supabaseAdmin {
+  return supabaseAdmin;
 }
 
 type Stage =
