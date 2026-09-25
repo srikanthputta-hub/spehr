@@ -164,6 +164,14 @@ $function$;
 -- Replace the doubled-up 60s job (two http_posts queued in one transaction,
 -- both dispatched together at the end of pg_sleep(30)) with a single job on
 -- a genuine 30-second interval schedule, one http_post per tick.
+--
+-- Note: the previous job's http_post carried no Authorization header at
+-- all, which only worked because the function's verify_jwt flag happened
+-- to be false. A routine redeploy through the standard tooling resets
+-- verify_jwt to its default (true) with no way to pin it false from here,
+-- so this job now sends the anon key as a Bearer token -- matching every
+-- other cron job in this project (e.g. ghost-discharge-worker's) -- so it
+-- keeps working across future redeploys regardless of that flag's state.
 SELECT cron.unschedule('fhir-outbound-poll-45s');
 
 SELECT cron.schedule(
@@ -172,7 +180,10 @@ SELECT cron.schedule(
   $$
   SELECT net.http_post(
     url := 'https://qxyvmvtecnnwqeqaouzh.supabase.co/functions/v1/fhir-outbound-poll',
-    headers := '{"Content-Type":"application/json"}'::jsonb,
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4eXZtdnRlY25ud3FlcWFvdXpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNzAwNzgsImV4cCI6MjEwMzg0NjA3OH0.txuCCFhxmQYa_qdd7rj0NrOAIEy-LbtpWyXUCdPPf04'
+    ),
     body := '{}'::jsonb
   );
   $$
