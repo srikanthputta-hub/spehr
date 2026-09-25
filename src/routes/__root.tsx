@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -124,8 +125,17 @@ function RootShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function RootComponent() {
-  const { queryClient } = Route.useRouteContext();
+// Every hook here drives the S.P.E.H.R. clinical simulation itself --
+// ghost admissions, safety alerts, CDS suggestions, FHIR sync, terminology
+// coding, the automation watchdog, etc. -- including their own toasts
+// (e.g. "No empty beds available"). RuFlo Office (/office) is a Claude Code
+// agent-activity monitor, unrelated to the clinical app it happens to be
+// deployed alongside; it must never run, or surface side effects from, any
+// of this. Isolated into its own component (rather than an early return
+// inside RootComponent) specifically so it can be conditionally mounted --
+// hooks can't be called conditionally within one component, but a whole
+// component can be conditionally rendered.
+function ClinicalAutomation() {
   useAIAutomation();
   useAutomationWatchdog();
   useBackgroundFhirSync();
@@ -134,11 +144,21 @@ function RootComponent() {
   useCodingPipelineSweep();
   useSafetyAlertsWatcher();
   useCdsSuggestionsWatcher();
-  useEffect(() => { startLocalGcSweeper(); }, []);
+  useEffect(() => {
+    startLocalGcSweeper();
+  }, []);
+  return null;
+}
+
+function RootComponent() {
+  const { queryClient } = Route.useRouteContext();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isOfficeRoute = pathname === "/office" || pathname.startsWith("/office/");
 
   return (
     <QueryClientProvider client={queryClient}>
       <FacilityProvider>
+        {!isOfficeRoute && <ClinicalAutomation />}
         <Outlet />
         <Toaster />
       </FacilityProvider>
