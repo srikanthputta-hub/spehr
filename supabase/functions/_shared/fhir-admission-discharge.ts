@@ -539,7 +539,9 @@ function buildLabObservation(p: AdmissionPatient, patientId: string, encounterId
 // loinc_code/loinc_display/loinc_map columns are always null in practice
 // (nothing populates them), so these are hardcoded rather than read from
 // the row.
-const VITAL_LOINC: Record<string, { code: string; display: string; unit: string }> = {
+type VitalKey = "hr" | "bp_systolic" | "bp_diastolic" | "spo2" | "temp_c" | "rr";
+
+const VITAL_LOINC: Record<VitalKey, { code: string; display: string; unit: string }> = {
   hr: { code: "8867-4", display: "Heart rate", unit: "/min" },
   bp_systolic: { code: "8480-6", display: "Systolic blood pressure", unit: "mm[Hg]" },
   bp_diastolic: { code: "8462-4", display: "Diastolic blood pressure", unit: "mm[Hg]" },
