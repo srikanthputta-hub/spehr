@@ -293,7 +293,7 @@ async function buildBundleForMrn(r: Row) {
           .limit(200),
         supabase
           .from("fhir_appointments")
-          .select("id, facility_name, patient_mrn, patient_name, practitioner_name, service_type, description, start_time, end_time, status, comment")
+          .select("id, fhir_id, facility_name, patient_mrn, patient_name, practitioner_name, service_type, description, start_time, end_time, status, comment")
           .eq("patient_mrn", r.mrn)
           .order("start_time", { ascending: false })
           .limit(50),

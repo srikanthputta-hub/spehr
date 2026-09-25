@@ -121,6 +121,27 @@ function shortModelLabel(model: string): string {
   return model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
 }
 
+// Split a shortModelLabel() result (e.g. "opus-5-5", "sonnet-5") into a tier
+// letter and a version string for the on-desk neon readout below.
+function modelTierLetter(short: string): string | null {
+  const m = short.match(/^(haiku|sonnet|opus)/i);
+  return m ? m[1][0].toUpperCase() : null;
+}
+function modelVersion(short: string): string {
+  const m = short.match(/^(?:haiku|sonnet|opus)-(.+)$/i);
+  return m ? m[1].replace(/-/g, ".") : "";
+}
+// office_board has no reasoning-effort column (nothing in this repo's Office
+// tooling -- the bridge script, migrations, or CLAUDE.md -- tracks it), so
+// this is a proxy DERIVED FROM MODEL TIER, not real per-task effort data.
+// It disappears the moment a genuine effort column/value exists to replace it.
+function modelEffortProxy(short: string): string | null {
+  if (/^haiku/i.test(short)) return "LOW";
+  if (/^sonnet/i.test(short)) return "STD";
+  if (/^opus/i.test(short)) return "HIGH";
+  return null;
+}
+
 // Mirrors the migration's static home_room CASE -- only used as a fallback
 // if a row somehow arrives without home_room/room populated.
 const HOME_ROOM_BY_ROLE: Record<string, RoomKey> = {
@@ -163,14 +184,6 @@ function roleRank(role: string) {
   return i === -1 ? ROLE_ORDER.length : i;
 }
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return "";
-  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  return `${Math.floor(s / 3600)}h ago`;
-}
-
 function elapsed(iso: string | null, now: number): string {
   if (!iso) return "—";
   const s = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
@@ -180,13 +193,6 @@ function elapsed(iso: string | null, now: number): string {
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${String(sec).padStart(2, "0")}s`;
   return `${sec}s`;
-}
-
-function pipelineTag(row: BoardRow | undefined | null) {
-  if (!row || !row.pipeline_name) return null;
-  const stageStr =
-    row.pipeline_stage && row.pipeline_total ? ` ${row.pipeline_stage}/${row.pipeline_total}` : "";
-  return `🔗 ${row.pipeline_name}${stageStr}`;
 }
 
 type DeskMode = "working" | "idle" | "break";
@@ -210,13 +216,26 @@ function useReducedMotion() {
 }
 
 // ---------------------------------------------------------------------------
-// Scene geometry. Everything on the desktop stage lives in one 1000x640
-// coordinate space: the stage has a fixed aspect ratio, so the SVG layers
-// (viewBox 0 0 1000 640) and the absolutely-positioned desks (percentages)
+// Scene geometry. Everything on the stage (desktop AND mobile -- both render
+// the same scene via renderStage() below) lives in one 1000x710 coordinate
+// space: the stage has a fixed aspect ratio, so the SVG layers
+// (viewBox 0 0 1000 710) and the absolutely-positioned desks (percentages)
 // line up exactly at any width. 1 scene unit == 0.1cqw of the stage.
+//
+// VIEW_H has ~70 units of headroom below the lowest desk row (the floor,
+// hub and cable math all key off CY/RY/HUB, not VIEW_H, so they're
+// unaffected) purely so each desk's name tag -- which sits *below* the
+// desk's own box via `top: 100%` -- has room to breathe before the stage's
+// `overflow: hidden` clips it. At the previous VIEW_H (640) the frontmost
+// row of desks (the ones nearest the console, where computeSlots() gives
+// them scale ~1) left only ~15% of the stage's height below them, while the
+// desk box + name tag need ~16-17%, and hover/selection glow (a drop-shadow
+// filter, which paints outside the box) eats into that margin further --
+// clipping the bottom edge of those labels in a real browser even though
+// the raw slot math looked fine on paper.
 // ---------------------------------------------------------------------------
 const VIEW_W = 1000;
-const VIEW_H = 640;
+const VIEW_H = 710;
 const CX = 500; // ring centre
 const CY = 350;
 const RX = 420; // ring radii
@@ -415,21 +434,29 @@ function RobotDesk({
       <rect x="4" y="84" width="92" height="3" rx="1.5" fill={trim} opacity={boss ? 0.9 : 0.5} />
       {/* keyboard */}
       <rect x="30" y="61.5" width="26" height="3.5" rx="1" fill="#6a7a8c" />
-      {/* model label, printed on the desk surface (left of the tower) while working */}
+      {/* Neon model readout, printed on the desk surface in front of the robot
+          while working: tier letter / version / tier-derived effort proxy,
+          each in its own glow color (see .desk-tag* rules). Replaces the
+          earlier plain monospace label, which was hard to read against the
+          light desk surface. */}
       {working && model && (
-        <text
-          x="38"
-          y="79"
-          textAnchor="middle"
-          fontFamily="ui-monospace, monospace"
-          fontWeight="700"
-          fontSize="6"
-          fill="#1a2433"
-          textLength="62"
-          lengthAdjust="spacingAndGlyphs"
-        >
-          {model}
-        </text>
+        <>
+          {modelTierLetter(model) && (
+            <text x="14" y="81" textAnchor="middle" className="desk-tag desk-tag-tier">
+              {modelTierLetter(model)}
+            </text>
+          )}
+          {modelVersion(model) && (
+            <text x="38" y="80" textAnchor="middle" className="desk-tag desk-tag-ver">
+              {modelVersion(model)}
+            </text>
+          )}
+          {modelEffortProxy(model) && (
+            <text x="63" y="79.5" textAnchor="middle" className="desk-tag desk-tag-effort">
+              {modelEffortProxy(model)}
+            </text>
+          )}
+        </>
       )}
       {/* tower */}
       <rect x="80" y="70" width="10" height="14" rx="1.5" fill="#8797a8" />
@@ -463,10 +490,12 @@ function OfficePage() {
   const prevState = useRef<Map<string, { working: boolean; room: RoomKey }> | null>(null);
   const tickIdRef = useRef(0);
   const popRef = useRef<HTMLDivElement>(null);
-  // Desktop desks and mobile list rows both render (CSS picks one), so keep
-  // separate element maps and anchor the popover to whichever is visible.
+  // The desktop stage and the mobile stage both render the same desk
+  // buttons (renderStage() is called once per variant; CSS picks which one
+  // is visible), so keep separate element maps and anchor the popover to
+  // whichever instance is actually on screen.
   const deskEls = useRef(new Map<string, HTMLButtonElement>());
-  const listEls = useRef(new Map<string, HTMLButtonElement>());
+  const mobileDeskEls = useRef(new Map<string, HTMLButtonElement>());
 
   const pushTick = useCallback((text: string) => {
     const id = `t${tickIdRef.current++}`;
@@ -566,11 +595,6 @@ function OfficePage() {
   }, [rows]);
   const primaryByRole = (role: string) => rowsByRole.get(role)?.[0];
 
-  const sortedRows = useMemo(
-    () => [...rows].sort((a, b) => roleRank(a.role) - roleRank(b.role) || a.id.localeCompare(b.id)),
-    [rows],
-  );
-
   // Meetings: working agents the backend has moved to "conference", grouped
   // by the pipeline they share.
   const meetings = useMemo(() => {
@@ -599,7 +623,7 @@ function OfficePage() {
   const triggerFor = useCallback((id: string) => {
     const desk = deskEls.current.get(id);
     if (desk && desk.getClientRects().length > 0) return desk;
-    const item = listEls.current.get(id);
+    const item = mobileDeskEls.current.get(id);
     if (item && item.getClientRects().length > 0) return item;
     return desk ?? item ?? null;
   }, []);
@@ -679,15 +703,13 @@ function OfficePage() {
     return "idle";
   };
 
-  // ---------- Central console screen (shared by desktop stage + mobile) ----------
-  const renderConsole = (variant: "stage" | "card") => {
-    const shown = [...workingEntries]
-      .sort((a, b) => roleRank(a.role) - roleRank(b.role))
-      .slice(0, variant === "stage" ? 3 : 5);
+  // ---------- Central console screen (shared by desktop + mobile stages) ----------
+  const renderConsole = () => {
+    const shown = [...workingEntries].sort((a, b) => roleRank(a.role) - roleRank(b.role)).slice(0, 3);
     const more = workingEntries.length - shown.length;
     const latest = ticker[ticker.length - 1];
     return (
-      <div className={`console-screen ${variant}`}>
+      <div className="console-screen">
         <div className="cs-top" aria-hidden="true">
           <span className={`cs-live ${connected ? "on" : "off"}`} />
           <span className="cs-bars" />
@@ -737,8 +759,8 @@ function OfficePage() {
     );
   };
 
-  // ---------- Desktop desks ----------
-  const renderDesk = (role: string) => {
+  // ---------- Desks (rendered once per stage variant -- see renderStage) ----------
+  const renderDesk = (role: string, variant: "desktop" | "mobile") => {
     const slot = slots.get(role);
     if (!slot) return null;
     const r = primaryByRole(role);
@@ -754,7 +776,12 @@ function OfficePage() {
     } as CSSProperties;
     if (!r) {
       return (
-        <div key={role} className="desk vacant" style={style} title={`${label} · no data yet`}>
+        <div
+          key={`${variant}-${role}`}
+          className="desk vacant"
+          style={style}
+          title={`${label} · no data yet`}
+        >
           <span className="orb" aria-hidden="true" />
           <RobotDesk accent={accent} mode="idle" boss={isBoss} />
           <span className="desk-name">{label}</span>
@@ -766,14 +793,15 @@ function OfficePage() {
     const m = working && r.model ? MODEL_META[r.model] : undefined;
     const isSel = selectedId === r.id;
     const extraRows = (rowsByRole.get(role)?.length ?? 1) - 1;
+    const refMap = variant === "desktop" ? deskEls : mobileDeskEls;
     return (
       <button
-        key={role}
+        key={`${variant}-${role}`}
         type="button"
         data-agent-trigger=""
         ref={(el) => {
-          if (el) deskEls.current.set(r.id, el);
-          else deskEls.current.delete(r.id);
+          if (el) refMap.current.set(r.id, el);
+          else refMap.current.delete(r.id);
         }}
         className={`desk ${mode} ${isBoss ? "boss" : ""} ${meetingOf(r) ? "in-meeting" : ""} ${isSel ? "selected" : ""} ${matchesFilter(role) ? "" : "dimmed"}`}
         style={style}
@@ -810,65 +838,73 @@ function OfficePage() {
   };
 
   // ---------- Cables + meeting links (SVG under the desks) ----------
-  const cables: ReactNode[] = [];
-  deskRoles.forEach((role, i) => {
-    const slot = slots.get(role);
-    const r = primaryByRole(role);
-    if (!slot || !r || modeOf(r) !== "working") return;
-    const { d, mid } = cablePath({ x: slot.x, y: slot.y - 4 }, slot.end);
-    const id = `cable-${role}`;
-    const dimmed = !matchesFilter(role);
-    cables.push(
-      <g key={id} className={`cable ${dimmed ? "dimmed" : ""}`}>
-        <path id={id} d={d} className="cable-glow" />
-        <path d={d} className="cable-core" />
-        {reduceMotion ? (
-          <use href="#doc-icon" x={mid.x} y={mid.y} />
-        ) : (
-          [0, 1].map((k) => (
-            <use key={k} href="#doc-icon" x={0} y={0}>
-              <animateMotion
-                dur="3.2s"
-                repeatCount="indefinite"
-                begin={`${-((i * 0.37 + k * 1.6) % 3.2).toFixed(2)}s`}
-              >
-                <mpath href={`#${id}`} />
-              </animateMotion>
-            </use>
-          ))
-        )}
-      </g>,
-    );
-  });
-
-  const links: ReactNode[] = [];
-  for (const mtg of meetings) {
-    const pts = mtg.members
-      .filter((r) => primaryByRole(r.role)?.id === r.id)
-      .map((r) => ({ r, s: slots.get(r.role) }))
-      .filter((p): p is { r: BoardRow; s: Slot } => !!p.s)
-      .sort((a, b) => a.s.angle - b.s.angle);
-    for (let k = 0; k < pts.length - 1; k++) {
-      const A = { x: pts[k].s.x, y: pts[k].s.y - 4 };
-      const B = { x: pts[k + 1].s.x, y: pts[k + 1].s.y - 4 };
-      const midAB = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
-      const C = { x: midAB.x + (HUB.x - midAB.x) * 0.45, y: midAB.y + (HUB.y - midAB.y) * 0.45 };
-      const d = `M${A.x.toFixed(1)},${A.y.toFixed(1)} Q${C.x.toFixed(1)},${C.y.toFixed(1)} ${B.x.toFixed(1)},${B.y.toFixed(1)}`;
-      const lx = 0.25 * A.x + 0.5 * C.x + 0.25 * B.x;
-      const ly = 0.25 * A.y + 0.5 * C.y + 0.25 * B.y;
-      links.push(
-        <g key={`${mtg.name}-${k}`} className="meet-link">
-          <path d={d} className="meet-glow" />
-          <path d={d} className="meet-core" />
-          {k === 0 && (
-            <text x={lx} y={ly - 6} className="meet-label" textAnchor="middle">
-              🤝 {mtg.name}
-            </text>
+  // Built per stage variant because each variant needs its own SVG element
+  // ids (gradients, the doc-icon symbol, per-cable path ids for <mpath>) --
+  // the desktop and mobile stages both sit in the DOM at once (CSS just
+  // hides one of them), so sharing ids between them would make `url(#...)`
+  // and `<mpath href>` references ambiguous.
+  const buildStageGraphics = (idp: string) => {
+    const cables: ReactNode[] = [];
+    deskRoles.forEach((role, i) => {
+      const slot = slots.get(role);
+      const r = primaryByRole(role);
+      if (!slot || !r || modeOf(r) !== "working") return;
+      const { d, mid } = cablePath({ x: slot.x, y: slot.y - 4 }, slot.end);
+      const id = `${idp}cable-${role}`;
+      const dimmed = !matchesFilter(role);
+      cables.push(
+        <g key={id} className={`cable ${dimmed ? "dimmed" : ""}`}>
+          <path id={id} d={d} className="cable-glow" />
+          <path d={d} className="cable-core" />
+          {reduceMotion ? (
+            <use href={`#${idp}doc-icon`} x={mid.x} y={mid.y} />
+          ) : (
+            [0, 1].map((k) => (
+              <use key={k} href={`#${idp}doc-icon`} x={0} y={0}>
+                <animateMotion
+                  dur="3.2s"
+                  repeatCount="indefinite"
+                  begin={`${-((i * 0.37 + k * 1.6) % 3.2).toFixed(2)}s`}
+                >
+                  <mpath href={`#${id}`} />
+                </animateMotion>
+              </use>
+            ))
           )}
         </g>,
       );
+    });
+
+    const links: ReactNode[] = [];
+    for (const mtg of meetings) {
+      const pts = mtg.members
+        .filter((r) => primaryByRole(r.role)?.id === r.id)
+        .map((r) => ({ r, s: slots.get(r.role) }))
+        .filter((p): p is { r: BoardRow; s: Slot } => !!p.s)
+        .sort((a, b) => a.s.angle - b.s.angle);
+      for (let k = 0; k < pts.length - 1; k++) {
+        const A = { x: pts[k].s.x, y: pts[k].s.y - 4 };
+        const B = { x: pts[k + 1].s.x, y: pts[k + 1].s.y - 4 };
+        const midAB = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+        const C = { x: midAB.x + (HUB.x - midAB.x) * 0.45, y: midAB.y + (HUB.y - midAB.y) * 0.45 };
+        const d = `M${A.x.toFixed(1)},${A.y.toFixed(1)} Q${C.x.toFixed(1)},${C.y.toFixed(1)} ${B.x.toFixed(1)},${B.y.toFixed(1)}`;
+        const lx = 0.25 * A.x + 0.5 * C.x + 0.25 * B.x;
+        const ly = 0.25 * A.y + 0.5 * C.y + 0.25 * B.y;
+        links.push(
+          <g key={`${idp}${mtg.name}-${k}`} className="meet-link">
+            <path d={d} className="meet-glow" />
+            <path d={d} className="meet-core" />
+            {k === 0 && (
+              <text x={lx} y={ly - 6} className="meet-label" textAnchor="middle">
+                🤝 {mtg.name}
+              </text>
+            )}
+          </g>,
+        );
+      }
     }
-  }
+    return { cables, links };
+  };
 
   // ---------- Popover ----------
   let popBody: ReactNode = null;
@@ -976,6 +1012,187 @@ function OfficePage() {
     );
   }
 
+  // ---------- Full stage (background scene + cables + console + desks) ----------
+  // Called once for the desktop stage and once for the mobile stage: both
+  // render the exact same scene (same SVG background, same desks with the
+  // same neon tier/version/effort readout, same room/breakroom/conference
+  // states), so mobile "looks the same as desktop" rather than falling back
+  // to a simplified list. Only the CSS around the two call sites differs --
+  // the mobile one sits in a horizontally-scrollable frame at a fixed pixel
+  // width (see `.stage-scroll` / `.mobile-view .stage`) so its cqw-based
+  // desk/text sizing stays legible instead of being crushed to phone width.
+  const renderStage = (variant: "desktop" | "mobile") => {
+    const idp = variant === "desktop" ? "d-" : "m-";
+    const { cables, links } = buildStageGraphics(idp);
+    return (
+      <div className="stage" aria-label="Agent command center">
+        {/* Night skyline + glass window wall + floor */}
+        <svg
+          className="layer"
+          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+          preserveAspectRatio="xMidYMid slice"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <defs>
+            <linearGradient id={`${idp}sky`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#0b1a2c" />
+              <stop offset=".55" stopColor="#123049" />
+              <stop offset="1" stopColor="#1b4460" />
+            </linearGradient>
+            <radialGradient id={`${idp}floor`} cx=".5" cy=".42" r=".62">
+              <stop offset="0" stopColor="#12323c" />
+              <stop offset=".6" stopColor="#0a1c24" />
+              <stop offset="1" stopColor="#050c11" />
+            </radialGradient>
+            <radialGradient id={`${idp}hubGlow`} cx=".5" cy=".5" r=".5">
+              <stop offset="0" stopColor="#35e08a" stopOpacity=".22" />
+              <stop offset="1" stopColor="#35e08a" stopOpacity="0" />
+            </radialGradient>
+            <linearGradient id={`${idp}glass`} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#bfe6ff" stopOpacity=".06" />
+              <stop offset=".5" stopColor="#bfe6ff" stopOpacity="0" />
+              <stop offset="1" stopColor="#bfe6ff" stopOpacity=".04" />
+            </linearGradient>
+          </defs>
+          <rect width={VIEW_W} height={HORIZON + 40} fill={`url(#${idp}sky)`} />
+          <ellipse cx="500" cy={HORIZON - 30} rx="520" ry="40" fill="#2a5b78" opacity=".25" />
+          <g fill="#0f2233">
+            {SKYLINE.back.map((b, i) => (
+              <rect key={i} x={b.x} y={HORIZON - b.h} width={b.w} height={b.h + 40} />
+            ))}
+          </g>
+          <g>
+            {SKYLINE.front.map((b, i) => (
+              <g key={i} transform={`translate(${b.x} ${HORIZON - b.h})`}>
+                <rect width={b.w} height={b.h + 40} fill="#0a1824" />
+                {b.lit.map((w, j) => (
+                  <rect
+                    key={j}
+                    x={w.x}
+                    y={w.y}
+                    width="3"
+                    height="4"
+                    fill={j % 5 === 0 ? "#7fd0ff" : "#ffe7a8"}
+                    opacity=".55"
+                  />
+                ))}
+              </g>
+            ))}
+          </g>
+          {/* window wall: mullions + reflections */}
+          <rect width={VIEW_W} height={HORIZON + 40} fill={`url(#${idp}glass)`} />
+          <g stroke="#1d3a50" strokeWidth="6">
+            {Array.from({ length: 13 }, (_, i) => {
+              const x = (i * VIEW_W) / 12;
+              const lean = (x - VIEW_W / 2) * 0.08;
+              return <line key={i} x1={x - lean} y1="0" x2={x} y2={HORIZON + 40} />;
+            })}
+          </g>
+          <g stroke="#bfe6ff" strokeWidth="18" opacity=".035">
+            {[120, 330, 610, 820].map((x) => (
+              <line key={x} x1={x} y1="0" x2={x + 90} y2={HORIZON + 40} />
+            ))}
+          </g>
+          {/* ceiling rim */}
+          <path
+            d={`M0,0 H${VIEW_W} V26 Q${VIEW_W / 2},64 0,26 Z`}
+            fill="#07111b"
+            stroke="#6fd2ff"
+            strokeOpacity=".35"
+            strokeWidth="1.5"
+          />
+          {/* floor */}
+          <path
+            d={`M0,${HORIZON + 20} Q${VIEW_W / 2},${HORIZON - 30} ${VIEW_W},${HORIZON + 20} V${VIEW_H} H0 Z`}
+            fill={`url(#${idp}floor)`}
+          />
+          <path
+            d={`M0,${HORIZON + 20} Q${VIEW_W / 2},${HORIZON - 30} ${VIEW_W},${HORIZON + 20}`}
+            fill="none"
+            stroke="#6fd2ff"
+            strokeOpacity=".22"
+            strokeWidth="2"
+          />
+          <ellipse
+            cx={CX}
+            cy={CY + 10}
+            rx={RX + 40}
+            ry={RY + 30}
+            fill="none"
+            stroke="#1f4a5a"
+            strokeOpacity=".5"
+            strokeWidth="1.5"
+          />
+          <ellipse
+            cx={CX}
+            cy={CY + 10}
+            rx={RX - 70}
+            ry={RY - 50}
+            fill="none"
+            stroke="#1f4a5a"
+            strokeOpacity=".35"
+            strokeWidth="1"
+          />
+          {/* raised console platform */}
+          <ellipse cx={HUB.x} cy={HUB.y} rx={HUB.rx + 70} ry={HUB.ry + 30} fill={`url(#${idp}hubGlow)`} />
+          <ellipse
+            cx={HUB.x}
+            cy={HUB.y + 10}
+            rx={HUB.rx + 16}
+            ry={HUB.ry + 8}
+            fill="#0b1c26"
+            stroke="#6fd2ff"
+            strokeOpacity=".45"
+            strokeWidth="2"
+          />
+          <ellipse
+            cx={HUB.x}
+            cy={HUB.y}
+            rx={HUB.rx}
+            ry={HUB.ry}
+            fill="#10262f"
+            stroke="#9fe8ff"
+            strokeOpacity=".7"
+            strokeWidth="2"
+          />
+          {/* console body under the screen */}
+          <path d="M425,272 H575 L588,352 H412 Z" fill="#1a2c38" stroke="#3d6377" strokeWidth="1.5" />
+          <rect x="432" y="300" width="136" height="10" rx="3" fill="#0d1a22" />
+          <g fill="#35e08a" opacity=".7">
+            <rect x="442" y="318" width="10" height="4" rx="1" />
+            <rect x="458" y="318" width="22" height="4" rx="1" opacity=".5" />
+            <rect x="530" y="318" width="16" height="4" rx="1" opacity=".6" />
+          </g>
+        </svg>
+
+        {/* Task-feed cables + meeting links */}
+        <svg
+          className="layer cables"
+          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+          preserveAspectRatio="xMidYMid slice"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <defs>
+            <g id={`${idp}doc-icon`}>
+              <g transform="translate(-5 -6)">
+                <path d="M0 0 H7 L10 3 V12 H0 Z" fill="#0d3a26" stroke="#7dffb8" strokeWidth="1" />
+                <path d="M2 4.5 H7 M2 7 H8 M2 9.5 H6" stroke="#7dffb8" strokeWidth=".8" />
+              </g>
+            </g>
+          </defs>
+          {links}
+          {cables}
+        </svg>
+
+        <div className="console-wrap">{renderConsole()}</div>
+
+        {deskRoles.map((role) => renderDesk(role, variant))}
+      </div>
+    );
+  };
+
   return (
     <>
       <style>{`
@@ -1017,12 +1234,16 @@ function OfficePage() {
         .pipeline-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; color: #ffdd7a; background: rgba(255,221,122,.12); border: 1px solid rgba(255,221,122,.25); border-radius: 999px; padding: 1px 7px; margin-top: 3px; width: fit-content; }
 
         /* ================= LAYOUT SWITCH ================= */
-        .office-main { padding: 14px 22px 96px; max-width: 1280px; margin: 0 auto; }
+        /* A fluid cap (instead of a flat 1280px) lets the stage grow on
+           larger desktop monitors -- 1280px left a growing, unbalanced band
+           of empty side margin past ~1400px viewport width, while the scene
+           itself (an SVG) scales cleanly with no loss of fidelity. */
+        .office-main { padding: 14px 22px 96px; max-width: min(1600px, 94vw); margin: 0 auto; }
         .mobile-view { display: none; }
         @media (max-width: 700px) {
           .desktop-view { display: none; }
           .mobile-view { display: block; }
-          .office-main { padding: 12px 16px 96px; }
+          .office-main { padding: 12px 16px 96px; max-width: 100%; }
           header.office-header { padding: 12px 16px; }
           .swarm-count { display: block; margin: 4px 0 0; }
         }
@@ -1064,11 +1285,6 @@ function OfficePage() {
         .cs-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .cs-role { font-weight: 800; }
         .cs-tick { color: #7fd0ff; animation: fadeIn .4s ease; }
-        .console-screen.card { border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; }
-        .console-screen.card .cs-brand { font-size: 44px; margin: 4px 0 10px; text-shadow: 0 0 4px #9fe8ff, 0 0 12px #3fb8ff, 0 0 26px rgba(63,184,255,.7); }
-        .console-screen.card .cs-stats { font-size: 11.5px; gap: 6px 14px; padding: 5px 0; }
-        .console-screen.card .cs-feed { font-size: 11px; gap: 3px; margin-top: 8px; min-height: 0; }
-        .console-screen.card .cs-top { margin-bottom: 4px; }
 
         /* Desks */
         .desk { position: absolute; width: calc(9.4cqw * var(--s)); transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center;
@@ -1079,6 +1295,17 @@ function OfficePage() {
         .robot-desk .robot { transition: transform .6s cubic-bezier(.22,.8,.24,1), opacity .4s ease; transform-origin: 50px 45px; transform-box: view-box; }
         .robot-desk .screen { fill: #102033; transition: fill .4s ease; }
         .robot-desk .screen.on { fill: #0b2c24; }
+        /* Neon on-desk model readout: three distinct glow colors so tier,
+           version and (tier-derived) effort proxy stay visually separate at
+           a glance, none clashing with the green "working" accent, gold boss
+           accent or teal meeting color used elsewhere on the stage. */
+        .desk-tag { font-family: ui-monospace, monospace; font-weight: 800; paint-order: stroke; }
+        .desk-tag-tier { font-size: 11px; fill: #00f0ff;
+          filter: drop-shadow(0 0 .5px #00f0ff) drop-shadow(0 0 1.6px #00f0ff) drop-shadow(0 0 3.6px rgba(0,240,255,.85)); }
+        .desk-tag-ver { font-size: 7px; fill: #ff36e0;
+          filter: drop-shadow(0 0 .5px #ff36e0) drop-shadow(0 0 1.4px #ff36e0) drop-shadow(0 0 3px rgba(255,54,224,.85)); }
+        .desk-tag-effort { font-size: 5.4px; letter-spacing: .03em; fill: #aef22c;
+          filter: drop-shadow(0 0 .5px #aef22c) drop-shadow(0 0 1.4px #aef22c) drop-shadow(0 0 3px rgba(174,242,44,.85)); }
         .desk.break .robot { transform: translateX(-20px) scaleX(-1) rotate(-4deg); opacity: .6; }
         .desk.break .robot-desk { filter: drop-shadow(0 .6cqw .5cqw rgba(0,0,0,.55)) saturate(.55) brightness(.8); }
         .desk.idle .robot-desk { filter: drop-shadow(0 .6cqw .5cqw rgba(0,0,0,.55)) brightness(.82); }
@@ -1089,7 +1316,7 @@ function OfficePage() {
 
         .orb { width: 26%; aspect-ratio: 1; border-radius: 50%; margin-bottom: 3%; flex-shrink: 0;
           background: radial-gradient(circle at 38% 34%, #6b7788, #2a3340 70%); opacity: .45; box-shadow: none; transition: background .4s ease, box-shadow .4s ease, opacity .4s ease; }
-        .desk.working .orb, .m-row.working .orb {
+        .desk.working .orb {
           opacity: 1; background: radial-gradient(circle at 38% 34%, #eafff2 0%, #7dffb8 30%, #35e08a 62%, #148a4e 100%);
           box-shadow: 0 0 .8cqw .2cqw rgba(53,224,138,.7), 0 0 2.2cqw .6cqw rgba(53,224,138,.35); animation: orbPulse 2.2s ease-in-out infinite; }
         .desk.boss.working .orb { box-shadow: 0 0 .8cqw .2cqw rgba(53,224,138,.7), 0 0 2.2cqw .6cqw rgba(53,224,138,.35), 0 0 0 2px rgba(255,215,0,.55); }
@@ -1105,29 +1332,17 @@ function OfficePage() {
         .desk .cup { position: absolute; top: 2%; right: 8%; width: clamp(16px, 1.8cqw, 22px); height: clamp(16px, 1.8cqw, 22px); border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1b1f2c; border: 1px solid rgba(255,181,131,.45); animation: sip 2.4s ease-in-out infinite; }
         @keyframes sip { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-10deg) translateY(-1px); } }
 
-        /* ================= MOBILE LIST ================= */
-        .m-list { display: flex; flex-direction: column; gap: 8px; }
-        .m-row { position: relative; display: grid; grid-template-columns: 22px 46px minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
-          background: var(--glass); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 8px 12px 8px 10px; backdrop-filter: blur(6px); transition: opacity .3s ease, border-color .3s ease; }
-        .m-row .orb { width: 18px; margin: 0; }
-        .m-row .robot-desk { width: 46px; }
-        .m-row.idle .robot-desk { filter: brightness(.82); }
-        .m-row.break { opacity: .78; }
-        .m-row.break .robot { transform: translateX(-20px) scaleX(-1) rotate(-4deg); opacity: .6; }
-        .m-row.break .orb { opacity: .2; }
-        .m-row.working { border-color: rgba(53,224,138,.35); box-shadow: 0 0 18px -8px rgba(53,224,138,.6); }
-        .m-row.in-meeting { border-color: rgba(95,245,224,.55); box-shadow: 0 0 18px -6px rgba(95,245,224,.6); }
-        .m-row.dimmed { opacity: .25; }
-        .m-row.selected { outline: 1px solid var(--accent); }
-        .m-row:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
-        .m-role { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-        .m-state { font-size: 9.5px; font-weight: 700; text-transform: none; letter-spacing: .02em; color: var(--ink-4); }
-        .m-row.working .m-state { color: var(--green); }
-        .m-row.break .m-state { color: #ffb583; }
-        .m-desc { font-size: 11.5px; color: var(--ink-2); line-height: 1.3; margin-top: 2px; word-break: break-word; }
-        .m-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 3px; font-size: 9.5px; color: var(--ink-5); }
-        .m-meet { font-size: 9.5px; font-weight: 700; color: var(--meet); background: rgba(95,245,224,.1); border: 1px solid rgba(95,245,224,.35); border-radius: 999px; padding: 1px 7px; }
-        .m-badge { font-size: 9px; font-weight: 800; color: #0a0c14; border-radius: 4px; padding: 0 4px; }
+        /* ================= MOBILE STAGE (same scene, panned) =================
+           Mobile renders the identical .stage markup as desktop (see
+           renderStage() -- same rooms/desks/console/neon readout), just
+           inside a horizontally-scrollable frame at a fixed pixel width so
+           the cqw-based sizing inside .stage stays legible instead of
+           shrinking to illegible sizes at true phone width. */
+        .stage-hint { text-align: center; font-size: 10.5px; color: var(--ink-4); margin: 0 0 8px; letter-spacing: .02em; }
+        .stage-scroll { overflow-x: auto; overflow-y: hidden; border-radius: 22px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scroll-snap-type: x proximity; }
+        .stage-scroll .stage { width: 860px; max-width: none; scroll-snap-align: center; }
+        .stage-scroll::-webkit-scrollbar { height: 6px; }
+        .stage-scroll::-webkit-scrollbar-thumb { background: rgba(120,190,255,.25); border-radius: 999px; }
 
         /* ================= INSPECT POPOVER ================= */
         .agent-pop { position: fixed; z-index: 70; width: ${POP_W}px; background: rgba(6,16,26,.94); backdrop-filter: blur(12px); border: 1px solid rgba(110,210,255,.28); border-radius: 12px; box-shadow: 0 0 24px -8px rgba(63,184,255,.45), 0 20px 44px -14px rgba(0,0,0,.85); padding: 12px 14px 12px; animation: popIn .16s ease; }
@@ -1156,8 +1371,8 @@ function OfficePage() {
 
         @media (prefers-reduced-motion: reduce) {
           .brand .live, .cs-live.on, .cable, .cable-core, .meet-glow, .desk .cup,
-          .desk.working .orb, .m-row.working .orb, .cs-tick, .ticker-item, .agent-pop { animation: none; }
-          .robot-desk .robot, .robot-desk .screen, .desk, .m-row, .orb { transition: none; }
+          .desk.working .orb, .cs-tick, .ticker-item, .agent-pop { animation: none; }
+          .robot-desk .robot, .robot-desk .screen, .desk, .orb { transition: none; }
           .meet-glow { opacity: .28; }
         }
       `}</style>
@@ -1223,266 +1438,20 @@ function OfficePage() {
 
         <main className="office-main">
           {/* ================= DESKTOP: command-center ring ================= */}
-          <div className="desktop-view">
-            <div className="stage" aria-label="Agent command center">
-              {/* Night skyline + glass window wall + floor */}
-              <svg
-                className="layer"
-                viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-                preserveAspectRatio="xMidYMid slice"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <defs>
-                  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" stopColor="#0b1a2c" />
-                    <stop offset=".55" stopColor="#123049" />
-                    <stop offset="1" stopColor="#1b4460" />
-                  </linearGradient>
-                  <radialGradient id="floor" cx=".5" cy=".42" r=".62">
-                    <stop offset="0" stopColor="#12323c" />
-                    <stop offset=".6" stopColor="#0a1c24" />
-                    <stop offset="1" stopColor="#050c11" />
-                  </radialGradient>
-                  <radialGradient id="hubGlow" cx=".5" cy=".5" r=".5">
-                    <stop offset="0" stopColor="#35e08a" stopOpacity=".22" />
-                    <stop offset="1" stopColor="#35e08a" stopOpacity="0" />
-                  </radialGradient>
-                  <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0" stopColor="#bfe6ff" stopOpacity=".06" />
-                    <stop offset=".5" stopColor="#bfe6ff" stopOpacity="0" />
-                    <stop offset="1" stopColor="#bfe6ff" stopOpacity=".04" />
-                  </linearGradient>
-                </defs>
-                <rect width={VIEW_W} height={HORIZON + 40} fill="url(#sky)" />
-                <ellipse cx="500" cy={HORIZON - 30} rx="520" ry="40" fill="#2a5b78" opacity=".25" />
-                <g fill="#0f2233">
-                  {SKYLINE.back.map((b, i) => (
-                    <rect key={i} x={b.x} y={HORIZON - b.h} width={b.w} height={b.h + 40} />
-                  ))}
-                </g>
-                <g>
-                  {SKYLINE.front.map((b, i) => (
-                    <g key={i} transform={`translate(${b.x} ${HORIZON - b.h})`}>
-                      <rect width={b.w} height={b.h + 40} fill="#0a1824" />
-                      {b.lit.map((w, j) => (
-                        <rect
-                          key={j}
-                          x={w.x}
-                          y={w.y}
-                          width="3"
-                          height="4"
-                          fill={j % 5 === 0 ? "#7fd0ff" : "#ffe7a8"}
-                          opacity=".55"
-                        />
-                      ))}
-                    </g>
-                  ))}
-                </g>
-                {/* window wall: mullions + reflections */}
-                <rect width={VIEW_W} height={HORIZON + 40} fill="url(#glass)" />
-                <g stroke="#1d3a50" strokeWidth="6">
-                  {Array.from({ length: 13 }, (_, i) => {
-                    const x = (i * VIEW_W) / 12;
-                    const lean = (x - VIEW_W / 2) * 0.08;
-                    return <line key={i} x1={x - lean} y1="0" x2={x} y2={HORIZON + 40} />;
-                  })}
-                </g>
-                <g stroke="#bfe6ff" strokeWidth="18" opacity=".035">
-                  {[120, 330, 610, 820].map((x) => (
-                    <line key={x} x1={x} y1="0" x2={x + 90} y2={HORIZON + 40} />
-                  ))}
-                </g>
-                {/* ceiling rim */}
-                <path
-                  d={`M0,0 H${VIEW_W} V26 Q${VIEW_W / 2},64 0,26 Z`}
-                  fill="#07111b"
-                  stroke="#6fd2ff"
-                  strokeOpacity=".35"
-                  strokeWidth="1.5"
-                />
-                {/* floor */}
-                <path
-                  d={`M0,${HORIZON + 20} Q${VIEW_W / 2},${HORIZON - 30} ${VIEW_W},${HORIZON + 20} V${VIEW_H} H0 Z`}
-                  fill="url(#floor)"
-                />
-                <path
-                  d={`M0,${HORIZON + 20} Q${VIEW_W / 2},${HORIZON - 30} ${VIEW_W},${HORIZON + 20}`}
-                  fill="none"
-                  stroke="#6fd2ff"
-                  strokeOpacity=".22"
-                  strokeWidth="2"
-                />
-                <ellipse
-                  cx={CX}
-                  cy={CY + 10}
-                  rx={RX + 40}
-                  ry={RY + 30}
-                  fill="none"
-                  stroke="#1f4a5a"
-                  strokeOpacity=".5"
-                  strokeWidth="1.5"
-                />
-                <ellipse
-                  cx={CX}
-                  cy={CY + 10}
-                  rx={RX - 70}
-                  ry={RY - 50}
-                  fill="none"
-                  stroke="#1f4a5a"
-                  strokeOpacity=".35"
-                  strokeWidth="1"
-                />
-                {/* raised console platform */}
-                <ellipse
-                  cx={HUB.x}
-                  cy={HUB.y}
-                  rx={HUB.rx + 70}
-                  ry={HUB.ry + 30}
-                  fill="url(#hubGlow)"
-                />
-                <ellipse
-                  cx={HUB.x}
-                  cy={HUB.y + 10}
-                  rx={HUB.rx + 16}
-                  ry={HUB.ry + 8}
-                  fill="#0b1c26"
-                  stroke="#6fd2ff"
-                  strokeOpacity=".45"
-                  strokeWidth="2"
-                />
-                <ellipse
-                  cx={HUB.x}
-                  cy={HUB.y}
-                  rx={HUB.rx}
-                  ry={HUB.ry}
-                  fill="#10262f"
-                  stroke="#9fe8ff"
-                  strokeOpacity=".7"
-                  strokeWidth="2"
-                />
-                {/* console body under the screen */}
-                <path
-                  d="M425,272 H575 L588,352 H412 Z"
-                  fill="#1a2c38"
-                  stroke="#3d6377"
-                  strokeWidth="1.5"
-                />
-                <rect x="432" y="300" width="136" height="10" rx="3" fill="#0d1a22" />
-                <g fill="#35e08a" opacity=".7">
-                  <rect x="442" y="318" width="10" height="4" rx="1" />
-                  <rect x="458" y="318" width="22" height="4" rx="1" opacity=".5" />
-                  <rect x="530" y="318" width="16" height="4" rx="1" opacity=".6" />
-                </g>
-              </svg>
+          <div className="desktop-view">{renderStage("desktop")}</div>
 
-              {/* Task-feed cables + meeting links */}
-              <svg
-                className="layer cables"
-                viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-                preserveAspectRatio="xMidYMid slice"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <defs>
-                  <g id="doc-icon">
-                    <g transform="translate(-5 -6)">
-                      <path
-                        d="M0 0 H7 L10 3 V12 H0 Z"
-                        fill="#0d3a26"
-                        stroke="#7dffb8"
-                        strokeWidth="1"
-                      />
-                      <path d="M2 4.5 H7 M2 7 H8 M2 9.5 H6" stroke="#7dffb8" strokeWidth=".8" />
-                    </g>
-                  </g>
-                </defs>
-                {links}
-                {cables}
-              </svg>
-
-              <div className="console-wrap">{renderConsole("stage")}</div>
-
-              {deskRoles.map(renderDesk)}
-            </div>
-          </div>
-
-          {/* ================= MOBILE: vertical list ================= */}
+          {/* ================= MOBILE: same scene, panned instead of shrunk =================
+              Mobile reuses the exact same stage (renderStage) as desktop -- same
+              rooms/desks/neon readout/breakroom/conference visuals -- rather than a
+              simplified list. At phone width the full 1000-unit-wide scene can't be
+              legibly squeezed to ~360px, so it's rendered at a fixed, readable pixel
+              width inside a horizontally-scrollable frame (.stage-scroll) instead:
+              same design, panned rather than shrunk illegible. */}
           <div className="mobile-view">
-            {renderConsole("card")}
-            <div className="m-list">
-              {sortedRows.map((r) => {
-                const mode = modeOf(r);
-                const working = mode === "working";
-                const label = ROLE_LABEL[r.role] ?? r.role;
-                const mtg = meetingOf(r);
-                const m = working && r.model ? MODEL_META[r.model] : undefined;
-                const tag = pipelineTag(r);
-                const isSel = selectedId === r.id;
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    data-agent-trigger=""
-                    ref={(el) => {
-                      if (el) listEls.current.set(r.id, el);
-                      else listEls.current.delete(r.id);
-                    }}
-                    className={`m-row ${mode} ${mtg ? "in-meeting" : ""} ${isSel ? "selected" : ""} ${matchesFilter(r.role) ? "" : "dimmed"}`}
-                    style={{ ["--accent" as string]: accentFor(r.role) }}
-                    onClick={() => toggleSelect(r.id)}
-                    aria-haspopup="dialog"
-                    aria-expanded={isSel}
-                    aria-label={`${label}, ${stateText(r)}${working && r.description ? `: ${r.description}` : ""}. Show details`}
-                  >
-                    <span className="orb" aria-hidden="true" />
-                    {/* No on-desk model text here: the robot-desk SVG renders at
-                        46px wide in the mobile list, far too small for the
-                        label to stay legible -- the m-badge letter above already
-                        carries the tier for this view. */}
-                    <RobotDesk accent={accentFor(r.role)} mode={mode} boss={r.role === "boss"} />
-                    <span>
-                      <span className="m-role">
-                        {r.role === "boss" ? "👑 " : ""}
-                        {label}
-                        <span className="m-state">
-                          {mode === "break" ? "☕ stepped away" : mode}
-                        </span>
-                        {m && (
-                          <span className="m-badge" style={{ background: m.color }} title={m.label}>
-                            {m.badge}
-                          </span>
-                        )}
-                      </span>
-                      {working && (
-                        <span className="m-desc" style={{ display: "block" }}>
-                          {r.description ?? "(no description)"}
-                        </span>
-                      )}
-                      {(tag || mtg || working) && (
-                        <span className="m-meta">
-                          {mtg ? (
-                            <span className="m-meet">
-                              🤝 meeting ·{" "}
-                              {mtg.members
-                                .filter((x) => x.id !== r.id)
-                                .map((x) => ROLE_LABEL[x.role] ?? x.role)
-                                .join(", ")}
-                            </span>
-                          ) : (
-                            tag && <span className="pipeline-tag">{tag}</span>
-                          )}
-                          {working && r.started_at && <span>{timeAgo(r.started_at)}</span>}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                );
-              })}
-              {sortedRows.length === 0 && (
-                <div className="office-footer-note">Waiting for the office board…</div>
-              )}
-            </div>
+            <p className="stage-hint" aria-hidden="true">
+              ↔ scroll to see the whole room
+            </p>
+            <div className="stage-scroll">{renderStage("mobile")}</div>
           </div>
 
           <div className="office-footer-note">

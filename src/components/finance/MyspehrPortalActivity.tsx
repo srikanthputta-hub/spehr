@@ -37,6 +37,7 @@ type Payment = {
   status: string;
   payment_date: string;
   payment_method: string | null;
+  payment_origin: string | null;
   created_at: string;
   invoice_no?: string | null;
 };
@@ -56,10 +57,14 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
     let cancelled = false;
     async function run() {
       setLoading(true);
+      // Every row now carries a `fhir_id` (backfilled for pre-existing
+      // reception-booked rows too), so `.not("fhir_id", "is", null)` would
+      // show everything, not just portal-originated appointments. Filter
+      // on `origin` instead.
       let apptQ = supabase
         .from("fhir_appointments")
         .select("*")
-        .not("fhir_id", "is", null)
+        .eq("origin", "myspehr")
         .order("created_at", { ascending: false })
         .limit(15);
       if (facility && facility !== "all") apptQ = apptQ.eq("facility_name", facility);
@@ -69,7 +74,7 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
         supabase
           .from("fhir_payment_notices")
           .select("*, fhir_invoices!inner(invoice_no, facility_name)")
-          .not("fhir_id", "is", null)
+          .in("payment_origin", ["patient-portal", "auto-pay-timeout"])
           .order("created_at", { ascending: false })
           .limit(15),
       ]);
@@ -117,7 +122,7 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
               MySPEHR Portal Activity
               <InfoHint
                 className="ml-1"
-                text="Appointments booked and invoice payments made by patients through the MySPEHR portal, delivered here in real time via FHIR Subscription."
+                text="Appointments booked through the MySPEHR portal, plus invoice payments — either paid by the patient through the portal, or auto-paid on file after a 3-hour no-response timeout. Delivered here in real time via FHIR Subscription/DB update."
               />
             </h2>
           </div>
@@ -191,9 +196,20 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
                     {p.status}
                   </span>
                 </div>
-                <div className="mt-1 text-slate-700">
-                  {p.currency} {Number(p.amount).toFixed(2)}
-                  {p.payment_method ? ` · ${p.payment_method}` : ""}
+                <div className="mt-1 flex items-center gap-1.5 text-slate-700">
+                  <span>
+                    {p.currency} {Number(p.amount).toFixed(2)}
+                    {p.payment_method ? ` · ${p.payment_method}` : ""}
+                  </span>
+                  {p.payment_origin === "auto-pay-timeout" ? (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+                      Auto-paid · 3h timeout
+                    </span>
+                  ) : p.payment_origin === "patient-portal" ? (
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+                      Paid by patient (portal)
+                    </span>
+                  ) : null}
                 </div>
                 <div className="mt-0.5 text-slate-500">{fmt(p.payment_date)}</div>
               </li>

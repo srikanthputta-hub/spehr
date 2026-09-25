@@ -498,6 +498,7 @@ export function buildChargeItemResource(
 
 export type AppointmentRow = {
   id: string;
+  fhir_id?: string | null;
   facility_name?: string | null;
   patient_mrn?: string | null;
   patient_name?: string | null;
@@ -530,7 +531,7 @@ export function buildRealAppointmentResource(row: AppointmentRow) {
   }
   return withSpehrSource({
     resourceType: "Appointment",
-    id: fhirSafeId(`appt-${row.id}`),
+    id: fhirSafeId(row.fhir_id ?? `appt-${row.id}`),
     identifier: [{ system: "urn:spehr:appointment-uuid", value: row.id }],
     status,
     description: row.description ?? row.service_type ?? undefined,

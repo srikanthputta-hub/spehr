@@ -47,6 +47,7 @@ interface InvoiceRow {
   currency: string;
   issued_at: string;
   paid_at: string | null;
+  payment_origin: string | null;
 }
 
 interface ChargeItemRow {
@@ -117,7 +118,7 @@ function FinanceBoard() {
         (supabase as any)
           .from("fhir_invoices")
           .select(
-            "id,invoice_no,mrn,patient_name,encounter_id,facility_name,status,subtotal,tax,total,currency,issued_at,paid_at",
+            "id,invoice_no,mrn,patient_name,encounter_id,facility_name,status,subtotal,tax,total,currency,issued_at,paid_at,payment_origin",
           )
           .order("issued_at", { ascending: false }),
       { data: [], error: null } as any,
@@ -301,7 +302,7 @@ function FinanceBoard() {
           label="Collected (Paid)"
           value={money(collected)}
           tone="amber"
-          info="Sum of only FHIR Invoices with status = balanced at this facility — the portion patients have actually paid via the MySPEHR portal (FHIR PaymentNotice)."
+          info="Sum of only FHIR Invoices with status = balanced at this facility — money actually collected, either paid by the patient via the MySPEHR portal, or auto-paid on file after a 3-hour no-response timeout (FHIR PaymentNotice either way)."
         />
       </section>
 
@@ -314,7 +315,7 @@ function FinanceBoard() {
                 {tab === "settled" ? "Settled · Paid Ledger" : "Active · Bill Generation Queue"}
                 <InfoHint
                   className="ml-1"
-                  text="Active shows invoices Auto Doc issued at discharge (FHIR Invoice + ChargeItem); Settled is the historical ledger of invoices fully paid by patients through MySPEHR (FHIR PaymentNotice) — an invoice moves from Active to Settled automatically the moment it's paid."
+                  text="Active shows invoices Auto Doc issued at discharge (FHIR Invoice + ChargeItem); Settled is the historical ledger of invoices that have been paid — either by the patient through MySPEHR, or auto-paid on file after a 3-hour no-response timeout (both post a FHIR PaymentNotice) — an invoice moves from Active to Settled automatically the moment it's paid."
                 />
               </h2>
             </div>
@@ -393,9 +394,27 @@ function FinanceBoard() {
                       <td className="px-4 py-3 text-xs font-mono text-slate-600">{fmtTs(patientTimes[i.mrn]?.discharge_time ?? null)}</td>
                       <td className="px-4 py-3">
                         {i.status === "balanced" ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
-                            <CheckCircle2 className="h-3 w-3" /> Paid
-                          </span>
+                          <div className="inline-flex items-center gap-1">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
+                              <CheckCircle2 className="h-3 w-3" /> Paid
+                            </span>
+                            {i.payment_origin === "auto-pay-timeout" ? (
+                              <span
+                                className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700"
+                                title="No portal payment within 3h of discharge — auto-paid on file"
+                              >
+                                Auto-paid
+                              </span>
+                            ) : i.payment_origin === "patient-portal" ? (
+                              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+                                Portal
+                              </span>
+                            ) : i.payment_origin === "staff" ? (
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                                Staff
+                              </span>
+                            ) : null}
+                          </div>
                         ) : (
                           <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-amber-300">
                             Issued
