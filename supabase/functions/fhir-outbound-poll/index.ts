@@ -42,6 +42,8 @@ const BATCH_LIMIT = 200;
 // full slate of meds/labs/notes/conditions produces ~20-40 FHIR entries;
 // 25 MRNs per cycle × ~30 entries ≈ well under Medblocks' bundle limits.
 const CLINICAL_MRN_LIMIT = 25;
+// Per-bundle upstream timeout for the FHIR transaction POST.
+const FHIR_PUSH_TIMEOUT_MS = 20_000;
 
 function isoMax(a: string, b: string): string {
   const ai = toIso(a), bi = toIso(b);
@@ -734,12 +736,24 @@ async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number
   });
   const deduped = Array.from(seen.values()).sort((a, b) => a - b).map((i) => entries[i]);
   const bundle = { resourceType: "Bundle", type: "transaction", entry: deduped };
-  const res = await fetch(FHIR_SERVER_URL, {
-    method: "POST",
-    headers: fhirHeaders(),
-    body: JSON.stringify(bundle),
-  });
-  const text = await res.text();
+  // Bound the upstream call: an unresponsive FHIR server must surface as a
+  // per-bundle failure (fail-counted / retried next tick), not stall the
+  // whole invocation until the 150s gateway idle timeout.
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetch(FHIR_SERVER_URL, {
+      method: "POST",
+      headers: fhirHeaders(),
+      body: JSON.stringify(bundle),
+      signal: AbortSignal.timeout(FHIR_PUSH_TIMEOUT_MS),
+    });
+    text = await res.text();
+  } catch (e) {
+    const msg = `fetch_failed: ${(e as Error)?.name ?? "Error"}: ${(e as Error)?.message ?? String(e)}`;
+    console.error("[pushBundle]", msg, { entryCount: deduped.length });
+    return { ok: false, status: 0, body: msg };
+  }
   let body: any = text;
   try { body = JSON.parse(text); } catch { /* keep text */ }
   // Per-entry inspection: HAPI transaction bundles are atomic, but the
