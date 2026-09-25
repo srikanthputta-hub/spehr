@@ -1302,9 +1302,9 @@ function OfficePage() {
         .desk-tag { font-family: ui-monospace, monospace; font-weight: 800; paint-order: stroke; }
         .desk-tag-tier { font-size: 11px; fill: #0a0a0a;
           filter: drop-shadow(0 0 .6px #00f0ff) drop-shadow(0 0 2px #00f0ff) drop-shadow(0 0 4.5px rgba(0,240,255,.95)); }
-        .desk-tag-ver { font-size: 7px; fill: #0a0a0a;
+        .desk-tag-ver { font-size: 9px; fill: #0a0a0a;
           filter: drop-shadow(0 0 .6px #ff36e0) drop-shadow(0 0 2px #ff36e0) drop-shadow(0 0 4.5px rgba(255,54,224,.95)); }
-        .desk-tag-effort { font-size: 5.4px; letter-spacing: .03em; fill: #0a0a0a;
+        .desk-tag-effort { font-size: 7.5px; letter-spacing: .03em; fill: #0a0a0a;
           filter: drop-shadow(0 0 .6px #aef22c) drop-shadow(0 0 2px #aef22c) drop-shadow(0 0 4.5px rgba(174,242,44,.95)); }
         .desk.break .robot { transform: translateX(-20px) scaleX(-1) rotate(-4deg); opacity: .6; }
         .desk.break .robot-desk { filter: drop-shadow(0 .6cqw .5cqw rgba(0,0,0,.55)) saturate(.55) brightness(.8); }
