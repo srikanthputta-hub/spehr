@@ -346,11 +346,17 @@ Specifically:
 
   then \`... complete --id <correlationId>\` or \`... fail --id <correlationId>\` when the subagent finishes.
 
-  \`<agentType>\` should be one of Office's known role labels (coder, researcher, tester, reviewer, architect,
+  \`<agentType>\` must be one of the 13 canonical role labels the board actually has rows for — boss, analyst,
 
-  analyst, optimizer, security-architect, security-auditor, memory-specialist, swarm-specialist,
+  architect, clinical-informaticist, coder, data-engineer, devops, product-manager, researcher, reviewer,
 
-  performance-engineer) — pick whichever best matches what the subagent is actually doing. \`<model>\` should match
+  security-auditor, tester, ux-designer — pick whichever best matches what the subagent is actually doing. An
+
+  older draft of this doc listed a different, no-longer-real role set (optimizer, security-architect,
+
+  memory-specialist, swarm-specialist, performance-engineer) — those never existed as board rows; ignore any
+
+  reference to them. \`<model>\` should match
 
   the model tier actually used for that subagent (haiku/sonnet/opus), per the difficulty-based routing rule.
 
@@ -645,3 +651,29 @@ it yourself. \*\*This applies identically to a fresh cloud Claude Code session p
 no access to any prior session's local memory, so this paragraph (not a memory file) is the durable source of truth
 
 for the dispatch-first expectation.
+
+
+
+\*\*Coordinated meetings — when two+ roles genuinely need to work the same issue together.\*\* Most dispatches are
+
+independent: boss hands one role one task, reviews the result, moves on. Some problems don't decompose that
+
+cleanly — e.g. a security fix that needs the security-auditor and the coder actively reasoning about the same
+
+change together, not a security review that happens after the code is already written. When that's the actual
+
+shape of the problem (not just "these two tasks are related"), dispatch both roles with the \*same\* \`--pipeline\`
+
+name (\`--pipeline <shared-name> --stage <n> --of <total>\` on each \`start\` call). \`office_room_tick()\` (see the
+
+room-simulation migrations, 2026-09-24/25) detects \>=2 rows sharing a non-null \`pipeline_name\` while both are
+
+\`status='working'\` and seats them together in Office's conference room live — this is the actual, tested
+
+mechanism behind "a coordinated meeting happens," not a metaphor. It ungroups automatically the moment either
+
+one finishes (goes to \`idle\`) or the shared \`pipeline_name\` is cleared. Boss decides when a pipeline grouping is
+
+warranted, same as it decides role and model tier — don't pipeline-tag unrelated parallel work just to make Office
+
+look busier; the grouping should mean the two roles are actually reasoning about the same problem at the same time.
