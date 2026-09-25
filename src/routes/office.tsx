@@ -70,22 +70,6 @@ const ROLE_LABEL: Record<string, string> = {
   researcher: "researcher",
 };
 
-// Short on-avatar monograms so 13 chips stay legible at ~36px.
-const ROLE_INITIALS: Record<string, string> = {
-  coder: "Co",
-  reviewer: "Rv",
-  tester: "Te",
-  architect: "Ar",
-  devops: "Do",
-  "data-engineer": "DE",
-  "product-manager": "PM",
-  "ux-designer": "UX",
-  "clinical-informaticist": "CI",
-  "security-auditor": "SA",
-  analyst: "An",
-  researcher: "Rs",
-};
-
 const PALETTE = [
   "#ff7a8f",
   "#3fe6c8",
@@ -138,53 +122,19 @@ const HOME_ROOM_BY_ROLE: Record<string, RoomKey> = {
   tester: "open_workspace",
   reviewer: "open_workspace",
 };
+const ROOM_KEYS = new Set<string>([
+  "exec_suite",
+  "ops_tech",
+  "open_workspace",
+  "conference",
+  "breakroom",
+  "lobby",
+]);
 
-const ROOMS: {
-  key: RoomKey;
-  label: string;
-  sub: string;
-  tint: string;
-  door: "left" | "right" | null;
-}[] = [
-  {
-    key: "exec_suite",
-    label: "Executive Suite",
-    sub: "the boss's desk",
-    tint: BOSS_ACCENT,
-    door: "right",
-  },
-  { key: "ops_tech", label: "Ops & Tech", sub: "security · devops", tint: "#7ad6f5", door: "left" },
-  {
-    key: "lobby",
-    label: "Lobby",
-    sub: "floating roles · connects every room",
-    tint: "#9db2ff",
-    door: null,
-  },
-  {
-    key: "open_workspace",
-    label: "Open Workspace",
-    sub: "coder · data-eng · tester · reviewer",
-    tint: "#3fe6c8",
-    door: "left",
-  },
-  {
-    key: "breakroom",
-    label: "Breakroom",
-    sub: "5s coffee after every finished task",
-    tint: "#ffb583",
-    door: "right",
-  },
-  {
-    key: "conference",
-    label: "Conference",
-    sub: "2+ agents on one pipeline",
-    tint: "#c1a3ff",
-    door: "left",
-  },
-];
-const ROOM_KEYS = new Set<string>(ROOMS.map((r) => r.key));
-const ROOM_LABEL: Record<string, string> = Object.fromEntries(ROOMS.map((r) => [r.key, r.label]));
+// The single command-center room has no visual "rooms" any more; `room` is
+// only read for its two transient values: "breakroom" (5s stepped-away
+// state after a task finishes) and "conference" (2+ working agents sharing
+// a pipeline -> their desks get linked).
 
 // The backend's room logic keys off status='working'. The bridge script has
 // historically written 'active' for dispatched tasks, so treat both as "at
@@ -229,6 +179,131 @@ function pipelineTag(row: BoardRow | undefined | null) {
   return `🔗 ${row.pipeline_name}${stageStr}`;
 }
 
+type DeskMode = "working" | "idle" | "break";
+function modeOf(r: BoardRow | undefined): DeskMode {
+  if (!r) return "idle";
+  if (roomOf(r) === "breakroom") return "break";
+  return isWorking(r) ? "working" : "idle";
+}
+
+function useReducedMotion() {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!mq) return;
+    const update = () => setReduce(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
+  return reduce;
+}
+
+// ---------------------------------------------------------------------------
+// Scene geometry. Everything on the desktop stage lives in one 1000x640
+// coordinate space: the stage has a fixed aspect ratio, so the SVG layers
+// (viewBox 0 0 1000 640) and the absolutely-positioned desks (percentages)
+// line up exactly at any width. 1 scene unit == 0.1cqw of the stage.
+// ---------------------------------------------------------------------------
+const VIEW_W = 1000;
+const VIEW_H = 640;
+const CX = 500; // ring centre
+const CY = 350;
+const RX = 420; // ring radii
+const RY = 210;
+const HUB = { x: 500, y: 355, rx: 150, ry: 40 }; // console platform rim
+const BACK_ANGLE = 235; // how far round the horseshoe climbs (deg); top-centre stays clear for the console screen
+
+interface Slot {
+  x: number;
+  y: number;
+  angle: number; // degrees, screen coords (90 = straight toward viewer)
+  scale: number; // fake depth: back desks smaller
+  end: { x: number; y: number }; // where this desk's cable meets the console platform
+}
+
+function computeSlots(roles: string[]): Map<string, Slot> {
+  const out = new Map<string, Slot>();
+  const others = roles.filter((r) => r !== "boss");
+  const leftN = Math.ceil(others.length / 2);
+  const rightN = Math.floor(others.length / 2);
+  const sweep = BACK_ANGLE - 90;
+  const place = (role: string, angle: number, f: number) => {
+    const a = (angle * Math.PI) / 180;
+    const x = CX + RX * f * Math.cos(a);
+    const y = CY + RY * f * Math.sin(a);
+    const yTop = CY + RY * Math.sin((BACK_ANGLE * Math.PI) / 180);
+    const yBot = CY + RY * Math.sin(((90 - sweep / Math.max(1, rightN)) * Math.PI) / 180);
+    const t = Math.max(0, Math.min(1, (y - yTop) / Math.max(1, yBot - yTop)));
+    out.set(role, {
+      x,
+      y,
+      angle,
+      scale: 0.7 + 0.3 * t,
+      end: { x: HUB.x + (HUB.rx - 10) * Math.cos(a), y: HUB.y + (HUB.ry - 4) * Math.sin(a) },
+    });
+  };
+  // Boss sits front-and-centre, pulled in closest to the console.
+  place("boss", 90, 0.78);
+  // Everyone else alternates left/right up the horseshoe in ROLE_ORDER, so
+  // each role's desk is fixed forever.
+  let l = 0,
+    r = 0;
+  others.forEach((role, i) => {
+    if (i % 2 === 0 && l < leftN) {
+      l++;
+      place(role, 90 + (sweep * l) / leftN, 1);
+    } else {
+      r++;
+      place(role, 90 - (sweep * r) / Math.max(1, rightN), 1);
+    }
+  });
+  return out;
+}
+
+function cablePath(from: { x: number; y: number }, to: { x: number; y: number }) {
+  const c1 = { x: from.x, y: from.y + (to.y - from.y) * 0.6 };
+  const c2 = { x: from.x + (to.x - from.x) * 0.5, y: to.y };
+  return {
+    d: `M${from.x.toFixed(1)},${from.y.toFixed(1)} C${c1.x.toFixed(1)},${c1.y.toFixed(1)} ${c2.x.toFixed(1)},${c2.y.toFixed(1)} ${to.x.toFixed(1)},${to.y.toFixed(1)}`,
+    // Midpoint of the cubic (t = .5) for the static reduced-motion doc icon.
+    mid: {
+      x: 0.125 * from.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * to.x,
+      y: 0.125 * from.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * to.y,
+    },
+  };
+}
+
+// Deterministic skyline so SSR and client render the same silhouette.
+const SKYLINE = (() => {
+  let seed = 7;
+  const rnd = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const back: { x: number; w: number; h: number }[] = [];
+  const front: { x: number; w: number; h: number; lit: { x: number; y: number }[] }[] = [];
+  for (let x = -10; x < VIEW_W;) {
+    const w = 24 + rnd() * 40;
+    back.push({ x, w, h: 60 + rnd() * 110 });
+    x += w + 2;
+  }
+  for (let x = -20; x < VIEW_W;) {
+    const w = 30 + rnd() * 50;
+    const h = 50 + rnd() * (Math.abs(x - VIEW_W / 2) < 180 ? 170 : 110);
+    const lit: { x: number; y: number }[] = [];
+    for (let wy = 8; wy < h - 6; wy += 9)
+      for (let wx = 5; wx < w - 5; wx += 8) if (rnd() < 0.22) lit.push({ x: wx, y: wy });
+    front.push({ x, w, h, lit });
+    x += w + 4 + rnd() * 10;
+  }
+  return { back, front };
+})();
+const HORIZON = 250;
+
+// ---------------------------------------------------------------------------
+// Small drawing components
+// ---------------------------------------------------------------------------
 function CoffeeIcon({ size = 12 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -251,6 +326,82 @@ function CoffeeIcon({ size = 12 }: { size?: number }) {
   );
 }
 
+// Robot seated at a desk with a monitor. viewBox 0 0 100 90; the desk's
+// front-centre (100% bottom) is the anchor point on the stage.
+function RobotDesk({ accent, mode, boss }: { accent: string; mode: DeskMode; boss: boolean }) {
+  const onBreak = mode === "break";
+  const working = mode === "working";
+  const trim = boss ? BOSS_ACCENT : "#3a4a5e";
+  return (
+    <svg className="robot-desk" viewBox="0 0 100 90" aria-hidden="true" focusable="false">
+      {/* chair back */}
+      <rect x="36" y="34" width="28" height="26" rx="6" fill="#1a2433" />
+      {/* robot (turns away from the desk while on break) */}
+      <g className="robot">
+        <line x1="50" y1="13" x2="50" y2="8" stroke="#8fa3b8" strokeWidth="1.4" />
+        <circle cx="50" cy="7" r="1.8" fill={working ? "#35e08a" : "#56667a"} />
+        <rect x="39" y="13" width="22" height="19" rx="7" fill="#c9d4df" />
+        <rect
+          x="42"
+          y="19"
+          width="16"
+          height="6"
+          rx="3"
+          fill={onBreak ? "#3b4656" : accent}
+          opacity={working ? 1 : 0.55}
+        />
+        <rect x="35" y="33" width="30" height="24" rx="8" fill="#b4c1ce" />
+        <rect x="45" y="38" width="10" height="4" rx="2" fill={accent} opacity=".7" />
+        {boss && (
+          <path
+            d="M41 13 L41 5 L45.5 9 L50 3 L54.5 9 L59 5 L59 13 Z"
+            fill={BOSS_ACCENT}
+            stroke="#8a6d00"
+            strokeWidth=".6"
+          />
+        )}
+      </g>
+      {/* monitor */}
+      <rect
+        x="62"
+        y="32"
+        width="30"
+        height="21"
+        rx="2.5"
+        fill="#0d1624"
+        stroke="#3a4a5e"
+        strokeWidth="1"
+      />
+      <rect
+        x="64.5"
+        y="34.5"
+        width="25"
+        height="16"
+        rx="1.2"
+        className={`screen ${working ? "on" : ""}`}
+      />
+      {working && (
+        <g stroke="#35e08a" strokeWidth="1" opacity=".85">
+          <line x1="67" y1="38" x2="82" y2="38" />
+          <line x1="67" y1="41.5" x2="86" y2="41.5" />
+          <line x1="67" y1="45" x2="78" y2="45" />
+        </g>
+      )}
+      <rect x="75" y="53" width="4" height="6" fill="#2a3646" />
+      {/* desk */}
+      <path d="M4 60 H96 L100 68 H0 Z" fill="#dfe6ee" />
+      <path d="M4 60 H96" stroke={trim} strokeWidth="1.6" />
+      <rect x="4" y="68" width="92" height="18" rx="2" fill="#aebbc9" />
+      <rect x="4" y="84" width="92" height="3" rx="1.5" fill={trim} opacity={boss ? 0.9 : 0.5} />
+      {/* keyboard */}
+      <rect x="30" y="61.5" width="26" height="3.5" rx="1" fill="#6a7a8c" />
+      {/* tower */}
+      <rect x="80" y="70" width="10" height="14" rx="1.5" fill="#8797a8" />
+      <circle cx="85" cy="74" r="1.2" fill={working ? "#35e08a" : "#56667a"} />
+    </svg>
+  );
+}
+
 interface TickerItem {
   id: string;
   text: string;
@@ -260,7 +411,6 @@ interface PopPos {
   left: number;
 }
 
-const MOVE_MS = 750;
 const POP_W = 290;
 
 function OfficePage() {
@@ -272,13 +422,15 @@ function OfficePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [popPos, setPopPos] = useState<PopPos | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const reduceMotion = useReducedMotion();
 
   const prevState = useRef<Map<string, { working: boolean; room: RoomKey }> | null>(null);
   const tickIdRef = useRef(0);
-  const floorRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  const avatarEls = useRef(new Map<string, HTMLButtonElement>());
-  const lastPos = useRef(new Map<string, { x: number; y: number }>());
+  // Desktop desks and mobile list rows both render (CSS picks one), so keep
+  // separate element maps and anchor the popover to whichever is visible.
+  const deskEls = useRef(new Map<string, HTMLButtonElement>());
+  const listEls = useRef(new Map<string, HTMLButtonElement>());
 
   const pushTick = useCallback((text: string) => {
     const id = `t${tickIdRef.current++}`;
@@ -348,83 +500,77 @@ function OfficePage() {
   }, []);
   const accentFor = (role: string) => accentByRole.get(role) ?? "#7aa6ff";
 
-  const byRoom = useMemo(() => {
-    const m = new Map<RoomKey, BoardRow[]>();
-    for (const r of ROOMS) m.set(r.key, []);
-    for (const row of rows) m.get(roomOf(row))!.push(row);
+  // ---------- Desk assignment ----------
+  // Every ROLE_ORDER role always owns one desk. Unknown roles (if the bridge
+  // ever writes one) get appended desks so nothing is silently hidden.
+  const deskRoles = useMemo(() => {
+    const extra = [...new Set(rows.map((r) => r.role))]
+      .filter((r) => !ROLE_ORDER.includes(r))
+      .sort();
+    return [...ROLE_ORDER, ...extra];
+  }, [rows]);
+  const slots = useMemo(() => computeSlots(deskRoles), [deskRoles]);
+
+  // If a role ever has more than one row, the desk shows the most relevant
+  // one (working first, then most recently updated); the mobile list shows all.
+  const rowsByRole = useMemo(() => {
+    const m = new Map<string, BoardRow[]>();
+    for (const r of rows) {
+      const list = m.get(r.role) ?? [];
+      list.push(r);
+      m.set(r.role, list);
+    }
     for (const list of m.values())
-      list.sort((a, b) => roleRank(a.role) - roleRank(b.role) || a.id.localeCompare(b.id));
+      list.sort(
+        (a, b) =>
+          Number(isWorking(b)) - Number(isWorking(a)) ||
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+      );
     return m;
   }, [rows]);
+  const primaryByRole = (role: string) => rowsByRole.get(role)?.[0];
+
+  const sortedRows = useMemo(
+    () => [...rows].sort((a, b) => roleRank(a.role) - roleRank(b.role) || a.id.localeCompare(b.id)),
+    [rows],
+  );
+
+  // Meetings: working agents the backend has moved to "conference", grouped
+  // by the pipeline they share.
+  const meetings = useMemo(() => {
+    const groups = new Map<string, BoardRow[]>();
+    for (const r of rows) {
+      if (roomOf(r) !== "conference" || !isWorking(r) || !r.pipeline_name) continue;
+      const g = groups.get(r.pipeline_name) ?? [];
+      g.push(r);
+      groups.set(r.pipeline_name, g);
+    }
+    return [...groups.entries()]
+      .filter(([, g]) => g.length >= 2)
+      .map(([name, g]) => ({
+        name,
+        members: g.sort((a, b) => roleRank(a.role) - roleRank(b.role)),
+      }));
+  }, [rows]);
+  const meetingOf = (r: BoardRow) =>
+    meetings.find((m) => m.members.some((x) => x.id === r.id)) ?? null;
 
   const workingEntries = rows.filter(isWorking);
+  const activePipelines = new Set(workingEntries.map((r) => r.pipeline_name).filter(Boolean));
   const selected = selectedId ? (rows.find((r) => r.id === selectedId) ?? null) : null;
 
-  // ---------- FLIP room-change animation ----------
-  // Agents re-parent into a different room panel when `room` changes, so a
-  // plain CSS transition can't animate it. Instead: remember each avatar's
-  // position (relative to the floor plan) after every layout, and when the
-  // placement changes, start the avatar at its old spot and transition the
-  // transform back to zero.
-  const layoutKey = rows
-    .map((r) => `${r.id}:${roomOf(r)}:${r.pipeline_name ?? ""}:${isWorking(r) ? 1 : 0}`)
-    .join("|");
-
-  const measureAll = useCallback(() => {
-    const floor = floorRef.current;
-    if (!floor) return new Map<string, { x: number; y: number }>();
-    const base = floor.getBoundingClientRect();
-    const m = new Map<string, { x: number; y: number }>();
-    avatarEls.current.forEach((el, id) => {
-      const r = el.getBoundingClientRect();
-      m.set(id, { x: r.left - base.left, y: r.top - base.top });
-    });
-    return m;
+  // ---------- Inspect popover ----------
+  const triggerFor = useCallback((id: string) => {
+    const desk = deskEls.current.get(id);
+    if (desk && desk.getClientRects().length > 0) return desk;
+    const item = listEls.current.get(id);
+    if (item && item.getClientRects().length > 0) return item;
+    return desk ?? item ?? null;
   }, []);
 
-  useLayoutEffect(() => {
-    const reduce =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    // Clear any in-flight transforms before measuring the new layout.
-    avatarEls.current.forEach((el) => {
-      el.style.transition = "none";
-      el.style.transform = "";
-    });
-    const next = measureAll();
-    if (!reduce) {
-      next.forEach((pos, id) => {
-        const prev = lastPos.current.get(id);
-        const el = avatarEls.current.get(id);
-        if (!prev || !el) return;
-        const dx = prev.x - pos.x,
-          dy = prev.y - pos.y;
-        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-        el.style.transform = `translate(${dx}px, ${dy}px)`;
-        el.classList.add("moving");
-        void el.offsetWidth; // commit the starting position
-        requestAnimationFrame(() => {
-          el.style.transition = `transform ${MOVE_MS}ms cubic-bezier(.22,.8,.24,1)`;
-          el.style.transform = "";
-          window.setTimeout(() => el.classList.remove("moving"), MOVE_MS + 50);
-        });
-      });
-    }
-    lastPos.current = next;
-  }, [layoutKey, measureAll]);
-
-  useEffect(() => {
-    const onResize = () => {
-      lastPos.current = measureAll();
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [measureAll]);
-
-  // ---------- Inspect popover ----------
   const placePopover = useCallback(() => {
     if (!selectedId) return;
-    const el = avatarEls.current.get(selectedId);
+    const el = triggerFor(selectedId);
     if (!el) return;
     const r = el.getBoundingClientRect();
     const vw = window.innerWidth,
@@ -435,7 +581,7 @@ function OfficePage() {
     let top = r.bottom + 10;
     if (top + popH > vh - 12 && r.top - popH - 10 > 12) top = r.top - popH - 10;
     setPopPos({ top, left });
-  }, [selectedId]);
+  }, [selectedId, triggerFor]);
 
   useLayoutEffect(() => {
     if (!selectedId) {
@@ -443,23 +589,19 @@ function OfficePage() {
       return;
     }
     placePopover();
-    // Re-place once the transition (if any) has landed.
-    const t = window.setTimeout(placePopover, MOVE_MS + 80);
-    return () => window.clearTimeout(t);
-  }, [selectedId, layoutKey, placePopover]);
+  }, [selectedId, rows, placePopover]);
 
   useEffect(() => {
     if (!selectedId) return;
     const closeAndRefocus = () => {
-      const trigger = avatarEls.current.get(selectedId);
+      const trigger = triggerFor(selectedId);
       setSelectedId(null);
       trigger?.focus();
     };
     const onDown = (e: MouseEvent | TouchEvent) => {
       const t = e.target as Node;
       if (popRef.current?.contains(t)) return;
-      if (avatarEls.current.get(selectedId)?.contains(t)) return;
-      if ((t as Element).closest?.("[data-agent-trigger]")) return; // another avatar/row: its own onClick switches selection
+      if ((t as Element).closest?.("[data-agent-trigger]")) return; // a desk/row: its own onClick toggles/switches selection
       setSelectedId(null);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -481,7 +623,7 @@ function OfficePage() {
       window.removeEventListener("resize", onScroll);
       window.clearInterval(tick);
     };
-  }, [selectedId, placePopover]);
+  }, [selectedId, placePopover, triggerFor]);
 
   // If the selected agent vanishes from the board (bridge row deleted), close.
   useEffect(() => {
@@ -491,119 +633,210 @@ function OfficePage() {
   const toggleSelect = (id: string) => setSelectedId((cur) => (cur === id ? null : id));
 
   const filterLc = filterText.trim().toLowerCase();
-  const matchesFilter = (r: BoardRow) =>
-    !filterLc || (ROLE_LABEL[r.role] ?? r.role).toLowerCase().includes(filterLc);
+  const matchesFilter = (role: string) =>
+    !filterLc || (ROLE_LABEL[role] ?? role).toLowerCase().includes(filterLc);
 
-  const renderAgent = (r: BoardRow, style?: CSSProperties) => {
-    const working = isWorking(r);
-    const room = roomOf(r);
-    const onBreak = room === "breakroom";
-    const accent = accentFor(r.role);
+  const stateText = (r: BoardRow) => {
+    const mode = modeOf(r);
+    if (mode === "break") return "stepped away · coffee break";
+    if (mode === "working") return meetingOf(r) ? "working · in a meeting" : "working";
+    return "idle";
+  };
+
+  // ---------- Central console screen (shared by desktop stage + mobile) ----------
+  const renderConsole = (variant: "stage" | "card") => {
+    const shown = [...workingEntries]
+      .sort((a, b) => roleRank(a.role) - roleRank(b.role))
+      .slice(0, variant === "stage" ? 3 : 5);
+    const more = workingEntries.length - shown.length;
+    const latest = ticker[ticker.length - 1];
+    return (
+      <div className={`console-screen ${variant}`}>
+        <div className="cs-top" aria-hidden="true">
+          <span className={`cs-live ${connected ? "on" : "off"}`} />
+          <span className="cs-bars" />
+        </div>
+        <div className="cs-brand" role="heading" aria-level={2}>
+          SPEHR
+        </div>
+        <div className="cs-stats">
+          <span className="cs-stat">
+            <b>{workingEntries.length}</b>/{rows.length || ROLE_ORDER.length} working
+          </span>
+          <span className="cs-stat">
+            {meetings.length > 0 ? (
+              <>
+                <b className="mtg">{meetings.length}</b> meeting{meetings.length === 1 ? "" : "s"}
+              </>
+            ) : (
+              "no meetings"
+            )}
+          </span>
+          <span className="cs-stat">
+            <b>{activePipelines.size}</b> pipeline{activePipelines.size === 1 ? "" : "s"}
+          </span>
+        </div>
+        <div className="cs-feed">
+          {shown.length === 0 ? (
+            <div className="cs-line muted">— all desks idle —</div>
+          ) : (
+            shown.map((r) => (
+              <div key={r.id} className="cs-line">
+                <span className="cs-role" style={{ color: accentFor(r.role) }}>
+                  {r.role === "boss" ? "👑 " : ""}
+                  {ROLE_LABEL[r.role] ?? r.role}
+                </span>{" "}
+                {r.description ?? "(no description)"}
+              </div>
+            ))
+          )}
+          {more > 0 && <div className="cs-line muted">+{more} more working</div>}
+          {latest && (
+            <div key={latest.id} className="cs-line cs-tick">
+              ▸ {latest.text}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ---------- Desktop desks ----------
+  const renderDesk = (role: string) => {
+    const slot = slots.get(role);
+    if (!slot) return null;
+    const r = primaryByRole(role);
+    const accent = accentFor(role);
+    const isBoss = role === "boss";
+    const label = ROLE_LABEL[role] ?? role;
+    const style = {
+      left: `${(slot.x / VIEW_W) * 100}%`,
+      top: `${(slot.y / VIEW_H) * 100}%`,
+      zIndex: Math.round(slot.y),
+      ["--s" as string]: slot.scale * (isBoss ? 1.12 : 1),
+      ["--accent" as string]: accent,
+    } as CSSProperties;
+    if (!r) {
+      return (
+        <div key={role} className="desk vacant" style={style} title={`${label} · no data yet`}>
+          <span className="orb" aria-hidden="true" />
+          <RobotDesk accent={accent} mode="idle" boss={isBoss} />
+          <span className="desk-name">{label}</span>
+        </div>
+      );
+    }
+    const mode = modeOf(r);
+    const working = mode === "working";
     const m = working && r.model ? MODEL_META[r.model] : undefined;
-    const label = ROLE_LABEL[r.role] ?? r.role;
     const isSel = selectedId === r.id;
-    const stateText = onBreak ? "on break" : working ? "working" : "idle";
+    const extraRows = (rowsByRole.get(role)?.length ?? 1) - 1;
     return (
       <button
-        key={r.id}
+        key={role}
         type="button"
         data-agent-trigger=""
         ref={(el) => {
-          if (el) avatarEls.current.set(r.id, el);
-          else avatarEls.current.delete(r.id);
+          if (el) deskEls.current.set(r.id, el);
+          else deskEls.current.delete(r.id);
         }}
-        className={`agent ${working ? "working" : ""} ${onBreak ? "on-break" : ""} ${isSel ? "selected" : ""} ${matchesFilter(r) ? "" : "dimmed"}`}
-        style={{ ["--accent" as string]: accent, ...style }}
+        className={`desk ${mode} ${isBoss ? "boss" : ""} ${meetingOf(r) ? "in-meeting" : ""} ${isSel ? "selected" : ""} ${matchesFilter(role) ? "" : "dimmed"}`}
+        style={style}
         onClick={() => toggleSelect(r.id)}
         aria-haspopup="dialog"
         aria-expanded={isSel}
-        aria-label={`${label}, ${stateText}${working && r.description ? `: ${r.description}` : ""}. Show details`}
-        title={`${label} · ${stateText}`}
+        aria-label={`${label}, ${stateText(r)}${working && r.description ? `: ${r.description}` : ""}. Show details`}
+        title={`${label} · ${stateText(r)}`}
       >
-        <span className="agent-av">
-          <span className="agent-mono">
-            {r.role === "boss" ? "👑" : (ROLE_INITIALS[r.role] ?? r.role.slice(0, 2))}
+        <span className="orb" aria-hidden="true" />
+        <RobotDesk accent={accent} mode={mode} boss={isBoss} />
+        {m && (
+          <span className="model-badge" style={{ background: m.color }} aria-hidden="true">
+            {m.badge}
           </span>
-          {working && <span className="presence" aria-hidden="true" />}
-          {m && (
-            <span className="model-badge" style={{ background: m.color }} aria-hidden="true">
-              {m.badge}
-            </span>
-          )}
-          {onBreak && (
-            <span className="cup" aria-hidden="true">
-              <CoffeeIcon />
-            </span>
-          )}
+        )}
+        {mode === "break" && (
+          <span className="cup" aria-hidden="true">
+            <CoffeeIcon size={11} />
+          </span>
+        )}
+        <span className="desk-name">
+          {isBoss ? "👑 " : ""}
+          {label}
+          {extraRows > 0 ? ` +${extraRows}` : ""}
         </span>
-        <span className="agent-name">{label}</span>
-        {onBreak && <span className="agent-state brk">on break</span>}
       </button>
     );
   };
 
-  const renderConference = (list: BoardRow[]) => {
-    // Cluster by pipeline: each 2+ group of working agents sits around its
-    // own table. Anyone else in here (shouldn't normally happen) renders as a
-    // plain occupant so the page never breaks on an odd row.
-    const groups = new Map<string, BoardRow[]>();
-    const loose: BoardRow[] = [];
-    for (const r of list) {
-      if (isWorking(r) && r.pipeline_name) {
-        const g = groups.get(r.pipeline_name) ?? [];
-        g.push(r);
-        groups.set(r.pipeline_name, g);
-      } else loose.push(r);
-    }
-    const meetings: [string, BoardRow[]][] = [];
-    for (const [name, g] of groups) {
-      if (g.length >= 2) meetings.push([name, g]);
-      else loose.push(...g);
-    }
-    return (
-      <>
-        {meetings.map(([name, g]) => {
-          const n = g.length;
-          const w = Math.min(300, 170 + n * 14),
-            h = Math.min(220, 140 + n * 8);
-          const rx = w / 2 - 26,
-            ry = h / 2 - 26;
-          const sample = g[0];
-          const stage = sample.pipeline_total
-            ? ` · ${g.length} of ${sample.pipeline_total} stages`
-            : "";
-          return (
-            <div key={name} className="meeting">
-              <div className="meeting-label">
-                <span className="meeting-dot" />
-                meeting · 🔗 {name}
-                {stage}
-              </div>
-              <div className="meeting-floor" style={{ width: w, height: h }}>
-                <div className="meeting-table" style={{ width: w - 110, height: h - 100 }} />
-                {g.map((r, i) => {
-                  const a = (2 * Math.PI * i) / n - Math.PI / 2;
-                  return renderAgent(r, {
-                    position: "absolute",
-                    left: w / 2 + rx * Math.cos(a) - 30,
-                    top: h / 2 + ry * Math.sin(a) - 20,
-                  });
-                })}
-              </div>
-            </div>
-          );
-        })}
-        {loose.length > 0 && <div className="occupants">{loose.map((r) => renderAgent(r))}</div>}
-      </>
+  // ---------- Cables + meeting links (SVG under the desks) ----------
+  const cables: ReactNode[] = [];
+  deskRoles.forEach((role, i) => {
+    const slot = slots.get(role);
+    const r = primaryByRole(role);
+    if (!slot || !r || modeOf(r) !== "working") return;
+    const { d, mid } = cablePath({ x: slot.x, y: slot.y - 4 }, slot.end);
+    const id = `cable-${role}`;
+    const dimmed = !matchesFilter(role);
+    cables.push(
+      <g key={id} className={`cable ${dimmed ? "dimmed" : ""}`}>
+        <path id={id} d={d} className="cable-glow" />
+        <path d={d} className="cable-core" />
+        {reduceMotion ? (
+          <use href="#doc-icon" x={mid.x} y={mid.y} />
+        ) : (
+          [0, 1].map((k) => (
+            <use key={k} href="#doc-icon" x={0} y={0}>
+              <animateMotion
+                dur="3.2s"
+                repeatCount="indefinite"
+                begin={`${-((i * 0.37 + k * 1.6) % 3.2).toFixed(2)}s`}
+              >
+                <mpath href={`#${id}`} />
+              </animateMotion>
+            </use>
+          ))
+        )}
+      </g>,
     );
-  };
+  });
 
+  const links: ReactNode[] = [];
+  for (const mtg of meetings) {
+    const pts = mtg.members
+      .filter((r) => primaryByRole(r.role)?.id === r.id)
+      .map((r) => ({ r, s: slots.get(r.role) }))
+      .filter((p): p is { r: BoardRow; s: Slot } => !!p.s)
+      .sort((a, b) => a.s.angle - b.s.angle);
+    for (let k = 0; k < pts.length - 1; k++) {
+      const A = { x: pts[k].s.x, y: pts[k].s.y - 4 };
+      const B = { x: pts[k + 1].s.x, y: pts[k + 1].s.y - 4 };
+      const midAB = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+      const C = { x: midAB.x + (HUB.x - midAB.x) * 0.45, y: midAB.y + (HUB.y - midAB.y) * 0.45 };
+      const d = `M${A.x.toFixed(1)},${A.y.toFixed(1)} Q${C.x.toFixed(1)},${C.y.toFixed(1)} ${B.x.toFixed(1)},${B.y.toFixed(1)}`;
+      const lx = 0.25 * A.x + 0.5 * C.x + 0.25 * B.x;
+      const ly = 0.25 * A.y + 0.5 * C.y + 0.25 * B.y;
+      links.push(
+        <g key={`${mtg.name}-${k}`} className="meet-link">
+          <path d={d} className="meet-glow" />
+          <path d={d} className="meet-core" />
+          {k === 0 && (
+            <text x={lx} y={ly - 6} className="meet-label" textAnchor="middle">
+              🤝 {mtg.name}
+            </text>
+          )}
+        </g>,
+      );
+    }
+  }
+
+  // ---------- Popover ----------
   let popBody: ReactNode = null;
   if (selected) {
     const working = isWorking(selected);
-    const room = roomOf(selected);
+    const mode = modeOf(selected);
     const m = selected.model ? MODEL_META[selected.model] : undefined;
     const accent = accentFor(selected.role);
+    const mtg = meetingOf(selected);
     popBody = (
       <>
         <div className="pop-head">
@@ -614,18 +847,19 @@ function OfficePage() {
             </div>
             <div className="pop-sub">
               <span className={`pop-state ${working ? "on" : ""}`} />
-              {room === "breakroom" ? "on a coffee break" : working ? "working" : "idle"} ·{" "}
-              {ROOM_LABEL[room]}
-              {room !== (selected.home_room ?? room)
-                ? ` (home: ${ROOM_LABEL[selected.home_room ?? ""] ?? selected.home_room})`
-                : ""}
+              {mode === "break" ? "stepped away for a coffee" : working ? "working" : "idle"}
+              {mtg &&
+                ` · meeting with ${mtg.members
+                  .filter((x) => x.id !== selected.id)
+                  .map((x) => ROLE_LABEL[x.role] ?? x.role)
+                  .join(", ")}`}
             </div>
           </div>
           <button
             type="button"
             className="pop-close"
             onClick={() => {
-              const t = avatarEls.current.get(selected.id);
+              const t = triggerFor(selected.id);
               setSelectedId(null);
               t?.focus();
             }}
@@ -684,7 +918,7 @@ function OfficePage() {
               <dd className="mono">{elapsed(selected.started_at, now)}</dd>
             </>
           )}
-          {room === "breakroom" && selected.on_break_until && (
+          {mode === "break" && selected.on_break_until && (
             <>
               <dt>Break</dt>
               <dd className="mono">
@@ -707,152 +941,183 @@ function OfficePage() {
         .office-root { color-scheme: dark; }
         .office-root * { box-sizing: border-box; }
         .office-root {
-          margin: 0; min-height: 100vh; position: relative;
-          background: radial-gradient(ellipse 90% 70% at 50% 38%, #1a2540 0%, #0a0c14 62%, #060709 100%);
-          color: #e7eaf3; font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
+          --green: #35e08a; --green-soft: rgba(53,224,138,.35); --meet: #5ff5e0;
+          --ink: #e7eaf3; --ink-2: #cfd6ea; --ink-3: #9aa2ba; --ink-4: #6d7690; --ink-5: #565e78;
+          --glass: rgba(10,18,30,.72); --line: rgba(140,200,255,.12);
+          margin: 0; min-height: 100vh; position: relative; overflow-x: hidden;
+          background: radial-gradient(ellipse 110% 80% at 50% 30%, #0f2233 0%, #071019 55%, #04070b 100%);
+          color: var(--ink); font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
         }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 
         /* ================= MASTHEAD ================= */
-        header.office-header { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 22px; background: rgba(6,7,10,.78); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,.06); }
-        .brand { font-weight: 800; letter-spacing: .12em; font-size: 13px; color: #cfd6ea; white-space: nowrap; }
-        .brand span { color: #6d7690; font-weight: 600; }
-        .brand .live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #35e08a; margin-right: 8px; box-shadow: 0 0 8px #35e08a; animation: pulse 1.6s infinite; vertical-align: 1px; }
-        .swarm-count { font-size: 11px; color: #9aa2ba; margin-left: 12px; letter-spacing: .02em; font-weight: 600; }
-        .swarm-count b { color: #35e08a; }
+        header.office-header { position: sticky; top: 0; z-index: 60; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 22px; background: rgba(4,9,15,.78); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+        .brand { font-weight: 800; letter-spacing: .12em; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+        .brand span { color: var(--ink-4); font-weight: 600; }
+        .brand .live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-right: 8px; box-shadow: 0 0 8px var(--green); animation: pulse 1.6s infinite; vertical-align: 1px; }
+        .swarm-count { font-size: 11px; color: var(--ink-3); margin-left: 12px; letter-spacing: .02em; font-weight: 600; }
+        .swarm-count b { color: var(--green); }
         .conn-row { display: flex; gap: 6px; align-items: center; }
-        .conn-chip { display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); padding: 5px 10px; border-radius: 999px; font-size: 11px; color: #9aa2ba; }
+        .conn-chip { display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); padding: 5px 10px; border-radius: 999px; font-size: 11px; color: var(--ink-3); }
         .conn-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: #4a5170; }
-        .conn-chip.on .dot { background: #35e08a; box-shadow: 0 0 6px #35e08a; }
+        .conn-chip.on .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
         .conn-chip.off .dot { background: #e0435c; }
-        .search-box { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 11.5px; color: #e7eaf3; width: 140px; transition: width .2s ease, background .2s ease; }
-        .search-box::placeholder { color: #6d7690; }
-        .search-box:focus { outline: none; width: 180px; background: rgba(255,255,255,.08); border-color: rgba(140,160,255,.4); }
-        .legend-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; margin: 14px auto 0; width: fit-content; max-width: calc(100% - 32px); background: rgba(16,19,30,.85); border: 1px solid rgba(255,255,255,.08); border-radius: 999px; padding: 6px 14px; font-size: 10.5px; color: #9aa2ba; }
-        .legend-bar .sep { color: #565e78; }
+        .search-box { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 11.5px; color: var(--ink); width: 140px; transition: width .2s ease, background .2s ease; }
+        .search-box::placeholder { color: var(--ink-4); }
+        .search-box:focus { outline: none; width: 180px; background: rgba(255,255,255,.08); border-color: rgba(53,224,138,.4); }
+        .legend-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; margin: 12px auto 0; width: fit-content; max-width: calc(100% - 32px); background: var(--glass); backdrop-filter: blur(6px); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 10.5px; color: var(--ink-3); }
+        .legend-bar .sep { color: var(--ink-5); }
         .legend-key { display: inline-flex; align-items: center; gap: 5px; }
-        .legend-key .pd { width: 7px; height: 7px; border-radius: 50%; background: #35e08a; box-shadow: 0 0 6px #35e08a; }
+        .legend-key .pd { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .legend-key .ln { width: 16px; height: 2px; border-radius: 2px; background: var(--green); box-shadow: 0 0 5px var(--green); }
+        .legend-key .ln.meet { background: var(--meet); box-shadow: 0 0 5px var(--meet); }
         .model-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; padding: 1px 6px 1px 4px; border-radius: 999px; }
         .model-chip .sw { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
         .pipeline-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; color: #ffdd7a; background: rgba(255,221,122,.12); border: 1px solid rgba(255,221,122,.25); border-radius: 999px; padding: 1px 7px; margin-top: 3px; width: fit-content; }
 
-        /* ================= PAGE LAYOUT ================= */
-        .office-body { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; padding: 16px 22px 90px; max-width: 1440px; margin: 0 auto; align-items: start; }
-        @media (max-width: 1100px) { .office-body { grid-template-columns: minmax(0, 1fr); } .work-panel { order: 2; position: static !important; max-height: none !important; } }
-        @media (max-width: 600px) { .office-body { padding: 12px 12px 90px; } header.office-header { padding: 12px 14px; } .swarm-count { display: block; margin: 4px 0 0; } }
-
-        /* Who's working on what */
-        .work-panel { position: sticky; top: 72px; max-height: calc(100vh - 96px); display: flex; flex-direction: column; background: rgba(11,13,20,.9); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; box-shadow: 0 14px 30px -12px rgba(0,0,0,.6); }
-        .work-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,.07); flex-shrink: 0; }
-        .work-panel-head .t { font-size: 10px; font-weight: 800; letter-spacing: .08em; color: #9aa2ba; }
-        .work-panel-head .n { font-size: 10px; font-weight: 800; color: #35e08a; background: rgba(53,224,138,.12); padding: 1px 7px; border-radius: 999px; }
-        .work-panel-body { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-        .work-row { display: flex; flex-direction: column; gap: 2px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); border-left: 3px solid var(--accent, #7aa6ff); border-radius: 7px; padding: 6px 9px; cursor: pointer; transition: background .15s ease; text-align: left; color: inherit; font: inherit; width: 100%; }
-        .work-row:hover { background: rgba(255,255,255,.07); }
-        .work-row:focus-visible { outline: 2px solid rgba(140,160,255,.6); outline-offset: 1px; }
-        .work-row .role { font-size: 9.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--accent, #7aa6ff); }
-        .work-row .desc { font-size: 11px; color: #cfd6ea; line-height: 1.3; margin-top: 1px; }
-        .work-row .meta { font-size: 9.5px; color: #565e78; margin-top: 2px; }
-        .work-empty { color: #565e78; font-size: 11px; text-align: center; padding: 14px 8px; }
-
-        /* ================= FLOOR PLAN ================= */
-        .floorplan { position: relative; display: grid; gap: 10px; padding: 12px; border-radius: 18px;
-          grid-template-columns: minmax(0, 1fr) minmax(0, .9fr) minmax(0, 1.25fr);
-          grid-template-rows: minmax(150px, auto) minmax(110px, auto) minmax(110px, auto) minmax(170px, auto);
-          grid-template-areas:
-            "exec_suite lobby ops_tech"
-            "exec_suite lobby open_workspace"
-            "breakroom  lobby open_workspace"
-            "breakroom  lobby conference";
-          background: #0b0e17; border: 2px solid rgba(157,178,255,.16);
-          box-shadow: 0 30px 60px -30px rgba(0,0,0,.8), inset 0 0 0 1px rgba(0,0,0,.4);
-          background-image: linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
-          background-size: 23px 23px;
+        /* ================= LAYOUT SWITCH ================= */
+        .office-main { padding: 14px 22px 96px; max-width: 1280px; margin: 0 auto; }
+        .mobile-view { display: none; }
+        @media (max-width: 700px) {
+          .desktop-view { display: none; }
+          .mobile-view { display: block; }
+          .office-main { padding: 12px 16px 96px; }
+          header.office-header { padding: 12px 16px; }
+          .swarm-count { display: block; margin: 4px 0 0; }
         }
-        @media (max-width: 900px) {
-          .floorplan { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: none;
-            grid-template-areas: "exec_suite ops_tech" "lobby lobby" "open_workspace open_workspace" "breakroom conference"; }
-          .door { display: none; }
-        }
-        @media (max-width: 560px) {
-          .floorplan { grid-template-columns: minmax(0, 1fr); padding: 8px; gap: 8px;
-            grid-template-areas: "exec_suite" "ops_tech" "lobby" "open_workspace" "conference" "breakroom"; }
-        }
-        .room { position: relative; min-width: 0; display: flex; flex-direction: column; border-radius: 12px; padding: 10px 12px 12px;
-          background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012)), #12151f;
-          border: 1px solid rgba(255,255,255,.09); box-shadow: 0 18px 34px -20px rgba(0,0,0,.7); }
-        .room::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; height: 3px; background: var(--tint); border-radius: 0 0 3px 3px; opacity: .75; }
-        .room.lobby { background: radial-gradient(ellipse 80% 60% at 50% 50%, rgba(120,150,255,.09), transparent 70%), rgba(18,21,31,.72); border-style: dashed; border-color: rgba(157,178,255,.2); }
-        .room-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding-top: 2px; }
-        .room-name { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--tint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .room-sub { display: block; font-size: 9.5px; color: #565e78; font-weight: 600; letter-spacing: .01em; text-transform: none; margin-top: 1px; white-space: normal; }
-        .room-count { font-size: 10.5px; font-weight: 700; color: #9aa2ba; flex-shrink: 0; }
-        .room-count .w { color: #35e08a; }
-        .room-empty { font-size: 10.5px; color: #3f465e; text-align: center; margin: auto 0; padding: 10px 0; font-style: italic; }
-        .occupants { display: flex; flex-wrap: wrap; gap: 10px 6px; align-content: flex-start; justify-content: center; }
-        .room.lobby .occupants { flex: 1; align-content: center; }
-        .door { position: absolute; top: 50%; width: 5px; height: 38px; transform: translateY(-50%); background: #0b0e17; border-radius: 2px; }
-        .door::after { content: ''; position: absolute; inset: 6px 1.5px; border-radius: 2px; background: var(--tint); opacity: .45; }
-        .door.left { left: -3px; } .door.right { right: -3px; }
-        .room-deco { position: absolute; right: 10px; bottom: 8px; opacity: .14; pointer-events: none; font-size: 26px; line-height: 1; filter: grayscale(.3); }
 
-        /* ================= AGENTS ================= */
-        .agent { position: relative; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 2px 3px; background: none; border: none; border-radius: 10px; color: inherit; font: inherit; cursor: pointer; transition: opacity .3s ease, background .15s ease; }
-        .agent:hover { background: rgba(255,255,255,.05); }
-        .agent:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-        .agent.moving { z-index: 15; }
-        .agent.dimmed { opacity: .22; }
-        .agent-av { position: relative; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-          background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 38%, #12151f), #151925 78%);
-          border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
-          box-shadow: 0 6px 12px -6px rgba(0,0,0,.8); transition: transform .18s ease, border-color .2s ease, box-shadow .3s ease; }
-        .agent:hover .agent-av { transform: translateY(-1px) scale(1.06); }
-        .agent.working .agent-av { border-color: var(--accent); box-shadow: 0 0 14px -3px var(--accent), 0 6px 12px -6px rgba(0,0,0,.8); }
-        .agent.selected .agent-av { box-shadow: 0 0 0 3px rgba(255,255,255,.14), 0 0 16px -2px var(--accent); }
-        .agent-mono { font-size: 11px; font-weight: 800; letter-spacing: .02em; color: var(--accent); line-height: 1; }
-        .agent-name { max-width: 62px; font-size: 9px; font-weight: 600; color: #9aa2ba; line-height: 1.15; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .agent.working .agent-name { color: #cfd6ea; }
-        .agent-state.brk { font-size: 8.5px; font-weight: 700; color: #ffb583; background: rgba(255,181,131,.12); border: 1px solid rgba(255,181,131,.25); border-radius: 999px; padding: 0 5px; line-height: 13px; }
-        .presence { position: absolute; right: -2px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; background: #35e08a; border: 2px solid #12151f; }
-        .presence::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; border: 1.5px solid #35e08a; animation: presence 1.8s ease-out infinite; }
-        @keyframes presence { 0% { transform: scale(.6); opacity: .8; } 80%,100% { transform: scale(1.7); opacity: 0; } }
-        .model-badge { position: absolute; top: -4px; left: -4px; width: 13px; height: 13px; border-radius: 4px; font-size: 8px; font-weight: 800; line-height: 11px; text-align: center; color: #0a0c14; border: 1px solid rgba(0,0,0,.35); box-shadow: 0 1px 3px rgba(0,0,0,.5); }
-        .cup { position: absolute; top: -6px; right: -8px; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1b1f2c; border: 1px solid rgba(255,181,131,.35); animation: sip 2.4s ease-in-out infinite; }
+        /* ================= DESKTOP STAGE ================= */
+        .stage { position: relative; width: 100%; aspect-ratio: ${VIEW_W} / ${VIEW_H}; container-type: inline-size; border-radius: 22px; overflow: hidden;
+          border: 1px solid rgba(120,190,255,.14); box-shadow: 0 40px 80px -40px rgba(0,0,0,.9), inset 0 0 80px rgba(0,0,0,.5); background: #050b12; }
+        .stage > svg.layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+        .layer.cables { z-index: 2; pointer-events: none; }
+        .cable-glow { fill: none; stroke: var(--green); stroke-width: 7; opacity: .16; stroke-linecap: round; }
+        .cable-core { fill: none; stroke: #7dffb8; stroke-width: 1.8; stroke-linecap: round; stroke-dasharray: 10 7; filter: drop-shadow(0 0 3px var(--green)); animation: flow 1.1s linear infinite; }
+        .cable { animation: fadeIn .5s ease; }
+        .cable.dimmed { opacity: .2; }
+        @keyframes flow { to { stroke-dashoffset: -17; } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .meet-glow { fill: none; stroke: var(--meet); stroke-width: 9; opacity: .18; stroke-linecap: round; animation: meetPulse 1.6s ease-in-out infinite; }
+        .meet-core { fill: none; stroke: var(--meet); stroke-width: 2.4; stroke-linecap: round; filter: drop-shadow(0 0 4px var(--meet)); }
+        .meet-label { fill: var(--meet); font-size: 12px; font-weight: 700; letter-spacing: .03em; paint-order: stroke; stroke: #04121a; stroke-width: 3px; }
+        @keyframes meetPulse { 0%,100% { opacity: .1; } 50% { opacity: .38; } }
+
+        /* Console */
+        .console-wrap { position: absolute; left: 50%; top: 7.5cqw; transform: translateX(-50%); width: 33cqw; z-index: 3; }
+        .console-screen { position: relative; border-radius: 1.2cqw; padding: 1.1cqw 1.6cqw 1.2cqw;
+          background: linear-gradient(180deg, rgba(8,30,44,.94), rgba(4,16,26,.96));
+          border: 2px solid rgba(110,210,255,.55);
+          box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 0 2.4cqw rgba(80,190,255,.35), inset 0 0 2cqw rgba(60,170,255,.18); }
+        .console-screen::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+          background: repeating-linear-gradient(180deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px); }
+        .cs-top { display: flex; align-items: center; gap: 8px; margin-bottom: .3cqw; }
+        .cs-live { width: 7px; height: 7px; border-radius: 50%; background: #e0435c; flex-shrink: 0; }
+        .cs-live.on { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.6s infinite; }
+        .cs-bars { flex: 1; height: 3px; border-radius: 3px; background: linear-gradient(90deg, rgba(110,210,255,.55), rgba(110,210,255,.08) 60%, transparent); }
+        .cs-brand { text-align: center; font-weight: 800; letter-spacing: .14em; line-height: 1; color: #e9fbff; font-size: 5cqw; margin: .2cqw 0 .5cqw;
+          text-shadow: 0 0 .4cqw #9fe8ff, 0 0 1.2cqw #3fb8ff, 0 0 2.6cqw rgba(63,184,255,.7); font-family: "Eurostile", "Orbitron", "Segoe UI", system-ui, sans-serif; }
+        .cs-stats { display: flex; justify-content: center; gap: .6cqw 1.4cqw; flex-wrap: wrap; font-size: clamp(9px, 1.05cqw, 13px); color: var(--ink-3); border-top: 1px solid rgba(110,210,255,.18); border-bottom: 1px solid rgba(110,210,255,.18); padding: .35cqw 0; }
+        .cs-stat b { color: var(--green); font-weight: 800; }
+        .cs-stat b.mtg { color: var(--meet); }
+        .cs-feed { margin-top: .45cqw; display: flex; flex-direction: column; gap: .15cqw; font-family: ui-monospace, monospace; font-size: clamp(8.5px, .95cqw, 12px); color: #a8e8c6; min-height: 3.2cqw; }
+        .cs-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .cs-role { font-weight: 800; }
+        .cs-tick { color: #7fd0ff; animation: fadeIn .4s ease; }
+        .console-screen.card { border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; }
+        .console-screen.card .cs-brand { font-size: 44px; margin: 4px 0 10px; text-shadow: 0 0 4px #9fe8ff, 0 0 12px #3fb8ff, 0 0 26px rgba(63,184,255,.7); }
+        .console-screen.card .cs-stats { font-size: 11.5px; gap: 6px 14px; padding: 5px 0; }
+        .console-screen.card .cs-feed { font-size: 11px; gap: 3px; margin-top: 8px; min-height: 0; }
+        .console-screen.card .cs-top { margin-bottom: 4px; }
+
+        /* Desks */
+        .desk { position: absolute; width: calc(9.4cqw * var(--s)); transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center;
+          padding: 0; background: none; border: none; color: inherit; font: inherit; cursor: pointer; transition: opacity .3s ease, filter .3s ease; }
+        .desk.vacant { cursor: default; opacity: .35; }
+        .desk.dimmed { opacity: .22; }
+        .robot-desk { width: 100%; height: auto; display: block; overflow: visible; filter: drop-shadow(0 .6cqw .5cqw rgba(0,0,0,.55)); }
+        .robot-desk .robot { transition: transform .6s cubic-bezier(.22,.8,.24,1), opacity .4s ease; transform-origin: 50px 45px; transform-box: view-box; }
+        .robot-desk .screen { fill: #102033; transition: fill .4s ease; }
+        .robot-desk .screen.on { fill: #0b2c24; }
+        .desk.break .robot { transform: translateX(-20px) scaleX(-1) rotate(-4deg); opacity: .6; }
+        .desk.break .robot-desk { filter: drop-shadow(0 .6cqw .5cqw rgba(0,0,0,.55)) saturate(.55) brightness(.8); }
+        .desk.idle .robot-desk { filter: drop-shadow(0 .6cqw .5cqw rgba(0,0,0,.55)) brightness(.82); }
+        .desk:hover .robot-desk { filter: drop-shadow(0 0 .8cqw rgba(120,220,255,.35)); }
+        .desk:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 8px; }
+        .desk.selected .robot-desk { filter: drop-shadow(0 0 .9cqw var(--accent)); }
+        .desk.boss .desk-name { color: ${BOSS_ACCENT}; }
+
+        .orb { width: 26%; aspect-ratio: 1; border-radius: 50%; margin-bottom: 3%; flex-shrink: 0;
+          background: radial-gradient(circle at 38% 34%, #6b7788, #2a3340 70%); opacity: .45; box-shadow: none; transition: background .4s ease, box-shadow .4s ease, opacity .4s ease; }
+        .desk.working .orb, .m-row.working .orb {
+          opacity: 1; background: radial-gradient(circle at 38% 34%, #eafff2 0%, #7dffb8 30%, #35e08a 62%, #148a4e 100%);
+          box-shadow: 0 0 .8cqw .2cqw rgba(53,224,138,.7), 0 0 2.2cqw .6cqw rgba(53,224,138,.35); animation: orbPulse 2.2s ease-in-out infinite; }
+        .desk.boss.working .orb { box-shadow: 0 0 .8cqw .2cqw rgba(53,224,138,.7), 0 0 2.2cqw .6cqw rgba(53,224,138,.35), 0 0 0 2px rgba(255,215,0,.55); }
+        .desk.break .orb { opacity: .2; }
+        @keyframes orbPulse { 0%,100% { transform: translateY(0) scale(1); filter: brightness(1); } 50% { transform: translateY(-6%) scale(1.08); filter: brightness(1.2); } }
+
+        .desk-name { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: .35cqw; white-space: nowrap; font-size: clamp(8.5px, calc(1.05cqw * var(--s)), 12px); font-weight: 700; letter-spacing: .02em;
+          color: var(--ink-3); background: rgba(4,12,20,.72); border: 1px solid var(--line); border-radius: 999px; padding: 0 .6cqw; line-height: 1.6; }
+        .desk.working .desk-name { color: var(--ink); border-color: rgba(53,224,138,.35); }
+        .desk.in-meeting .desk-name { border-color: rgba(95,245,224,.6); box-shadow: 0 0 .6cqw rgba(95,245,224,.35); }
+        .desk.break .desk-name { color: #ffb583; border-color: rgba(255,181,131,.35); }
+        .desk .model-badge { position: absolute; top: 30%; left: 4%; width: clamp(12px, 1.4cqw, 16px); height: clamp(12px, 1.4cqw, 16px); border-radius: 4px; font-size: clamp(8px, .9cqw, 10px); font-weight: 800; line-height: 1; display: flex; align-items: center; justify-content: center; color: #0a0c14; border: 1px solid rgba(0,0,0,.35); box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+        .desk .cup { position: absolute; top: 2%; right: 8%; width: clamp(16px, 1.8cqw, 22px); height: clamp(16px, 1.8cqw, 22px); border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1b1f2c; border: 1px solid rgba(255,181,131,.45); animation: sip 2.4s ease-in-out infinite; }
         @keyframes sip { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-10deg) translateY(-1px); } }
 
-        /* Conference meetings */
-        .meeting { display: flex; flex-direction: column; align-items: center; margin: 0 auto 8px; }
-        .meeting-label { font-size: 9.5px; font-weight: 700; color: #c1a3ff; letter-spacing: .03em; margin-bottom: 2px; display: flex; align-items: center; gap: 5px; text-align: center; }
-        .meeting-dot { width: 6px; height: 6px; border-radius: 50%; background: #c1a3ff; animation: pulse 1.6s infinite; flex-shrink: 0; }
-        .meeting-floor { position: relative; max-width: 100%; }
-        .meeting-table { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(ellipse at 40% 35%, rgba(193,163,255,.2), rgba(193,163,255,.05) 70%); border: 1px solid rgba(193,163,255,.35); box-shadow: inset 0 0 18px rgba(0,0,0,.4); }
+        /* ================= MOBILE LIST ================= */
+        .m-list { display: flex; flex-direction: column; gap: 8px; }
+        .m-row { position: relative; display: grid; grid-template-columns: 22px 46px minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+          background: var(--glass); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 8px 12px 8px 10px; backdrop-filter: blur(6px); transition: opacity .3s ease, border-color .3s ease; }
+        .m-row .orb { width: 18px; margin: 0; }
+        .m-row .robot-desk { width: 46px; }
+        .m-row.idle .robot-desk { filter: brightness(.82); }
+        .m-row.break { opacity: .78; }
+        .m-row.break .robot { transform: translateX(-20px) scaleX(-1) rotate(-4deg); opacity: .6; }
+        .m-row.break .orb { opacity: .2; }
+        .m-row.working { border-color: rgba(53,224,138,.35); box-shadow: 0 0 18px -8px rgba(53,224,138,.6); }
+        .m-row.in-meeting { border-color: rgba(95,245,224,.55); box-shadow: 0 0 18px -6px rgba(95,245,224,.6); }
+        .m-row.dimmed { opacity: .25; }
+        .m-row.selected { outline: 1px solid var(--accent); }
+        .m-row:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+        .m-role { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .m-state { font-size: 9.5px; font-weight: 700; text-transform: none; letter-spacing: .02em; color: var(--ink-4); }
+        .m-row.working .m-state { color: var(--green); }
+        .m-row.break .m-state { color: #ffb583; }
+        .m-desc { font-size: 11.5px; color: var(--ink-2); line-height: 1.3; margin-top: 2px; word-break: break-word; }
+        .m-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 3px; font-size: 9.5px; color: var(--ink-5); }
+        .m-meet { font-size: 9.5px; font-weight: 700; color: var(--meet); background: rgba(95,245,224,.1); border: 1px solid rgba(95,245,224,.35); border-radius: 999px; padding: 1px 7px; }
+        .m-badge { font-size: 9px; font-weight: 800; color: #0a0c14; border-radius: 4px; padding: 0 4px; }
 
         /* ================= INSPECT POPOVER ================= */
-        .agent-pop { position: fixed; z-index: 70; width: ${POP_W}px; background: rgba(13,15,22,.98); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; box-shadow: 0 20px 44px -14px rgba(0,0,0,.8); padding: 12px 14px 12px; animation: popIn .16s ease; }
+        .agent-pop { position: fixed; z-index: 70; width: ${POP_W}px; background: rgba(6,16,26,.94); backdrop-filter: blur(12px); border: 1px solid rgba(110,210,255,.28); border-radius: 12px; box-shadow: 0 0 24px -8px rgba(63,184,255,.45), 0 20px 44px -14px rgba(0,0,0,.85); padding: 12px 14px 12px; animation: popIn .16s ease; }
         @keyframes popIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
         @media (max-width: 560px) { .agent-pop { left: 12px !important; right: 12px; top: auto !important; bottom: 12px; width: auto; } }
         .pop-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
         .pop-title { font-weight: 800; font-size: 12.5px; letter-spacing: .05em; }
-        .pop-sub { font-size: 10.5px; color: #6d7690; margin-top: 2px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+        .pop-sub { font-size: 10.5px; color: var(--ink-4); margin-top: 2px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
         .pop-state { width: 7px; height: 7px; border-radius: 50%; background: #4a5170; flex-shrink: 0; }
-        .pop-state.on { background: #35e08a; box-shadow: 0 0 6px #35e08a; }
-        .pop-close { background: rgba(255,255,255,.06); border: none; color: #9aa2ba; font-size: 16px; width: 26px; height: 26px; border-radius: 999px; cursor: pointer; flex-shrink: 0; line-height: 1; }
-        .pop-close:hover { color: #e7eaf3; background: rgba(255,255,255,.1); }
-        .pop-close:focus-visible { outline: 2px solid rgba(140,160,255,.6); }
-        .pop-task { margin-top: 10px; font-size: 12px; color: #cfd6ea; line-height: 1.4; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); border-radius: 8px; padding: 8px 10px; word-break: break-word; }
+        .pop-state.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .pop-close { background: rgba(255,255,255,.06); border: none; color: var(--ink-3); font-size: 16px; width: 26px; height: 26px; border-radius: 999px; cursor: pointer; flex-shrink: 0; line-height: 1; }
+        .pop-close:hover { color: var(--ink); background: rgba(255,255,255,.1); }
+        .pop-close:focus-visible { outline: 2px solid var(--green); }
+        .pop-task { margin-top: 10px; font-size: 12px; color: var(--ink-2); line-height: 1.4; background: rgba(53,224,138,.04); border: 1px solid rgba(110,210,255,.14); border-radius: 8px; padding: 8px 10px; word-break: break-word; }
         .pop-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; margin: 10px 0 0; font-size: 11px; align-items: center; }
-        .pop-grid dt { color: #565e78; font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
-        .pop-grid dd { margin: 0; color: #cfd6ea; min-width: 0; overflow-wrap: anywhere; }
-        .muted { color: #6d7690; }
+        .pop-grid dt { color: var(--ink-5); font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+        .pop-grid dd { margin: 0; color: var(--ink-2); min-width: 0; overflow-wrap: anywhere; }
+        .muted { color: var(--ink-4); }
         .mono { font-family: ui-monospace, monospace; font-size: 10.5px; }
 
-        .office-footer-note { text-align: center; font-size: 10.5px; color: #565e78; margin-top: 16px; line-height: 1.5; }
-        .ticker { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; flex-direction: column-reverse; gap: 6px; z-index: 25; pointer-events: none; align-items: center; width: min(560px, 90vw); }
-        .ticker-item { background: rgba(14,17,28,.92); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 6px 14px; font-size: 11.5px; color: #cfd6ea; backdrop-filter: blur(8px); animation: tickerIn .35s ease; box-shadow: 0 8px 20px -8px rgba(0,0,0,.6); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+        .office-footer-note { text-align: center; font-size: 10.5px; color: var(--ink-5); margin-top: 16px; line-height: 1.5; }
+        .ticker { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; flex-direction: column-reverse; gap: 6px; z-index: 55; pointer-events: none; align-items: center; width: min(560px, 90vw); }
+        .ticker-item { background: rgba(6,16,26,.92); border: 1px solid rgba(53,224,138,.22); border-radius: 999px; padding: 6px 14px; font-size: 11.5px; color: var(--ink-2); backdrop-filter: blur(8px); animation: tickerIn .35s ease; box-shadow: 0 8px 20px -8px rgba(0,0,0,.6); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
         @keyframes tickerIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         @media (max-width: 700px) { .ticker { bottom: 12px; width: calc(100vw - 24px); } .ticker-item { white-space: normal; text-align: center; } }
+
         @media (prefers-reduced-motion: reduce) {
-          .presence::after, .cup, .meeting-dot, .brand .live { animation: none; }
+          .brand .live, .cs-live.on, .cable, .cable-core, .meet-glow, .desk .cup,
+          .desk.working .orb, .m-row.working .orb, .cs-tick, .ticker-item, .agent-pop { animation: none; }
+          .robot-desk .robot, .robot-desk .screen, .desk, .m-row, .orb { transition: none; }
+          .meet-glow { opacity: .28; }
         }
       `}</style>
 
@@ -901,116 +1166,285 @@ function OfficePage() {
             working
           </span>
           <span className="legend-key">
-            <CoffeeIcon />
-            on break
+            <span className="ln" />
+            task feed
           </span>
-          <span className="sep">— click any agent to inspect</span>
+          <span className="legend-key">
+            <span className="ln meet" />
+            meeting
+          </span>
+          <span className="legend-key">
+            <CoffeeIcon />
+            stepped away
+          </span>
+          <span className="sep">— click any desk to inspect</span>
         </div>
 
-        <div className="office-body">
-          <aside className="work-panel" aria-label="Who's working on what">
-            <div className="work-panel-head">
-              <span className="t">WHO'S WORKING ON WHAT</span>
-              <span className="n">{workingEntries.length}</span>
-            </div>
-            <div className="work-panel-body">
-              {workingEntries.length === 0 ? (
-                <div className="work-empty">Nobody is working right now.</div>
-              ) : (
-                [...workingEntries]
-                  .sort((a, b) =>
-                    a.role === "boss"
-                      ? -1
-                      : b.role === "boss"
-                        ? 1
-                        : roleRank(a.role) - roleRank(b.role),
-                  )
-                  .map((r) => {
-                    const roleLabel =
-                      r.role === "boss" ? "👑 boss" : (ROLE_LABEL[r.role] ?? r.role);
-                    const tag = pipelineTag(r);
-                    const room = roomOf(r);
-                    return (
-                      <button
-                        key={r.id}
-                        type="button"
-                        data-agent-trigger=""
-                        className="work-row"
-                        style={{ ["--accent" as string]: accentFor(r.role) }}
-                        onClick={() => toggleSelect(r.id)}
-                      >
-                        <span className="role">{roleLabel}</span>
-                        <span className="desc">{r.description ?? "(no description)"}</span>
-                        {tag && <span className="pipeline-tag">{tag}</span>}
-                        <span className="meta">
-                          {timeAgo(r.started_at)} · {ROOM_LABEL[room]}
-                        </span>
-                      </button>
-                    );
-                  })
-              )}
-            </div>
-          </aside>
+        <main className="office-main">
+          {/* ================= DESKTOP: command-center ring ================= */}
+          <div className="desktop-view">
+            <div className="stage" aria-label="Agent command center">
+              {/* Night skyline + glass window wall + floor */}
+              <svg
+                className="layer"
+                viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+                preserveAspectRatio="xMidYMid slice"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <defs>
+                  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stopColor="#0b1a2c" />
+                    <stop offset=".55" stopColor="#123049" />
+                    <stop offset="1" stopColor="#1b4460" />
+                  </linearGradient>
+                  <radialGradient id="floor" cx=".5" cy=".42" r=".62">
+                    <stop offset="0" stopColor="#12323c" />
+                    <stop offset=".6" stopColor="#0a1c24" />
+                    <stop offset="1" stopColor="#050c11" />
+                  </radialGradient>
+                  <radialGradient id="hubGlow" cx=".5" cy=".5" r=".5">
+                    <stop offset="0" stopColor="#35e08a" stopOpacity=".22" />
+                    <stop offset="1" stopColor="#35e08a" stopOpacity="0" />
+                  </radialGradient>
+                  <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stopColor="#bfe6ff" stopOpacity=".06" />
+                    <stop offset=".5" stopColor="#bfe6ff" stopOpacity="0" />
+                    <stop offset="1" stopColor="#bfe6ff" stopOpacity=".04" />
+                  </linearGradient>
+                </defs>
+                <rect width={VIEW_W} height={HORIZON + 40} fill="url(#sky)" />
+                <ellipse cx="500" cy={HORIZON - 30} rx="520" ry="40" fill="#2a5b78" opacity=".25" />
+                <g fill="#0f2233">
+                  {SKYLINE.back.map((b, i) => (
+                    <rect key={i} x={b.x} y={HORIZON - b.h} width={b.w} height={b.h + 40} />
+                  ))}
+                </g>
+                <g>
+                  {SKYLINE.front.map((b, i) => (
+                    <g key={i} transform={`translate(${b.x} ${HORIZON - b.h})`}>
+                      <rect width={b.w} height={b.h + 40} fill="#0a1824" />
+                      {b.lit.map((w, j) => (
+                        <rect
+                          key={j}
+                          x={w.x}
+                          y={w.y}
+                          width="3"
+                          height="4"
+                          fill={j % 5 === 0 ? "#7fd0ff" : "#ffe7a8"}
+                          opacity=".55"
+                        />
+                      ))}
+                    </g>
+                  ))}
+                </g>
+                {/* window wall: mullions + reflections */}
+                <rect width={VIEW_W} height={HORIZON + 40} fill="url(#glass)" />
+                <g stroke="#1d3a50" strokeWidth="6">
+                  {Array.from({ length: 13 }, (_, i) => {
+                    const x = (i * VIEW_W) / 12;
+                    const lean = (x - VIEW_W / 2) * 0.08;
+                    return <line key={i} x1={x - lean} y1="0" x2={x} y2={HORIZON + 40} />;
+                  })}
+                </g>
+                <g stroke="#bfe6ff" strokeWidth="18" opacity=".035">
+                  {[120, 330, 610, 820].map((x) => (
+                    <line key={x} x1={x} y1="0" x2={x + 90} y2={HORIZON + 40} />
+                  ))}
+                </g>
+                {/* ceiling rim */}
+                <path
+                  d={`M0,0 H${VIEW_W} V26 Q${VIEW_W / 2},64 0,26 Z`}
+                  fill="#07111b"
+                  stroke="#6fd2ff"
+                  strokeOpacity=".35"
+                  strokeWidth="1.5"
+                />
+                {/* floor */}
+                <path
+                  d={`M0,${HORIZON + 20} Q${VIEW_W / 2},${HORIZON - 30} ${VIEW_W},${HORIZON + 20} V${VIEW_H} H0 Z`}
+                  fill="url(#floor)"
+                />
+                <path
+                  d={`M0,${HORIZON + 20} Q${VIEW_W / 2},${HORIZON - 30} ${VIEW_W},${HORIZON + 20}`}
+                  fill="none"
+                  stroke="#6fd2ff"
+                  strokeOpacity=".22"
+                  strokeWidth="2"
+                />
+                <ellipse
+                  cx={CX}
+                  cy={CY + 10}
+                  rx={RX + 40}
+                  ry={RY + 30}
+                  fill="none"
+                  stroke="#1f4a5a"
+                  strokeOpacity=".5"
+                  strokeWidth="1.5"
+                />
+                <ellipse
+                  cx={CX}
+                  cy={CY + 10}
+                  rx={RX - 70}
+                  ry={RY - 50}
+                  fill="none"
+                  stroke="#1f4a5a"
+                  strokeOpacity=".35"
+                  strokeWidth="1"
+                />
+                {/* raised console platform */}
+                <ellipse
+                  cx={HUB.x}
+                  cy={HUB.y}
+                  rx={HUB.rx + 70}
+                  ry={HUB.ry + 30}
+                  fill="url(#hubGlow)"
+                />
+                <ellipse
+                  cx={HUB.x}
+                  cy={HUB.y + 10}
+                  rx={HUB.rx + 16}
+                  ry={HUB.ry + 8}
+                  fill="#0b1c26"
+                  stroke="#6fd2ff"
+                  strokeOpacity=".45"
+                  strokeWidth="2"
+                />
+                <ellipse
+                  cx={HUB.x}
+                  cy={HUB.y}
+                  rx={HUB.rx}
+                  ry={HUB.ry}
+                  fill="#10262f"
+                  stroke="#9fe8ff"
+                  strokeOpacity=".7"
+                  strokeWidth="2"
+                />
+                {/* console body under the screen */}
+                <path
+                  d="M425,272 H575 L588,352 H412 Z"
+                  fill="#1a2c38"
+                  stroke="#3d6377"
+                  strokeWidth="1.5"
+                />
+                <rect x="432" y="300" width="136" height="10" rx="3" fill="#0d1a22" />
+                <g fill="#35e08a" opacity=".7">
+                  <rect x="442" y="318" width="10" height="4" rx="1" />
+                  <rect x="458" y="318" width="22" height="4" rx="1" opacity=".5" />
+                  <rect x="530" y="318" width="16" height="4" rx="1" opacity=".6" />
+                </g>
+              </svg>
 
-          <main>
-            <div className="floorplan" ref={floorRef} aria-label="Office floor plan">
-              {ROOMS.map((room) => {
-                const list = byRoom.get(room.key) ?? [];
-                const w = list.filter(isWorking).length;
+              {/* Task-feed cables + meeting links */}
+              <svg
+                className="layer cables"
+                viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+                preserveAspectRatio="xMidYMid slice"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <defs>
+                  <g id="doc-icon">
+                    <g transform="translate(-5 -6)">
+                      <path
+                        d="M0 0 H7 L10 3 V12 H0 Z"
+                        fill="#0d3a26"
+                        stroke="#7dffb8"
+                        strokeWidth="1"
+                      />
+                      <path d="M2 4.5 H7 M2 7 H8 M2 9.5 H6" stroke="#7dffb8" strokeWidth=".8" />
+                    </g>
+                  </g>
+                </defs>
+                {links}
+                {cables}
+              </svg>
+
+              <div className="console-wrap">{renderConsole("stage")}</div>
+
+              {deskRoles.map(renderDesk)}
+            </div>
+          </div>
+
+          {/* ================= MOBILE: vertical list ================= */}
+          <div className="mobile-view">
+            {renderConsole("card")}
+            <div className="m-list">
+              {sortedRows.map((r) => {
+                const mode = modeOf(r);
+                const working = mode === "working";
+                const label = ROLE_LABEL[r.role] ?? r.role;
+                const mtg = meetingOf(r);
+                const m = working && r.model ? MODEL_META[r.model] : undefined;
+                const tag = pipelineTag(r);
+                const isSel = selectedId === r.id;
                 return (
-                  <section
-                    key={room.key}
-                    className={`room ${room.key === "lobby" ? "lobby" : ""}`}
-                    style={{ gridArea: room.key, ["--tint" as string]: room.tint }}
-                    aria-label={`${room.label}: ${list.length} ${list.length === 1 ? "agent" : "agents"}`}
+                  <button
+                    key={r.id}
+                    type="button"
+                    data-agent-trigger=""
+                    ref={(el) => {
+                      if (el) listEls.current.set(r.id, el);
+                      else listEls.current.delete(r.id);
+                    }}
+                    className={`m-row ${mode} ${mtg ? "in-meeting" : ""} ${isSel ? "selected" : ""} ${matchesFilter(r.role) ? "" : "dimmed"}`}
+                    style={{ ["--accent" as string]: accentFor(r.role) }}
+                    onClick={() => toggleSelect(r.id)}
+                    aria-haspopup="dialog"
+                    aria-expanded={isSel}
+                    aria-label={`${label}, ${stateText(r)}${working && r.description ? `: ${r.description}` : ""}. Show details`}
                   >
-                    {room.door && <span className={`door ${room.door}`} aria-hidden="true" />}
-                    <div className="room-head">
-                      <span className="room-name">
-                        {room.label}
-                        <span className="room-sub">{room.sub}</span>
+                    <span className="orb" aria-hidden="true" />
+                    <RobotDesk accent={accentFor(r.role)} mode={mode} boss={r.role === "boss"} />
+                    <span>
+                      <span className="m-role">
+                        {r.role === "boss" ? "👑 " : ""}
+                        {label}
+                        <span className="m-state">
+                          {mode === "break" ? "☕ stepped away" : mode}
+                        </span>
+                        {m && (
+                          <span className="m-badge" style={{ background: m.color }} title={m.label}>
+                            {m.badge}
+                          </span>
+                        )}
                       </span>
-                      <span className="room-count">
-                        {list.length}
-                        {w > 0 && <span className="w"> · {w} busy</span>}
-                      </span>
-                    </div>
-                    {list.length === 0 ? (
-                      <div className="room-empty">
-                        {room.key === "conference"
-                          ? "no meetings right now"
-                          : room.key === "breakroom"
-                            ? "nobody on break"
-                            : "empty"}
-                      </div>
-                    ) : room.key === "conference" ? (
-                      renderConference(list)
-                    ) : (
-                      <div className="occupants">{list.map((r) => renderAgent(r))}</div>
-                    )}
-                    <span className="room-deco" aria-hidden="true">
-                      {room.key === "exec_suite"
-                        ? "🗄️"
-                        : room.key === "ops_tech"
-                          ? "🖥️"
-                          : room.key === "open_workspace"
-                            ? "💻"
-                            : room.key === "conference"
-                              ? "📋"
-                              : room.key === "breakroom"
-                                ? "☕"
-                                : "🪴"}
+                      {working && (
+                        <span className="m-desc" style={{ display: "block" }}>
+                          {r.description ?? "(no description)"}
+                        </span>
+                      )}
+                      {(tag || mtg || working) && (
+                        <span className="m-meta">
+                          {mtg ? (
+                            <span className="m-meet">
+                              🤝 meeting ·{" "}
+                              {mtg.members
+                                .filter((x) => x.id !== r.id)
+                                .map((x) => ROLE_LABEL[x.role] ?? x.role)
+                                .join(", ")}
+                            </span>
+                          ) : (
+                            tag && <span className="pipeline-tag">{tag}</span>
+                          )}
+                          {working && r.started_at && <span>{timeAgo(r.started_at)}</span>}
+                        </span>
+                      )}
                     </span>
-                  </section>
+                  </button>
                 );
               })}
+              {sortedRows.length === 0 && (
+                <div className="office-footer-note">Waiting for the office board…</div>
+              )}
             </div>
-            <div className="office-footer-note">
-              Monitoring only — nothing here can spawn or control an agent. State lives in Supabase,
-              not on any one machine.
-            </div>
-          </main>
-        </div>
+          </div>
+
+          <div className="office-footer-note">
+            Monitoring only — nothing here can spawn or control an agent. State lives in Supabase,
+            not on any one machine.
+          </div>
+        </main>
 
         {selected && (
           <div
