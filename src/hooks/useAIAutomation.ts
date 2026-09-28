@@ -237,6 +237,66 @@ async function assignBedForPatient(p: NewPatient): Promise<string | null> {
   return null;
 }
 
+/**
+ * Reserve-then-insert bed claim for the manual Admit flow (admitPatient()).
+ * Same atomic-guarded UPDATE as assignBedForPatient() above, but exported
+ * so it can be called BEFORE the `patients` row is written, so a facility
+ * with 0 truly-Available beds never gets an orphaned admitted-with-no-bed
+ * patient row in the first place — the reservation either succeeds (and
+ * the caller inserts the patient with this room) or fails (and the
+ * caller never inserts at all). See release-in-admit-patient for the
+ * insert-failure compensating path.
+ */
+export async function claimBedForAdmission(
+  facility: string,
+  mrn: string,
+): Promise<string | null> {
+  if (!facility || !mrn) return null;
+  const { data: candidates } = await supabase
+    .from("bed_management")
+    .select("id, room_number, bed_letter")
+    .eq("facility_name", facility)
+    .eq("status", "Available")
+    .is("current_patient_mrn", null)
+    .order("room_number", { ascending: true })
+    .order("bed_letter", { ascending: true })
+    .limit(5);
+  for (const open of candidates ?? []) {
+    const { data: claimed, error } = await supabase
+      .from("bed_management")
+      .update({
+        status: "Occupied",
+        current_patient_mrn: mrn,
+        status_updated_at: new Date().toISOString(),
+      } as any)
+      .eq("id", open.id)
+      .eq("status", "Available")
+      .is("current_patient_mrn", null) // hard guard against double-booking
+      .select("id");
+    if (error || !claimed || claimed.length === 0) continue; // lost race, try next
+    return `${open.room_number}-${open.bed_letter}`;
+  }
+  return null;
+}
+
+/**
+ * Release a bed claimed by claimBedForAdmission() when the patient row it
+ * was reserved for could not actually be written (rare insert failure
+ * after a successful claim). Keeps the bed board from leaking a claimed
+ * bed with no corresponding patient.
+ */
+export async function releaseBedForAdmission(mrn: string): Promise<void> {
+  if (!mrn) return;
+  await supabase
+    .from("bed_management")
+    .update({
+      status: "Available",
+      current_patient_mrn: null,
+      status_updated_at: new Date().toISOString(),
+    } as any)
+    .eq("current_patient_mrn", mrn);
+}
+
 async function startBedCleaningCycle(mrn: string) {
   // Find the bed currently holding this MRN and kick off the cleaning cycle.
   const { data: bed } = await supabase

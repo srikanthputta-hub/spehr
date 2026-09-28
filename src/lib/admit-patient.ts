@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { seedAdmission } from "@/hooks/useAIAutomation";
+import { seedAdmission, claimBedForAdmission, releaseBedForAdmission } from "@/hooks/useAIAutomation";
 import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
 import type { CodeStatus } from "@/lib/patients";
@@ -69,6 +69,18 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
     ?.map((m) => [m.name?.trim(), m.dose?.trim(), m.freq?.trim()].filter(Boolean).join(" "))
     .filter(Boolean)
     .join("; ") || null;
+
+  // Reserve-then-insert: atomically claim a bed BEFORE writing the
+  // `patients` row. If the facility has 0 truly-Available beds (or we
+  // lose a race to a concurrent admission), bail out here — no patient
+  // row is ever created, so the "no empty beds" error below is always
+  // true and there is no orphaned admitted-with-no-bed patient left
+  // behind. See claimBedForAdmission() in useAIAutomation.ts.
+  const claimedRoom = await claimBedForAdmission(facility, mrn);
+  if (!claimedRoom) {
+    return { ok: false, error: "No empty beds — admission was not created." };
+  }
+
   const payload = {
     mrn,
     first_name,
@@ -80,7 +92,7 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
     biological_sex: fhirGender,
     gender_identity: genderIdentity,
     phone: input.intake?.phone?.trim() || null,
-    room: input.room.trim() || null,
+    room: claimedRoom,
     code_status: input.code_status,
     chief_complaint: input.diagnosis.trim(),
     hr: 76,
@@ -117,7 +129,12 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   };
 
   const { data, error } = await supabase.from("patients").insert(payload).select().single();
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    // The bed was already claimed above; release it back to Available so
+    // a failed insert never leaks a bed that's Occupied with no patient.
+    await releaseBedForAdmission(mrn).catch(() => {});
+    return { ok: false, error: error.message };
+  }
 
   if (input.nlp) {
     try {
@@ -164,14 +181,8 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
     console.warn("[admit] seedAdmission failed", e);
   }
 
-  const { data: bedCheck } = await supabase
-    .from("bed_management")
-    .select("id")
-    .eq("current_patient_mrn", mrn)
-    .maybeSingle();
-  if (!bedCheck) {
-    return { ok: false, error: "No empty beds — admission was rolled back." };
-  }
+  // Bed was already atomically claimed above (before insert), so there is
+  // no post-hoc "did we actually get a bed?" check needed here anymore.
 
   // Fire-and-forget six-stream coding pipeline. Never blocks admission.
   // Pass form-time snapshot so Streams C/D/E/F don't depend on empty tables.
