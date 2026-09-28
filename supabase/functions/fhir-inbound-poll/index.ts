@@ -12,6 +12,14 @@
 //
 // Auth: none — meant to be invoked by cron via pg_net. Idempotent and
 // side-effect-safe (upserts on `fhir_id`), so extra invocations are cheap.
+//
+// Deliberately NOT here: Invoice/ChargeItem. fhir-outbound-poll pushes
+// those out (pollInvoices/pollChargeItems), but spehr is the sole source
+// of truth for its own billing data — no partner account originates or
+// edits an Invoice/ChargeItem on the FHIR server (billing-pophealth only
+// writes PaymentNotice, which IS polled below). This is intentional
+// one-way sync, not a gap; see the note above pollInvoices in
+// fhir-outbound-poll/index.ts before adding an inbound target for them.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { ingestFhirResource, logIngestEvent } from "../_shared/fhir-ingest.ts";
