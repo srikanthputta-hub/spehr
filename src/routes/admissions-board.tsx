@@ -368,7 +368,7 @@ interface AppointmentRow {
   accepted_by: string | null;
 }
 
-const APPT_STATUSES = ["proposed", "pending", "booked", "arrived", "fulfilled", "cancelled", "noshow"] as const;
+const APPT_STATUSES = ["proposed", "waitlist", "pending", "booked", "arrived", "checked-in", "fulfilled", "cancelled", "noshow"] as const;
 
 // Statuses that no longer belong on the "Upcoming" list.
 const CLOSED_APPT_STATUSES = ["fulfilled", "cancelled", "noshow"];
