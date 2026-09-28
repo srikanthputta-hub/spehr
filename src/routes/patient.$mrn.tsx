@@ -199,6 +199,10 @@ interface PatientRecord {
   facility_name: string | null;
   allergies: string | null;
   environmental_allergies: string | null;
+  past_medical_history: string | null;
+  past_surgical_history: string | null;
+  family_history: string | null;
+  current_medications: string | null;
 }
 
 function mockAgeFromName(first: string | null | undefined, fallback: number | null): number {
@@ -234,6 +238,35 @@ function parseDrugAllergy(raw: string | null | undefined): {
   const m = s.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
   if (m) return { isNkda: false, name: m[1].trim(), reaction: m[2].trim() };
   return { isNkda: false, name: s, reaction: null };
+}
+
+/**
+ * Split a free-text history field (e.g. `patients.past_medical_history`) into
+ * discrete list items. Expected shapes: "Hypertension, Atrial Fibrillation" |
+ * "Appendectomy 2008 — no complications" | null | "".
+ */
+function splitHistoryItems(raw: string | null | undefined): string[] {
+  const s = (raw ?? "").trim();
+  if (!s) return [];
+  return s
+    .split(/[;,]|\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function HistoryList({ raw, emptyLabel }: { raw: string | null | undefined; emptyLabel: string }) {
+  const items = splitHistoryItems(raw);
+  return (
+    <ul className="divide-y divide-slate-200 text-[12px]">
+      {items.length === 0 ? (
+        <li className="px-3 py-2 text-slate-500 italic">{emptyLabel}</li>
+      ) : (
+        items.map((item, i) => (
+          <li key={i} className="px-3 py-2 text-slate-700">{item}</li>
+        ))
+      )}
+    </ul>
+  );
 }
 
 function AllergiesWidget({
@@ -1395,11 +1428,7 @@ function HistoryProblemsView({ patient }: { patient: PatientRecord }) {
       </section>
       <section className={widgetBox}>
         <WidgetHeader title="Past Medical History" />
-        <ul className="divide-y divide-slate-200 text-[12px]">
-          <li className="px-3 py-2 text-slate-700">Hypertension — controlled</li>
-          <li className="px-3 py-2 text-slate-700">Type 2 Diabetes Mellitus</li>
-          <li className="px-3 py-2 text-slate-700">Hyperlipidemia</li>
-        </ul>
+        <HistoryList raw={patient.past_medical_history} emptyLabel="No significant past medical history documented." />
       </section>
       <section className={widgetBox}>
         <WidgetHeader title="Allergies" />
@@ -1411,10 +1440,15 @@ function HistoryProblemsView({ patient }: { patient: PatientRecord }) {
       </section>
       <section className={widgetBox}>
         <WidgetHeader title="Surgical History" />
-        <ul className="divide-y divide-slate-200 text-[12px]">
-          <li className="px-3 py-2 text-slate-700">Appendectomy — 2012</li>
-          <li className="px-3 py-2 text-slate-700">Cholecystectomy — 2018</li>
-        </ul>
+        <HistoryList raw={patient.past_surgical_history} emptyLabel="No prior surgical history documented." />
+      </section>
+      <section className={widgetBox}>
+        <WidgetHeader title="Family History" />
+        <HistoryList raw={patient.family_history} emptyLabel="No significant family history documented." />
+      </section>
+      <section className={widgetBox + " md:col-span-2"}>
+        <WidgetHeader title="Home Medications" />
+        <HistoryList raw={patient.current_medications} emptyLabel="No home medications documented." />
       </section>
     </div>
   );
@@ -1760,7 +1794,7 @@ function PatientChart() {
       setError(null);
       const { data, error } = await supabase
         .from("patients")
-        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name, allergies, environmental_allergies")
+        .select("id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name, allergies, environmental_allergies, past_medical_history, past_surgical_history, family_history, current_medications")
         .eq("mrn", mrn)
         .maybeSingle();
       if (cancelled) return;
