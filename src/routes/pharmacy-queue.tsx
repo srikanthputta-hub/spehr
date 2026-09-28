@@ -448,24 +448,44 @@ function PharmacyQueue() {
   }, [visibleOrders, selectedId]);
 
 
-  const actOnOrder = async (id: string, newStatus: "DUE" | "REJECTED") => {
+  const actOnOrder = async (id: string, newStatus: "Approved" | "REJECTED") => {
     const prevOrders = orders;
+    const current = orders.find((o) => o.id === id);
+    const expectedStatus = current?.status ?? null;
     // Optimistic remove
     setOrders((curr) => curr.filter((o) => o.id !== id));
     setActing(true);
-    const { error } = await supabase
+    // Compare-and-swap: only write if the order is still in the status we
+    // last saw it in, so a race with another pharmacist or the cron sweep
+    // can't silently double-write an order that already moved on.
+    let query = supabase
       .from("medication_orders")
-      .update({ status: newStatus })
+      .update(
+        newStatus === "Approved"
+          ? { status: newStatus, approved_at: new Date().toISOString() }
+          : { status: newStatus },
+      )
       .eq("id", id);
+    if (expectedStatus !== null) {
+      query = query.eq("status", expectedStatus);
+    }
+    const { data, error } = await query.select("id");
     setActing(false);
     if (error) {
       setOrders(prevOrders);
       toast.error("Action failed", { description: error.message });
       return;
     }
-    if (newStatus === "DUE") {
+    if (!data || data.length === 0) {
+      setOrders(prevOrders);
+      toast.error("Order already updated", {
+        description: "Someone else (or the automation sweep) already acted on this order. Refresh to see its current state.",
+      });
+      return;
+    }
+    if (newStatus === "Approved") {
       toast.success("Verified & released to MAR", {
-        description: `${selected?.drug_name ?? "Order"} now DUE on nursing board`,
+        description: `${selected?.drug_name ?? "Order"} now Approved on nursing board`,
       });
     } else {
       toast("Order rejected", {
@@ -699,21 +719,21 @@ function PharmacyQueue() {
                 <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
                   <div className="inline-flex items-center gap-1">
                   <button
-                    onClick={() => actOnOrder(selected.id, "DUE")}
-                    disabled={acting || !can("btn_verify_med")}
-                    title={can("btn_verify_med") ? undefined : "Action disabled — contact admin to activate"}
+                    onClick={() => actOnOrder(selected.id, "Approved")}
+                    disabled={acting || !can("btn_dispense_med")}
+                    title={can("btn_dispense_med") ? undefined : "Action disabled — contact admin to activate"}
                     className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
                   >
                     {acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                     Approve &amp; Verify → Send to MAR
                   </button>
-                    <InfoHint text="Sets status = DUE, which immediately surfaces this order on the nursing task board (MAR) as ready to administer. Cannot be undone from this screen." />
+                    <InfoHint text="Sets status = Approved, which immediately surfaces this order on the nursing task board (MAR) as ready to administer. Cannot be undone from this screen." />
                   </div>
                   <div className="inline-flex items-center gap-1">
                   <button
                     onClick={() => actOnOrder(selected.id, "REJECTED")}
-                    disabled={acting || !can("btn_dispense_med")}
-                    title={can("btn_dispense_med") ? undefined : "Action disabled — contact admin to activate"}
+                    disabled={acting || !can("btn_verify_med")}
+                    title={can("btn_verify_med") ? undefined : "Action disabled — contact admin to activate"}
                     className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
                   >
                     <XCircle className="h-4 w-4" />
@@ -722,7 +742,7 @@ function PharmacyQueue() {
                     <InfoHint text="Sets status = REJECTED and returns the order to the ordering physician for reissue. The medication never reaches the MAR." />
                   </div>
                   <div className="ml-auto text-[11px] text-slate-500">
-                    Approval routes status to <span className="font-mono text-slate-700">DUE</span>
+                    Approval routes status to <span className="font-mono text-slate-700">Approved</span>
                   </div>
                 </div>
               </div>
