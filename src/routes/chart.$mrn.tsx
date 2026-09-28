@@ -41,7 +41,7 @@ export const Route = createFileRoute("/chart/$mrn")({
   component: ChartPage,
 });
 
-function buildFallbackPatient(mrn: string, db: any): Patient {
+function buildFallbackPatient(mrn: string, db: any, allergies: string[] | null): Patient {
   const name =
     db?.name ||
     [db?.first_name, db?.last_name].filter(Boolean).join(" ") ||
@@ -67,7 +67,12 @@ function buildFallbackPatient(mrn: string, db: any): Patient {
     mrn,
     dob: "—",
     code,
-    allergies: ["No known allergies"],
+    allergies:
+      allergies === null
+        ? ["Checking allergies…"]
+        : allergies.length > 0
+          ? allergies
+          : ["No known allergies"],
     diagnosis: db?.diagnosis || db?.chief_complaint || "Acute monitoring",
     hr,
     hrTrend: [hr, hr, hr, hr, hr, hr, hr],
@@ -100,6 +105,7 @@ function ChartPage() {
   const [given, setGiven] = useState<Record<string, string>>({});
   const [dbPatient, setDbPatient] = useState<any>(null);
   const [lookupDone, setLookupDone] = useState(false);
+  const [dbAllergies, setDbAllergies] = useState<string[] | null>(null);
   const [liveMeds, setLiveMeds] = useState<MedOrder[] | null>(null);
   const [administering, setAdministering] = useState<string | null>(null);
   const [shiftNotes, setShiftNotes] = useState<any[]>([]);
@@ -189,7 +195,30 @@ function ChartPage() {
     };
   }, [mrn, staticPatient]);
 
-  const patient = staticPatient ?? buildFallbackPatient(mrn, dbPatient);
+  // Real allergy/adverse-reaction rows for this MRN. This banner is what a
+  // nurse relies on before administering a medication, so it must reflect
+  // the actual `allergies` table — never a hardcoded "No known allergies".
+  useEffect(() => {
+    if (staticPatient) return; // static demo patients keep their seeded allergies
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("allergies")
+        .select("substance, reaction, status")
+        .eq("mrn", mrn)
+        .eq("status", "active");
+      if (cancelled) return;
+      const mapped = (data ?? []).map((a: any) =>
+        a.reaction ? `${a.substance} (${a.reaction})` : a.substance,
+      );
+      setDbAllergies(mapped);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mrn, staticPatient]);
+
+  const patient = staticPatient ?? buildFallbackPatient(mrn, dbPatient, dbAllergies);
 
   useEffect(() => {
     let cancelled = false;
