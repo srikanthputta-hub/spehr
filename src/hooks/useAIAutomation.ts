@@ -256,43 +256,18 @@ async function startBedCleaningCycle(mrn: string) {
 }
 
 // Per-phase duration for the post-discharge turnover cycle:
-// Cleaning → Disinfecting → Making Bed → Available (3 × BED_PHASE_MS total).
+// Cleaning → Disinfecting → Making Bed → Available.
+//
+// NOTE: the TIMED PROGRESSION through these phases used to be driven from
+// here (sweepBedCleaningCycles(), on a 30s client-side setInterval), which
+// meant it only advanced while a dashboard tab with this hook mounted was
+// open. That silently stalled every bed in the building whenever nobody's
+// browser was open to it. The progression is now handled server-side by
+// pg_cron (public.advance_bed_turnover(), see migration
+// advance_bed_turnover_server_side.sql) using this same 45s phase duration,
+// so this hook no longer needs to poll it. startBedCleaningCycle() below
+// (the discharge → "Cleaning" trigger) is unrelated and stays client-side.
 export const BED_PHASE_MS = 45_000;
-
-async function sweepBedCleaningCycles() {
-  const now = Date.now();
-  const cutoff = new Date(now - BED_PHASE_MS).toISOString();
-  const nowIso = new Date().toISOString();
-  // Cleaning → Disinfecting
-  await supabase
-    .from("bed_management")
-    .update({
-      status: "Disinfecting",
-      status_updated_at: nowIso,
-    } as any)
-    .in("status", ["Cleaning", "Discharged - Deep Cleaning In Progress", "Discharged"])
-    .lt("status_updated_at", cutoff);
-  // Disinfecting → Making Bed
-  await supabase
-    .from("bed_management")
-    .update({
-      status: "Making Bed",
-      status_updated_at: nowIso,
-    } as any)
-    .eq("status", "Disinfecting")
-    .lt("status_updated_at", cutoff);
-  // Making Bed → Available
-  await supabase
-    .from("bed_management")
-    .update({
-      status: "Available",
-      current_patient_mrn: null,
-      status_updated_at: nowIso,
-    } as any)
-    .eq("status", "Making Bed")
-    .lt("status_updated_at", cutoff);
-}
-
 
 async function cascadeMed(mrn: string, orderId: string) {
   // Ordered → Pending Verification → Dispensed → Administered (final).
@@ -931,18 +906,15 @@ export function useAIAutomation() {
       )
       .subscribe();
 
-    // Bed cleaning state machine sweeper — every 30s the active client
-    // advances any bed that has crossed its 60s / 120s threshold.
-    sweepBedCleaningCycles().catch(() => {});
-    const bedSweep = setInterval(() => {
-      sweepBedCleaningCycles().catch(() => {});
-    }, 30_000);
+    // Bed cleaning phase progression (Cleaning → Disinfecting → Making Bed →
+    // Available) is now advanced server-side by pg_cron
+    // (public.advance_bed_turnover()) so it keeps running with no dashboard
+    // tab open — see the BED_PHASE_MS comment above.
 
     return () => {
       supabase.removeChannel(channel);
       clearAllTimers();
       clearInterval(sweepInterval);
-      clearInterval(bedSweep);
     };
   }, [automationEnabled]);
 }
