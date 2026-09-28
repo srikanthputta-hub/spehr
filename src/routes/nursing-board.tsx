@@ -208,20 +208,6 @@ function ClinicalAlertPill({
   }
 }
 
-function baselineVitals(dx: string | null | undefined): {
-  hr: number;
-  sys: number;
-  dia: number;
-  spo2: number;
-} {
-  const d = (dx ?? "").toLowerCase();
-  if (d.includes("sepsis")) return { hr: 112, sys: 88, dia: 55, spo2: 95 };
-  if (d.includes("dka")) return { hr: 105, sys: 100, dia: 65, spo2: 97 };
-  if (d.includes("stemi")) return { hr: 98, sys: 138, dia: 88, spo2: 96 };
-  if (d.includes("stroke")) return { hr: 92, sys: 165, dia: 95, spo2: 96 };
-  return { hr: 75, sys: 120, dia: 80, spo2: 98 };
-}
-
 function LiveVitals({
   hr,
   bp,
@@ -235,7 +221,6 @@ function LiveVitals({
   rr: number;
   temp: number;
 }) {
-  void baselineVitals; // legacy helper, kept for compatibility
   const [sysStr, diaStr] = bp.split("/");
   const sys = parseInt(sysStr, 10) || 0;
   const dia = parseInt(diaStr, 10) || 0;
@@ -333,8 +318,8 @@ function toRow(p: any): PatientRow {
     facility: p.facility_name ?? "Memorial Hospital",
     unreadLabs: !!p.unread_labs_alert,
     admittedAt: p.admission_time ?? null,
-    rr: 16,
-    temp: 98.6,
+    rr: p.rr,
+    temp: p.temp,
   };
 }
 
@@ -497,7 +482,7 @@ function Dashboard() {
           supabase
             .from("patients")
             .select(
-              "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
+              "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, rr, temp, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
             )
             .in("mrn", mrns),
         { data: [], error: null } as any,
@@ -611,6 +596,8 @@ function Dashboard() {
                     hr: p.hr,
                     bp: `${p.bp_systolic}/${p.bp_diastolic}`,
                     o2: p.spo2,
+                    rr: p.rr,
+                    temp: p.temp,
                     medsDue: p.meds_due_count ?? row.medsDue,
                   }
                 : row,
@@ -659,12 +646,6 @@ function Dashboard() {
             hr: clamp(p.hr + jitter(8), 45, 140),
             bp: `${sys}/${dia}`,
             o2: clamp(p.o2 + jitter(3), 85, 100),
-            rr: clamp((p.rr ?? 16) + jitter(2), 8, 26),
-            temp:
-              Math.round(
-                Math.max(94.5, Math.min(102.5, (p.temp ?? 98.6) + (Math.random() - 0.5) * 0.6)) *
-                  10,
-              ) / 10,
           };
         }),
       );
@@ -966,21 +947,6 @@ function Dashboard() {
         <BedManagementBoard facility={facility} onClose={() => setBedBoardOpen(false)} />
       )}
     </main>
-  );
-}
-
-function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <th className={`px-5 py-2.5 font-semibold ${className}`}>{children}</th>;
-}
-
-function Vital({ label, value, alert }: { label: string; value: string; alert: boolean }) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={`text-sm font-bold ${alert ? "text-red-600" : "text-foreground"}`}>
-        {value}
-      </div>
-    </div>
   );
 }
 
