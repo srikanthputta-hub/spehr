@@ -513,6 +513,7 @@ function ChartPage() {
         test_type: labTest,
         clinical_condition: patient.diagnosis,
         status: "Pending Collection",
+        source: "nurse-chart",
       }).select("id").single();
       if (error) throw error;
       if (inserted?.id) {
