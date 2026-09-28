@@ -47,13 +47,22 @@ function extCode(resource: any, url: string): string | null {
 // FHIR Appointment.status rank for the monotonicity check in
 // handleAppointment. Terminal statuses (cancelled/noshow/entered-in-error)
 // are handled separately, not via this rank.
+//
+// `waitlist` (a request that couldn't be immediately booked and is queued
+// for a slot) ranks just below `pending`, per FHIR's own guidance that it's
+// roughly equivalent-to-or-prior-to `pending` in the request lifecycle.
+// `checked-in` gets its own rank distinct from `arrived` — FHIR defines
+// them as separate statuses, and clinically arriving at the facility
+// precedes being checked in, which in turn precedes the visit itself
+// (`fulfilled`).
 const APPOINTMENT_STATUS_RANK: Record<string, number> = {
   proposed: 1,
-  pending: 2,
-  booked: 3,
-  arrived: 4,
-  "checked-in": 4,
-  fulfilled: 5,
+  waitlist: 2,
+  pending: 3,
+  booked: 4,
+  arrived: 5,
+  "checked-in": 6,
+  fulfilled: 7,
 };
 const TERMINAL_APPOINTMENT_STATUSES = new Set(["cancelled", "noshow", "entered-in-error"]);
 
