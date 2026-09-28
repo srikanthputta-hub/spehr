@@ -790,7 +790,7 @@ function OfficePage() {
     }
     const mode = modeOf(r);
     const working = mode === "working";
-    const m = working && r.model ? MODEL_META[r.model] : undefined;
+    const m = working && r.model ? MODEL_META[shortModelLabel(r.model)] : undefined;
     const isSel = selectedId === r.id;
     const extraRows = (rowsByRole.get(role)?.length ?? 1) - 1;
     const refMap = variant === "desktop" ? deskEls : mobileDeskEls;
@@ -911,7 +911,7 @@ function OfficePage() {
   if (selected) {
     const working = isWorking(selected);
     const mode = modeOf(selected);
-    const m = selected.model ? MODEL_META[selected.model] : undefined;
+    const m = selected.model ? MODEL_META[shortModelLabel(selected.model)] : undefined;
     const accent = accentFor(selected.role);
     const mtg = meetingOf(selected);
     popBody = (
