@@ -799,6 +799,20 @@ function entryFor(res: any) {
 
 /* ---------------- Poll implementations ----------------------------------- */
 
+// NOTE — Invoice/ChargeItem are outbound-only by design, not an oversight.
+// spehr is the sole author of billing data: invoices and charge items are
+// generated FROM spehr's own clinical/discharge records, and no partner
+// account (myspehr, labs-pharm-rad, billing-pophealth) ever originates or
+// edits an Invoice/ChargeItem on the FHIR server — billing-pophealth only
+// writes PaymentNotice (handled separately, see fhir-inbound-poll and
+// handlePaymentNotice in _shared/fhir-ingest.ts). So, unlike
+// Appointment/PaymentNotice, there is deliberately NO corresponding entry
+// in fhir-inbound-poll's POLL_TARGETS for these two resource types: an
+// external edit to a spehr-generated Invoice/ChargeItem is not an expected
+// or supported input, and pulling one back in would let a downstream FHIR
+// consumer override spehr's own billing record. If a real external billing
+// correction workflow is ever introduced, add inbound targets here
+// following the PaymentNotice pattern (self-echo skip, upsert by fhir_id).
 async function pollInvoices(admin: any) {
   const since = await readState(admin, "outbound_invoice_last_synced_at");
   const cutoff = new Date().toISOString();
@@ -860,6 +874,9 @@ async function pollPaymentNotices(admin: any) {
   return stats;
 }
 
+// See the outbound-only note above pollInvoices — same reasoning applies
+// to ChargeItem: spehr generates these from its own encounter/service data,
+// no partner account edits them, so there is no inbound target for them.
 async function pollChargeItems(admin: any) {
   const since = await readState(admin, "outbound_chargeitem_last_synced_at");
   const cutoff = new Date().toISOString();
