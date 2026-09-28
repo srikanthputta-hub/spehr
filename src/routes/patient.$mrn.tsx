@@ -2260,6 +2260,7 @@ function OrdersDialog({
           clinical_condition: patient.chief_complaint ?? null,
           status: "Ordered",
           ordered_by: "Human",
+          source: "patient-orders",
         } as any).select("id").single();
         if (error) throw error;
         if (inserted?.id) {
