@@ -396,21 +396,25 @@ const TABS = [
   { id: "fhir_interop" as const, label: "🔗 FHIR Interoperability", icon: Network },
 ];
 
+// Keyed on the live `role_permissions.target_role` values actually used by
+// the app (Admin, CLT, MD, PharmD, RN, RT — confirmed via
+// `SELECT DISTINCT target_role`, and matched against each board's own
+// `useRolePermissions("<role>")` call, e.g. lab-board.tsx uses "CLT").
+// Note: 3 rows exist with target_role="Lab" and facility_name=NULL — those
+// are orphaned/dead (never surfaced by the facility-scoped query, never
+// matched by any real permission check) and intentionally have no entry
+// here; do not re-add a "Lab" key for them.
 const ROLE_LABELS: Record<string, string> = {
   RN: "Registered Nurse (RN)",
   MD: "Attending Physician (MD)",
   PharmD: "Clinical Pharmacist (PharmD)",
   Finance: "Corporate Finance & Accounts",
   Admin: "Clinical Site Manager",
-  Lab: "Laboratory Technician (CLT)",
+  CLT: "Laboratory Technician (CLT)",
+  RT: "Respiratory Therapist (RT)",
 };
 
 const DEFAULT_ROLE_FEATURES: Record<string, Array<{ key: string; name: string }>> = {
-  Admissions: [
-    { key: "patient_registration", name: "Patient registration" },
-    { key: "admission_intake", name: "Admission intake form" },
-    { key: "bed_assignment", name: "Bed assignment" },
-  ],
   RN: [
     { key: "vitals_entry", name: "Vitals entry" },
     { key: "medication_admin_confirm", name: "Medication administration confirmation" },
@@ -425,9 +429,13 @@ const DEFAULT_ROLE_FEATURES: Record<string, Array<{ key: string; name: string }>
     { key: "med_order_approval", name: "Medication order approval" },
     { key: "drug_safety_override", name: "Drug safety override" },
   ],
-  Lab: [
+  CLT: [
     { key: "lab_result_entry", name: "Lab result entry" },
     { key: "specimen_collection", name: "Specimen collection check-in" },
+  ],
+  RT: [
+    { key: "vent_management", name: "Ventilator management" },
+    { key: "respiratory_treatment_log", name: "Respiratory treatment log" },
   ],
   Finance: [
     { key: "billing_view", name: "Billing & charges view" },
@@ -441,11 +449,11 @@ const DEFAULT_ROLE_FEATURES: Record<string, Array<{ key: string; name: string }>
 };
 
 const ROLE_LABELS_FULL: Record<string, string> = {
-  Admissions: "Admissions",
   RN: "Nursing (RN)",
   MD: "Physician / CPOE (MD)",
   PharmD: "Pharmacy (PharmD)",
-  Lab: "Laboratory (CLT)",
+  CLT: "Laboratory (CLT)",
+  RT: "Respiratory Therapy (RT)",
   Finance: "Finance",
   Admin: "EHR Site Admin",
 };
@@ -530,7 +538,18 @@ function SystemAdminPage() {
   const [automation, setAutomation] = useState<boolean | null>(true);
   const [automationSaving, setAutomationSaving] = useState(false);
   const [discharging, setDischarging] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(true);
+  // SECURITY: this app has no real authentication/session system anywhere —
+  // every request runs as the Postgres `anon` role, there is no sign-in flow
+  // that ever writes to `user_roles` (confirmed empty in production), and
+  // `supabase.auth.getUser()` never resolves a user here. That means the
+  // `it_admin` check below is currently a no-op: it cannot grant access to
+  // anyone until real authentication (and a real role-assignment flow) is
+  // added. This intentionally replaces a `true || …` bypass that used to make
+  // every visitor a de facto admin for the Feature Controls tab, which gates
+  // the network-wide automation switch and bulk "Discharge All Patients" —
+  // leaving that bypass in place was the actual bug, even though removing it
+  // makes the tab unreachable for now.
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -543,7 +562,7 @@ function SystemAdminPage() {
         .eq("user_id", user.id);
       if (!active) return;
       const roles = (data ?? []).map((r: any) => r.role);
-      setIsAdmin(true || roles.includes("it_admin"));
+      setIsAdmin(roles.includes("it_admin"));
     })();
     return () => {
       active = false;
