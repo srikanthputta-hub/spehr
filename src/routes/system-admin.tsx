@@ -1403,8 +1403,6 @@ function SafetyQueue({ facility }: { facility: string }) {
                   status,
                   decided_by: physicianName,
                   decided_at: new Date().toISOString(),
-                  resolved_by: physicianName,
-                  resolution_rationale: rationale,
                   rationale,
                 }
               : row,
@@ -1418,8 +1416,6 @@ function SafetyQueue({ facility }: { facility: string }) {
             decided_by: physicianName,
             decided_at: new Date().toISOString(),
             rationale,
-            resolved_by: physicianName,
-            resolution_rationale: rationale,
           })
           .eq("id", c.id)
           .eq("status", "Pending Review")
@@ -1460,8 +1456,6 @@ function SafetyQueue({ facility }: { facility: string }) {
         decided_by: "Human Clinician",
         decided_at: new Date().toISOString(),
         rationale,
-        resolved_by: "Human Clinician",
-        resolution_rationale: rationale,
       })
       .eq("id", c.id)
       .eq("status", "Pending Review")
@@ -1560,7 +1554,7 @@ function SafetyQueue({ facility }: { facility: string }) {
                   {c.rationale && (
                     <div className="mt-2 text-[11px] text-slate-600 italic">
                       <span className="font-semibold not-italic">{c.status}</span>
-                      {(c.resolved_by ?? c.decided_by) ? ` by ${c.resolved_by ?? c.decided_by}` : ""}
+                      {c.decided_by ? ` by ${c.decided_by}` : ""}
                       {c.decided_at ? ` · ${new Date(c.decided_at).toLocaleString()}` : ""} — “{c.rationale}”
                     </div>
                   )}
