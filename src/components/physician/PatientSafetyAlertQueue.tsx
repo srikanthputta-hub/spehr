@@ -86,8 +86,6 @@ export function PatientSafetyAlertQueue({
         decided_by: actorName,
         decided_at: new Date().toISOString(),
         rationale,
-        resolved_by: actorName,
-        resolution_rationale: rationale,
       })
       .eq("id", c.id)
       .eq("status", "Pending Review")
