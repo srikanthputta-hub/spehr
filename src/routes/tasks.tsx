@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
 import { useFacility } from "@/lib/facility-context";
 import { toast } from "sonner";
-import { Loader2, CheckCircle2, ShieldCheck } from "lucide-react";
+import { Loader2, CheckCircle2 } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 
 export const Route = createFileRoute("/tasks")({
@@ -62,7 +62,7 @@ function TasksPage() {
     const { data, error } = await supabase
       .from("medication_orders")
       .select("*")
-      .in("status", ["Pending Verification", "Approved"])
+      .in("status", ["Approved"])
       .in("patient_mrn", mrns)
       .order("created_at", { ascending: false });
     if (error) {
@@ -78,26 +78,27 @@ function TasksPage() {
     load();
   }, [load]);
 
-  const verify = async (t: TaskRow) => {
-    setBusyId(t.id);
-    const { error } = await supabase
-      .from("medication_orders")
-      .update({ status: "Approved", approved_at: new Date().toISOString() })
-      .eq("id", t.id);
-    setBusyId(null);
-    if (error) return toast.error("Verification failed");
-    toast.success(`Order verified · ${medName(t)}`);
-    load();
-  };
-
   const administer = async (t: TaskRow) => {
     setBusyId(t.id);
-    const { error } = await supabase
+    // Compare-and-swap: only write if the order is still Approved, so a race
+    // with another nurse (or the automation sweep) can't silently double-act
+    // on an order that already moved on. Mirrors pharmacy-queue.tsx's
+    // actOnOrder guard.
+    const { data, error } = await supabase
       .from("medication_orders")
       .update({ status: "Administered", administered_at: new Date().toISOString() })
-      .eq("id", t.id);
+      .eq("id", t.id)
+      .eq("status", "Approved")
+      .select("id");
     setBusyId(null);
     if (error) return toast.error("Administration failed");
+    if (!data || data.length === 0) {
+      toast.error("Order already updated", {
+        description: "Someone else (or the automation sweep) already acted on this order. Refresh to see its current state.",
+      });
+      load();
+      return;
+    }
     toast.success(`Administered · ${medName(t)} to ${t.patient_name ?? "patient"}`);
     setTasks((cur) => cur.filter((x) => x.id !== t.id));
   };
@@ -107,7 +108,7 @@ function TasksPage() {
       <BoardHeader
         title={`Active Task List — ${facility}`}
         badge="Nursing"
-        subtitle={`Pending verifications & administrations · ${facility}`}
+        subtitle={`Pending administrations · ${facility}`}
       />
       <section className="max-w-7xl mx-auto px-6 py-6">
         <div className="rounded-md border border-slate-200 bg-white">
@@ -143,20 +144,19 @@ function TasksPage() {
                   <th className="px-3 py-2 text-left font-semibold">
                     <span className="inline-flex items-center gap-1">
                       Status
-                      <InfoHint text='"Pending Verification" = pharmacist has not verified yet (action: Verify Order). "Approved" = pharmacist verified and the order is DUE for nurse administration (action: Administer). The status drives which action button appears in the Action column.' />
+                      <InfoHint text='"Approved" = pharmacist has verified the order and it is DUE for nurse administration. This list only ever shows pharmacist-verified orders — an order awaiting pharmacist review appears on the Pharmacy Queue, not here.' />
                     </span>
                   </th>
                   <th className="px-3 py-2 text-right font-semibold">
                     <span className="inline-flex items-center gap-1">
                       Action
-                      <InfoHint text='"Verify Order" only sets status = Approved and stamps approved_at — the medication is NOT yet administered. A second click on "Administer" is required to mark the dose given (status = Administered, administered_at stamped).' />
+                      <InfoHint text='"Administer" marks the dose given (status = Administered, administered_at stamped). Only pharmacist-verified ("Approved") orders reach this list, so nurses cannot bypass pharmacist medication verification from here.' />
                     </span>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {tasks.map((t) => {
-                  const pending = t.status === "Pending Verification";
                   return (
                     <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="px-3 py-2 font-medium text-slate-900">
@@ -167,34 +167,18 @@ function TasksPage() {
                       <td className="px-3 py-2 font-mono text-slate-700">{t.dose ?? "—"}</td>
                       <td className="px-3 py-2 font-mono text-slate-700">{t.route ?? "—"}</td>
                       <td className="px-3 py-2">
-                        <span
-                          className={
-                            pending
-                              ? "inline-flex rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 ring-1 ring-amber-300"
-                              : "inline-flex rounded-sm bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-800 ring-1 ring-emerald-300"
-                          }
-                        >
+                        <span className="inline-flex rounded-sm bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-800 ring-1 ring-emerald-300">
                           {t.status}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {pending ? (
-                          <button
-                            disabled={busyId === t.id}
-                            onClick={() => verify(t)}
-                            className="inline-flex items-center gap-1 rounded-sm bg-amber-400 px-2.5 py-1 text-[11px] font-semibold text-slate-900 hover:bg-amber-300 disabled:opacity-50"
-                          >
-                            <ShieldCheck className="h-3 w-3" /> Verify Order
-                          </button>
-                        ) : (
-                          <button
-                            disabled={busyId === t.id}
-                            onClick={() => administer(t)}
-                            className="inline-flex items-center gap-1 rounded-sm bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-                          >
-                            <CheckCircle2 className="h-3 w-3" /> Administer
-                          </button>
-                        )}
+                        <button
+                          disabled={busyId === t.id}
+                          onClick={() => administer(t)}
+                          className="inline-flex items-center gap-1 rounded-sm bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="h-3 w-3" /> Administer
+                        </button>
                       </td>
                     </tr>
                   );

@@ -640,8 +640,8 @@ function PhysicianBoard() {
                   </Field>
                   <div className="col-span-12 flex items-center justify-between pt-1">
                     <div className="text-[11px] text-slate-500 inline-flex items-center gap-1">
-                      New orders set to <span className="font-mono text-slate-700">PENDING_PHARMACY</span>
-                      <InfoHint text="Order lifecycle: PENDING_PHARMACY (this state) → pharmacist verifies on the Pharmacy Queue → DUE on the nurse's MAR → Administered. If a safety alert fires during routing, status flips to HELD_SAFETY_REVIEW instead." />
+                      New orders set to <span className="font-mono text-slate-700">PENDING_VERIFICATION</span>
+                      <InfoHint text="Order lifecycle: PENDING_VERIFICATION (this state) → pharmacist verifies on the Pharmacy Queue → Approved on the nurse's task list, ready to administer → Administered. If a safety alert fires during routing, status flips to HELD_SAFETY_REVIEW instead." />
                     </div>
                     <button
                       type="submit"
@@ -702,7 +702,7 @@ function PhysicianBoard() {
                   <div className="flex items-center gap-2">
                     <Brain className="h-4 w-4 text-violet-600" />
                     <h2 className="text-sm font-semibold text-slate-900">
-                      Clinical AI Consult: Differential Diagnosis
+                      Rule-Based Differential Suggestions
                     </h2>
                   </div>
                   <button
@@ -715,19 +715,19 @@ function PhysicianBoard() {
                     ) : (
                       <Stethoscope className="h-3.5 w-3.5" />
                     )}
-                    {ddxLoading ? "Analyzing…" : "Run AI Differential"}
+                    {ddxLoading ? "Looking up…" : "Suggest Differentials"}
                   </button>
                 </div>
                 <div className="p-5">
                   {ddxLoading && (
                     <div className="text-xs text-slate-500 flex items-center gap-2">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Analyzing clinical presentation…
+                      Matching diagnosis/chief-complaint keywords…
                     </div>
                   )}
                   {!ddxLoading && !ddx && (
                     <div className="text-xs text-slate-500">
-                      Generate an AI-assisted differential based on{" "}
+                      Look up keyword-matched differential suggestions (not AI-generated) for{" "}
                       <span className="font-medium text-slate-700">
                         {selected.diagnosis || selected.chief_complaint || "the active presentation"}
                       </span>.
@@ -902,16 +902,16 @@ function PhysicianBoard() {
                   </div>
                 </div>
 
-                {/* AI Differential Consult — Ghost AI background engine */}
+                {/* Sample consult note — static demo content, not a live AI call */}
                 <div className="rounded-md border border-purple-300 bg-purple-50/70 p-3">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
-                      <Brain className="h-3 w-3" /> AI Consult
+                      <Brain className="h-3 w-3" /> Sample Consult Note (Demo)
                     </span>
                     <span className="text-[10px] font-mono text-purple-700/80">
                       {aiNote?.created_at
                         ? new Date(aiNote.created_at).toLocaleTimeString()
-                        : "Generating…"}
+                        : ""}
                     </span>
                   </div>
                   {aiNote ? (
@@ -920,7 +920,7 @@ function PhysicianBoard() {
                     </p>
                   ) : (
                     <p className="text-[12px] italic text-purple-700/70">
-                      Ghost AI Differential Engine is analyzing presentation… (auto-posts within 10s of admission)
+                      No sample consult note is configured for this patient. (This panel shows static demo copy, not live AI analysis.)
                     </p>
                   )}
                 </div>
