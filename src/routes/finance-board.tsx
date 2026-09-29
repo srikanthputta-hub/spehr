@@ -542,7 +542,7 @@ function RiskAdjustmentGaps({
             Risk Adjustment Coverage Gaps
             <InfoHint
               className="ml-1"
-              text="Discharged patients with a chronic diagnosis whose invoice has no ICD-10 risk-adjustment line, because no published Billing value set covers that code yet. Each gap shown here has also automatically filed a change request with Auto Terminologist so the missing code can be reviewed and added to a value set."
+              text="Discharged patients with a chronic diagnosis whose invoice has no ICD-10 risk-adjustment line, because no published Billing value set covers that code yet. Separately, when a patient's invoice is generated, any of their recorded ICD-10 diagnosis codes not covered by a published Billing value set files a change request with Auto Terminologist — but that only fires for patients with a recorded ICD-10 code, so it is not guaranteed for every gap listed here."
             />
           </h2>
         </div>
