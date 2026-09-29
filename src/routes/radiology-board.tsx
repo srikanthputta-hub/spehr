@@ -1,12 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Scan, ArrowLeft } from "lucide-react";
+import { Loader2, Scan, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 import { BoardHeader } from "@/components/BoardShell";
 import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { InfoHint } from "@/components/ui/info-hint";
 
 export const Route = createFileRoute("/radiology-board")({
   head: () => ({
@@ -52,10 +55,14 @@ const REPORTED_SET = new Set([
 function RadiologyBoard() {
   const { facility } = useFacility();
   const radiologist = useActiveStaff("Rad");
+  const { can, gate } = useRolePermissions("Rad" as any);
   const automationEnabled = useAutomationEnabled();
   const [orders, setOrders] = useState<RadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draftImpression, setDraftImpression] = useState<Record<string, string>>({});
+  const [draftReport, setDraftReport] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState<string | null>(null);
   const initialLoadRef = useRef(true);
 
   const load = async () => {
@@ -127,6 +134,43 @@ function RadiologyBoard() {
   );
 
   const selected = pending.find((o) => o.id === selectedId) ?? pending[0] ?? null;
+
+  const submitManualReport = async (order: RadRow) => {
+    const impression = (draftImpression[order.id] ?? "").trim();
+    const reportText = (draftReport[order.id] ?? "").trim();
+    if (!impression) {
+      toast.error("Enter an impression before submitting.");
+      return;
+    }
+    setSubmitting(order.id);
+    try {
+      const officialAt = new Date().toISOString();
+      const { error } = await supabase
+        .from("radiology_orders")
+        .update({
+          status: "Reported",
+          impression,
+          report_text: reportText || impression,
+          resulted_at: officialAt,
+        })
+        .eq("id", order.id);
+      if (error) throw error;
+      toast.success("Official report posted.");
+      setDraftImpression((d) => {
+        const { [order.id]: _, ...rest } = d;
+        return rest;
+      });
+      setDraftReport((d) => {
+        const { [order.id]: _, ...rest } = d;
+        return rest;
+      });
+      await load();
+    } catch (e: any) {
+      toast.error("Failed to submit report", { description: e?.message });
+    } finally {
+      setSubmitting(null);
+    }
+  };
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -225,6 +269,61 @@ function RadiologyBoard() {
                           {(o.status ?? "Ordered")}
                         </StatusPill>
                       </div>
+
+                      {isSel && (
+                        <div
+                          className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                              Impression <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={draftImpression[o.id] ?? ""}
+                              onChange={(e) =>
+                                setDraftImpression((d) => ({ ...d, [o.id]: e.target.value }))
+                              }
+                              placeholder="e.g. No acute cardiopulmonary abnormality."
+                              className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                              Full Report (optional — defaults to impression)
+                            </label>
+                            <textarea
+                              value={draftReport[o.id] ?? ""}
+                              onChange={(e) =>
+                                setDraftReport((d) => ({ ...d, [o.id]: e.target.value }))
+                              }
+                              rows={4}
+                              placeholder="Findings, technique, comparison, impression…"
+                              className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-mono"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              {...gate("btn_submit_radiology_report", () => submitManualReport(o))}
+                              disabled={
+                                submitting === o.id ||
+                                !can("btn_submit_radiology_report") ||
+                                !(draftImpression[o.id] ?? "").trim()
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 h-9 text-xs font-semibold transition shadow-sm"
+                            >
+                              {submitting === o.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                              )}
+                              {submitting === o.id ? "Posting…" : "Submit Official Report"}
+                            </button>
+                            <InfoHint text="Final, irreversible release: sets radiology_orders.status = Reported, writes the impression and report text, and makes the study visible as a completed read." />
+                          </div>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
