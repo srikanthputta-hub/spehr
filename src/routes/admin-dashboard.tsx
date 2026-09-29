@@ -8,8 +8,6 @@ import {
   Users,
   PillBottle,
   Loader2,
-  ShieldCheck,
-  ShieldAlert,
   Inbox,
   Check,
   X,
@@ -306,12 +304,26 @@ function AdminDashboard() {
 
   const approveTransfer = async (t: TransferRequest) => {
     setActingOn(t.id);
+    // Compare-and-swap: only approve if the request is still Pending
+    // Approval, so a race with another admin acting on the same request
+    // can't silently double-act on it (mirrors actOnOrder in
+    // pharmacy-queue.tsx, PR #26).
+    const prevTransfers = transfers;
     try {
-      const { error: updErr } = await supabase
+      const { data: updData, error: updErr } = await supabase
         .from("patient_transfers")
         .update({ status: "Approved" })
-        .eq("id", t.id);
+        .eq("id", t.id)
+        .eq("status", "Pending Approval")
+        .select("id");
       if (updErr) throw updErr;
+      if (!updData || updData.length === 0) {
+        setTransfers(prevTransfers);
+        toast.error("Transfer already acted on", {
+          description: "This transfer was already acted on by another admin.",
+        });
+        return;
+      }
 
       if (IN_NETWORK_FACILITIES.has(t.destination_facility)) {
         const { error: pErr } = await supabase
@@ -344,13 +356,24 @@ function AdminDashboard() {
 
   const denyTransfer = async (t: TransferRequest) => {
     setActingOn(t.id);
-    const { error } = await supabase
+    const prevTransfers = transfers;
+    // Compare-and-swap guard: same rationale as approveTransfer above.
+    const { data, error } = await supabase
       .from("patient_transfers")
       .update({ status: "Denied" })
-      .eq("id", t.id);
+      .eq("id", t.id)
+      .eq("status", "Pending Approval")
+      .select("id");
     setActingOn(null);
     if (error) {
       toast.error("Could not deny transfer", { description: error.message });
+      return;
+    }
+    if (!data || data.length === 0) {
+      setTransfers(prevTransfers);
+      toast.error("Transfer already acted on", {
+        description: "This transfer was already acted on by another admin.",
+      });
       return;
     }
     setTransfers((cur) => cur.filter((x) => x.id !== t.id));
@@ -457,11 +480,6 @@ function AdminDashboard() {
     }
     return out;
   }, [roster, shiftTick, census]);
-
-  // RN ratio: exactly 1 RN is On Duty at any given moment (per design).
-  const onDutyRNs = 1;
-  const ratio = census / onDutyRNs;
-  const safeRatio = ratio <= 5;
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -597,55 +615,16 @@ function AdminDashboard() {
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
             <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              👥 Active Unit Staffing &amp; Shift Roster
+              👥 Simulated Staffing (Demo Data — Not Live)
+              <InfoHint
+                className="ml-1"
+                text="Names, hours, rates, and patient assignments on this panel are generated client-side for demo purposes — there is no live staff_shifts/roster table behind them. Do not use these numbers for real staffing-safety decisions."
+              />
             </h2>
             <span className="text-[11px] text-slate-500 font-mono">
-              3-per-role rotation · {MAX_SHIFT_HOURS}h shifts
-              <InfoHint className="ml-1" text="Wall-clock UTC rotation: 3 staff members per role cycle through 12-hour shift blocks aligned to absolute UTC time, so shift changes happen at the same instant network-wide regardless of local timezone." />
+              3-per-role rotation · {MAX_SHIFT_HOURS}h shifts (simulated)
+              <InfoHint className="ml-1" text="Wall-clock UTC rotation: 3 staff members per role cycle through 12-hour shift blocks aligned to absolute UTC time, so shift changes happen at the same instant network-wide regardless of local timezone. This entire rotation is synthetic — no real shift data drives it." />
             </span>
-          </div>
-
-          {/* Safety ratio card */}
-          <div className="p-5 border-b border-slate-100">
-            <div
-              className={`rounded-lg border p-4 flex items-center justify-between gap-4 ${
-                safeRatio
-                  ? "border-emerald-200 bg-emerald-50"
-                  : "border-amber-300 bg-amber-50 animate-pulse"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                {safeRatio ? (
-                  <ShieldCheck className="h-6 w-6 text-emerald-600" />
-                ) : (
-                  <ShieldAlert className="h-6 w-6 text-amber-600" />
-                )}
-                <div>
-                  <div
-                    className={`text-sm font-semibold ${
-                      safeRatio ? "text-emerald-800" : "text-amber-800"
-                    }`}
-                  >
-                    {safeRatio
-                      ? "✅ Safe Staffing Ratios Maintained"
-                      : "⚠️ Understaffed: Nursing workload exceeds safety thresholds."}
-                  </div>
-                  <div className="text-xs text-slate-600 mt-0.5">
-                    {onDutyRNs} RN{onDutyRNs === 1 ? "" : "s"} on duty ·{" "}
-                    {census} patient census · Ratio{" "}
-                    {onDutyRNs > 0 ? `1 : ${(census / onDutyRNs).toFixed(1)}` : "n/a"}
-                  </div>
-                </div>
-              </div>
-              <div
-                className={`text-2xl font-bold ${
-                  safeRatio ? "text-emerald-700" : "text-amber-700"
-                }`}
-              >
-                {onDutyRNs > 0 ? `1:${Math.ceil(census / onDutyRNs)}` : "—"}
-                <InfoHint className="ml-1.5" text="Safety threshold hardcoded at ≤5 patients per RN (green). >5 turns the card amber. Real facilities configure this per unit; here it is a fixed demo threshold." />
-              </div>
-            </div>
           </div>
 
           {/* Roster cards */}
@@ -806,8 +785,9 @@ function FacilityAnalytics({
     let admitted = 0;
     let discharged = 0;
     for (const p of patients) {
-      if (p.status === "Admitted") admitted++;
-      else if (p.status === "Discharged") discharged++;
+      const status = (p.status ?? "").toLowerCase();
+      if (status === "admitted") admitted++;
+      else if (status === "discharged") discharged++;
     }
     return { total: patients.length, admitted, discharged };
   }, [patients]);
@@ -815,7 +795,7 @@ function FacilityAnalytics({
   const chartData = useMemo(() => {
     const map = new Map<string, number>();
     for (const p of patients) {
-      if (p.status !== "Admitted") continue;
+      if ((p.status ?? "").toLowerCase() !== "admitted") continue;
       const k = (p.chief_complaint ?? "Unspecified").trim() || "Unspecified";
       map.set(k, (map.get(k) ?? 0) + 1);
     }
