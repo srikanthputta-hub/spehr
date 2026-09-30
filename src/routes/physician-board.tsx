@@ -45,6 +45,9 @@ import { PatientSafetyAlertQueue } from "@/components/physician/PatientSafetyAle
 import { autoCodeMedication } from "@/lib/auto-code";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { TableSkeleton, CardSkeleton } from "@/components/common/LoadingSkeleton";
+import { EmptyState } from "@/components/common/EmptyState";
 
 const TRANSFER_DESTINATIONS = [
   "Memorial Hospital",
@@ -431,13 +434,18 @@ function PhysicianBoard() {
             />
             <div className="max-h-[calc(100vh-160px)] overflow-y-auto divide-y divide-slate-100">
               {loading && (
-                <div className="p-4 text-xs text-slate-500">Loading patients…</div>
+                <div className="p-4">
+                  <TableSkeleton rows={4} columns={3} />
+                </div>
               )}
               {error && (
-                <div className="p-4 text-xs text-red-600">Unable to load — {error}</div>
+                <div className="p-4 text-xs text-critical">Unable to load — {error}</div>
               )}
               {!loading && filteredPatients.length === 0 && !error && (
-                <div className="p-4 text-xs text-slate-500">No active patients at {facility}.</div>
+                <EmptyState
+                  className="border-0 py-8"
+                  description={`No patients are currently admitted to ${facility}. Patients appear here once they're admitted and assigned a bed.`}
+                />
               )}
               {filteredPatients.map((p) => {
                 const active = p.mrn === selectedMrn;
@@ -496,9 +504,7 @@ function PhysicianBoard() {
                       )}
                       {alertMrns.has(p.mrn) && (
                         <span className="ml-1.5 inline-flex items-center gap-1">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-red-600 text-white ring-1 ring-red-700 px-2 py-0.5 text-[10px] font-bold animate-pulse">
-                            🚨 Safety Alert
-                          </span>
+                          <StatusBadge status="critical" label="🚨 Safety Alert" />
                           <InfoHint text="An active row in clinical_safety_alerts with status = Pending Review. Blocks new medication orders for this patient until an admin resolves it in System Admin → Medical Dictionary → Safety Alerts (or the 45s SLA auto-resolves it). Not a vitals-threshold indicator." />
                         </span>
                       )}
@@ -720,9 +726,12 @@ function PhysicianBoard() {
                 </div>
                 <div className="p-5">
                   {ddxLoading && (
-                    <div className="text-xs text-slate-500 flex items-center gap-2">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Matching diagnosis/chief-complaint keywords…
+                    <div className="space-y-2">
+                      <div className="text-xs text-slate-500 flex items-center gap-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Matching diagnosis/chief-complaint keywords…
+                      </div>
+                      <CardSkeleton lines={2} />
                     </div>
                   )}
                   {!ddxLoading && !ddx && (

@@ -4,8 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
 import { useFacility } from "@/lib/facility-context";
 import { toast } from "sonner";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { CheckCircle2, ClipboardCheck } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { TableSkeleton } from "@/components/common/LoadingSkeleton";
+import { EmptyState } from "@/components/common/EmptyState";
 
 export const Route = createFileRoute("/tasks")({
   component: TasksPage,
@@ -122,16 +125,15 @@ function TasksPage() {
           </div>
 
           {loading ? (
-            <div className="grid place-items-center py-20 text-slate-400">
-              <Loader2 className="h-5 w-5 animate-spin" />
+            <div className="p-4">
+              <TableSkeleton rows={5} columns={7} />
             </div>
           ) : tasks.length === 0 ? (
-            <div className="grid place-items-center py-20 text-center">
-              <div className="text-2xl">🎉</div>
-              <div className="mt-2 text-sm font-semibold text-slate-800">
-                All caught up! No pending clinical tasks.
-              </div>
-            </div>
+            <EmptyState
+              icon={ClipboardCheck}
+              title="All caught up"
+              description={`No pharmacist-verified medication orders are waiting for administration at ${facility} right now.`}
+            />
           ) : (
             <table className="w-full text-xs">
               <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-600">
@@ -167,9 +169,7 @@ function TasksPage() {
                       <td className="px-3 py-2 font-mono text-slate-700">{t.dose ?? "—"}</td>
                       <td className="px-3 py-2 font-mono text-slate-700">{t.route ?? "—"}</td>
                       <td className="px-3 py-2">
-                        <span className="inline-flex rounded-sm bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-800 ring-1 ring-emerald-300">
-                          {t.status}
-                        </span>
+                        <StatusBadge status="success" label={t.status ?? "Approved"} />
                       </td>
                       <td className="px-3 py-2 text-right">
                         <button

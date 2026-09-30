@@ -24,6 +24,11 @@ import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
 import { InfoHint } from "@/components/ui/info-hint";
+import { StatusBadge, type StatusBadgeProps } from "@/components/common/StatusBadge";
+import { TableSkeleton } from "@/components/common/LoadingSkeleton";
+import { EmptyState } from "@/components/common/EmptyState";
+import { severityRowVariants } from "@/components/common/SeverityRow";
+import { cn } from "@/lib/utils";
 
 
 export const Route = createFileRoute("/nursing-board")({
@@ -114,7 +119,15 @@ function classifyAlert(dx: string | null | undefined): AlertKind {
   return "pending";
 }
 
-function ClinicalAlertPill({
+type AlertSeverity = "critical" | "warning" | "none";
+
+interface ClinicalAlertInfo {
+  label: string;
+  status: StatusBadgeProps["status"];
+  severity: AlertSeverity;
+}
+
+function computeClinicalAlert({
   dx,
   hr,
   o2,
@@ -128,14 +141,7 @@ function ClinicalAlertPill({
   bp?: string;
   rr?: number;
   temp?: number;
-}) {
-  const base =
-    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 font-sans tracking-tight whitespace-nowrap";
-
-  const critical = `${base} bg-red-600 text-white ring-red-700 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.55)]`;
-  const warn = `${base} bg-amber-100 text-amber-900 ring-amber-400`;
-  const info = `${base} bg-orange-100 text-orange-800 ring-orange-400`;
-
+}): ClinicalAlertInfo {
   let sys: number | undefined;
   let dia: number | undefined;
   if (bp) {
@@ -146,66 +152,66 @@ function ClinicalAlertPill({
 
   // Severity-ordered, vitals-driven alerts (override the diagnosis pill).
   if ((typeof sys === "number" && sys > 180) || (typeof dia === "number" && dia > 120)) {
-    return <span className={critical}>🆘 Hypertensive Crisis</span>;
+    return { label: "🆘 Hypertensive Crisis", status: "critical", severity: "critical" };
   }
   if (typeof o2 === "number" && o2 < 90) {
-    return <span className={critical}>🫁 Hypoxia Alert</span>;
+    return { label: "🫁 Hypoxia Alert", status: "critical", severity: "critical" };
   }
   if (typeof temp === "number" && temp < 95.0) {
-    return <span className={critical}>🥶 Hypothermia</span>;
+    return { label: "🥶 Hypothermia", status: "critical", severity: "critical" };
   }
   if (typeof temp === "number" && temp > 100.4) {
-    return <span className={warn}>🌡️ Fever</span>;
+    return { label: "🌡️ Fever", status: "warning", severity: "warning" };
   }
   if (typeof sys === "number" && sys < 90) {
-    return <span className={critical}>📉 Hypotension</span>;
+    return { label: "📉 Hypotension", status: "critical", severity: "critical" };
   }
   if (typeof hr === "number" && hr < 60) {
-    return <span className={warn}>🐢 Bradycardia</span>;
+    return { label: "🐢 Bradycardia", status: "warning", severity: "warning" };
   }
   if (typeof hr === "number" && hr > 100) {
-    return <span className={warn}>⚡ Tachycardia</span>;
+    return { label: "⚡ Tachycardia", status: "warning", severity: "warning" };
   }
   if ((typeof sys === "number" && sys > 130) || (typeof dia === "number" && dia > 80)) {
-    return <span className={info}>🩺 Hypertension</span>;
+    return { label: "🩺 Hypertension", status: "info", severity: "none" };
   }
   if (typeof rr === "number" && rr < 12) {
-    return <span className={warn}>💨 Bradypnea</span>;
+    return { label: "💨 Bradypnea", status: "warning", severity: "warning" };
   }
   if (typeof rr === "number" && rr > 20) {
-    return <span className={warn}>💨 Tachypnea</span>;
+    return { label: "💨 Tachypnea", status: "warning", severity: "warning" };
   }
   if (typeof o2 === "number" && o2 < 95) {
-    return <span className={warn}>🫁 Low SpO₂</span>;
+    return { label: "🫁 Low SpO₂", status: "warning", severity: "warning" };
   }
 
   // Fall back to diagnosis-driven pill when vitals are within range.
   const kind = classifyAlert(dx);
   if (kind === "sepsis") {
-    return <span className={critical}>🚨 Sepsis Watch</span>;
+    return { label: "🚨 Sepsis Watch", status: "critical", severity: "critical" };
   }
   switch (kind) {
     case "stemi":
-      return (
-        <span className={`${base} bg-red-100 text-red-800 ring-red-400`}>❤️ Cath Lab Alert</span>
-      );
+      return { label: "❤️ Cath Lab Alert", status: "critical", severity: "critical" };
     case "dka":
-      return (
-        <span className={`${base} bg-purple-100 text-purple-800 ring-purple-400`}>
-          🩸 ABG / Insulin Protocol
-        </span>
-      );
+      return { label: "🩸 ABG / Insulin Protocol", status: "warning", severity: "warning" };
     case "stroke":
-      return (
-        <span className={`${base} bg-orange-100 text-orange-800 ring-orange-400`}>
-          🧠 Stroke Alert
-        </span>
-      );
+      return { label: "🧠 Stroke Alert", status: "critical", severity: "critical" };
     default:
-      return (
-        <span className={`${base} bg-green-100 text-green-800 ring-green-400`}>🟢 Stable</span>
-      );
+      return { label: "🟢 Stable", status: "success", severity: "none" };
   }
+}
+
+function ClinicalAlertPill(props: {
+  dx: string | null | undefined;
+  hr?: number;
+  o2?: number;
+  bp?: string;
+  rr?: number;
+  temp?: number;
+}) {
+  const { label, status } = computeClinicalAlert(props);
+  return <StatusBadge status={status} label={label} />;
 }
 
 function LiveVitals({
@@ -808,21 +814,15 @@ function Dashboard() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td
-                      colSpan={8}
-                      className="px-5 py-10 text-center text-sm text-muted-foreground"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
-                        Loading floor census…
-                      </span>
+                    <td colSpan={8} className="p-4">
+                      <TableSkeleton rows={5} columns={8} />
                     </td>
                   </tr>
                 )}
                 {!loading && fetchError && (
                   <tr>
                     <td colSpan={8} className="px-5 py-10 text-center text-sm">
-                      <div className="inline-flex items-center gap-2 text-red-600">
+                      <div className="inline-flex items-center gap-2 text-critical">
                         <AlertTriangle className="h-4 w-4" />
                         Unable to load patients — {fetchError}
                       </div>
@@ -831,16 +831,11 @@ function Dashboard() {
                 )}
                 {!loading && !fetchError && rows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-5 py-16 text-center">
-                      <div className="flex flex-col items-center gap-2 text-slate-500">
-                        <div className="text-3xl">🛏️</div>
-                        <div className="text-sm font-semibold text-slate-700">
-                          Floor Census Empty — Waiting for Triage Admissions.
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          {facility} · Live monitoring active
-                        </div>
-                      </div>
+                    <td colSpan={8} className="px-5 py-8">
+                      <EmptyState
+                        title="Floor census empty"
+                        description={`No occupied beds at ${facility} right now — this list fills in automatically as patients are triaged and admitted.`}
+                      />
                     </td>
                   </tr>
                 )}
@@ -848,12 +843,24 @@ function Dashboard() {
                   !fetchError &&
                   rows.map((p, i) => {
                     const room = p.room?.trim() || "—";
+                    const alert = computeClinicalAlert({
+                      dx: p.diagnosis,
+                      hr: p.hr,
+                      o2: p.o2,
+                      bp: p.bp,
+                      rr: p.rr,
+                      temp: p.temp,
+                    });
+                    const hasSafetyAlert = alertMrns.has(p.mrn);
+                    const rowSeverity: AlertSeverity = hasSafetyAlert ? "critical" : alert.severity;
                     return (
                       <tr
                         key={p.mrn}
-                        className={`border-b border-slate-200 hover:bg-[var(--teal-soft)]/40 transition ${
-                          i % 2 === 1 ? "bg-slate-50/60" : "bg-white"
-                        }`}
+                        className={cn(
+                          "border-b border-slate-200 hover:bg-[var(--teal-soft)]/40 transition",
+                          i % 2 === 1 ? "bg-slate-50/60" : "bg-white",
+                          severityRowVariants({ severity: rowSeverity }),
+                        )}
                       >
                         <td className="px-3 py-2 align-middle">
                           <span className="font-mono font-bold text-slate-900 tabular-nums text-[12.5px]">
@@ -881,22 +888,23 @@ function Dashboard() {
                           <LiveVitals hr={p.hr} bp={p.bp} spo2={p.o2} rr={p.rr} temp={p.temp} />
                         </td>
                         <td className="px-3 py-2 align-middle">
-                          <ClinicalAlertPill
-                            dx={p.diagnosis}
-                            hr={p.hr}
-                            o2={p.o2}
-                            bp={p.bp}
-                            rr={p.rr}
-                            temp={p.temp}
-                          />
-                          {alertMrns.has(p.mrn) && (
-                            <span
-                              className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-red-600 text-white ring-1 ring-red-700 px-2 py-0.5 text-[10px] font-bold animate-pulse"
-                              title="Active clinical safety alert — pending review in Medical Dictionary → Safety Alerts"
-                            >
-                              🚨 Safety Alert
-                            </span>
-                          )}
+                          <span className="inline-flex items-center gap-1.5">
+                            <ClinicalAlertPill
+                              dx={p.diagnosis}
+                              hr={p.hr}
+                              o2={p.o2}
+                              bp={p.bp}
+                              rr={p.rr}
+                              temp={p.temp}
+                            />
+                            {hasSafetyAlert && (
+                              <StatusBadge
+                                status="critical"
+                                label="🚨 Safety Alert"
+                                title="Active clinical safety alert — pending review in Medical Dictionary → Safety Alerts"
+                              />
+                            )}
+                          </span>
                         </td>
                         <td className="px-3 py-2 align-middle text-right pr-4">
                           <div className="inline-flex items-center gap-1.5">

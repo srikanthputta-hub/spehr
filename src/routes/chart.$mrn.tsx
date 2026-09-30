@@ -36,6 +36,10 @@ import {
   type Patient,
 } from "@/lib/patients";
 import { InfoHint } from "@/components/ui/info-hint";
+import { StatusBadge, type StatusBadgeProps } from "@/components/common/StatusBadge";
+import { EmptyState } from "@/components/common/EmptyState";
+import { severityRowVariants } from "@/components/common/SeverityRow";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/chart/$mrn")({
   component: ChartPage,
@@ -89,11 +93,11 @@ function buildFallbackPatient(mrn: string, db: any, allergies: string[] | null):
   };
 }
 
-const codeBadge: Record<CodeStatus, string> = {
-  "Full Code": "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20",
-  DNR: "bg-red-50 text-red-700 ring-1 ring-red-600/20",
-  DNI: "bg-amber-50 text-amber-700 ring-1 ring-amber-600/20",
-  Comfort: "bg-slate-100 text-slate-700 ring-1 ring-slate-600/20",
+const codeBadgeStatus: Record<CodeStatus, StatusBadgeProps["status"]> = {
+  "Full Code": "success",
+  DNR: "critical",
+  DNI: "warning",
+  Comfort: "neutral",
 };
 
 function ChartPage() {
@@ -580,11 +584,7 @@ function ChartPage() {
                 <h1 className="text-base font-semibold tracking-tight truncate">
                   {patient.name}
                 </h1>
-                <span
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${codeBadge[patient.code]}`}
-                >
-                  {patient.code}
-                </span>
+                <StatusBadge status={codeBadgeStatus[patient.code]} label={patient.code} />
                 <InfoHint text="Code status: Full Code = attempt full resuscitation; DNR = Do Not Resuscitate (no CPR); DNI = Do Not Intubate (no advanced airway) — DNR and DNI are separate orders; Comfort = comfort-measures / palliative only." />
               </div>
               <div className="text-[11px] text-white/65 mt-0.5">
@@ -793,9 +793,7 @@ function ChartPage() {
             />
             <div className="p-5 space-y-3">
               {providerNotes.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                  No provider notes recorded yet.
-                </div>
+                <EmptyState description="No physician or attending notes have been documented for this patient yet." />
               ) : (
                 <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
                   {providerNotes.map((n) => (
@@ -842,9 +840,7 @@ function ChartPage() {
             {/* Timeline */}
             <div className="p-5 space-y-3">
               {shiftNotes.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                  No shift notes recorded yet. Be the first to document this shift.
-                </div>
+                <EmptyState description="No shift notes recorded yet. Be the first to document this shift." />
               ) : (
                 <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
                   {shiftNotes.map((n) => (
@@ -903,12 +899,12 @@ function ChartPage() {
                 {isLocked ? "Finalized Documentation" : "New Entry"}
               </label>
               {isLocked && (
-                <div className="rounded-lg border border-amber-400/40 bg-amber-50 px-3 py-2.5 text-xs font-medium text-amber-900 flex items-start gap-2">
+                <div className="rounded-lg border border-warning/40 bg-warning-soft px-3 py-2.5 text-xs font-medium text-warning flex items-start gap-2">
                   <span aria-hidden>🔒</span>
                   <span>
                     This medical record has been officially finalized and E-Signed. It is locked against future edits to preserve regulatory compliance.
                     {lockedNote?.esigned_at && (
-                      <span className="block mt-0.5 text-[10px] font-normal text-amber-800/80">
+                      <span className="block mt-0.5 text-[10px] font-normal text-warning/80">
                         Signed by {lockedNote.author_nurse} · {new Date(lockedNote.esigned_at).toLocaleString()}
                       </span>
                     )}
@@ -916,7 +912,7 @@ function ChartPage() {
                 </div>
               )}
               {!isLocked && draftSavedAt && (
-                <div className="rounded-lg border border-emerald-400/40 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 flex items-center gap-2">
+                <div className="rounded-lg border border-success/40 bg-success-soft px-3 py-2 text-xs font-medium text-success flex items-center gap-2">
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   Draft Saved Successfully · {draftSavedAt}
                 </div>
@@ -1049,12 +1045,12 @@ function ChartPage() {
                       }}
                       placeholder="••••"
                       className={`mt-1.5 w-full text-center tracking-[0.6em] text-2xl font-semibold rounded-lg border bg-background px-3 h-14 focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 ${
-                        pinError ? "border-red-500 ring-2 ring-red-500/30" : "border-border"
+                        pinError ? "border-critical ring-2 ring-critical/30" : "border-border"
                       }`}
                     />
                   </label>
                   {pinError && (
-                    <p className="text-xs font-medium text-red-600">
+                    <p className="text-xs font-medium text-critical">
                       ❌ Invalid Signature PIN. Authorization denied.
                     </p>
                   )}
@@ -1104,9 +1100,7 @@ function ChartPage() {
               }
             />
             {medsList.length === 0 ? (
-              <div className="px-4 py-6 text-xs text-muted-foreground italic">
-                No active medications on file for this patient.
-              </div>
+              <EmptyState description="No active medications on file for this patient." />
             ) : (
               <ul className="divide-y divide-border">
                 {medsList.map((m) => (
@@ -1169,7 +1163,7 @@ function Sparkline({ data, alert }: { data: number[]; alert: boolean }) {
       <polyline
         points={points}
         fill="none"
-        stroke={alert ? "rgb(220 38 38)" : "var(--teal)"}
+        stroke={alert ? "var(--critical)" : "var(--teal)"}
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -1202,14 +1196,14 @@ function VitalCard({
 }) {
   const TrendIcon = trendArrow(trend);
   return (
-    <div className={`p-4 ${alert ? "bg-red-50/60" : ""}`}>
+    <div className={`p-4 ${alert ? "bg-critical-soft" : ""}`}>
       <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-        <Icon className={`h-3.5 w-3.5 ${alert ? "text-red-600" : "text-[var(--teal)]"}`} />
+        <Icon className={`h-3.5 w-3.5 ${alert ? "text-critical" : "text-[var(--teal)]"}`} />
         {label}
       </div>
       <div className="mt-1.5 flex items-baseline gap-1.5">
         <div
-          className={`text-2xl font-bold tabular-nums tracking-tight ${alert ? "text-red-600" : "text-foreground"}`}
+          className={`text-2xl font-bold tabular-nums tracking-tight ${alert ? "text-critical" : "text-foreground"}`}
         >
           {value}
         </div>
@@ -1218,7 +1212,7 @@ function VitalCard({
       <div className="mt-2 flex items-center justify-between">
         <Sparkline data={trend} alert={alert} />
         <TrendIcon
-          className={`h-3.5 w-3.5 ${alert ? "text-red-600" : "text-muted-foreground"}`}
+          className={`h-3.5 w-3.5 ${alert ? "text-critical" : "text-muted-foreground"}`}
         />
       </div>
     </div>
@@ -1255,17 +1249,14 @@ function MedRow({
           {med.route} · {med.freq}
         </div>
         {med.notes && (
-          <div className="text-[11px] text-amber-700 mt-1 inline-flex items-center gap-1">
+          <div className="text-[11px] text-warning mt-1 inline-flex items-center gap-1">
             <AlertOctagon className="h-3 w-3" />
             {med.notes}
           </div>
         )}
         <div className="mt-3">
           {givenAt ? (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 px-3 h-8 text-xs font-semibold">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Given · {givenAt}
-            </div>
+            <StatusBadge status="success" icon={<CheckCircle2 className="h-3.5 w-3.5" />} label={`Given · ${givenAt}`} />
           ) : (
             <button
               onClick={onAdminister}
@@ -1335,9 +1326,7 @@ function LabReportsPanel({ reports }: { reports: any[] }) {
       />
       <div className="p-5 space-y-4">
         {reports.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            No completed lab reports on file for this patient yet.
-          </div>
+          <EmptyState description="No completed lab reports on file for this patient yet." />
         ) : (
           reports.map((r) => <LabReportCard key={r.id} report={r} />)
         )}
@@ -1369,9 +1358,7 @@ function LabReportCard({ report }: { report: any }) {
             <h4 className="text-sm font-bold tracking-tight text-foreground">
               {report.test_type}
             </h4>
-            <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
-              Completed
-            </span>
+            <StatusBadge status="success" label="Completed" />
           </div>
           <div className="mt-1 text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <span className="inline-flex items-center gap-1">
@@ -1404,13 +1391,19 @@ function LabReportCard({ report }: { report: any }) {
                 const flag = String(m.flag || m.status || "").toUpperCase();
                 const abnormal = flag && flag !== "NORMAL" && flag !== "WNL";
                 return (
-                  <tr key={i} className={abnormal ? "bg-red-50/40" : ""}>
+                  <tr
+                    key={i}
+                    className={cn(
+                      abnormal ? "bg-critical-soft" : "",
+                      severityRowVariants({ severity: abnormal ? "critical" : "none" }),
+                    )}
+                  >
                     <td className="py-1.5 pr-2 font-medium text-foreground">
                       {m.name || m.test || m.analyte}
                     </td>
                     <td
                       className={`py-1.5 px-2 tabular-nums font-semibold ${
-                        abnormal ? "text-red-600" : "text-foreground"
+                        abnormal ? "text-critical" : "text-foreground"
                       }`}
                     >
                       {m.value} {m.unit || ""}
@@ -1420,11 +1413,9 @@ function LabReportCard({ report }: { report: any }) {
                     </td>
                     <td className="py-1.5 pl-2">
                       {abnormal ? (
-                        <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 ring-1 ring-red-600/20 px-2 py-0.5 text-[10px] font-bold uppercase">
-                          {flag}
-                        </span>
+                        <StatusBadge status="critical" label={flag} />
                       ) : (
-                        <span className="text-[10px] text-emerald-700 font-semibold uppercase">
+                        <span className="text-[10px] text-success font-semibold uppercase">
                           {flag || "Normal"}
                         </span>
                       )}
@@ -1450,9 +1441,7 @@ function RadiologyPanel({ studies }: { studies: any[] }) {
       />
       <div className="p-5 space-y-3">
         {studies.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            No imaging studies ordered yet.
-          </div>
+          <EmptyState description="No imaging studies have been ordered for this patient yet." />
         ) : (
           studies.map((s) => <RadiologyStudyCard key={s.id} study={s} />)
         )}
@@ -1483,13 +1472,7 @@ function RadiologyStudyCard({ study }: { study: any }) {
                 {study.modality}
               </span>
             )}
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ${
-              isResulted
-                ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
-                : "bg-amber-50 text-amber-700 ring-amber-600/20"
-            }`}>
-              {status}
-            </span>
+            <StatusBadge status={isResulted ? "success" : "warning"} label={status} />
           </div>
           <div className="mt-1 text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <span className="inline-flex items-center gap-1">
