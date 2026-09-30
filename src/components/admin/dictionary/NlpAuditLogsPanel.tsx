@@ -127,7 +127,11 @@ export default function NlpAuditLogsPanel() {
       scheduleRefresh();
     } catch (e: any) {
       firedIdsRef.current.delete(r.id);
-      if (approvedBy === "human") toast.error("Approve failed", { description: e?.message });
+      if (approvedBy === "human") {
+        toast.error("Approve failed", { description: e?.message });
+      } else {
+        console.error("[NlpAuditLogsPanel] auto-approve failed for", r.patient_mrn, e);
+      }
     } finally {
       inFlightRef.current.delete(r.id);
       if (approvedBy === "human") setBusy(null);
