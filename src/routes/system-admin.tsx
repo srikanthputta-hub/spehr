@@ -24,6 +24,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { CardSkeleton } from "@/components/common/LoadingSkeleton";
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
 import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
 import {
@@ -801,24 +803,11 @@ function SystemAdminPage() {
             </div>
             <div className="flex items-center gap-3 shrink-0">
               <div className="flex items-center gap-2">
-                <span className="relative flex h-2.5 w-2.5">
-                  {automation && (
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  )}
-                  <span
-                    className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
-                      automation ? "bg-emerald-500" : "bg-slate-400"
-                    }`}
-                  />
-                </span>
-                <span
-                  className={`text-[11px] font-bold uppercase tracking-wider inline-flex items-center gap-1 ${
-                    automation ? "text-emerald-700" : "text-slate-500"
-                  }`}
-                >
-                  {automation === null ? "Loading…" : automation ? "Engines Active" : "Paused"}
-                  <InfoHint text='"Paused" means every background automation loop is stopped: vitals stop jittering, beds stop freeing, invoices stop generating, ghost admissions stop firing. Existing data is preserved — nothing new is generated until this is flipped back to Engines Active.' />
-                </span>
+                <StatusBadge
+                  status={automation === null ? "neutral" : automation ? "success" : "warning"}
+                  label={automation === null ? "Loading…" : automation ? "Engines Active" : "Paused"}
+                />
+                <InfoHint text='"Paused" means every background automation loop is stopped: vitals stop jittering, beds stop freeing, invoices stop generating, ghost admissions stop firing. Existing data is preserved — nothing new is generated until this is flipped back to Engines Active.' />
               </div>
               <button
                 onClick={toggleAutomation}
@@ -891,8 +880,9 @@ function SystemAdminPage() {
             </div>
 
             {loading ? (
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading feature flags…
+              <div className="grid gap-5 md:grid-cols-2">
+                <CardSkeleton lines={4} />
+                <CardSkeleton lines={4} />
               </div>
             ) : (
               <div className="grid gap-5 md:grid-cols-2">
@@ -924,13 +914,10 @@ function SystemAdminPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span
-                              className={`text-[10px] font-semibold uppercase tracking-wider ${
-                                p.is_active ? "text-emerald-600" : "text-slate-400"
-                              }`}
-                            >
-                              {p.is_active ? "Enabled" : "Disabled"}
-                            </span>
+                            <StatusBadge
+                              status={p.is_active ? "success" : "neutral"}
+                              label={p.is_active ? "Enabled" : "Disabled"}
+                            />
                             <Switch
                               checked={p.is_active}
                               disabled={updating === p.id}
@@ -1045,20 +1032,7 @@ function UserDirectory() {
                 <td className="px-5 py-3 text-slate-700">{s.role}</td>
                 <td className="px-5 py-3 text-slate-700">{s.facility}</td>
                 <td className="px-5 py-3">
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-                      s.status === "Active"
-                        ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
-                        : "bg-red-100 text-red-700 border border-red-200"
-                    }`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        s.status === "Active" ? "bg-emerald-500" : "bg-red-500"
-                      }`}
-                    />
-                    {s.status}
-                  </span>
+                  <StatusBadge status={s.status === "Active" ? "success" : "critical"} label={s.status} />
                 </td>
                 <td className="px-5 py-3 text-right">
                   <button

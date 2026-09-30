@@ -11,12 +11,15 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { Activity, Users, LogOut as LogOutIcon, Loader2, Search } from "lucide-react";
+import { Activity, Users, LogOut as LogOutIcon, Search } from "lucide-react";
 import { PopulationHealth } from "@/components/admin/PopulationHealth";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 import { InfoHint } from "@/components/ui/info-hint";
 import { useVisibilityRefetch } from "@/hooks/useVisibilityRefetch";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { EmptyState } from "@/components/common/EmptyState";
+import { TableSkeleton } from "@/components/common/LoadingSkeleton";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -297,9 +300,8 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
               <tbody className="divide-y divide-slate-100">
                 {loading && feed.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                      <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
-                      Loading network feed…
+                    <td colSpan={6} className="px-4 py-3">
+                      <TableSkeleton rows={5} columns={6} />
                     </td>
                   </tr>
                 )}
@@ -312,8 +314,8 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
                 )}
                 {!loading && feed.length === 0 && !error && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                      No recent admissions.
+                    <td colSpan={6} className="px-4 py-10">
+                      <EmptyState description="No recent admissions across the network in this window." />
                     </td>
                   </tr>
                 )}
@@ -327,7 +329,16 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
                     <td className="px-4 py-2 text-slate-700">{p.chief_complaint ?? "—"}</td>
                     <td className="px-4 py-2 text-slate-700">{p.facility_name ?? "—"}</td>
                     <td className="px-4 py-2">
-                      <StatusPill status={p.status} />
+                      <StatusBadge
+                        status={
+                          p.status === "Admitted"
+                            ? "success"
+                            : p.status === "Discharged"
+                            ? "neutral"
+                            : "warning"
+                        }
+                        label={p.status ?? "Unknown"}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -381,19 +392,3 @@ function KpiCard({
   );
 }
 
-function StatusPill({ status }: { status: string | null }) {
-  const s = status ?? "Unknown";
-  const cls =
-    s === "Admitted"
-      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-      : s === "Discharged"
-        ? "bg-slate-100 text-slate-600 border-slate-200"
-        : "bg-amber-50 text-amber-700 border-amber-200";
-  return (
-    <span
-      className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${cls}`}
-    >
-      {s}
-    </span>
-  );
-}

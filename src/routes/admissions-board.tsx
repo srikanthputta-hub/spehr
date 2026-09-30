@@ -24,6 +24,9 @@ import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
 import spehrLogo from "@/assets/spehr-logo.png";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { EmptyState } from "@/components/common/EmptyState";
+import { TableSkeleton } from "@/components/common/LoadingSkeleton";
 
 export const Route = createFileRoute("/admissions-board")({
   component: AdmissionsBoard,
@@ -299,18 +302,21 @@ function RosterTab({ facility }: { facility: string }) {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" />
-                    Loading encounters…
-                  </span>
+                <td colSpan={7} className="px-5 py-4">
+                  <TableSkeleton rows={5} columns={7} />
                 </td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-5 py-16 text-center text-sm text-muted-foreground">
-                  {rows.length === 0 ? "No patients on the census." : "No matches for that search."}
+                <td colSpan={7} className="px-5 py-10">
+                  <EmptyState
+                    description={
+                      rows.length === 0
+                        ? "No patients on the census. New admissions appear here automatically."
+                        : "No matches for that search."
+                    }
+                  />
                 </td>
               </tr>
             )}
@@ -580,17 +586,15 @@ function AppointmentTable({
         <tbody>
           {loading && (
             <tr>
-              <td colSpan={showActions ? 7 : 6} className="px-5 py-10 text-center text-sm text-muted-foreground">
-                <span className="inline-flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-[var(--teal)]" /> Loading…
-                </span>
+              <td colSpan={showActions ? 7 : 6} className="px-5 py-4">
+                <TableSkeleton rows={4} columns={showActions ? 7 : 6} />
               </td>
             </tr>
           )}
           {!loading && rows.length === 0 && (
             <tr>
-              <td colSpan={showActions ? 7 : 6} className="px-5 py-10 text-center text-sm text-muted-foreground">
-                No appointments.
+              <td colSpan={showActions ? 7 : 6} className="px-5 py-10">
+                <EmptyState description="No appointments scheduled in this list." />
               </td>
             </tr>
           )}
@@ -628,22 +632,18 @@ function AppointmentTable({
                   {r.description && <div className="text-[11px] text-slate-500">{r.description}</div>}
                 </td>
                 <td className="px-3 py-2">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ${
+                  <StatusBadge
+                    status={
                       r.status === "proposed" || r.status === "pending"
-                        ? "bg-amber-100 text-amber-800 ring-amber-300"
+                        ? "warning"
                         : r.status === "booked"
-                        ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
+                        ? "success"
                         : r.status === "cancelled" || r.status === "noshow"
-                        ? "bg-rose-100 text-rose-700 ring-rose-300"
-                        : "bg-slate-100 text-slate-700 ring-slate-300"
-                    }`}
-                  >
-                    {(r.status === "proposed" || r.status === "pending") && (
-                      <span className="mr-1 h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                    )}
-                    {r.status}
-                  </span>
+                        ? "critical"
+                        : "neutral"
+                    }
+                    label={r.status}
+                  />
                 </td>
                 {showActions && (
                   <td className="px-3 py-2 text-right pr-4">
