@@ -3,13 +3,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Scan, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { BoardHeader } from "@/components/BoardShell";
-import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
+import { ModuleRibbon, SectionHeader } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { EmptyState } from "@/components/common/EmptyState";
+import { TableSkeleton } from "@/components/common/LoadingSkeleton";
 
 export const Route = createFileRoute("/radiology-board")({
   head: () => ({
@@ -213,13 +216,11 @@ function RadiologyBoard() {
               right={<span className="font-mono">{pending.length} OPEN</span>}
             />
             {loading ? (
-              <div className="p-8 grid place-items-center text-slate-400">
-                <Loader2 className="h-5 w-5 animate-spin" />
+              <div className="p-4">
+                <TableSkeleton rows={4} columns={3} />
               </div>
             ) : pending.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500">
-                No pending orders for {facility}.
-              </div>
+              <EmptyState description={`Queue clear — no pending imaging orders for ${facility}.`} />
             ) : (
               <ul className="divide-y divide-slate-200">
                 {pending.map((o) => {
@@ -265,9 +266,7 @@ function RadiologyBoard() {
                             </div>
                           )}
                         </div>
-                        <StatusPill tone="warn" pulse>
-                          {(o.status ?? "Ordered")}
-                        </StatusPill>
+                        <StatusBadge status="warning" label={o.status ?? "Ordered"} />
                       </div>
 
                       {isSel && (
@@ -358,8 +357,11 @@ function RadiologyBoard() {
                 <tbody>
                   {reported.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-3 py-6 text-center text-slate-500">
-                        No reported studies yet at {facility}.
+                      <td colSpan={8} className="p-0">
+                        <EmptyState
+                          className="border-0 rounded-none"
+                          description={`No reported imaging studies yet at ${facility}.`}
+                        />
                       </td>
                     </tr>
                   ) : (
@@ -395,7 +397,7 @@ function RadiologyBoard() {
                           <td className="px-3 py-2 text-slate-700">{o.modality ?? "—"}</td>
                           <td className="px-3 py-2 text-slate-700">{o.body_part ?? "—"}</td>
                           <td className="px-3 py-2">
-                            <StatusPill tone="good">REPORTED</StatusPill>
+                            <StatusBadge status="success" label="Reported" />
                           </td>
                           <td className="px-3 py-2 text-slate-700">{radiologist.name}</td>
                         </tr>

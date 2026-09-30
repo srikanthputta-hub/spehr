@@ -5,13 +5,18 @@ import { Loader2, FlaskConical, Sparkles, CheckCircle2 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
+import { ModuleRibbon, SectionHeader } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
+import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { EmptyState } from "@/components/common/EmptyState";
+import { TableSkeleton } from "@/components/common/LoadingSkeleton";
+import { severityRowVariants } from "@/components/common/SeverityRow";
 
 export const Route = createFileRoute("/lab-board")({
   component: LabBoard,
@@ -399,19 +404,24 @@ function LabBoard() {
               right={<span className="font-mono">{pending.length} OPEN</span>}
             />
             {loading ? (
-              <div className="p-8 grid place-items-center text-slate-400">
-                <Loader2 className="h-5 w-5 animate-spin" />
+              <div className="p-4">
+                <TableSkeleton rows={4} columns={3} />
               </div>
             ) : pending.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500">
-                No pending orders for {facility}.
-              </div>
+              <EmptyState description={`Queue clear — no pending lab orders for ${facility}.`} />
             ) : (
               <ul className="divide-y divide-slate-200">
                 {pending.map((o) => {
                   const results = draft[o.id];
+                  const hasCritical = (results ?? []).some((r) => r.flag === "CRITICAL");
                   return (
-                    <li key={o.id} className="p-5">
+                    <li
+                      key={o.id}
+                      className={cn(
+                        "p-5",
+                        severityRowVariants({ severity: hasCritical ? "critical" : "none" }),
+                      )}
+                    >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="font-semibold text-slate-900">
@@ -439,14 +449,12 @@ function LabBoard() {
                         <div className="flex items-center gap-2">
                           {(() => {
                             const s = (o.status ?? "").toUpperCase();
-                            const tone: "info" | "warn" =
-                              s === "ORDERED" ? "info" : "warn";
-                            const label =
-                              s === "ORDERED" ? "Ordered" : "Processing";
+                            const label = s === "ORDERED" ? "Ordered" : "Processing";
                             return (
-                              <StatusPill tone={tone} pulse>
-                                {label}
-                              </StatusPill>
+                              <StatusBadge
+                                status={s === "ORDERED" ? "info" : "warning"}
+                                label={label}
+                              />
                             );
                           })()}
                           {!results && (
@@ -501,24 +509,31 @@ function LabBoard() {
                             </thead>
                             <tbody>
                               {results.map((r, i) => (
-                                <tr key={i} className="border-t border-slate-200">
+                                <tr
+                                  key={i}
+                                  className={cn(
+                                    "border-t border-slate-200",
+                                    severityRowVariants({
+                                      severity: r.flag === "CRITICAL" ? "critical" : "none",
+                                    }),
+                                  )}
+                                >
                                   <td className="px-3 py-2 font-medium text-slate-800">{r.test}</td>
                                   <td className="px-3 py-2 tabular-nums">
                                     {r.value} {r.unit}
                                   </td>
                                   <td className="px-3 py-2 text-slate-500">{r.range}</td>
                                   <td className="px-3 py-2">
-                                    <span
-                                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                    <StatusBadge
+                                      status={
                                         r.flag === "CRITICAL"
-                                          ? "bg-red-100 text-red-700 ring-1 ring-red-600/20"
+                                          ? "critical"
                                           : r.flag === "H" || r.flag === "L"
-                                            ? "bg-amber-100 text-amber-800 ring-1 ring-amber-600/20"
-                                            : "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-600/20"
-                                      }`}
-                                    >
-                                      {r.flag}
-                                    </span>
+                                            ? "warning"
+                                            : "success"
+                                      }
+                                      label={r.flag}
+                                    />
                                   </td>
                                 </tr>
                               ))}
@@ -558,8 +573,11 @@ function LabBoard() {
               <tbody>
                 {recentResulted.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                      No completed labs yet for patients currently on the Nursing Board at {facility}.
+                    <td colSpan={6} className="p-0">
+                      <EmptyState
+                        className="border-0 rounded-none"
+                        description={`No completed labs yet for patients currently on the Nursing Board at ${facility}.`}
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -589,7 +607,7 @@ function LabBoard() {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <StatusPill tone="good">{(o?.status ?? "Reported").toUpperCase()}</StatusPill>
+                        <StatusBadge status="success" label={o?.status ?? "Reported"} />
                       </td>
                       <td className="px-3 py-2 text-slate-700">{o.physician}</td>
                     </tr>

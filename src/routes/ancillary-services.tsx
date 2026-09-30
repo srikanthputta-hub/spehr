@@ -5,6 +5,7 @@ import { BoardHeader } from "@/components/BoardShell";
 import { ModuleRibbon } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility } from "@/lib/facility-context";
+import { KpiTile } from "@/components/common/KpiTile";
 
 export const Route = createFileRoute("/ancillary-services")({
   head: () => ({
@@ -235,14 +236,8 @@ function TileCard({
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
-        <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Pending</div>
-          <div className="mt-0.5 text-lg font-bold tabular-nums text-slate-900">{pending}</div>
-        </div>
-        <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{doneLabel}</div>
-          <div className="mt-0.5 text-lg font-bold tabular-nums text-slate-900">{done}</div>
-        </div>
+        <KpiTile value={pending} label="Pending" />
+        <KpiTile value={done} label={doneLabel} />
       </div>
 
       <div className="mt-3">
