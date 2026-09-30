@@ -74,8 +74,12 @@ import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
 import { AutoApiCard } from "@/components/admin/AutoApiCard";
+// NOTE: Step8Surfacing also exports `TerminologyMetricsStrip` — a small
+// audit/value-set/CDS-override count strip — but it's not imported here. Its
+// three metrics all duplicate counts already surfaced elsewhere in this tab
+// (TerminologyStatusStrip's value-set counts, CdsOverridesFeed below), so
+// there's no current subtab it adds enough value to justify rendering.
 import {
-  TerminologyMetricsStrip,
   CdsOverridesFeed,
   AutoApiEventsFeed,
 } from "@/components/admin/Step8Surfacing";
@@ -90,7 +94,16 @@ import { CrossMapStudio } from "@/components/admin/dictionary/CrossMapStudio";
 import { TerminologyStatusStrip } from "@/components/admin/dictionary/TerminologyStatusStrip";
 import { AutoTerminologistActivity } from "@/components/admin/dictionary/AutoTerminologistActivity";
 import NlpAuditLogsPanel from "@/components/admin/dictionary/NlpAuditLogsPanel";
-import LiveTerminologyMatrixPanel from "@/components/admin/dictionary/LiveTerminologyMatrixPanel";
+// NOTE: `LiveTerminologyMatrixPanel` (src/components/admin/dictionary/
+// LiveTerminologyMatrixPanel.tsx) is a more complete "every coded row across
+// conditions/medication_orders/lab_orders/lab_results/vitals/procedures"
+// live matrix, built as a candidate replacement for the `LiveTerminologyMatrix`
+// function below. It is NOT wired in: three of its six queries reference
+// columns that don't exist on the real schema (procedures/vitals/lab_results
+// use `mrn`, not `patient_mrn`; procedures has no `display` column), and
+// those errors are currently swallowed, so LOINC-from-vitals/lab_results and
+// CPT-from-procedures rows silently never appear. Fix that schema mismatch
+// and verify against live data before wiring this in as a replacement.
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
 import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { ErrorLogPanel } from "@/components/admin/ErrorLogPanel";
@@ -2515,7 +2528,11 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         return;
       }
       const mrns = (patients ?? []).map((p: any) => p.mrn).filter(Boolean);
-      // Approved-only gate: only patients with an approved nlp_audit_logs row.
+      // QA status lookup: patients with an approved nlp_audit_logs row are
+      // tagged "QA Approved" below; everyone else is tagged "Pending Review".
+      // This matrix intentionally shows all admissions (not an approved-only
+      // gate) so reviewers can see what's still pending, alongside what's
+      // already been approved.
       const { data: approvedLogs } = await fetchWithTimeout(
         () =>
           supabase
@@ -2533,7 +2550,6 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
           approvedByMrn.set(r.patient_mrn, { raw_text: r.raw_text ?? null });
         }
       }
-      const approvedPatients = (patients ?? []).filter((p: any) => approvedByMrn.has(p.mrn));
       const [labsRes, medsRes, condsRes] = await fetchWithTimeout(
         () =>
           Promise.all([
@@ -4118,7 +4134,7 @@ function TaxonomyTree({
 }
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "autoterm">("authoring");
+  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "autoterm" | "taxonomy">("authoring");
 
   // Cross-tab navigation: Live Terminology Matrix pills can request a tab switch.
   useEffect(() => {
@@ -4525,6 +4541,78 @@ function MedicalDictionary() {
     toast.success("Entry removed");
   };
 
+  // How many live clinical rows reference this code, per the code system's
+  // corresponding clinical table/column. Used to block deleting a dictionary
+  // entry that's actually in use on patient records.
+  const countDependents = async (entry: DictEntry): Promise<number> => {
+    try {
+      if (entry.code_system === "ICD-10") {
+        const { count } = await supabase
+          .from("conditions")
+          .select("id", { count: "exact", head: true })
+          .eq("icd10_code", entry.code);
+        return count ?? 0;
+      }
+      if (entry.code_system === "SNOMED CT") {
+        const { count } = await supabase
+          .from("conditions")
+          .select("id", { count: "exact", head: true })
+          .eq("snomed_code", entry.code);
+        return count ?? 0;
+      }
+      if (entry.code_system === "LOINC") {
+        const { count } = await supabase
+          .from("lab_orders")
+          .select("id", { count: "exact", head: true })
+          .eq("loinc_code", entry.code);
+        return count ?? 0;
+      }
+      if (entry.code_system === "RxNorm") {
+        const { count } = await supabase
+          .from("medication_orders")
+          .select("id", { count: "exact", head: true })
+          .eq("rxnorm_code", entry.code);
+        return count ?? 0;
+      }
+      // VSAC entries aren't referenced directly by a clinical coding column.
+      return 0;
+    } catch {
+      // If the dependents check itself fails, err on the side of caution
+      // and block the delete rather than silently allowing it.
+      return -1;
+    }
+  };
+
+  // Delete-safety wrapper for the Taxonomy Tree's per-code delete button:
+  // blocks removal of any code still referenced by live clinical rows, and
+  // otherwise confirms before deleting (mirrors the "discharge all patients"
+  // window.confirm pattern used elsewhere in this file).
+  const confirmedRemoveTerminology = async (id: string) => {
+    const entry = rows.find((r) => r.id === id);
+    if (!entry) return;
+    const depCount = await countDependents(entry);
+    if (depCount !== 0) {
+      toast.error(
+        depCount < 0 ? "Could not verify usage — delete blocked" : "Cannot remove — code in use",
+        {
+          description:
+            depCount < 0
+              ? `Failed to check whether ${entry.code_system} ${entry.code} is referenced by clinical records. Try again.`
+              : `${entry.code_system} ${entry.code} is referenced by ${depCount} clinical record${depCount === 1 ? "" : "s"}. Remove or recode those first.`,
+        },
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        `Remove ${entry.code_system} ${entry.code} — "${entry.display}" from the dictionary? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    await remove(id);
+  };
+
   return (
     <div className="space-y-6">
       <AutoApiManualBanner />
@@ -4589,6 +4677,7 @@ function MedicalDictionary() {
           { id: "safety",    label: "Safety Alerts", Icon: ShieldAlert },
           { id: "matrix",    label: "Live Terminology Matrix", Icon: Grid3x3 },
           { id: "autoterm",  label: "Auto Terminologist", Icon: Sparkles },
+          { id: "taxonomy",  label: "Taxonomy Tree", Icon: FolderTree },
         ] as const).map(({ id, label, Icon }) => {
           const active = subtab === id;
           return (
@@ -4618,6 +4707,9 @@ function MedicalDictionary() {
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "safety" && <CdsOverridesFeed />}
       {subtab === "autoterm" && <AutoTerminologistActivity />}
+      {subtab === "taxonomy" && (
+        <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={confirmedRemoveTerminology} />
+      )}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
