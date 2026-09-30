@@ -114,21 +114,30 @@ interface AuditRow {
 }
 
 function audit(row: AuditRow): void {
-  void supabase.from("terminology_audit").insert({
-    resource_type: row.resource_type,
-    resource_id: row.resource_id ?? null,
-    mrn: row.mrn ?? null,
-    input_text: row.input_text,
-    vocabulary: row.vocabulary,
-    resolved_code: row.resolved_code,
-    resolved_display: row.resolved_display,
-    umls_cui: row.umls_cui,
-    confidence: row.confidence,
-    action: row.action,
-    cache_hit: row.cache_hit,
-    elapsed_ms: row.elapsed_ms,
-    resolver: row.resolver,
-  });
+  // Fire-and-forget by design (never blocks the coding flow), but a failed
+  // write to the governance audit trail must not be totally silent.
+  void supabase
+    .from("terminology_audit")
+    .insert({
+      resource_type: row.resource_type,
+      resource_id: row.resource_id ?? null,
+      mrn: row.mrn ?? null,
+      input_text: row.input_text,
+      vocabulary: row.vocabulary,
+      resolved_code: row.resolved_code,
+      resolved_display: row.resolved_display,
+      umls_cui: row.umls_cui,
+      confidence: row.confidence,
+      action: row.action,
+      cache_hit: row.cache_hit,
+      elapsed_ms: row.elapsed_ms,
+      resolver: row.resolver,
+    })
+    .then(({ error }) => {
+      if (error) {
+        console.error("[terminology-resolver] audit write failed", error, row);
+      }
+    });
 }
 
 export async function resolveConcept(

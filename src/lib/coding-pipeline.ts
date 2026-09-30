@@ -996,7 +996,6 @@ async function upsertCondition(row: {
     category: row.category,
     clinical_status: "active",
     verification_status: "provisional",
-    term_status: "pending",
     coding_source: row.coding_source,
     source_section: row.source_section,
     coded_at: new Date().toISOString(),
@@ -1011,33 +1010,47 @@ async function upsertCondition(row: {
 }
 
 /**
- * Approve all pending codes tied to an MRN. Sets term_status='approved'
- * across conditions/medication_orders/allergies + verification_status
- * on conditions + updates the latest nlp_audit_log row. Also feeds
+ * Approve all pending codes tied to an MRN. Sets verification_status=
+ * 'confirmed' on conditions and term_status='approved' on
+ * medication_orders + updates the latest nlp_audit_log row. Also feeds
  * uncovered SNOMED codes into the Auto Terminologist queue.
+ *
+ * Throws if either the conditions or medication_orders update actually
+ * fails (Supabase resolves with `{ error }` rather than throwing, so both
+ * results must be checked explicitly) — callers rely on this to decide
+ * whether it is safe to report success to the user.
  */
 export async function approveMrnCoding(
   mrn: string,
   approvedBy: "human" | "ai" = "human",
 ): Promise<void> {
   const nowIso = new Date().toISOString();
-  await Promise.all([
+  const [conditionsRes, medicationOrdersRes] = await Promise.all([
     supabase
       .from("conditions")
-      .update({ term_status: "approved", verification_status: "confirmed" } as any)
+      .update({ verification_status: "confirmed" } as any)
       .eq("mrn", mrn),
     supabase
       .from("medication_orders")
       .update({ term_status: "approved" } as any)
       .eq("patient_mrn", mrn),
   ]);
+  if (conditionsRes.error || medicationOrdersRes.error) {
+    const messages = [conditionsRes.error?.message, medicationOrdersRes.error?.message]
+      .filter(Boolean)
+      .join("; ");
+    throw new Error(`Approve failed for ${mrn}: ${messages || "unknown error"}`);
+  }
 
   // Flip ALL pending audit rows for this MRN → approved (older backlog too).
-  await supabase
+  const { error: auditLogError } = await supabase
     .from("nlp_audit_logs" as any)
     .update({ status: "approved", updated_at: nowIso, approved_by: approvedBy } as any)
     .eq("patient_mrn", mrn)
     .in("status", ["pending", "needs_review"]);
+  if (auditLogError) {
+    throw new Error(`Approve failed for ${mrn}: ${auditLogError.message}`);
+  }
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("nlp:approved", { detail: { mrn } }));

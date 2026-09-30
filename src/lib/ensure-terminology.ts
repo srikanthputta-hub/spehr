@@ -29,10 +29,13 @@ export async function ensureTerminology(
   const code = (opts.code && opts.code.trim()) || `LOCAL:${slug(display)}`;
   const category = opts.category?.trim() || DEFAULT_CATEGORY[system] || null;
   const description = opts.description?.trim() || defaultUsage(system, display);
-  await supabase
+  const { error } = await supabase
     .from("medical_terminology")
     .upsert(
       { code_system: system, code, display, category, description, status: "Active" },
       { onConflict: "code_system,code", ignoreDuplicates: true },
     );
+  if (error) {
+    console.error("[ensureTerminology] upsert failed for", system, code, error);
+  }
 }
