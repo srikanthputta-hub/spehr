@@ -27,6 +27,7 @@ import { useFacility, useActiveStaff, STAFF_BY_FACILITY, type Facility, type Sta
 import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { transferDeletePatientViaWorker } from "@/lib/transfer-delete-patient";
 import { InfoHint } from "@/components/ui/info-hint";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 
@@ -335,11 +336,22 @@ function AdminDashboard() {
           .eq("mrn", t.patient_mrn);
         if (pErr) throw pErr;
       } else {
-        const { error: dErr } = await supabase
-          .from("patients")
-          .delete()
-          .eq("mrn", t.patient_mrn);
-        if (dErr) throw dErr;
+        // Outside-network transfer: permanently delete the patient record.
+        // This MUST go through the service-role `transfer-delete-worker`
+        // edge function, not a direct anon `.from("patients").delete()` —
+        // RLS has no anon-matching DELETE policy on `patients`, so an anon
+        // delete silently affects 0 rows with no error, and this branch
+        // would otherwise show a false success toast while leaving the
+        // patient record completely untouched.
+        const result = await transferDeletePatientViaWorker({
+          mrn: t.patient_mrn,
+          transferId: t.id,
+        });
+        if (!result.ok || !result.deleted) {
+          throw new Error(
+            result.reason ?? "Patient delete could not be confirmed by transfer-delete-worker.",
+          );
+        }
       }
 
       toast.success(
