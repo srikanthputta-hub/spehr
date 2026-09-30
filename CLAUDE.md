@@ -520,7 +520,7 @@ Specifically:
 
   | \`product-manager\` | Anywhere | \`README.md\`, \`CHANGELOG.md\`, \`docs/backlog.md\` only | \`git status\`/\`diff\` for context-gathering | None | No |
 
-  | \`ux-designer\` | Anywhere | Component files, but ONLY accessibility attributes (\`aria-*\`, \`<label>\`) once a finding is confirmed — never visual/behavioral changes without a separate task | \`tsc --noEmit\` to verify | None | Yes — read-only browsing/inspection for audits; never submits forms or clicks destructive controls |
+  | \`ux-designer\` | Anywhere | Accessibility attributes (\`aria-*\`, \`<label>\`) anywhere once a finding is confirmed, PLUS visual/layout changes limited to these classes only: type scale (11/12/13/14/16/18/22/28px, weights 400/600 only), color tokens in \`src/styles.css\` (brand/semantic-status/surface tiers, light+dark), spacing via Tailwind's 4px-based scale (no arbitrary bracket values), elevation (hairline borders by default, shadow only on overlays/focus rings), and badge/table/empty-state/loading-skeleton patterns in shared primitives under \`src/components/common/\` — never a broad visual rewrite, a new color hue, or a change outside those classes without a separate task | \`tsc --noEmit\` and \`npm run build\` to verify | None | Yes — read-only browsing/inspection for audits; never submits forms or clicks destructive controls |
 
   | \`clinical-informaticist\` | Anywhere | None — verification only | None | Read-only calls to verify live terminology behavior (e.g. invoking \`umls-proxy\` directly) are fine; no schema/data mutation | No |
 

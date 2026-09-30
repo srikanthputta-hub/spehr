@@ -28,11 +28,26 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* Brand tier (2 tokens) — the ONLY place brand hue appears. */
   --color-navy: var(--navy);
   --color-teal: var(--teal);
   --color-teal-soft: var(--teal-soft);
+
+  /* Semantic/status tier (5 tokens + soft variants) — never brand hue. */
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-critical: var(--critical);
+  --color-critical-soft: var(--critical-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-neutral: var(--neutral);
+  --color-neutral-soft: var(--neutral-soft);
+
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", monospace;
 }
 
 :root {
@@ -65,6 +80,61 @@
   --border: oklch(0.92 0.01 240);
   --input: oklch(0.92 0.01 240);
   --ring: oklch(0.62 0.11 190);
+
+  /* Semantic/status tier — light mode. Distinct hues from brand (navy 260 / teal 190). */
+  --success: oklch(0.52 0.14 145);
+  --success-soft: oklch(0.94 0.045 145);
+  --warning: oklch(0.6 0.16 70);
+  --warning-soft: oklch(0.95 0.06 70);
+  /* Critical shares the destructive hue/lightness so status badges and
+     destructive actions read as the same "danger" color across the app. */
+  --critical: oklch(0.58 0.22 27);
+  --critical-soft: oklch(0.94 0.06 27);
+  --info: oklch(0.58 0.13 240);
+  --info-soft: oklch(0.94 0.04 240);
+  --neutral: oklch(0.5 0.02 260);
+  --neutral-soft: oklch(0.94 0.01 260);
+}
+
+.dark {
+  /* Clinical dark mode — same token names, different OKLCH lightness only. */
+  --background: oklch(0.17 0.02 260);
+  --foreground: oklch(0.95 0.005 240);
+  --card: oklch(0.21 0.025 260);
+  --card-foreground: oklch(0.95 0.005 240);
+  --popover: oklch(0.21 0.025 260);
+  --popover-foreground: oklch(0.95 0.005 240);
+
+  --navy: oklch(0.82 0.03 260);
+  --primary: oklch(0.82 0.03 260);
+  --primary-foreground: oklch(0.17 0.02 260);
+
+  --teal: oklch(0.72 0.11 190);
+  --teal-soft: oklch(0.3 0.06 190);
+  --accent: oklch(0.72 0.11 190);
+  --accent-foreground: oklch(0.12 0.02 260);
+
+  --secondary: oklch(0.26 0.02 260);
+  --secondary-foreground: oklch(0.95 0.005 240);
+  --muted: oklch(0.26 0.02 260);
+  --muted-foreground: oklch(0.68 0.02 260);
+  --destructive: oklch(0.65 0.2 27);
+  --destructive-foreground: oklch(0.12 0.02 260);
+  --border: oklch(0.32 0.02 260);
+  --input: oklch(0.32 0.02 260);
+  --ring: oklch(0.72 0.11 190);
+
+  /* Semantic/status tier — dark mode. */
+  --success: oklch(0.72 0.14 145);
+  --success-soft: oklch(0.3 0.05 145);
+  --warning: oklch(0.78 0.15 70);
+  --warning-soft: oklch(0.32 0.06 70);
+  --critical: oklch(0.65 0.2 27);
+  --critical-soft: oklch(0.32 0.07 27);
+  --info: oklch(0.74 0.12 240);
+  --info-soft: oklch(0.3 0.05 240);
+  --neutral: oklch(0.68 0.02 260);
+  --neutral-soft: oklch(0.28 0.01 260);
 }
 
 @font-face {
@@ -99,12 +169,12 @@
 }
 
 @keyframes audit-drain-color {
-  0%   { background-color: #10b981; }
-  66%  { background-color: #10b981; }
-  67%  { background-color: #f59e0b; }
-  90%  { background-color: #f59e0b; }
-  91%  { background-color: #ef4444; }
-  100% { background-color: #ef4444; }
+  0%   { background-color: var(--success); }
+  66%  { background-color: var(--success); }
+  67%  { background-color: var(--warning); }
+  90%  { background-color: var(--warning); }
+  91%  { background-color: var(--critical); }
+  100% { background-color: var(--critical); }
 }
 
 @utility scroll-feed {
