@@ -11,7 +11,7 @@ import {
 import { BoardHeader } from "@/components/BoardShell";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { ModuleRibbon, SectionHeader, StatusPill } from "@/components/ClinicalShell";
+import { ModuleRibbon, SectionHeader } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
@@ -20,6 +20,11 @@ import { fetchWithTimeout } from "@/lib/async-timeout";
 import { InfoHint } from "@/components/ui/info-hint";
 import { SlaCountdown } from "@/components/patient/SlaCountdown";
 import { SAFETY_AUTO_REJECT_THRESHOLD } from "@/lib/safety-alert-resolution";
+import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { EmptyState } from "@/components/common/EmptyState";
+import { TableSkeleton } from "@/components/common/LoadingSkeleton";
+import { severityRowVariants } from "@/components/common/SeverityRow";
 
 type HeldAlert = {
   id: string;
@@ -537,16 +542,18 @@ function PharmacyQueue() {
             />
             <div className="max-h-[calc(100vh-160px)] overflow-y-auto divide-y divide-slate-100">
               {loading && (
-                <div className="p-4 text-xs text-slate-500">Loading queue…</div>
+                <div className="p-3">
+                  <TableSkeleton rows={4} columns={2} />
+                </div>
               )}
               {error && (
                 <div className="p-4 text-xs text-red-600">Unable to load — {error}</div>
               )}
               {!loading && visibleOrders.length === 0 && !error && (
-                <div className="p-8 text-center text-xs text-slate-500">
-                  <CheckCircle2 className="mx-auto h-6 w-6 text-emerald-500 mb-2" />
-                  Queue clear for {facility}.
-                </div>
+                <EmptyState
+                  icon={CheckCircle2}
+                  description={`Queue clear — no pending prescriptions for ${facility}.`}
+                />
               )}
               {visibleOrders.map((o) => {
                 const active = o.id === selectedId;
@@ -556,11 +563,13 @@ function PharmacyQueue() {
                     key={o.id}
                     onClick={() => { if (!isHeld) setSelectedId(o.id); }}
                     disabled={isHeld}
-                    className={`w-full text-left px-3 py-2.5 transition ${
+                    className={cn(
+                      severityRowVariants({ severity: isHeld ? "critical" : "none" }),
+                      "w-full text-left pr-3 py-2.5 transition",
                       isHeld
                         ? "bg-slate-100 text-slate-500 cursor-not-allowed"
-                        : active ? "bg-[#0c2340] text-white" : "hover:bg-slate-50"
-                    }`}
+                        : active ? "bg-[#0c2340] text-white" : "hover:bg-slate-50",
+                    )}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-sm font-medium truncate flex items-center gap-1.5">
@@ -574,17 +583,13 @@ function PharmacyQueue() {
                           if (alert) {
                             const score = alert.risk_score ?? 50;
                             const willReject = score >= SAFETY_AUTO_REJECT_THRESHOLD;
-                            const bandTone = willReject
-                              ? "border-red-300 bg-red-50 text-red-700"
-                              : "border-emerald-300 bg-emerald-50 text-emerald-700";
                             return (
                               <span className="inline-flex items-center gap-1 flex-wrap justify-end">
-                                <span
-                                  className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${bandTone}`}
+                                <StatusBadge
+                                  status={willReject ? "critical" : "warning"}
+                                  label={`Risk ${score}/100 — will auto-${willReject ? "reject" : "override"}`}
                                   title={`Auto-decision band: score ≥ ${SAFETY_AUTO_REJECT_THRESHOLD} = Reject, < ${SAFETY_AUTO_REJECT_THRESHOLD} = Override`}
-                                >
-                                  Risk {score}/100 — will auto-{willReject ? "reject" : "override"}
-                                </span>
+                                />
                                 <SlaCountdown
                                   autoResolveAt={alert.auto_resolve_at}
                                   createdAt={alert.created_at}
@@ -597,9 +602,7 @@ function PharmacyQueue() {
                           }
                           return (
                             <span className="inline-flex items-center gap-1">
-                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 border border-slate-300">
-                                ⏸ On Hold — Safety Review
-                              </span>
+                              <StatusBadge status="warning" label="On Hold — Safety Review" />
                               <InfoHint text="Frozen because clinical_safety_alerts fired a drug-allergy or drug-drug conflict for this order. The row is unclickable until the linked alert resolves (manually or via the 45s SLA)." />
                             </span>
                           );
@@ -610,20 +613,9 @@ function PharmacyQueue() {
                             : s === "DISPENSED"
                               ? "Dispensed"
                               : "Pending Verification";
-                        const cls = active
-                          ? "bg-white/15 text-white"
-                          : s === "ORDERED"
-                            ? "bg-sky-50 text-sky-700 border border-sky-200"
-                            : s === "DISPENSED"
-                              ? "bg-violet-50 text-violet-700 border border-violet-200"
-                              : "bg-amber-50 text-amber-700 border border-amber-200";
-                        return (
-                          <span
-                            className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${cls}`}
-                          >
-                            {label}
-                          </span>
-                        );
+                        const badgeStatus =
+                          s === "ORDERED" ? "info" : s === "DISPENSED" ? "success" : "warning";
+                        return <StatusBadge status={badgeStatus} label={label} />;
                       })()}
                     </div>
                     <div className={`mt-0.5 text-[11px] truncate ${active ? "text-white/75" : "text-slate-500"}`}>
@@ -778,8 +770,11 @@ function PharmacyQueue() {
                     if (rows.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                            No recent activity.
+                          <td colSpan={6} className="p-0">
+                            <EmptyState
+                              className="border-0 rounded-none"
+                              description={`No dispensed or rejected medications yet for patients at ${facility}.`}
+                            />
                           </td>
                         </tr>
                       );
@@ -811,10 +806,10 @@ function PharmacyQueue() {
                           {(() => {
                             const s = (m.status ?? "").toUpperCase();
                             if (s === "ADMINISTERED") {
-                              return <StatusPill tone="good">ADMINISTERED</StatusPill>;
+                              return <StatusBadge status="success" label="Administered" />;
                             }
-                            const label = s === "REJECTED_SAFETY_ALERT" ? "REJECTED (Safety Alert)" : "REJECTED";
-                            return <StatusPill tone="bad">{label}</StatusPill>;
+                            const label = s === "REJECTED_SAFETY_ALERT" ? "Rejected (Safety Alert)" : "Rejected";
+                            return <StatusBadge status="critical" label={label} />;
                           })()}
                         </td>
                         <td className="px-3 py-2 text-slate-700">
