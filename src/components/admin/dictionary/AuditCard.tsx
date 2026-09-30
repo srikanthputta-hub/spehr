@@ -273,7 +273,7 @@ export function AuditCard({
               width: `${startPct}%`,
               animation: `audit-drain ${remainingMs}ms linear forwards, audit-drain-color ${remainingMs}ms linear forwards`,
               ["--audit-start" as any]: `${startPct}%`,
-              backgroundColor: "#10b981",
+              backgroundColor: "var(--success)",
             }}
             title={`Auto-approves in ${Math.ceil(remainingMs / 1000)}s`}
           />
@@ -288,7 +288,7 @@ export function AuditCard({
               width: `${nrStartPct}%`,
               animation: `audit-drain ${nrRemainingMs}ms linear forwards`,
               ["--audit-start" as any]: `${nrStartPct}%`,
-              backgroundColor: "#f59e0b",
+              backgroundColor: "var(--warning)",
             }}
             title={`Auto-reviews in ${Math.ceil(nrRemainingMs / 1000)}s`}
           />

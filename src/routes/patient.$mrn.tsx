@@ -1980,11 +1980,11 @@ function PatientChart() {
                   onClick={() => setCdsPanelOpen(true)}
                   className="inline-flex items-center gap-2 whitespace-nowrap"
                   style={{
-                    background: "#fee2e2",
-                    border: "1px solid #ef4444",
+                    background: "var(--critical-soft)",
+                    border: "1px solid var(--critical)",
                     borderRadius: 6,
                     padding: "4px 12px",
-                    color: "#991b1b",
+                    color: "var(--critical)",
                     fontWeight: 600,
                   }}
                 >
