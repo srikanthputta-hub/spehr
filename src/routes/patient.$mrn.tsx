@@ -20,6 +20,11 @@ import DischargeConformanceBanner from "@/components/patient/DischargeConformanc
 import SafetyAlertBanner from "@/components/patient/SafetyAlertBanner";
 import ClinicalTriggersBanner from "@/components/patient/ClinicalTriggersBanner";
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
+import { StatusBadge, type StatusBadgeProps } from "@/components/common/StatusBadge";
+import { EmptyState } from "@/components/common/EmptyState";
+import { TableSkeleton, CardSkeleton } from "@/components/common/LoadingSkeleton";
+import { severityRowVariants } from "@/components/common/SeverityRow";
+import { cn } from "@/lib/utils";
 
 
 /* ------------------------------------------------------------------ */
@@ -411,9 +416,6 @@ const sectionHeader =
 const thClass =
   "h-8 px-2 text-left text-[10px] uppercase tracking-wider text-slate-500 font-bold border-b border-slate-300 bg-slate-100";
 const tdClass = "px-2 py-1.5 text-[12px] text-slate-800 border-b border-slate-200 align-top";
-const emptyMsg = (
-  <div className="px-3 py-6 text-center text-[12px] text-slate-500 italic">No records found.</div>
-);
 
 function fmtTime(t: string | null | undefined) {
   if (!t) return "—";
@@ -618,34 +620,26 @@ function useNotes(mrn: string, refreshKey: number) {
 // ============= badges ==================================================
 function LabStatusBadge({ status }: { status: string | null }) {
   const s = (status ?? "").toLowerCase();
-  const cls =
+  const badgeStatus: StatusBadgeProps["status"] =
     s === "resulted" || s === "reported" || s === "completed"
-      ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
+      ? "success"
       : s.includes("processing")
-      ? "bg-blue-100 text-blue-800 ring-blue-300"
-      : "bg-slate-100 text-slate-700 ring-slate-300";
-  return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${cls}`}>
-      {status ?? "—"}
-    </span>
-  );
+        ? "info"
+        : "neutral";
+  return <StatusBadge status={badgeStatus} label={status ?? "—"} />;
 }
 function MedStatusBadge({ status }: { status: string | null }) {
   const s = (status ?? "").toLowerCase();
   if (s === "administered") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300">
-        <CheckCircle2 className="h-3 w-3" /> Administered
-      </span>
-    );
+    return <StatusBadge status="success" icon={<CheckCircle2 className="h-3 w-3" />} label="Administered" />;
   }
   if (s.includes("approved")) {
-    return <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-800 ring-1 ring-amber-300">⚠ Approved</span>;
+    return <StatusBadge status="warning" label="⚠ Approved" />;
   }
   if (s.includes("pending")) {
-    return <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-slate-200 text-slate-700 ring-1 ring-slate-300">⚠ {status}</span>;
+    return <StatusBadge status="neutral" label={`⚠ ${status}`} />;
   }
-  return <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-slate-100 text-slate-700 ring-1 ring-slate-300">{status ?? "—"}</span>;
+  return <StatusBadge status="neutral" label={status ?? "—"} />;
 }
 
 function ResultValueCell({ value }: { value: string | null }) {
@@ -656,7 +650,7 @@ function ResultValueCell({ value }: { value: string | null }) {
       <span className="font-mono text-[11.5px]">
         {parts.map((p, i) =>
           /\[CRITICAL/i.test(p) ? (
-            <span key={i} className="font-extrabold text-red-600 animate-pulse">{p}</span>
+            <span key={i} className="font-extrabold text-critical animate-pulse">{p}</span>
           ) : (
             <span key={i}>{p}</span>
           )
@@ -719,28 +713,27 @@ function useRadiology(mrn: string) {
 
 function RadStatusBadge({ status }: { status: string | null }) {
   const s = (status ?? "").toLowerCase();
-  const cls =
+  const badgeStatus: StatusBadgeProps["status"] =
     s === "resulted" || s === "reported" || s === "completed" || s === "final"
-      ? "bg-emerald-100 text-emerald-800 ring-emerald-300"
+      ? "success"
       : s === "in-progress" || s.includes("progress") || s.includes("read")
-        ? "bg-blue-100 text-blue-800 ring-blue-300"
-        : "bg-amber-100 text-amber-800 ring-amber-300";
-  return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${cls}`}>
-      {status ?? "—"}
-    </span>
-  );
+        ? "info"
+        : "warning";
+  return <StatusBadge status={badgeStatus} label={status ?? "—"} />;
 }
 
 function RadiologyView({ mrn }: { mrn: string }) {
   const rows = useRadiology(mrn);
   if (rows === null)
     return (
-      <div className="p-6 text-center">
-        <Loader2 className="h-4 w-4 animate-spin inline text-slate-400" />
+      <div className="p-3">
+        <TableSkeleton rows={3} columns={5} />
       </div>
     );
-  if (rows.length === 0) return emptyMsg;
+  if (rows.length === 0)
+    return (
+      <EmptyState description="No radiology or imaging orders have been placed for this patient yet." />
+    );
   return (
     <table className="w-full">
       <thead>
@@ -823,8 +816,9 @@ function RadiologyView({ mrn }: { mrn: string }) {
 // ============= tab views ===============================================
 function LabsView({ mrn, complaint }: { mrn: string; complaint: string | null }) {
   const rows = useLabs(mrn, complaint);
-  if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
-  if (rows.length === 0) return emptyMsg;
+  if (rows === null) return <div className="p-3"><TableSkeleton rows={3} columns={5} /></div>;
+  if (rows.length === 0)
+    return <EmptyState description="No lab orders have been placed for this patient yet." />;
   return (
     <table className="w-full">
       <thead>
@@ -837,15 +831,24 @@ function LabsView({ mrn, complaint }: { mrn: string; complaint: string | null })
         </tr>
       </thead>
       <tbody>
-        {rows.map((r) => (
-          <tr key={r.id} className="hover:bg-slate-50">
-            <td className={`${tdClass} font-semibold`}>{r.test_type}</td>
-            <td className={tdClass}><LabStatusBadge status={r.status} /></td>
-            <td className={tdClass}><ResultValueCell value={r.result_value} /></td>
-            <td className={`${tdClass} text-slate-600`}>{r.ordered_by ?? "—"}</td>
-            <td className={`${tdClass} font-mono text-[11px] text-slate-600`}>{fmtTime(r.created_at)}</td>
-          </tr>
-        ))}
+        {rows.map((r) => {
+          const isCritical = /\[CRITICAL[^\]]*\]/i.test(r.result_value ?? "");
+          return (
+            <tr
+              key={r.id}
+              className={cn(
+                "hover:bg-slate-50",
+                severityRowVariants({ severity: isCritical ? "critical" : "none" }),
+              )}
+            >
+              <td className={`${tdClass} font-semibold`}>{r.test_type}</td>
+              <td className={tdClass}><LabStatusBadge status={r.status} /></td>
+              <td className={tdClass}><ResultValueCell value={r.result_value} /></td>
+              <td className={`${tdClass} text-slate-600`}>{r.ordered_by ?? "—"}</td>
+              <td className={`${tdClass} font-mono text-[11px] text-slate-600`}>{fmtTime(r.created_at)}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -853,8 +856,9 @@ function LabsView({ mrn, complaint }: { mrn: string; complaint: string | null })
 
 function MarView({ patientId, mrn, complaint }: { patientId: string; mrn: string; complaint: string | null }) {
   const rows = useMeds(patientId, mrn, complaint);
-  if (rows === null) return <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>;
-  if (rows.length === 0) return emptyMsg;
+  if (rows === null) return <div className="p-3"><TableSkeleton rows={3} columns={5} /></div>;
+  if (rows.length === 0)
+    return <EmptyState description="No medication orders have been placed for this patient yet." />;
   return (
     <table className="w-full">
       <thead>
@@ -994,9 +998,11 @@ function NotesView({ mrn }: { mrn: string }) {
       ) : null}
 
       {rows === null ? (
-        <div className="p-6 text-center"><Loader2 className="h-4 w-4 animate-spin inline text-slate-400" /></div>
+        <div className="p-3"><CardSkeleton lines={2} /></div>
       ) : rows.length === 0 ? (
-        <div className={panelClass}>{emptyMsg}</div>
+        <div className={panelClass}>
+          <EmptyState description="No provider notes have been documented for this patient yet." />
+        </div>
       ) : (
         <div className="space-y-2">
           {rows.map((n) => (
@@ -1139,9 +1145,9 @@ function ClinicalSummary({
           <section className={widgetBox}>
             <WidgetHeader title="Common Labs" />
             {labs === null ? (
-              <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+              <div className="p-3"><CardSkeleton lines={2} /></div>
             ) : topLabs.length === 0 ? (
-              <div className="px-3 py-4 text-[12px] italic text-slate-500">No labs released.</div>
+              <EmptyState description="No lab results have been released for this patient yet." />
             ) : (
               <ul className="divide-y divide-slate-200">
                 {topLabs.map((l) => {
@@ -1150,7 +1156,7 @@ function ClinicalSummary({
                   return (
                     <li key={l.id} className="grid grid-cols-[110px_1fr_70px] gap-2 px-2.5 py-1.5 text-[12px] items-center">
                       <span className="text-slate-700 truncate">{l.test_type}</span>
-                      <span className={`font-mono text-[11.5px] truncate ${abnormal ? "bg-yellow-200 text-slate-900 px-1 rounded font-bold" : "text-slate-700"}`}>
+                      <span className={`font-mono text-[11.5px] truncate ${abnormal ? "bg-warning-soft text-warning px-1 rounded font-bold" : "text-slate-700"}`}>
                         {display}
                       </span>
                       <span className="font-mono text-[10.5px] text-slate-500 text-right">
@@ -1166,9 +1172,9 @@ function ClinicalSummary({
           <section className={widgetBox}>
             <WidgetHeader title="Active Medications" icon={<Pill className="h-3.5 w-3.5" />} />
             {meds === null ? (
-              <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+              <div className="p-3"><CardSkeleton lines={2} /></div>
             ) : topMeds.length === 0 ? (
-              <div className="px-3 py-4 text-[12px] italic text-slate-500">No active medications.</div>
+              <EmptyState description="No active medication orders for this patient." />
             ) : (
               <ul className="divide-y divide-slate-200">
                 {topMeds.map((m) => (
@@ -1232,9 +1238,9 @@ function ClinicalSummary({
                 <span className="text-[10.5px] text-slate-500">Most Recent</span>
               </div>
               {notesLoading ? (
-                <div className="p-3"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+                <div className="p-3"><CardSkeleton lines={1} /></div>
               ) : !latestNote ? (
-                <div className="px-3 py-4 text-[12px] italic text-slate-500">No documents on file.</div>
+                <EmptyState description="No signed documents on file for this patient yet." />
               ) : (
                 <ul className="divide-y divide-slate-200">
                   <li className="grid grid-cols-[1fr_24px_80px] px-2.5 py-1.5 items-center text-[12px]">
@@ -1282,13 +1288,13 @@ function ClinicalSummary({
                   Current — <LiveClock />
                 </span>
                 <span className="text-slate-600">BP</span>
-                <span className={`font-mono ${(patient.bp_systolic ?? 0) >= 140 ? "bg-yellow-200 px-1 rounded font-bold" : ""}`}>
+                <span className={`font-mono ${(patient.bp_systolic ?? 0) >= 140 ? "bg-warning-soft text-warning px-1 rounded font-bold" : ""}`}>
                   {patient.bp_systolic ?? "—"}/{patient.bp_diastolic ?? "—"}{(patient.bp_systolic ?? 0) >= 140 ? " H" : ""}
                 </span>
                 <span className="text-slate-600">Pulse</span>
                 <span className="font-mono">{patient.hr ?? "—"}</span>
                 <span className="text-slate-600">SpO₂</span>
-                <span className={`font-mono ${(patient.spo2 ?? 100) < 92 ? "bg-yellow-200 px-1 rounded font-bold" : ""}`}>
+                <span className={`font-mono ${(patient.spo2 ?? 100) < 92 ? "bg-warning-soft text-warning px-1 rounded font-bold" : ""}`}>
                   {patient.spo2 ?? "—"}%
                 </span>
               </div>
@@ -1339,7 +1345,9 @@ function ActivityView({ mrn, patient }: { mrn: string; patient: PatientRecord })
   return (
     <div className={widgetBox}>
       <WidgetHeader title="Encounter Activity Timeline" icon={<Activity className="h-3.5 w-3.5" />} />
-      {items.length === 0 ? emptyMsg : (
+      {items.length === 0 ? (
+        <EmptyState description="No admission, medication, lab, or note events yet — this timeline fills in as care events happen." />
+      ) : (
         <ol className="divide-y divide-slate-200">
           {items.map((it, i) => (
             <li key={i} className="grid grid-cols-[110px_90px_1fr] gap-2 px-3 py-2 text-[12px] items-start">
@@ -1570,8 +1578,9 @@ function PatientInvoicesPanel({ mrn }: { mrn: string }) {
     }
   };
 
-  if (loading) return <div className="px-3 py-2 text-[12px] text-slate-500">Loading invoices…</div>;
-  if (rows.length === 0) return <div className="px-3 py-2 text-[12px] text-slate-500">No invoices on file.</div>;
+  if (loading) return <div className="px-3 py-2"><TableSkeleton rows={3} columns={4} /></div>;
+  if (rows.length === 0)
+    return <EmptyState description="No invoices have been generated for this patient yet." />;
   return (
     <table className="w-full text-[12px]">
       <thead className="bg-slate-50 text-slate-600">
@@ -1589,11 +1598,13 @@ function PatientInvoicesPanel({ mrn }: { mrn: string }) {
           return (
             <tr key={r.id} className="border-t border-slate-100">
               <td className="px-3 py-1.5 font-mono">{r.invoice_no}</td>
-              <td className="px-3 py-1.5">{r.status}</td>
+              <td className="px-3 py-1.5">
+                <StatusBadge status={r.status === "balanced" ? "success" : "warning"} label={r.status ?? "—"} />
+              </td>
               <td className="px-3 py-1.5 text-right font-mono">{amount.toFixed(2)} {currency}</td>
               <td className="px-3 py-1.5 text-right">
                 {r.status === "balanced" ? (
-                  <span className="text-emerald-700">Paid</span>
+                  <span className="text-success">Paid</span>
                 ) : (
                   <button
                     disabled={payingId === r.id}
@@ -1819,7 +1830,7 @@ function PatientChart() {
     return (
       <div className="min-h-screen grid place-items-center bg-slate-50 p-6">
         <div className="text-center max-w-sm">
-          <AlertTriangle className="h-6 w-6 text-red-600 mx-auto mb-2" />
+          <AlertTriangle className="h-6 w-6 text-critical mx-auto mb-2" />
           <h1 className="text-lg font-semibold">Chart not found</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {error ?? `No patient with MRN ${mrn}.`}
@@ -2070,9 +2081,7 @@ function PatientChart() {
                 <div className="font-mono text-slate-700">SE{patient.mrn.slice(-7)}</div>
               </div>
               {!isFullCode ? null : (
-                <span className="inline-flex items-center rounded bg-red-600 text-white px-2 py-1 text-[10px] font-bold uppercase tracking-wider">
-                  Full Resuscitation
-                </span>
+                <StatusBadge status="critical" label="Full Resuscitation" />
               )}
             </div>
           </div>
@@ -2114,7 +2123,7 @@ function PatientChart() {
             <div className="text-[12px] font-semibold text-slate-800 mb-1">● Vitals — Current</div>
             <div className="grid grid-cols-2 gap-y-1 text-[11.5px]">
               <span className="text-slate-600">BP</span>
-              <span className={`font-mono ${(patient.bp_systolic ?? 0) >= 140 ? "bg-yellow-200 px-1 rounded font-bold" : ""}`}>
+              <span className={`font-mono ${(patient.bp_systolic ?? 0) >= 140 ? "bg-warning-soft text-warning px-1 rounded font-bold" : ""}`}>
                 {patient.bp_systolic ?? "—"}/{patient.bp_diastolic ?? "—"}
               </span>
               <span className="text-slate-600">Pulse</span>
@@ -2124,7 +2133,7 @@ function PatientChart() {
               <span className="text-slate-600">Code</span>
               <span className="font-mono">{codeStatus}</span>
               <span className="text-slate-600">Allergy</span>
-              <span className={`font-mono ${isNKDA ? "" : "text-red-700 font-bold"}`}>{allergy}</span>
+              <span className={`font-mono ${isNKDA ? "" : "text-critical font-bold"}`}>{allergy}</span>
             </div>
           </div>
         </aside>
@@ -2368,7 +2377,7 @@ function OrdersDialog({
               />
             </div>
           )}
-          <div className={`text-[11px] rounded px-2 py-1.5 border ${automationEnabled ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+          <div className={`text-[11px] rounded px-2 py-1.5 border ${automationEnabled ? "bg-success-soft border-success/30 text-success" : "bg-warning-soft border-warning/30 text-warning"}`}>
             {automationEnabled
               ? "Automation ON — order will be auto-approved."
               : "Manual mode — order will go to verification queue."}
@@ -2432,7 +2441,7 @@ function DischargeDialog({
             <label className="text-[11px] text-slate-600 uppercase tracking-wider">Discharge Summary</label>
             <textarea value={summary} onChange={(e) => setSummary(e.target.value)} rows={4} className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
           </div>
-          <div className="text-[11px] rounded px-2 py-1.5 border bg-amber-50 border-amber-200 text-amber-800">
+          <div className="text-[11px] rounded px-2 py-1.5 border bg-warning-soft border-warning/30 text-warning">
             This will mark the patient as discharged and sync across every dashboard.
           </div>
         </div>
@@ -2504,9 +2513,9 @@ function WorkloadDialog({
         </div>
         <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
           {loading ? (
-            <div className="grid place-items-center py-8"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>
+            <CardSkeleton lines={4} />
           ) : total === 0 ? (
-            <div className="text-center py-6 text-sm text-slate-500 italic">No pending items</div>
+            <EmptyState description={`No pending labs or medication orders for ${fullName}.`} />
           ) : (
             <>
               <section>
@@ -2520,9 +2529,7 @@ function WorkloadDialog({
                     {labs.map((l) => (
                       <li key={l.id} className="px-3 py-1.5 flex items-center justify-between text-xs">
                         <span className="text-slate-800">{l.test_type ?? "—"}</span>
-                        <span className="inline-flex rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 ring-1 ring-amber-300">
-                          {l.status}
-                        </span>
+                        <StatusBadge status="warning" label={l.status ?? "—"} />
                       </li>
                     ))}
                   </ul>
@@ -2542,9 +2549,7 @@ function WorkloadDialog({
                           <span className="font-medium">{m.name ?? "—"}</span>
                           {m.dose ? <span className="text-slate-500 ml-1">· {m.dose}</span> : null}
                         </span>
-                        <span className="inline-flex rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800 ring-1 ring-amber-300">
-                          {m.status}
-                        </span>
+                        <StatusBadge status="warning" label={m.status ?? "—"} />
                       </li>
                     ))}
                   </ul>
@@ -2648,8 +2653,11 @@ function AdmissionCaseHistory({ mrn }: { mrn: string }) {
                   {rec.drugAllergies.length === 0
                     ? <span className="text-slate-600">NKDA</span>
                     : rec.drugAllergies.map((a, i) => (
-                        <span key={i} className="inline-block mr-1.5 rounded-full bg-red-50 text-red-700 ring-1 ring-red-200 px-2 py-0.5 text-[11px] font-semibold">
-                          {a.name}{a.reaction ? ` (${a.reaction})` : ""}
+                        <span key={i} className="inline-block mr-1.5">
+                          <StatusBadge
+                            status="critical"
+                            label={`${a.name}${a.reaction ? ` (${a.reaction})` : ""}`}
+                          />
                         </span>
                       ))}
                 </div>
