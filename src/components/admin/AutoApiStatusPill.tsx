@@ -34,7 +34,9 @@ export function AutoApiStatusPill() {
       }
     };
     void load();
-    const id = setInterval(load, 15_000);
+    // Status pill only, not patient-safety-critical. Loosened 15s -> 30s to
+    // cut Supabase egress (Free-plan bandwidth quota mitigation).
+    const id = setInterval(load, 30_000);
     return () => {
       cancelled = true;
       clearInterval(id);

@@ -156,7 +156,10 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
       return channel;
     };
     ch = buildChannel();
-    const poll = setInterval(load, 4000);
+    // Staleness-safety-net only: the realtime channel above (buildChannel)
+    // already delivers live updates. Loosened 4s -> 15s to cut Supabase
+    // egress (Free-plan bandwidth quota mitigation).
+    const poll = setInterval(load, 15_000);
     return () => {
       cancelledRef.current = true;
       if (ch) supabase.removeChannel(ch);
