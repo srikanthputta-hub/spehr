@@ -71,7 +71,9 @@ export function QaGovernanceQueue({
 
   useEffect(() => {
     void load();
-    const id = setInterval(load, 8_000);
+    // Admin governance queue, not patient-safety-critical. Loosened 8s -> 20s
+    // to cut Supabase egress (Free-plan bandwidth quota mitigation).
+    const id = setInterval(load, 20_000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

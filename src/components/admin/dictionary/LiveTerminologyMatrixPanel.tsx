@@ -72,7 +72,9 @@ export default function LiveTerminologyMatrixPanel() {
 
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, 15_000);
+    // Admin dictionary tooling, not patient-safety-critical. Loosened
+    // 15s -> 30s to cut Supabase egress (Free-plan bandwidth quota mitigation).
+    const id = setInterval(refresh, 30_000);
     return () => clearInterval(id);
   }, []);
 
