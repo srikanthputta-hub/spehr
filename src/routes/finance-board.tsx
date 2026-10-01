@@ -12,13 +12,10 @@ import {
 import { InfoHint } from "@/components/ui/info-hint";
 import {
   Loader2,
-  Wallet,
   Receipt,
   Printer,
   Search,
   FileText,
-  TrendingUp,
-  DollarSign,
   CheckCircle2,
   RefreshCw,
 } from "lucide-react";
@@ -28,6 +25,12 @@ import { useServerFn } from "@tanstack/react-start";
 import { backfillInvoices, generateInvoiceForMrn } from "@/lib/auto-doc.functions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { MyspehrPortalActivity } from "@/components/finance/MyspehrPortalActivity";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { KpiTile } from "@/components/common/KpiTile";
+import { EmptyState } from "@/components/common/EmptyState";
+import { TableSkeleton } from "@/components/common/LoadingSkeleton";
+import { severityRowVariants } from "@/components/common/SeverityRow";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/finance-board")({
   component: FinanceBoard,
@@ -276,34 +279,24 @@ function FinanceBoard() {
         subtitle={`${officer.ward} · FHIR R4 Invoice & ChargeItem · Auto Doc pricing engine`}
       />
 
-      {/* KPI strip — rounded widgets */}
+      {/* KPI strip */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-4 p-6 pb-2">
-        <KpiCard
-          icon={<Wallet className="h-4 w-4" />}
-          label="Issued Invoices · Awaiting Payment"
-          value={String(issued.length)}
-          tone="emerald"
-        />
-        <KpiCard
-          icon={<Receipt className="h-4 w-4" />}
-          label="Balanced (Paid) Invoices"
-          value={String(balanced.length)}
-          tone="sky"
-        />
-        <KpiCard
-          icon={<TrendingUp className="h-4 w-4" />}
-          label="Total Billed Revenue"
-          value={money(totalRevenue)}
-          tone="violet"
-          info="Sum of ALL invoices at this facility regardless of status (issued + balanced) — not just money actually collected. The gap between Total Billed and Collected is the outstanding accounts receivable."
-        />
-        <KpiCard
-          icon={<DollarSign className="h-4 w-4" />}
-          label="Collected (Paid)"
-          value={money(collected)}
-          tone="amber"
-          info="Sum of only FHIR Invoices with status = balanced at this facility — money actually collected, either paid by the patient via the MySPEHR portal, or auto-paid on file after a 3-hour no-response timeout (FHIR PaymentNotice either way)."
-        />
+        <KpiTile value={issued.length} label="Issued Invoices · Awaiting Payment" />
+        <KpiTile value={balanced.length} label="Balanced (Paid) Invoices" />
+        <div className="relative">
+          <KpiTile value={money(totalRevenue)} label="Total Billed Revenue" />
+          <InfoHint
+            className="absolute top-4 right-4"
+            text="Sum of ALL invoices at this facility regardless of status (issued + balanced) — not just money actually collected. The gap between Total Billed and Collected is the outstanding accounts receivable."
+          />
+        </div>
+        <div className="relative">
+          <KpiTile value={money(collected)} label="Collected (Paid)" />
+          <InfoHint
+            className="absolute top-4 right-4"
+            text="Sum of only FHIR Invoices with status = balanced at this facility — money actually collected, either paid by the patient via the MySPEHR portal, or auto-paid on file after a 3-hour no-response timeout (FHIR PaymentNotice either way)."
+          />
+        </div>
       </section>
 
       <section className="px-6 pb-6">
@@ -359,14 +352,14 @@ function FinanceBoard() {
           </div>
 
           {loading ? (
-            <div className="grid place-items-center h-48 text-slate-500">
-              <Loader2 className="h-5 w-5 animate-spin" />
+            <div className="p-5">
+              <TableSkeleton rows={6} columns={9} />
             </div>
           ) : filtered.length === 0 ? (
-            <div className="px-5 py-12 text-center text-sm text-slate-500">
-              No invoices in this facility yet. They appear automatically once
-              Auto Doc generates a FHIR Invoice for a discharged encounter.
-            </div>
+            <EmptyState
+              icon={Receipt}
+              description="No invoices in this facility yet. They appear automatically once Auto Doc generates a FHIR Invoice for a discharged encounter."
+            />
           ) : (
             <div className="scroll-feed max-h-[640px]">
               <table className="w-full text-sm">
@@ -395,30 +388,21 @@ function FinanceBoard() {
                       <td className="px-4 py-3">
                         {i.status === "balanced" ? (
                           <div className="inline-flex items-center gap-1">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
-                              <CheckCircle2 className="h-3 w-3" /> Paid
-                            </span>
+                            <StatusBadge status="success" label="Paid" icon={<CheckCircle2 className="h-3 w-3" />} />
                             {i.payment_origin === "auto-pay-timeout" ? (
-                              <span
-                                className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700"
+                              <StatusBadge
+                                status="warning"
+                                label="Auto-paid"
                                 title="No portal payment within 3h of discharge — auto-paid on file"
-                              >
-                                Auto-paid
-                              </span>
+                              />
                             ) : i.payment_origin === "patient-portal" ? (
-                              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
-                                Portal
-                              </span>
+                              <StatusBadge status="info" label="Portal" />
                             ) : i.payment_origin === "staff" ? (
-                              <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
-                                Staff
-                              </span>
+                              <StatusBadge status="neutral" label="Staff" />
                             ) : null}
                           </div>
                         ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-amber-300">
-                            Issued
-                          </span>
+                          <StatusBadge status="warning" label="Issued" />
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-mono font-semibold text-slate-900">
@@ -547,13 +531,11 @@ function RiskAdjustmentGaps({
           </h2>
         </div>
         {loading ? (
-          <div className="grid place-items-center h-24 text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="p-5">
+            <TableSkeleton rows={3} columns={4} />
           </div>
         ) : gaps.length === 0 ? (
-          <div className="px-5 py-8 text-center text-sm text-slate-500">
-            No coverage gaps detected in this facility.
-          </div>
+          <EmptyState description="No coverage gaps detected in this facility." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -567,14 +549,15 @@ function RiskAdjustmentGaps({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {gaps.map((g) => (
-                  <tr key={g.mrn} className="hover:bg-slate-50">
+                  <tr
+                    key={g.mrn}
+                    className={cn(severityRowVariants({ severity: "critical" }), "hover:bg-slate-50")}
+                  >
                     <td className="px-4 py-3 font-mono text-xs text-slate-700">{g.mrn}</td>
                     <td className="px-4 py-3 font-medium text-slate-900">{g.name}</td>
                     <td className="px-4 py-3 text-slate-700">{g.diagnosis}</td>
                     <td className="px-4 py-3 text-right">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-amber-300">
-                        Not captured
-                      </span>
+                      <StatusBadge status="critical" label="Not Captured" />
                     </td>
                   </tr>
                 ))}
@@ -584,41 +567,6 @@ function RiskAdjustmentGaps({
         )}
       </div>
     </section>
-  );
-}
-
-function KpiCard({
-  icon,
-  label,
-  value,
-  tone,
-  info,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  tone: "emerald" | "sky" | "violet" | "amber";
-  info?: string;
-}) {
-  const toneMap: Record<string, string> = {
-    emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    sky: "bg-sky-50 text-sky-700 ring-sky-200",
-    violet: "bg-violet-50 text-violet-700 ring-violet-200",
-    amber: "bg-amber-50 text-amber-700 ring-amber-200",
-  };
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-widest text-slate-500">
-          {label}
-          {info && <InfoHint className="ml-1" text={info} />}
-        </div>
-        <span className={`inline-grid place-items-center h-7 w-7 rounded-md ring-1 ${toneMap[tone]}`}>
-          {icon}
-        </span>
-      </div>
-      <div className="mt-2 text-2xl font-bold text-slate-900">{value}</div>
-    </div>
   );
 }
 
@@ -688,9 +636,7 @@ function BillModal({
           </span>
           <div className="flex items-center gap-2">
             {paid && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
-                <CheckCircle2 className="h-3 w-3" /> Paid in Full
-              </span>
+              <StatusBadge status="success" label="Paid in Full" icon={<CheckCircle2 className="h-3 w-3" />} />
             )}
             <Button size="sm" variant="outline" onClick={handlePrint} className="gap-1.5">
               <Printer className="h-3.5 w-3.5" /> Print Invoice
@@ -718,8 +664,8 @@ function BillModal({
               <div className="mt-2 font-bold text-slate-900">Issued</div>
               <div className="font-mono">{fmtTs(invoice.issued_at)}</div>
               {paid && (
-                <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-300">
-                  <CheckCircle2 className="h-3 w-3" /> Paid in Full
+                <div className="mt-3">
+                  <StatusBadge status="success" label="Paid in Full" icon={<CheckCircle2 className="h-3 w-3" />} />
                 </div>
               )}
             </div>

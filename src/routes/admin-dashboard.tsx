@@ -30,6 +30,12 @@ import { fetchWithTimeout } from "@/lib/async-timeout";
 import { transferDeletePatientViaWorker } from "@/lib/transfer-delete-patient";
 import { InfoHint } from "@/components/ui/info-hint";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { KpiTile } from "@/components/common/KpiTile";
+import { EmptyState } from "@/components/common/EmptyState";
+import { TableSkeleton } from "@/components/common/LoadingSkeleton";
+import { severityRowVariants } from "@/components/common/SeverityRow";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -537,13 +543,9 @@ function AdminDashboard() {
           </div>
           <div className="p-5">
             {transfersLoading ? (
-              <div className="grid place-items-center h-24">
-                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-              </div>
+              <TableSkeleton rows={3} columns={4} />
             ) : facilityTransfers.length === 0 ? (
-              <p className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-md py-6 text-center">
-                No pending inter-facility transfer requests for {facility}.
-              </p>
+              <EmptyState description={`No pending inter-facility transfer requests for ${facility}.`} />
             ) : (
               <ul className="space-y-3">
                 {facilityTransfers.map((t) => {
@@ -552,7 +554,10 @@ function AdminDashboard() {
                   return (
                     <li
                       key={t.id}
-                      className="rounded-lg border border-slate-200 p-4 hover:border-slate-300 transition-colors"
+                      className={cn(
+                        severityRowVariants({ severity: outside ? "critical" : "none" }),
+                        "rounded-lg border border-slate-200 p-4 hover:border-slate-300 transition-colors",
+                      )}
                     >
                       <div className="flex items-start justify-between gap-4 flex-wrap">
                         <div className="min-w-0">
@@ -564,9 +569,7 @@ function AdminDashboard() {
                               MRN {t.patient_mrn}
                             </span>
                             {outside && (
-                              <span className="inline-flex rounded-md bg-red-50 text-red-700 ring-1 ring-red-600/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wide">
-                                OUTSIDE NETWORK
-                              </span>
+                              <StatusBadge status="critical" label="Outside Network" />
                             )}
                           </div>
                           <div className="mt-1 text-xs text-slate-600 flex items-center gap-2 flex-wrap">
@@ -670,18 +673,7 @@ function AdminDashboard() {
                           {s.role}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            onDuty
-                              ? "bg-emerald-500 animate-pulse"
-                              : "bg-sky-500"
-                          }`}
-                        />
-                        <span className={onDuty ? "text-emerald-700 font-medium" : "text-sky-700 font-medium"}>
-                          {s.status}
-                        </span>
-                      </div>
+                      <StatusBadge status={onDuty ? "success" : "neutral"} label={s.status} />
                     </div>
                     {s.cap > 0 && (
                       <div className="mt-3">
@@ -829,9 +821,9 @@ function FacilityAnalytics({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <KpiCard label="Facility Admissions (All Time)" value={totals.total} tone="navy" />
-        <KpiCard label="Currently Admitted" value={totals.admitted} tone="emerald" />
-        <KpiCard label="Discharges" value={totals.discharged} tone="slate" />
+        <KpiTile value={totals.total.toLocaleString()} label="Facility Admissions (All Time)" />
+        <KpiTile value={totals.admitted.toLocaleString()} label="Currently Admitted" />
+        <KpiTile value={totals.discharged.toLocaleString()} label="Discharges" />
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -888,31 +880,3 @@ function FacilityAnalytics({
   );
 }
 
-function KpiCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "navy" | "emerald" | "slate";
-}) {
-  const tones: Record<string, string> = {
-    navy: "bg-[#0c2340] text-white",
-    emerald: "bg-emerald-500 text-white",
-    slate: "bg-slate-200 text-slate-700",
-  };
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-5 py-4">
-      <div className="flex items-start justify-between">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-          {label}
-        </div>
-        <div className={`h-2.5 w-2.5 rounded-full ${tones[tone]}`} />
-      </div>
-      <div className="mt-2 font-mono text-3xl font-semibold text-slate-900 tabular-nums">
-        {value.toLocaleString()}
-      </div>
-    </div>
-  );
-}
