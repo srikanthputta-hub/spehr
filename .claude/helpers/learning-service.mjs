@@ -17,19 +17,19 @@
  * - Pattern storage: <5ms
  */
 
-import { createRequire } from 'module';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { execSync, spawn } from 'child_process';
-import Database from 'better-sqlite3';
+import { createRequire } from "module";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+import { execSync, spawn } from "child_process";
+import Database from "better-sqlite3";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const PROJECT_ROOT = join(__dirname, '../..');
-const DATA_DIR = join(PROJECT_ROOT, '.claude-flow/learning');
-const DB_PATH = join(DATA_DIR, 'patterns.db');
-const METRICS_PATH = join(DATA_DIR, 'learning-metrics.json');
+const PROJECT_ROOT = join(__dirname, "../..");
+const DATA_DIR = join(PROJECT_ROOT, ".claude-flow/learning");
+const DB_PATH = join(DATA_DIR, "patterns.db");
+const METRICS_PATH = join(DATA_DIR, "learning-metrics.json");
 
 // Ensure data directory exists
 if (!existsSync(DATA_DIR)) {
@@ -43,34 +43,34 @@ if (!existsSync(DATA_DIR)) {
 const CONFIG = {
   // HNSW parameters
   hnsw: {
-    M: 16,                    // Max connections per layer
-    efConstruction: 200,      // Construction time accuracy
-    efSearch: 100,            // Search time accuracy
-    metric: 'cosine',         // Distance metric
+    M: 16, // Max connections per layer
+    efConstruction: 200, // Construction time accuracy
+    efSearch: 100, // Search time accuracy
+    metric: "cosine", // Distance metric
   },
 
   // Pattern management
   patterns: {
-    shortTermMaxAge: 24 * 60 * 60 * 1000,  // 24 hours
-    promotionThreshold: 3,    // Uses before promotion to long-term
-    qualityThreshold: 0.6,    // Min quality for storage
-    maxShortTerm: 500,        // Max short-term patterns
-    maxLongTerm: 2000,        // Max long-term patterns
-    dedupThreshold: 0.95,     // Similarity for dedup
+    shortTermMaxAge: 24 * 60 * 60 * 1000, // 24 hours
+    promotionThreshold: 3, // Uses before promotion to long-term
+    qualityThreshold: 0.6, // Min quality for storage
+    maxShortTerm: 500, // Max short-term patterns
+    maxLongTerm: 2000, // Max long-term patterns
+    dedupThreshold: 0.95, // Similarity for dedup
   },
 
   // Embedding
   embedding: {
-    dimension: 384,           // MiniLM-L6 dimension
-    model: 'all-MiniLM-L6-v2', // ONNX model
-    batchSize: 32,            // Batch size for embedding
+    dimension: 384, // MiniLM-L6 dimension
+    model: "all-MiniLM-L6-v2", // ONNX model
+    batchSize: 32, // Batch size for embedding
   },
 
   // Consolidation
   consolidation: {
     interval: 30 * 60 * 1000, // 30 minutes
     pruneAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    minUsageForKeep: 2,       // Min uses to keep old pattern
+    minUsageForKeep: 2, // Min uses to keep old pattern
   },
 };
 
@@ -171,14 +171,14 @@ function initializeDatabase(db) {
 class HNSWIndex {
   constructor(config) {
     this.config = config;
-    this.vectors = new Map();      // id -> Float32Array
-    this.idToVector = new Map();   // patternId -> vectorId
-    this.vectorToId = new Map();   // vectorId -> patternId
+    this.vectors = new Map(); // id -> Float32Array
+    this.idToVector = new Map(); // patternId -> vectorId
+    this.vectorToId = new Map(); // vectorId -> patternId
     this.nextVectorId = 0;
     this.dimension = config.embedding.dimension;
 
     // Graph structure for HNSW
-    this.layers = [];              // Multi-layer graph
+    this.layers = []; // Multi-layer graph
     this.entryPoint = null;
     this.maxLevel = 0;
   }
@@ -186,9 +186,7 @@ class HNSWIndex {
   // Add vector to index
   add(patternId, embedding) {
     const vectorId = this.nextVectorId++;
-    const vector = embedding instanceof Float32Array
-      ? embedding
-      : new Float32Array(embedding);
+    const vector = embedding instanceof Float32Array ? embedding : new Float32Array(embedding);
 
     this.vectors.set(vectorId, vector);
     this.idToVector.set(patternId, vectorId);
@@ -202,9 +200,8 @@ class HNSWIndex {
 
   // Search for k nearest neighbors
   search(queryEmbedding, k = 5) {
-    const query = queryEmbedding instanceof Float32Array
-      ? queryEmbedding
-      : new Float32Array(queryEmbedding);
+    const query =
+      queryEmbedding instanceof Float32Array ? queryEmbedding : new Float32Array(queryEmbedding);
 
     if (this.vectors.size === 0) return { results: [], searchTimeMs: 0 };
 
@@ -248,7 +245,9 @@ class HNSWIndex {
 
   // Cosine similarity
   _cosineSimilarity(a, b) {
-    let dot = 0, normA = 0, normB = 0;
+    let dot = 0,
+      normA = 0,
+      normB = 0;
     for (let i = 0; i < a.length; i++) {
       dot += a[i] * b[i];
       normA += a[i] * a[i];
@@ -378,7 +377,7 @@ class HNSWIndex {
 
     const vector = this.vectors.get(vectorId);
     const scored = Array.from(connections)
-      .map(neighborId => ({
+      .map((neighborId) => ({
         neighborId,
         distance: this._cosineDistance(vector, this.vectors.get(neighborId)),
       }))
@@ -418,8 +417,8 @@ class HNSWIndex {
       vectorToId: Array.from(this.vectorToId.entries()),
       nextVectorId: this.nextVectorId,
       entryPoint: this.entryPoint,
-      layers: this.layers.map(layer =>
-        Array.from(layer.entries()).map(([k, v]) => [k, Array.from(v)])
+      layers: this.layers.map((layer) =>
+        Array.from(layer.entries()).map(([k, v]) => [k, Array.from(v)]),
       ),
     };
   }
@@ -435,8 +434,8 @@ class HNSWIndex {
     index.vectorToId = new Map(data.vectorToId || []);
     index.nextVectorId = data.nextVectorId || 0;
     index.entryPoint = data.entryPoint;
-    index.layers = (data.layers || []).map(layer =>
-      new Map(layer.map(([k, v]) => [k, new Set(v)]))
+    index.layers = (data.layers || []).map(
+      (layer) => new Map(layer.map(([k, v]) => [k, new Set(v)])),
     );
 
     return index;
@@ -461,23 +460,26 @@ class EmbeddingService {
 
     try {
       // Dynamically import agentic-flow OptimizedEmbedder
-      const agenticFlowPath = join(PROJECT_ROOT, 'node_modules/agentic-flow/dist/embeddings/optimized-embedder.js');
+      const agenticFlowPath = join(
+        PROJECT_ROOT,
+        "node_modules/agentic-flow/dist/embeddings/optimized-embedder.js",
+      );
 
       if (existsSync(agenticFlowPath)) {
         const { getOptimizedEmbedder } = await import(agenticFlowPath);
         this.embedder = getOptimizedEmbedder({
-          modelId: 'all-MiniLM-L6-v2',
+          modelId: "all-MiniLM-L6-v2",
           dimension: this.config.embedding.dimension,
           cacheSize: 256,
-          autoDownload: false,  // Model should already be downloaded
+          autoDownload: false, // Model should already be downloaded
         });
 
         await this.embedder.init();
         this.useAgenticFlow = true;
-        console.log('[Embedding] Initialized: agentic-flow OptimizedEmbedder (ONNX)');
+        console.log("[Embedding] Initialized: agentic-flow OptimizedEmbedder (ONNX)");
       } else {
         this.useAgenticFlow = false;
-        console.log('[Embedding] agentic-flow not found, using fallback hash embeddings');
+        console.log("[Embedding] agentic-flow not found, using fallback hash embeddings");
       }
 
       this.initialized = true;
@@ -524,13 +526,13 @@ class EmbeddingService {
   async embedBatch(texts) {
     if (this.useAgenticFlow && this.embedder) {
       try {
-        return await this.embedder.embedBatch(texts.map(t => t.slice(0, 500)));
+        return await this.embedder.embedBatch(texts.map((t) => t.slice(0, 500)));
       } catch (e) {
         // Fallback to sequential
-        return Promise.all(texts.map(t => this.embed(t)));
+        return Promise.all(texts.map((t) => this.embed(t)));
       }
     }
-    return Promise.all(texts.map(t => this.embed(t)));
+    return Promise.all(texts.map((t) => this.embed(t)));
   }
 
   // Fallback: deterministic hash-based embedding
@@ -603,8 +605,8 @@ class LearningService {
     await this._loadIndexes();
 
     // Record session start
-    this._setState('current_session', this.sessionId);
-    this._setState('session_start', Date.now().toString());
+    this._setState("current_session", this.sessionId);
+    this._setState("session_start", Date.now().toString());
 
     console.log(`[Learning] Initialized session ${this.sessionId}`);
     console.log(`[Learning] Short-term patterns: ${this.shortTermIndex.size()}`);
@@ -618,7 +620,7 @@ class LearningService {
   }
 
   // Store a new pattern
-  async storePattern(strategy, domain = 'general', metadata = {}) {
+  async storePattern(strategy, domain = "general", metadata = {}) {
     const now = Date.now();
     const id = `pat_${now}_${Math.random().toString(36).slice(2, 9)}`;
 
@@ -630,8 +632,8 @@ class LearningService {
     if (results.length > 0 && results[0].similarity > CONFIG.patterns.dedupThreshold) {
       // Update existing pattern instead
       const existingId = results[0].patternId;
-      this._updatePatternUsage(existingId, 'short_term');
-      return { id: existingId, action: 'updated', similarity: results[0].similarity };
+      this._updatePatternUsage(existingId, "short_term");
+      return { id: existingId, action: "updated", similarity: results[0].similarity };
     }
 
     // Store in database
@@ -642,12 +644,16 @@ class LearningService {
     `);
 
     stmt.run(
-      id, strategy, domain,
+      id,
+      strategy,
+      domain,
       Buffer.from(embedding.buffer),
       metadata.quality || 0.5,
-      1, now, now,
+      1,
+      now,
+      now,
       this.sessionId,
-      JSON.stringify(metadata)
+      JSON.stringify(metadata),
     );
 
     // Add to HNSW index
@@ -658,39 +664,39 @@ class LearningService {
     // Check if we need to prune
     this._pruneShortTerm();
 
-    return { id, action: 'created', embedding: Array.from(embedding).slice(0, 5) };
+    return { id, action: "created", embedding: Array.from(embedding).slice(0, 5) };
   }
 
   // Search for similar patterns
   async searchPatterns(query, k = 5, includeShortTerm = true) {
-    const embedding = typeof query === 'string'
-      ? await this.embeddingService.embed(query)
-      : query;
+    const embedding = typeof query === "string" ? await this.embeddingService.embed(query) : query;
 
     const results = [];
 
     // Search long-term first (higher quality)
     const longTermResults = this.longTermIndex.search(embedding, k);
-    results.push(...longTermResults.results.map(r => ({ ...r, type: 'long_term' })));
+    results.push(...longTermResults.results.map((r) => ({ ...r, type: "long_term" })));
 
     // Search short-term if needed
     if (includeShortTerm) {
       const shortTermResults = this.shortTermIndex.search(embedding, k);
-      results.push(...shortTermResults.results.map(r => ({ ...r, type: 'short_term' })));
+      results.push(...shortTermResults.results.map((r) => ({ ...r, type: "short_term" })));
     }
 
     // Sort by similarity and dedupe
     results.sort((a, b) => b.similarity - a.similarity);
     const seen = new Set();
-    const deduped = results.filter(r => {
-      if (seen.has(r.patternId)) return false;
-      seen.add(r.patternId);
-      return true;
-    }).slice(0, k);
+    const deduped = results
+      .filter((r) => {
+        if (seen.has(r.patternId)) return false;
+        seen.add(r.patternId);
+        return true;
+      })
+      .slice(0, k);
 
     // Get full pattern data
-    const patterns = deduped.map(r => {
-      const table = r.type === 'long_term' ? 'long_term_patterns' : 'short_term_patterns';
+    const patterns = deduped.map((r) => {
+      const table = r.type === "long_term" ? "long_term_patterns" : "short_term_patterns";
       const row = this.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(r.patternId);
       return {
         ...r,
@@ -716,9 +722,9 @@ class LearningService {
   // Record pattern usage (for promotion)
   recordPatternUsage(patternId, success = true) {
     // Try short-term first
-    let updated = this._updatePatternUsage(patternId, 'short_term', success);
+    let updated = this._updatePatternUsage(patternId, "short_term", success);
     if (!updated) {
-      updated = this._updatePatternUsage(patternId, 'long_term', success);
+      updated = this._updatePatternUsage(patternId, "long_term", success);
     }
 
     // Check for promotion
@@ -731,9 +737,13 @@ class LearningService {
 
   // Promote patterns from short-term to long-term
   _checkPromotion(patternId) {
-    const row = this.db.prepare(`
+    const row = this.db
+      .prepare(
+        `
       SELECT * FROM short_term_patterns WHERE id = ?
-    `).get(patternId);
+    `,
+      )
+      .get(patternId);
 
     if (!row) return false;
 
@@ -747,32 +757,36 @@ class LearningService {
     const now = Date.now();
 
     // Insert into long-term
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO long_term_patterns
       (id, strategy, domain, embedding, quality, usage_count, success_count,
        created_at, updated_at, promoted_at, source_pattern_id, quality_history, metadata)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      `lt_${patternId}`,
-      row.strategy,
-      row.domain,
-      row.embedding,
-      row.quality,
-      row.usage_count,
-      row.success_count,
-      row.created_at,
-      now,
-      now,
-      patternId,
-      JSON.stringify([row.quality]),
-      row.metadata
-    );
+    `,
+      )
+      .run(
+        `lt_${patternId}`,
+        row.strategy,
+        row.domain,
+        row.embedding,
+        row.quality,
+        row.usage_count,
+        row.success_count,
+        row.created_at,
+        now,
+        now,
+        patternId,
+        JSON.stringify([row.quality]),
+        row.metadata,
+      );
 
     // Add to long-term index
     this.longTermIndex.add(`lt_${patternId}`, this._bufferToFloat32Array(row.embedding));
 
     // Remove from short-term
-    this.db.prepare('DELETE FROM short_term_patterns WHERE id = ?').run(patternId);
+    this.db.prepare("DELETE FROM short_term_patterns WHERE id = ?").run(patternId);
     this.shortTermIndex.remove(patternId);
 
     this.metrics.promotions++;
@@ -783,16 +797,20 @@ class LearningService {
 
   // Update pattern usage
   _updatePatternUsage(patternId, table, success = true) {
-    const tableName = table === 'long_term' ? 'long_term_patterns' : 'short_term_patterns';
+    const tableName = table === "long_term" ? "long_term_patterns" : "short_term_patterns";
 
-    const result = this.db.prepare(`
+    const result = this.db
+      .prepare(
+        `
       UPDATE ${tableName}
       SET usage_count = usage_count + 1,
           success_count = success_count + ?,
           quality = (quality * usage_count + ?) / (usage_count + 1),
           updated_at = ?
       WHERE id = ?
-    `).run(success ? 1 : 0, success ? 1.0 : 0.0, Date.now(), patternId);
+    `,
+      )
+      .run(success ? 1 : 0, success ? 1.0 : 0.0, Date.now(), patternId);
 
     return result.changes > 0;
   }
@@ -808,31 +826,36 @@ class LearningService {
 
     // 1. Remove old short-term patterns
     const oldThreshold = Date.now() - CONFIG.patterns.shortTermMaxAge;
-    const pruned = this.db.prepare(`
+    const pruned = this.db
+      .prepare(
+        `
       DELETE FROM short_term_patterns
       WHERE created_at < ? AND usage_count < ?
-    `).run(oldThreshold, CONFIG.patterns.promotionThreshold);
+    `,
+      )
+      .run(oldThreshold, CONFIG.patterns.promotionThreshold);
     stats.patternsProned = pruned.changes;
 
     // 2. Rebuild indexes
     await this._loadIndexes();
 
     // 3. Remove duplicates in long-term
-    const longTermPatterns = this.db.prepare('SELECT * FROM long_term_patterns').all();
+    const longTermPatterns = this.db.prepare("SELECT * FROM long_term_patterns").all();
     for (let i = 0; i < longTermPatterns.length; i++) {
       for (let j = i + 1; j < longTermPatterns.length; j++) {
         const sim = this._cosineSimilarity(
           this._bufferToFloat32Array(longTermPatterns[i].embedding),
-          this._bufferToFloat32Array(longTermPatterns[j].embedding)
+          this._bufferToFloat32Array(longTermPatterns[j].embedding),
         );
 
         if (sim > CONFIG.patterns.dedupThreshold) {
           // Keep the higher quality one
-          const toRemove = longTermPatterns[i].quality >= longTermPatterns[j].quality
-            ? longTermPatterns[j].id
-            : longTermPatterns[i].id;
+          const toRemove =
+            longTermPatterns[i].quality >= longTermPatterns[j].quality
+              ? longTermPatterns[j].id
+              : longTermPatterns[i].id;
 
-          this.db.prepare('DELETE FROM long_term_patterns WHERE id = ?').run(toRemove);
+          this.db.prepare("DELETE FROM long_term_patterns WHERE id = ?").run(toRemove);
           stats.duplicatesRemoved++;
         }
       }
@@ -840,10 +863,14 @@ class LearningService {
 
     // 4. Prune old long-term patterns
     const pruneAge = Date.now() - CONFIG.consolidation.pruneAge;
-    const oldPruned = this.db.prepare(`
+    const oldPruned = this.db
+      .prepare(
+        `
       DELETE FROM long_term_patterns
       WHERE updated_at < ? AND usage_count < ?
-    `).run(pruneAge, CONFIG.consolidation.minUsageForKeep);
+    `,
+      )
+      .run(pruneAge, CONFIG.consolidation.minUsageForKeep);
     stats.patternsProned += oldPruned.changes;
 
     // Rebuild indexes after changes
@@ -859,13 +886,21 @@ class LearningService {
 
   // Export learning data for session end
   async exportSession() {
-    const sessionPatterns = this.db.prepare(`
+    const sessionPatterns = this.db
+      .prepare(
+        `
       SELECT * FROM short_term_patterns WHERE session_id = ?
-    `).all(this.sessionId);
+    `,
+      )
+      .all(this.sessionId);
 
-    const trajectories = this.db.prepare(`
+    const trajectories = this.db
+      .prepare(
+        `
       SELECT * FROM trajectories WHERE session_id = ?
-    `).all(this.sessionId);
+    `,
+      )
+      .all(this.sessionId);
 
     return {
       sessionId: this.sessionId,
@@ -879,26 +914,36 @@ class LearningService {
 
   // Get learning statistics
   getStats() {
-    const shortTermCount = this.db.prepare('SELECT COUNT(*) as count FROM short_term_patterns').get().count;
-    const longTermCount = this.db.prepare('SELECT COUNT(*) as count FROM long_term_patterns').get().count;
-    const trajectoryCount = this.db.prepare('SELECT COUNT(*) as count FROM trajectories').get().count;
+    const shortTermCount = this.db
+      .prepare("SELECT COUNT(*) as count FROM short_term_patterns")
+      .get().count;
+    const longTermCount = this.db
+      .prepare("SELECT COUNT(*) as count FROM long_term_patterns")
+      .get().count;
+    const trajectoryCount = this.db
+      .prepare("SELECT COUNT(*) as count FROM trajectories")
+      .get().count;
 
-    const avgQuality = this.db.prepare(`
+    const avgQuality =
+      this.db
+        .prepare(
+          `
       SELECT AVG(quality) as avg FROM (
         SELECT quality FROM short_term_patterns
         UNION ALL
         SELECT quality FROM long_term_patterns
       )
-    `).get().avg || 0;
+    `,
+        )
+        .get().avg || 0;
 
     return {
       shortTermPatterns: shortTermCount,
       longTermPatterns: longTermCount,
       trajectories: trajectoryCount,
       avgQuality,
-      avgSearchTimeMs: this.metrics.searchCount > 0
-        ? this.metrics.searchTimeTotal / this.metrics.searchCount
-        : 0,
+      avgSearchTimeMs:
+        this.metrics.searchCount > 0 ? this.metrics.searchTimeTotal / this.metrics.searchCount : 0,
       ...this.metrics,
     };
   }
@@ -907,7 +952,9 @@ class LearningService {
   async _loadIndexes() {
     // Load short-term patterns
     this.shortTermIndex = new HNSWIndex(CONFIG);
-    const shortTermPatterns = this.db.prepare('SELECT id, embedding FROM short_term_patterns').all();
+    const shortTermPatterns = this.db
+      .prepare("SELECT id, embedding FROM short_term_patterns")
+      .all();
     for (const row of shortTermPatterns) {
       const embedding = this._bufferToFloat32Array(row.embedding);
       if (embedding) {
@@ -917,7 +964,7 @@ class LearningService {
 
     // Load long-term patterns
     this.longTermIndex = new HNSWIndex(CONFIG);
-    const longTermPatterns = this.db.prepare('SELECT id, embedding FROM long_term_patterns').all();
+    const longTermPatterns = this.db.prepare("SELECT id, embedding FROM long_term_patterns").all();
     for (const row of longTermPatterns) {
       const embedding = this._bufferToFloat32Array(row.embedding);
       if (embedding) {
@@ -928,40 +975,51 @@ class LearningService {
 
   // Prune short-term patterns if over limit
   _pruneShortTerm() {
-    const count = this.db.prepare('SELECT COUNT(*) as count FROM short_term_patterns').get().count;
+    const count = this.db.prepare("SELECT COUNT(*) as count FROM short_term_patterns").get().count;
 
     if (count <= CONFIG.patterns.maxShortTerm) return;
 
     // Remove lowest quality patterns
     const toRemove = count - CONFIG.patterns.maxShortTerm;
-    const ids = this.db.prepare(`
+    const ids = this.db
+      .prepare(
+        `
       SELECT id FROM short_term_patterns
       ORDER BY quality ASC, usage_count ASC
       LIMIT ?
-    `).all(toRemove).map(r => r.id);
+    `,
+      )
+      .all(toRemove)
+      .map((r) => r.id);
 
     for (const id of ids) {
-      this.db.prepare('DELETE FROM short_term_patterns WHERE id = ?').run(id);
+      this.db.prepare("DELETE FROM short_term_patterns WHERE id = ?").run(id);
       this.shortTermIndex.remove(id);
     }
   }
 
   // Get/set state
   _getState(key) {
-    const row = this.db.prepare('SELECT value FROM session_state WHERE key = ?').get(key);
+    const row = this.db.prepare("SELECT value FROM session_state WHERE key = ?").get(key);
     return row?.value;
   }
 
   _setState(key, value) {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT OR REPLACE INTO session_state (key, value, updated_at)
       VALUES (?, ?, ?)
-    `).run(key, value, Date.now());
+    `,
+      )
+      .run(key, value, Date.now());
   }
 
   // Cosine similarity helper
   _cosineSimilarity(a, b) {
-    let dot = 0, normA = 0, normB = 0;
+    let dot = 0,
+      normA = 0,
+      normB = 0;
     for (let i = 0; i < a.length; i++) {
       dot += a[i] * b[i];
       normA += a[i] * a[i];
@@ -1010,25 +1068,25 @@ class LearningService {
 // =============================================================================
 
 async function main() {
-  const command = process.argv[2] || 'help';
+  const command = process.argv[2] || "help";
   const service = new LearningService();
 
   try {
     switch (command) {
-      case 'init':
-      case 'start': {
+      case "init":
+      case "start": {
         const sessionId = process.argv[3];
         const result = await service.initialize(sessionId);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
 
-      case 'store': {
+      case "store": {
         await service.initialize();
         const strategy = process.argv[3];
-        const domain = process.argv[4] || 'general';
+        const domain = process.argv[4] || "general";
         if (!strategy) {
-          console.error('Usage: learning-service.mjs store <strategy> [domain]');
+          console.error("Usage: learning-service.mjs store <strategy> [domain]");
           process.exit(1);
         }
         const result = await service.storePattern(strategy, domain);
@@ -1036,12 +1094,12 @@ async function main() {
         break;
       }
 
-      case 'search': {
+      case "search": {
         await service.initialize();
         const query = process.argv[3];
         const k = parseInt(process.argv[4]) || 5;
         if (!query) {
-          console.error('Usage: learning-service.mjs search <query> [k]');
+          console.error("Usage: learning-service.mjs search <query> [k]");
           process.exit(1);
         }
         const result = await service.searchPatterns(query, k);
@@ -1049,67 +1107,74 @@ async function main() {
         break;
       }
 
-      case 'consolidate': {
+      case "consolidate": {
         await service.initialize();
         const result = await service.consolidate();
         console.log(JSON.stringify(result, null, 2));
         break;
       }
 
-      case 'export': {
+      case "export": {
         await service.initialize();
         const result = await service.exportSession();
         console.log(JSON.stringify(result, null, 2));
         break;
       }
 
-      case 'stats': {
+      case "stats": {
         await service.initialize();
         const stats = service.getStats();
         console.log(JSON.stringify(stats, null, 2));
         break;
       }
 
-      case 'benchmark': {
+      case "benchmark": {
         await service.initialize();
 
-        console.log('[Benchmark] Starting HNSW performance test...');
+        console.log("[Benchmark] Starting HNSW performance test...");
 
         // Store test patterns
         const testPatterns = [
-          'Implement authentication with JWT tokens',
-          'Fix memory leak in event handler',
-          'Optimize database query performance',
-          'Add unit tests for user service',
-          'Refactor component to use hooks',
+          "Implement authentication with JWT tokens",
+          "Fix memory leak in event handler",
+          "Optimize database query performance",
+          "Add unit tests for user service",
+          "Refactor component to use hooks",
         ];
 
         for (const strategy of testPatterns) {
-          await service.storePattern(strategy, 'code');
+          await service.storePattern(strategy, "code");
         }
 
         // Benchmark search
         const searchTimes = [];
         for (let i = 0; i < 100; i++) {
           const start = performance.now();
-          await service.searchPatterns('implement authentication', 3);
+          await service.searchPatterns("implement authentication", 3);
           searchTimes.push(performance.now() - start);
         }
 
         const avgSearch = searchTimes.reduce((a, b) => a + b) / searchTimes.length;
         const p95Search = searchTimes.sort((a, b) => a - b)[Math.floor(searchTimes.length * 0.95)];
 
-        console.log(JSON.stringify({
-          avgSearchMs: avgSearch.toFixed(3),
-          p95SearchMs: p95Search.toFixed(3),
-          totalPatterns: service.getStats().shortTermPatterns + service.getStats().longTermPatterns,
-          hnswActive: true,
-          searchImprovementEstimate: `${Math.round(50 / Math.max(avgSearch, 0.1))}x`,
-        }, null, 2));
+        console.log(
+          JSON.stringify(
+            {
+              avgSearchMs: avgSearch.toFixed(3),
+              p95SearchMs: p95Search.toFixed(3),
+              totalPatterns:
+                service.getStats().shortTermPatterns + service.getStats().longTermPatterns,
+              hnswActive: true,
+              searchImprovementEstimate: `${Math.round(50 / Math.max(avgSearch, 0.1))}x`,
+            },
+            null,
+            2,
+          ),
+        );
         break;
       }
 
-      case 'help':
+      case "help":
       default:
         console.log(`
 Claude Flow V3 Learning Service
@@ -1137,8 +1202,8 @@ export { LearningService, HNSWIndex, EmbeddingService, CONFIG };
 
 // Run CLI if executed directly
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main().catch(e => {
-    console.error('Error:', e.message);
+  main().catch((e) => {
+    console.error("Error:", e.message);
     process.exit(1);
   });
 }

@@ -44,12 +44,7 @@ let channelStarted = false;
 async function fetchFlag(): Promise<boolean> {
   const fallback = readStoredAutomation() ?? true;
   const { data, error } = await fetchWithTimeout(
-    () =>
-      supabase
-        .from("system_settings")
-        .select("automation_enabled")
-        .eq("id", 1)
-        .maybeSingle(),
+    () => supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
     { data: null, error: new Error("system_settings timeout") } as any,
   );
   if (error) return fallback;
@@ -140,12 +135,7 @@ let apiChannelStarted = false;
 
 async function fetchApiFlag(): Promise<boolean> {
   const { data } = await fetchWithTimeout(
-    () =>
-      supabase
-        .from("system_settings")
-        .select("auto_api_enabled")
-        .eq("id", 1)
-        .maybeSingle(),
+    () => supabase.from("system_settings").select("auto_api_enabled").eq("id", 1).maybeSingle(),
     { data: null, error: null } as any,
   );
   // Default true if the column is missing (older deployments).

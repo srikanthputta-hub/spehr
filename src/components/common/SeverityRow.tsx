@@ -34,8 +34,7 @@ const severityRowVariants = cva("border-l-4 pl-3 -ml-px", {
 });
 
 export interface SeverityRowProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof severityRowVariants> {}
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof severityRowVariants> {}
 
 function SeverityRow({ className, severity, interactive, ...props }: SeverityRowProps) {
   return (

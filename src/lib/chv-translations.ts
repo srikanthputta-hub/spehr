@@ -13,17 +13,18 @@ type System = "ICD-10" | "SNOMED CT" | "LOINC" | "RxNorm";
 const BY_CODE: Record<string, string> = {
   // ICD-10
   "I21.9": "A sudden reduction in blood flow to the heart, also called a heart attack.",
-  "I24.9": "A sudden reduction of blood flow to the heart muscle, related to coronary artery disease.",
+  "I24.9":
+    "A sudden reduction of blood flow to the heart muscle, related to coronary artery disease.",
   "I63.9": "A stroke — a part of the brain has lost its blood supply.",
   "I26.99": "A blood clot lodged in the lungs.",
   "I62.9": "Bleeding inside the skull or brain tissue.",
   "J18.9": "Pneumonia — an infection of the lungs.",
-  "J45": "Asthma — narrowing of the airways causing wheezing and shortness of breath.",
+  J45: "Asthma — narrowing of the airways causing wheezing and shortness of breath.",
   "E11.9": "Type 2 diabetes — the body has trouble controlling blood sugar.",
   "K92.2": "Bleeding from the upper part of the digestive tract.",
-  "T07": "An injury caused by a physical impact or trauma.",
+  T07: "An injury caused by a physical impact or trauma.",
   "R47.01": "Difficulty producing clear speech.",
-  "R05": "A persistent cough.",
+  R05: "A persistent cough.",
   "R10.9": "Abdominal pain whose cause is not yet identified.",
   "K56.6": "An intestinal blockage.",
   // SNOMED CT
@@ -34,7 +35,8 @@ const BY_CODE: Record<string, string> = {
   "424863004": "Trauma resulting from blunt impact.",
   "425359009": "Soft-tissue injury from blunt force.",
   // LOINC
-  "10839-9": "Troponin I — a protein released when the heart muscle is damaged. High levels can indicate a heart attack.",
+  "10839-9":
+    "Troponin I — a protein released when the heart muscle is damaged. High levels can indicate a heart attack.",
   "6690-2": "White blood cell count — used to look for infection or inflammation.",
   "2345-7": "Blood glucose — measures the sugar in your blood.",
   "2160-0": "Creatinine — measures how well your kidneys are filtering waste.",
@@ -47,7 +49,10 @@ const BY_CODE: Record<string, string> = {
 };
 
 const BY_DISPLAY_KEYWORD: Array<[RegExp, string]> = [
-  [/heart attack|myocardial infarction|acute coronary/i, "A sudden reduction in blood flow to the heart muscle."],
+  [
+    /heart attack|myocardial infarction|acute coronary/i,
+    "A sudden reduction in blood flow to the heart muscle.",
+  ],
   [/stroke|cerebrovascular|cerebral infarct/i, "A part of the brain has lost its blood supply."],
   [/pneumonia/i, "An infection of the lungs."],
   [/upper gi bleed|gastric bleed/i, "Bleeding from the upper part of the digestive tract."],
@@ -55,7 +60,10 @@ const BY_DISPLAY_KEYWORD: Array<[RegExp, string]> = [
   [/asthma/i, "Narrowing of the airways causing wheezing or shortness of breath."],
   [/diabetes/i, "A condition where the body has trouble controlling blood sugar."],
   [/troponin/i, "A protein released when the heart muscle is damaged."],
-  [/metoprolol|atenolol|propranolol/i, "A beta-blocker that helps control heart rate and blood pressure."],
+  [
+    /metoprolol|atenolol|propranolol/i,
+    "A beta-blocker that helps control heart rate and blood pressure.",
+  ],
   [/lisinopril|enalapril|ramipril/i, "An ACE inhibitor that lowers blood pressure."],
   [/metformin/i, "A medicine that helps control blood sugar in type 2 diabetes."],
   [/aspirin/i, "A pain reliever that also helps prevent blood clots."],

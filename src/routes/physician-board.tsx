@@ -19,10 +19,7 @@ import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import { getPatient as getSeedPatient } from "@/lib/patients";
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
-import {
-  MEDICATION_CATALOG,
-  LAB_CATALOG,
-} from "@/constants/clinical-catalog";
+import { MEDICATION_CATALOG, LAB_CATALOG } from "@/constants/clinical-catalog";
 import {
   Dialog,
   DialogContent,
@@ -77,7 +74,19 @@ type Patient = {
 };
 
 const ROUTES = ["PO", "IV", "IM", "SubQ", "Inh", "Neb", "Topical", "PR"];
-const FREQS = ["Once", "Daily", "BID", "TID", "QID", "Q4H", "Q6H", "Q8H", "Q12H", "PRN", "Continuous"];
+const FREQS = [
+  "Once",
+  "Daily",
+  "BID",
+  "TID",
+  "QID",
+  "Q4H",
+  "Q6H",
+  "Q8H",
+  "Q12H",
+  "PRN",
+  "Continuous",
+];
 
 // Deterministic per-MRN catalog fallback. Mirrors the seed randomizer so
 // every patient yields a stable 3-med / 2-lab payload even when the DB
@@ -131,7 +140,9 @@ function PhysicianBoard() {
 
   // AI DDx
   const [ddxLoading, setDdxLoading] = useState(false);
-  const [ddx, setDdx] = useState<{ dx: string; likelihood: string; rationale: string }[] | null>(null);
+  const [ddx, setDdx] = useState<{ dx: string; likelihood: string; rationale: string }[] | null>(
+    null,
+  );
 
   // Referral / Transfer
   const [transferOpen, setTransferOpen] = useState(false);
@@ -141,9 +152,9 @@ function PhysicianBoard() {
 
   // Clinical Actions modal
   const [actionsMrn, setActionsMrn] = useState<string | null>(null);
-  const [actionsView, setActionsView] = useState<
-    "menu" | "orders" | "lab" | "note" | "discharge"
-  >("menu");
+  const [actionsView, setActionsView] = useState<"menu" | "orders" | "lab" | "note" | "discharge">(
+    "menu",
+  );
   const [labTest, setLabTest] = useState("Complete Blood Count (CBC)");
   const [labStat, setLabStat] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -169,7 +180,12 @@ function PhysicianBoard() {
       .channel(`safety-alerts-board-${facility}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "clinical_safety_alerts", filter: `facility_name=eq.${facility}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "clinical_safety_alerts",
+          filter: `facility_name=eq.${facility}`,
+        },
         () => load(),
       )
       .subscribe();
@@ -237,23 +253,19 @@ function PhysicianBoard() {
 
     const channel = supabase
       .channel("physician-patients")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "patients" },
-        () => {
-          supabase
-            .from("patients")
-            .select(
-              "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
-            )
-            .eq("status", "Admitted")
-            .eq("facility_name", facility ?? "Memorial Hospital")
-            .order("room", { ascending: true })
-            .then(({ data }) => {
-              if (data) setPatients(data as Patient[]);
-            });
-        },
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, () => {
+        supabase
+          .from("patients")
+          .select(
+            "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
+          )
+          .eq("status", "Admitted")
+          .eq("facility_name", facility ?? "Memorial Hospital")
+          .order("room", { ascending: true })
+          .then(({ data }) => {
+            if (data) setPatients(data as Patient[]);
+          });
+      })
       .subscribe();
     return () => {
       active = false;
@@ -263,9 +275,7 @@ function PhysicianBoard() {
 
   const activeFacilityName = facility ?? "Memorial Hospital";
   const allPatients = patients;
-  const filteredPatients = allPatients.filter(
-    (p) => p.facility_name === activeFacilityName,
-  );
+  const filteredPatients = allPatients.filter((p) => p.facility_name === activeFacilityName);
 
   const selected = useMemo(
     () => filteredPatients.find((p) => p.mrn === selectedMrn) ?? null,
@@ -289,9 +299,7 @@ function PhysicianBoard() {
     setRoute("PO");
     setFreq("Daily");
     setReason("");
-    setDestination(
-      TRANSFER_DESTINATIONS.find((d) => d !== facility) ?? "Outside Network",
-    );
+    setDestination(TRANSFER_DESTINATIONS.find((d) => d !== facility) ?? "Outside Network");
   }, [selectedMrn]);
 
   const submitOrder = async (e: React.FormEvent) => {
@@ -303,26 +311,33 @@ function PhysicianBoard() {
     }
     setSubmitting(true);
     const patientName =
-      [selected.first_name, selected.last_name].filter(Boolean).join(" ") ||
-      selected.mrn;
+      [selected.first_name, selected.last_name].filter(Boolean).join(" ") || selected.mrn;
     try {
-      const { data: inserted, error } = await supabase.from("medication_orders").insert({
-        patient_name: patientName,
-        mrn: selected.mrn,
-        patient_mrn: selected.mrn,
-        facility_name: facility ?? "Memorial Hospital",
-        drug_name: drug.trim(),
-        medication_name: drug.trim(),
-        dose: dose.trim(),
-        route,
-        frequency: freq,
-        status: "PENDING_VERIFICATION",
-        ordering_physician: md.name,
-        ordered_by: md.name,
-      }).select("id").single();
+      const { data: inserted, error } = await supabase
+        .from("medication_orders")
+        .insert({
+          patient_name: patientName,
+          mrn: selected.mrn,
+          patient_mrn: selected.mrn,
+          facility_name: facility ?? "Memorial Hospital",
+          drug_name: drug.trim(),
+          medication_name: drug.trim(),
+          dose: dose.trim(),
+          route,
+          frequency: freq,
+          status: "PENDING_VERIFICATION",
+          ordering_physician: md.name,
+          ordered_by: md.name,
+        })
+        .select("id")
+        .single();
       if (error) throw error;
       if (inserted?.id) {
-        autoCodeMedication(drug.trim(), { resourceId: inserted.id, mrn: selected.mrn, resolver: "physician-cpoe" });
+        autoCodeMedication(drug.trim(), {
+          resourceId: inserted.id,
+          mrn: selected.mrn,
+          resolver: "physician-cpoe",
+        });
       }
       toast.success("Order routed to Pharmacy queue", {
         description: `${drug.trim()} ${dose.trim()} ${route} ${freq}`,
@@ -356,8 +371,7 @@ function PhysicianBoard() {
     }
     setTransferring(true);
     const patientName =
-      [selected.first_name, selected.last_name].filter(Boolean).join(" ") ||
-      selected.mrn;
+      [selected.first_name, selected.last_name].filter(Boolean).join(" ") || selected.mrn;
     const { error } = await supabase.from("patient_transfers").insert({
       patient_mrn: selected.mrn,
       patient_name: patientName,
@@ -438,9 +452,7 @@ function PhysicianBoard() {
                   <TableSkeleton rows={4} columns={3} />
                 </div>
               )}
-              {error && (
-                <div className="p-4 text-xs text-critical">Unable to load — {error}</div>
-              )}
+              {error && <div className="p-4 text-xs text-critical">Unable to load — {error}</div>}
               {!loading && filteredPatients.length === 0 && !error && (
                 <EmptyState
                   className="border-0 py-8"
@@ -450,8 +462,7 @@ function PhysicianBoard() {
               {filteredPatients.map((p) => {
                 const active = p.mrn === selectedMrn;
                 const alert =
-                  (p.spo2 !== null && p.spo2 < 92) ||
-                  (p.hr !== null && (p.hr > 110 || p.hr < 50));
+                  (p.spo2 !== null && p.spo2 < 92) || (p.hr !== null && (p.hr > 110 || p.hr < 50));
                 return (
                   <button
                     key={p.mrn}
@@ -461,7 +472,9 @@ function PhysicianBoard() {
                     }}
                     aria-label={`Select patient ${p.first_name ?? ""} ${p.last_name ?? ""}, room ${p.room ?? "unassigned"}, ${p.diagnosis || p.chief_complaint || "no diagnosis listed"}`}
                     className={`w-full text-left px-3 py-2.5 transition cursor-pointer ${
-                      active ? "bg-[#0c2340] text-white hover:bg-[#0c2340]/95" : "hover:bg-slate-100"
+                      active
+                        ? "bg-[#0c2340] text-white hover:bg-[#0c2340]/95"
+                        : "hover:bg-slate-100"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -560,31 +573,36 @@ function PhysicianBoard() {
                       <div className="text-base font-semibold text-slate-900 leading-tight">
                         {selected.first_name} {selected.last_name}
                       </div>
-                      <div className="text-[11px] text-slate-500 font-mono">
-                        {selected.mrn}
-                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono">{selected.mrn}</div>
                     </div>
                   </div>
-                  <BannerStat label="Age / Sex" value={`${selected.age ?? "—"} ${selected.gender ?? ""}`} />
+                  <BannerStat
+                    label="Age / Sex"
+                    value={`${selected.age ?? "—"} ${selected.gender ?? ""}`}
+                  />
                   <BannerStat label="Room" value={selected.room ?? "—"} />
                   <BannerStat
                     label="Code"
                     value={selected.code_status ?? "—"}
-                    accent={selected.code_status === "DNR" || selected.code_status === "DNI" ? "amber" : "default"}
+                    accent={
+                      selected.code_status === "DNR" || selected.code_status === "DNI"
+                        ? "amber"
+                        : "default"
+                    }
                   />
                   <BannerStat
                     label="Chief Complaint"
                     value={selected.diagnosis || selected.chief_complaint || "—"}
                     wide
                   />
-                      <button
-                        type="button"
-                        {...gate("btn_refer_patient", () => setTransferOpen(true))}
-                        className="ml-auto inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ArrowRightLeft className="h-4 w-4" />
-                        🔄 Refer / Transfer Patient
-                      </button>
+                  <button
+                    type="button"
+                    {...gate("btn_refer_patient", () => setTransferOpen(true))}
+                    className="ml-auto inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ArrowRightLeft className="h-4 w-4" />
+                    🔄 Refer / Transfer Patient
+                  </button>
                 </div>
               </div>
 
@@ -593,9 +611,7 @@ function PhysicianBoard() {
                 <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
                   <div className="flex items-center gap-2">
                     <ClipboardList className="h-4 w-4 text-[#0c2340]" />
-                    <h2 className="text-sm font-semibold text-slate-900">
-                      CPOE: Write New Orders
-                    </h2>
+                    <h2 className="text-sm font-semibold text-slate-900">CPOE: Write New Orders</h2>
                   </div>
                   <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
                     Routes to Pharmacy Queue
@@ -628,7 +644,9 @@ function PhysicianBoard() {
                       className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                     >
                       {ROUTES.map((r) => (
-                        <option key={r} value={r}>{r}</option>
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
                       ))}
                     </select>
                   </Field>
@@ -640,13 +658,16 @@ function PhysicianBoard() {
                       className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                     >
                       {FREQS.map((f) => (
-                        <option key={f} value={f}>{f}</option>
+                        <option key={f} value={f}>
+                          {f}
+                        </option>
                       ))}
                     </select>
                   </Field>
                   <div className="col-span-12 flex items-center justify-between pt-1">
                     <div className="text-[11px] text-slate-500 inline-flex items-center gap-1">
-                      New orders set to <span className="font-mono text-slate-700">PENDING_VERIFICATION</span>
+                      New orders set to{" "}
+                      <span className="font-mono text-slate-700">PENDING_VERIFICATION</span>
                       <InfoHint text="Order lifecycle: PENDING_VERIFICATION (this state) → pharmacist verifies on the Pharmacy Queue → Approved on the nurse's task list, ready to administer → Administered. If a safety alert fires during routing, status flips to HELD_SAFETY_REVIEW instead." />
                     </div>
                     <button
@@ -679,15 +700,14 @@ function PhysicianBoard() {
               </div>
 
               {/* Inline per-patient safety alerts — renders nothing when queue is clear */}
-              <PatientSafetyAlertQueue
-                mrn={selected.mrn}
-                physicianName={md.name}
-              />
+              <PatientSafetyAlertQueue mrn={selected.mrn} physicianName={md.name} />
 
               {/* Value-set–driven physician order panels */}
               <OrderPanelPicker
                 mrn={selected.mrn}
-                patientName={`${selected.first_name ?? ""} ${selected.last_name ?? ""}`.trim() || null}
+                patientName={
+                  `${selected.first_name ?? ""} ${selected.last_name ?? ""}`.trim() || null
+                }
                 facility={selected.facility_name}
                 diagnosis={selected.diagnosis || selected.chief_complaint}
                 physicianName={md.name}
@@ -696,7 +716,9 @@ function PhysicianBoard() {
               {/* Radiology / imaging order entry (placer → filler pattern) */}
               <RadiologyOrderPanel
                 mrn={selected.mrn}
-                patientName={`${selected.first_name ?? ""} ${selected.last_name ?? ""}`.trim() || null}
+                patientName={
+                  `${selected.first_name ?? ""} ${selected.last_name ?? ""}`.trim() || null
+                }
                 facility={selected.facility_name}
                 diagnosis={selected.diagnosis || selected.chief_complaint}
                 physicianName={md.name}
@@ -738,8 +760,11 @@ function PhysicianBoard() {
                     <div className="text-xs text-slate-500">
                       Look up keyword-matched differential suggestions (not AI-generated) for{" "}
                       <span className="font-medium text-slate-700">
-                        {selected.diagnosis || selected.chief_complaint || "the active presentation"}
-                      </span>.
+                        {selected.diagnosis ||
+                          selected.chief_complaint ||
+                          "the active presentation"}
+                      </span>
+                      .
                     </div>
                   )}
                   {ddx && (
@@ -776,16 +801,14 @@ function PhysicianBoard() {
           <DialogHeader>
             <DialogTitle>🔄 Inter-Facility Referral / Transfer</DialogTitle>
             <DialogDescription>
-              Route this patient to another facility in the S.P.E.H.R. network or
-              an outside provider for continued care.
+              Route this patient to another facility in the S.P.E.H.R. network or an outside
+              provider for continued care.
             </DialogDescription>
           </DialogHeader>
           {selected && (
             <div className="space-y-4">
               <div className="rounded-md bg-slate-50 border border-slate-200 px-4 py-3">
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                  Patient
-                </div>
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Patient</div>
                 <div className="text-sm font-semibold text-slate-900">
                   {selected.first_name} {selected.last_name}
                 </div>
@@ -857,14 +880,11 @@ function PhysicianBoard() {
           {(() => {
             const p = filteredPatients.find((x) => x.mrn === actionsMrn);
             if (!p) return null;
-            const fullName =
-              [p.first_name, p.last_name].filter(Boolean).join(" ") || p.mrn;
+            const fullName = [p.first_name, p.last_name].filter(Boolean).join(" ") || p.mrn;
             return (
               <>
                 <DialogHeader>
-                  <DialogTitle className="text-lg">
-                    Clinical Actions: {fullName}
-                  </DialogTitle>
+                  <DialogTitle className="text-lg">Clinical Actions: {fullName}</DialogTitle>
                   <DialogDescription>
                     Select a clinical action to perform for this patient.
                   </DialogDescription>
@@ -904,10 +924,7 @@ function PhysicianBoard() {
                           : "—"
                       }
                     />
-                    <VitalChip
-                      label="SpO₂"
-                      value={p.spo2 !== null ? `${p.spo2}%` : "—"}
-                    />
+                    <VitalChip label="SpO₂" value={p.spo2 !== null ? `${p.spo2}%` : "—"} />
                   </div>
                 </div>
 
@@ -918,9 +935,7 @@ function PhysicianBoard() {
                       <Brain className="h-3 w-3" /> Sample Consult Note (Demo)
                     </span>
                     <span className="text-[10px] font-mono text-purple-700/80">
-                      {aiNote?.created_at
-                        ? new Date(aiNote.created_at).toLocaleTimeString()
-                        : ""}
+                      {aiNote?.created_at ? new Date(aiNote.created_at).toLocaleTimeString() : ""}
                     </span>
                   </div>
                   {aiNote ? (
@@ -929,7 +944,8 @@ function PhysicianBoard() {
                     </p>
                   ) : (
                     <p className="text-[12px] italic text-purple-700/70">
-                      No sample consult note is configured for this patient. (This panel shows static demo copy, not live AI analysis.)
+                      No sample consult note is configured for this patient. (This panel shows
+                      static demo copy, not live AI analysis.)
                     </p>
                   )}
                 </div>
@@ -952,7 +968,9 @@ function PhysicianBoard() {
                         className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">🧪</span>
-                        <span className="text-center leading-tight">Order Laboratory Evaluation</span>
+                        <span className="text-center leading-tight">
+                          Order Laboratory Evaluation
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -960,7 +978,9 @@ function PhysicianBoard() {
                         className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">✍️</span>
-                        <span className="text-center leading-tight">Write & E-Sign Progress Note</span>
+                        <span className="text-center leading-tight">
+                          Write & E-Sign Progress Note
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -968,7 +988,9 @@ function PhysicianBoard() {
                         className="flex flex-col items-center justify-center gap-1 rounded-md bg-[#0c2340] px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c2340]/90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="text-xl">🚪</span>
-                        <span className="text-center leading-tight">Discharge / Transfer Patient</span>
+                        <span className="text-center leading-tight">
+                          Discharge / Transfer Patient
+                        </span>
                       </button>
                     </div>
                     <DialogFooter>
@@ -1008,7 +1030,9 @@ function PhysicianBoard() {
                           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                         >
                           {ROUTES.map((r) => (
-                            <option key={r} value={r}>{r}</option>
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
                           ))}
                         </select>
                       </Field>
@@ -1020,13 +1044,16 @@ function PhysicianBoard() {
                           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
                         >
                           {FREQS.map((f) => (
-                            <option key={f} value={f}>{f}</option>
+                            <option key={f} value={f}>
+                              {f}
+                            </option>
                           ))}
                         </select>
                       </Field>
                     </div>
                     <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-                      Routes to Pharmacy at <span className="font-semibold">{facility ?? "Memorial Hospital"}</span> as{" "}
+                      Routes to Pharmacy at{" "}
+                      <span className="font-semibold">{facility ?? "Memorial Hospital"}</span> as{" "}
                       <span className="font-mono">PENDING_VERIFICATION</span> by{" "}
                       <span className="font-semibold">{md.name}</span>.
                     </div>
@@ -1072,12 +1099,18 @@ function PhysicianBoard() {
                     <div className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2.5">
                       <div>
                         <Label className="text-sm font-medium text-slate-900">STAT Priority</Label>
-                        <p className="text-[11px] text-slate-500">Routes order to lab immediately.</p>
+                        <p className="text-[11px] text-slate-500">
+                          Routes order to lab immediately.
+                        </p>
                       </div>
                       <Switch checked={labStat} onCheckedChange={setLabStat} />
                     </div>
                     <DialogFooter className="gap-2">
-                      <Button type="button" variant="outline" onClick={() => setActionsView("menu")}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setActionsView("menu")}
+                      >
                         Back
                       </Button>
                       <Button
@@ -1122,7 +1155,11 @@ function PhysicianBoard() {
                       />
                     </div>
                     <DialogFooter className="gap-2">
-                      <Button type="button" variant="outline" onClick={() => setActionsView("menu")}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setActionsView("menu")}
+                      >
                         Back
                       </Button>
                       <Button
@@ -1163,9 +1200,7 @@ function PhysicianBoard() {
                         }}
                         disabled={savingProgressNote}
                       >
-                        {savingProgressNote && (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        )}
+                        {savingProgressNote && <Loader2 className="h-4 w-4 animate-spin" />}
                         Sign & Lock Note
                       </Button>
                     </DialogFooter>
@@ -1189,7 +1224,11 @@ function PhysicianBoard() {
                       </select>
                     </div>
                     <DialogFooter className="gap-2">
-                      <Button type="button" variant="outline" onClick={() => setActionsView("menu")}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setActionsView("menu")}
+                      >
                         Back
                       </Button>
                       <Button
@@ -1208,10 +1247,11 @@ function PhysicianBoard() {
                             const result = await dischargePatientViaWorker({ mrn });
                             if (!result.ok) {
                               console.error("Discharge worker failed:", result.reason);
-                              toast.error(
-                                `Discharge summary failed for ${fullName}`,
-                                { description: result.reason ?? "Ghost discharge worker returned an error — patient record was not updated." },
-                              );
+                              toast.error(`Discharge summary failed for ${fullName}`, {
+                                description:
+                                  result.reason ??
+                                  "Ghost discharge worker returned an error — patient record was not updated.",
+                              });
                               return;
                             }
                             setPatients((prev) => prev.filter((x) => x.mrn !== mrn));
@@ -1229,10 +1269,12 @@ function PhysicianBoard() {
                             );
                           } catch (error) {
                             console.error("Discharge Summary Error:", error);
-                            toast.error(
-                              `Discharge summary error for ${fullName}`,
-                              { description: error instanceof Error ? error.message : "Unexpected error while generating discharge summary." },
-                            );
+                            toast.error(`Discharge summary error for ${fullName}`, {
+                              description:
+                                error instanceof Error
+                                  ? error.message
+                                  : "Unexpected error while generating discharge summary.",
+                            });
                           } finally {
                             setDischargeLoading(false);
                             setActionsMrn(null);
@@ -1271,9 +1313,7 @@ function Field({
 }) {
   return (
     <label className={`block ${className ?? ""}`}>
-      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-1">
-        {label}
-      </div>
+      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-1">{label}</div>
       {children}
     </label>
   );
@@ -1282,9 +1322,7 @@ function Field({
 function VitalChip({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-center">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-        {label}
-      </div>
+      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
       <div className="text-sm font-semibold text-slate-900">{value}</div>
     </div>
   );
@@ -1321,41 +1359,116 @@ function generateDdx(p: Patient): { dx: string; likelihood: string; rationale: s
     {
       match: /chf|heart failure|pulmonary edema/,
       out: [
-        { dx: "Acute Decompensated HFrEF", likelihood: "High", rationale: "Progressive dyspnea, orthopnea, weight gain and JVD with low SpO₂ and hypotension consistent with volume overload." },
-        { dx: "Acute Coronary Syndrome (NSTEMI)", likelihood: "Moderate", rationale: "Demand ischemia from decompensation; recommend serial troponin and 12-lead ECG to exclude type II MI." },
-        { dx: "Hospital-Acquired Pneumonia", likelihood: "Low-Moderate", rationale: "Overlap of crackles and hypoxia; obtain CXR to evaluate for new infiltrate vs. cephalization." },
+        {
+          dx: "Acute Decompensated HFrEF",
+          likelihood: "High",
+          rationale:
+            "Progressive dyspnea, orthopnea, weight gain and JVD with low SpO₂ and hypotension consistent with volume overload.",
+        },
+        {
+          dx: "Acute Coronary Syndrome (NSTEMI)",
+          likelihood: "Moderate",
+          rationale:
+            "Demand ischemia from decompensation; recommend serial troponin and 12-lead ECG to exclude type II MI.",
+        },
+        {
+          dx: "Hospital-Acquired Pneumonia",
+          likelihood: "Low-Moderate",
+          rationale:
+            "Overlap of crackles and hypoxia; obtain CXR to evaluate for new infiltrate vs. cephalization.",
+        },
       ],
     },
     {
       match: /sepsis|uti|septic/,
       out: [
-        { dx: "Urosepsis (Gram-negative bacteremia)", likelihood: "High", rationale: "Pyuria with SIRS criteria, lactate elevation, and hypotension responsive to fluids supports urinary source bacteremia." },
-        { dx: "Pyelonephritis with AKI", likelihood: "Moderate", rationale: "Ascending UTI with flank tenderness pattern; trend creatinine and consider renal US if no improvement." },
-        { dx: "Septic Shock from Alternate Source", likelihood: "Low-Moderate", rationale: "Broaden workup with blood cultures x2, CXR, and intra-abdominal imaging if hemodynamics worsen." },
+        {
+          dx: "Urosepsis (Gram-negative bacteremia)",
+          likelihood: "High",
+          rationale:
+            "Pyuria with SIRS criteria, lactate elevation, and hypotension responsive to fluids supports urinary source bacteremia.",
+        },
+        {
+          dx: "Pyelonephritis with AKI",
+          likelihood: "Moderate",
+          rationale:
+            "Ascending UTI with flank tenderness pattern; trend creatinine and consider renal US if no improvement.",
+        },
+        {
+          dx: "Septic Shock from Alternate Source",
+          likelihood: "Low-Moderate",
+          rationale:
+            "Broaden workup with blood cultures x2, CXR, and intra-abdominal imaging if hemodynamics worsen.",
+        },
       ],
     },
     {
       match: /copd|emphysema|asthma/,
       out: [
-        { dx: "Acute COPD Exacerbation, infectious trigger", likelihood: "High", rationale: "Increased sputum purulence, dyspnea, and hypoxia on home O₂ baseline; appropriate for steroids and macrolide/doxy." },
-        { dx: "Community-Acquired Pneumonia", likelihood: "Moderate", rationale: "Low-grade fever and worsening gas exchange — repeat CXR and procalcitonin to risk-stratify." },
-        { dx: "Pulmonary Embolism", likelihood: "Low-Moderate", rationale: "Disproportionate hypoxia and tachycardia in immobile patient; consider Wells score and CTPA if indicated." },
+        {
+          dx: "Acute COPD Exacerbation, infectious trigger",
+          likelihood: "High",
+          rationale:
+            "Increased sputum purulence, dyspnea, and hypoxia on home O₂ baseline; appropriate for steroids and macrolide/doxy.",
+        },
+        {
+          dx: "Community-Acquired Pneumonia",
+          likelihood: "Moderate",
+          rationale:
+            "Low-grade fever and worsening gas exchange — repeat CXR and procalcitonin to risk-stratify.",
+        },
+        {
+          dx: "Pulmonary Embolism",
+          likelihood: "Low-Moderate",
+          rationale:
+            "Disproportionate hypoxia and tachycardia in immobile patient; consider Wells score and CTPA if indicated.",
+        },
       ],
     },
     {
       match: /post.?op|lap chole|cholecystectomy|surgical/,
       out: [
-        { dx: "Expected Post-operative Recovery", likelihood: "High", rationale: "POD#1 vitals within normal range, ambulating, tolerating PO — consistent with uneventful course." },
-        { dx: "Surgical Site Infection (early)", likelihood: "Low", rationale: "Monitor incisions for erythema, induration, or drainage; trend WBC and temperature curve." },
-        { dx: "Post-op Ileus", likelihood: "Low", rationale: "Assess bowel sounds, flatus, and PO tolerance before advancing diet aggressively." },
+        {
+          dx: "Expected Post-operative Recovery",
+          likelihood: "High",
+          rationale:
+            "POD#1 vitals within normal range, ambulating, tolerating PO — consistent with uneventful course.",
+        },
+        {
+          dx: "Surgical Site Infection (early)",
+          likelihood: "Low",
+          rationale:
+            "Monitor incisions for erythema, induration, or drainage; trend WBC and temperature curve.",
+        },
+        {
+          dx: "Post-op Ileus",
+          likelihood: "Low",
+          rationale:
+            "Assess bowel sounds, flatus, and PO tolerance before advancing diet aggressively.",
+        },
       ],
     },
     {
       match: /fever|febrile|pyrexia/,
       out: [
-        { dx: "Viral Syndrome", likelihood: "High", rationale: "Self-limited febrile illness with stable hemodynamics and unremarkable focal exam supports viral etiology." },
-        { dx: "Occult Bacterial Infection", likelihood: "Moderate", rationale: "Obtain CBC w/diff, UA, CXR, and blood cultures if persistent fever >72h or new localizing signs." },
-        { dx: "Drug Fever / Inflammatory", likelihood: "Low", rationale: "Review medication list and inflammatory markers (CRP/ESR) if fever persists without source." },
+        {
+          dx: "Viral Syndrome",
+          likelihood: "High",
+          rationale:
+            "Self-limited febrile illness with stable hemodynamics and unremarkable focal exam supports viral etiology.",
+        },
+        {
+          dx: "Occult Bacterial Infection",
+          likelihood: "Moderate",
+          rationale:
+            "Obtain CBC w/diff, UA, CXR, and blood cultures if persistent fever >72h or new localizing signs.",
+        },
+        {
+          dx: "Drug Fever / Inflammatory",
+          likelihood: "Low",
+          rationale:
+            "Review medication list and inflammatory markers (CRP/ESR) if fever persists without source.",
+        },
       ],
     },
   ];
@@ -1363,9 +1476,24 @@ function generateDdx(p: Patient): { dx: string; likelihood: string; rationale: s
     if (s.match.test(seed)) return s.out;
   }
   return [
-    { dx: "Undifferentiated Acute Illness", likelihood: "Moderate", rationale: "Broad presentation; obtain CBC, CMP, lactate, UA, and CXR to narrow the differential." },
-    { dx: "Electrolyte / Metabolic Derangement", likelihood: "Moderate", rationale: "Check Na, K, Mg, Ca, glucose, and renal function to exclude reversible contributors." },
-    { dx: "Medication-Related Adverse Effect", likelihood: "Low-Moderate", rationale: "Reconcile home and inpatient medications for interactions or new agents temporally linked to symptoms." },
+    {
+      dx: "Undifferentiated Acute Illness",
+      likelihood: "Moderate",
+      rationale:
+        "Broad presentation; obtain CBC, CMP, lactate, UA, and CXR to narrow the differential.",
+    },
+    {
+      dx: "Electrolyte / Metabolic Derangement",
+      likelihood: "Moderate",
+      rationale:
+        "Check Na, K, Mg, Ca, glucose, and renal function to exclude reversible contributors.",
+    },
+    {
+      dx: "Medication-Related Adverse Effect",
+      likelihood: "Low-Moderate",
+      rationale:
+        "Reconcile home and inpatient medications for interactions or new agents temporally linked to symptoms.",
+    },
   ];
 }
 

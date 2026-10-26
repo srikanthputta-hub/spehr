@@ -91,15 +91,19 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
         const apiKey = process.env.UMLS_API_KEY;
         const supabaseUrl = process.env.SUPABASE_URL;
         const supabaseKey = process.env.SUPABASE_PUBLISHABLE_KEY;
-        if (!supabaseUrl || !supabaseKey) return json({ ok: false, error: "Supabase not configured" }, 500, cors);
+        if (!supabaseUrl || !supabaseKey)
+          return json({ ok: false, error: "Supabase not configured" }, 500, cors);
 
         let body: any = null;
-        try { body = await request.json(); } catch {
+        try {
+          body = await request.json();
+        } catch {
           return json({ ok: false, error: "Invalid JSON body" }, 400, cors);
         }
         const code = String(body?.code ?? "").trim();
         const oid = String(body?.valueSetOid ?? "").trim();
-        if (!code || !oid) return json({ ok: false, error: "code and valueSetOid required" }, 400, cors);
+        if (!code || !oid)
+          return json({ ok: false, error: "code and valueSetOid required" }, 400, cors);
 
         const sb = createClient<Database>(supabaseUrl, supabaseKey, {
           auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
@@ -109,7 +113,8 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
           .select("name, vocabulary, type, codes, intensional_rule")
           .eq("oid", oid)
           .maybeSingle();
-        if (error) return json({ ok: false, error: `value set lookup failed: ${error.message}` }, 502, cors);
+        if (error)
+          return json({ ok: false, error: `value set lookup failed: ${error.message}` }, 502, cors);
         if (!vs) return json({ ok: false, error: "value set not found" }, 404, cors);
 
         const type = (vs as any).type as string;
@@ -118,7 +123,11 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
         if (type === "extensional") {
           const codes: any[] = ((vs as any).codes ?? []) as any[];
           const valid = codes.some((c) => String(c?.code ?? "").trim() === code);
-          return json({ ok: true, valid, reason: valid ? undefined : "not in extensional list" }, 200, cors);
+          return json(
+            { ok: true, valid, reason: valid ? undefined : "not in extensional list" },
+            200,
+            cors,
+          );
         }
 
         if (type === "intensional") {
@@ -131,7 +140,11 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
           try {
             const ancestors = await fetchSnomedAncestors(code, apiKey);
             const valid = ancestors.has(root);
-            return json({ ok: true, valid, reason: valid ? undefined : `not a descendant of ${root}` }, 200, cors);
+            return json(
+              { ok: true, valid, reason: valid ? undefined : `not a descendant of ${root}` },
+              200,
+              cors,
+            );
           } catch (err: any) {
             // Fail-open with 200 so callers treat as "errored" (valid=true) instead of surfacing a 502 runtime error.
             return json({ ok: false, error: String(err?.message ?? err) }, 200, cors);

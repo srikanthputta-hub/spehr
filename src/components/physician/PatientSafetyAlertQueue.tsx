@@ -110,9 +110,7 @@ export function PatientSafetyAlertQueue({
     <div className="rounded-lg border-2 border-red-300 bg-white shadow-sm">
       <div className="flex items-center gap-2 border-b border-red-200 bg-red-50/60 px-5 py-3">
         <ShieldAlert className="h-4 w-4 text-red-600" />
-        <h2 className="text-sm font-semibold text-red-800">
-          ⚠ Safety Alert — Action Required
-        </h2>
+        <h2 className="text-sm font-semibold text-red-800">⚠ Safety Alert — Action Required</h2>
         <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-red-600">
           {items.length} pending · resolve or SLA auto-decides
         </span>
@@ -125,10 +123,7 @@ export function PatientSafetyAlertQueue({
             ? "border-red-300 bg-red-50 text-red-700"
             : "border-emerald-300 bg-emerald-50 text-emerald-700";
           return (
-            <div
-              key={c.id}
-              className="rounded-xl border border-red-300 bg-white p-4"
-            >
+            <div key={c.id} className="rounded-xl border border-red-300 bg-white p-4">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -142,39 +137,48 @@ export function PatientSafetyAlertQueue({
                           : "border-amber-200 bg-amber-50 text-amber-700"
                       }`}
                     >
-                      {c.kind === "Drug-Drug"
-                        ? `DDI · ${c.severity ?? "Major"}`
-                        : "Drug-Allergy"}
+                      {c.kind === "Drug-Drug" ? `DDI · ${c.severity ?? "Major"}` : "Drug-Allergy"}
                     </span>
                   </div>
                   <div className="mt-1.5 text-sm text-slate-800">
                     {c.kind === "Drug-Drug" ? (
                       <>
-                        Co-prescribed{" "}
-                        <span className="font-semibold">{c.drug}</span> +{" "}
+                        Co-prescribed <span className="font-semibold">{c.drug}</span> +{" "}
                         <span className="font-semibold">{c.drug_b}</span> —{" "}
                         <span className="font-mono text-[11px]">{c.family}</span>.
                       </>
                     ) : (
                       <>
-                        Ordered{" "}
-                        <span className="font-semibold">{c.drug}</span> conflicts
-                        with documented allergy to{" "}
-                        <span className="font-semibold">{c.allergy_name}</span> —
-                        cross-reactivity family:{" "}
-                        <span className="font-mono text-[11px]">{c.family}</span>.
+                        Ordered <span className="font-semibold">{c.drug}</span> conflicts with
+                        documented allergy to{" "}
+                        <span className="font-semibold">{c.allergy_name}</span> — cross-reactivity
+                        family: <span className="font-mono text-[11px]">{c.family}</span>.
                       </>
                     )}
                   </div>
                   {(() => {
-                    const m = String(c.family ?? "").match(/·\s*Value Sets:\s*([^\[]+?)(?:\s*\[|$)/);
-                    const names = m ? m[1]!.split(",").map((s) => s.trim()).filter(Boolean) : [];
+                    const m = String(c.family ?? "").match(
+                      /·\s*Value Sets:\s*([^\[]+?)(?:\s*\[|$)/,
+                    );
+                    const names = m
+                      ? m[1]!
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean)
+                      : [];
                     if (names.length === 0) return null;
                     return (
                       <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] text-slate-700">
-                        <span className="font-semibold uppercase tracking-wider text-slate-500">Triggered by value set{names.length > 1 ? "s" : ""}:</span>
+                        <span className="font-semibold uppercase tracking-wider text-slate-500">
+                          Triggered by value set{names.length > 1 ? "s" : ""}:
+                        </span>
                         {names.map((n) => (
-                          <span key={n} className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 font-mono">{n}</span>
+                          <span
+                            key={n}
+                            className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 font-mono"
+                          >
+                            {n}
+                          </span>
                         ))}
                       </div>
                     );

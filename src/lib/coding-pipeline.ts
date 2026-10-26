@@ -48,7 +48,10 @@ async function resolveDrugSafe(drugName: string) {
   // "Multivitamin" → "multivitamin preparation"); just log for audit.
   if (!inputHead || !resolvedHead || inputHead !== resolvedHead) {
     console.info("[stream-c] fuzzy RxNorm match kept", {
-      input: drugName, inputHead, resolved: rx, resolvedHead,
+      input: drugName,
+      inputHead,
+      resolved: rx,
+      resolvedHead,
     });
   }
   return rx;
@@ -65,10 +68,9 @@ async function extractCcConcepts(cc: string, hpi: string): Promise<ExtractedConc
   const hpiText = (hpi ?? "").trim();
   if (!ccText && !hpiText) return [];
   try {
-    const { data, error } = await supabase.functions.invoke(
-      "nlp-extract-concepts",
-      { body: { cc: ccText, hpi: hpiText } },
-    );
+    const { data, error } = await supabase.functions.invoke("nlp-extract-concepts", {
+      body: { cc: ccText, hpi: hpiText },
+    });
     if (error) {
       console.warn("[stream-a] extractor invoke error", error);
       return [];
@@ -117,7 +119,13 @@ export interface AdmissionData {
     rr?: number | null;
     temp_c?: number | null;
   } | null;
-  labs?: Array<{ test_name: string; result_value?: string | number | null; unit?: string | null; flag?: string | null; loinc_code?: string | null }>;
+  labs?: Array<{
+    test_name: string;
+    result_value?: string | number | null;
+    unit?: string | null;
+    flag?: string | null;
+    loinc_code?: string | null;
+  }>;
   allergies?: Array<{ substance: string; reaction?: string | null; type?: string | null }>;
 }
 
@@ -172,10 +180,7 @@ export async function runSixStreamPipeline(
             .eq("mrn", mrn)
             .order("recorded_at", { ascending: false })
             .limit(1),
-          supabase
-            .from("lab_results")
-            .select("id, test_name, loinc_code")
-            .eq("mrn", mrn),
+          supabase.from("lab_results").select("id, test_name, loinc_code").eq("mrn", mrn),
         ]);
 
     // -------- Stream A: Chief Complaint --------------------------------
@@ -201,10 +206,7 @@ export async function runSixStreamPipeline(
         }
       }
 
-      const terms: string[] =
-        aiConcepts.length > 0
-          ? aiConcepts.map((c) => c.term)
-          : fallbackTerms;
+      const terms: string[] = aiConcepts.length > 0 ? aiConcepts.map((c) => c.term) : fallbackTerms;
 
       // 3. Resolve each concept in parallel → SNOMED + ICD-10 crosswalk.
       const resolved = await Promise.all(
@@ -313,7 +315,10 @@ export async function runSixStreamPipeline(
           status: "PENDING_PHARMACY",
         } as any;
         if ((existing as any)?.id) {
-          await supabase.from("medication_orders").update(row).eq("id", (existing as any).id);
+          await supabase
+            .from("medication_orders")
+            .update(row)
+            .eq("id", (existing as any).id);
         } else {
           await supabase.from("medication_orders").insert(row);
         }
@@ -344,7 +349,12 @@ export async function runSixStreamPipeline(
           } as any)
           .eq("id", m.id);
         streamC.count++;
-        streamC.items.push({ id: m.id, name: drugName, rxnorm_code: rx.code, rxnorm_display: rx.display });
+        streamC.items.push({
+          id: m.id,
+          name: drugName,
+          rxnorm_code: rx.code,
+          rxnorm_display: rx.display,
+        });
       }
     }
     // Always sweep medication_orders for this MRN — meds may arrive via
@@ -360,8 +370,10 @@ export async function runSixStreamPipeline(
         if (!streamC.items.find((i: any) => i.name === drugName)) {
           streamC.count++;
           streamC.items.push({
-            id: m.id, name: drugName,
-            rxnorm_code: m.rxnorm_code, rxnorm_display: m.rxnorm_display,
+            id: m.id,
+            name: drugName,
+            rxnorm_code: m.rxnorm_code,
+            rxnorm_display: m.rxnorm_display,
           });
         }
         continue;
@@ -371,16 +383,20 @@ export async function runSixStreamPipeline(
       await supabase
         .from("medication_orders")
         .update({
-          rxnorm_code: rx.code, rxnorm_display: rx.display,
-          coding_source: "nlp-stream-c", coded_at: new Date().toISOString(),
+          rxnorm_code: rx.code,
+          rxnorm_display: rx.display,
+          coding_source: "nlp-stream-c",
+          coded_at: new Date().toISOString(),
           term_status: "pending",
         } as any)
         .eq("id", m.id);
       if (!streamC.items.find((i: any) => i.name === drugName)) {
         streamC.count++;
         streamC.items.push({
-          id: m.id, name: drugName,
-          rxnorm_code: rx.code, rxnorm_display: rx.display,
+          id: m.id,
+          name: drugName,
+          rxnorm_code: rx.code,
+          rxnorm_display: rx.display,
         });
       }
     }
@@ -458,30 +474,33 @@ export async function runSixStreamPipeline(
         streamD.items.push({ substance, ...patch });
       }
     } else {
-    for (const a of dbAllergies) {
-      const substance = String(a.substance ?? "").trim();
-      if (!substance) continue;
-      const patch: Record<string, unknown> = {};
-      const envHit = lookupAllergenSnomed(substance);
-      if (envHit) {
-        patch.substance_snomed = envHit.snomed;
-      } else if (!a.substance_rxcui) {
-        const rx = await resolveRxNorm(substance);
-        if (rx) patch.substance_rxcui = rx.code;
+      for (const a of dbAllergies) {
+        const substance = String(a.substance ?? "").trim();
+        if (!substance) continue;
+        const patch: Record<string, unknown> = {};
+        const envHit = lookupAllergenSnomed(substance);
+        if (envHit) {
+          patch.substance_snomed = envHit.snomed;
+        } else if (!a.substance_rxcui) {
+          const rx = await resolveRxNorm(substance);
+          if (rx) patch.substance_rxcui = rx.code;
+        }
+        const reaction = String(a.reaction ?? "").trim();
+        if (reaction && !a.reaction_snomed) {
+          const rSnomed = await resolveAndValidateSnomed(reaction);
+          if (rSnomed?.code) patch.reaction_snomed = rSnomed.code;
+        }
+        if (Object.keys(patch).length) {
+          patch.coding_source = "nlp-stream-d";
+          patch.coded_at = new Date().toISOString();
+          await supabase
+            .from("allergies")
+            .update(patch as any)
+            .eq("id", a.id);
+          streamD.count++;
+          streamD.items.push({ id: a.id, substance, ...patch });
+        }
       }
-      const reaction = String(a.reaction ?? "").trim();
-      if (reaction && !a.reaction_snomed) {
-        const rSnomed = await resolveAndValidateSnomed(reaction);
-        if (rSnomed?.code) patch.reaction_snomed = rSnomed.code;
-      }
-      if (Object.keys(patch).length) {
-        patch.coding_source = "nlp-stream-d";
-        patch.coded_at = new Date().toISOString();
-        await supabase.from("allergies").update(patch as any).eq("id", a.id);
-        streamD.count++;
-        streamD.items.push({ id: a.id, substance, ...patch });
-      }
-    }
     }
     streamD.status = statusFor(streamD.count, allergiesExpected);
 
@@ -496,9 +515,9 @@ export async function runSixStreamPipeline(
         const s = chunk.trim();
         if (!s) continue;
         const m = s.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
-        parsed.push(m
-          ? { substance: m[1].trim(), reaction: m[2].trim() }
-          : { substance: s, reaction: null });
+        parsed.push(
+          m ? { substance: m[1].trim(), reaction: m[2].trim() } : { substance: s, reaction: null },
+        );
       }
       for (const a of parsed) {
         if (!a.substance) continue;
@@ -531,7 +550,9 @@ export async function runSixStreamPipeline(
         const { error: insErr } = await supabase.from("allergies").insert(patch as any);
         if (insErr) {
           console.error("[stream-d] chart allergy write failed", {
-            mrn, substance: a.substance, message: (insErr as any).message,
+            mrn,
+            substance: a.substance,
+            message: (insErr as any).message,
           });
           continue;
         }
@@ -542,9 +563,7 @@ export async function runSixStreamPipeline(
 
     // -------- Stream E: Vitals (LOINC static map) ---------------------
     const streamE: StreamResult = { status: "coded", count: 0, items: [] };
-    let vRow: any = useForm
-      ? (admissionData?.vitals ?? null)
-      : (vitalsRes.data ?? [])[0];
+    let vRow: any = useForm ? (admissionData?.vitals ?? null) : (vitalsRes.data ?? [])[0];
     // Fallback for automated/ghost admissions: form data absent AND no vitals
     // row yet → reconstruct from up to 5 recent observations.
     if (!useForm && !vRow) {
@@ -589,17 +608,19 @@ export async function runSixStreamPipeline(
     if (!useForm) {
       const hasAny =
         vRow &&
-        ["hr","bp_systolic","bp_diastolic","spo2","rr","temp_c"].some(
-          (k) => vRow[k] != null,
-        );
+        ["hr", "bp_systolic", "bp_diastolic", "spo2", "rr", "temp_c"].some((k) => vRow[k] != null);
       if (!hasAny) {
         const isAdmitted = String((patient as any).status ?? "").toLowerCase() === "admitted";
         // Auto-admissions typically set status='Admitted'; also proceed if
         // status is missing (some seed paths omit it).
-        if (isAdmitted || !((patient as any).status)) {
+        if (isAdmitted || !(patient as any).status) {
           vRow = {
-            hr: 78, bp_systolic: 122, bp_diastolic: 78,
-            spo2: 98, rr: 16, temp_c: 37.0,
+            hr: 78,
+            bp_systolic: 122,
+            bp_diastolic: 78,
+            spo2: 98,
+            rr: 16,
+            temp_c: 37.0,
           };
           vSynthesized = true;
         }
@@ -643,7 +664,10 @@ export async function runSixStreamPipeline(
             recorded_at: new Date().toISOString(),
           } as any;
           if ((existing as any)?.id) {
-            await supabase.from("vitals").update(row).eq("id", (existing as any).id);
+            await supabase
+              .from("vitals")
+              .update(row)
+              .eq("id", (existing as any).id);
           } else {
             await supabase.from("vitals").insert(row);
           }
@@ -705,7 +729,10 @@ export async function runSixStreamPipeline(
         }
         if (!code) {
           const hit = await resolveLoinc(name);
-          if (hit) { code = hit.code; display = hit.display; }
+          if (hit) {
+            code = hit.code;
+            display = hit.display;
+          }
         }
         if (!code) continue;
         const { data: existing } = await supabase
@@ -724,7 +751,10 @@ export async function runSixStreamPipeline(
           loinc_display: display,
         } as any;
         if ((existing as any)?.id) {
-          await supabase.from("lab_results").update(row).eq("id", (existing as any).id);
+          await supabase
+            .from("lab_results")
+            .update(row)
+            .eq("id", (existing as any).id);
         } else {
           await supabase.from("lab_results").insert(row);
         }
@@ -732,32 +762,37 @@ export async function runSixStreamPipeline(
         streamF.items.push({ test_name: name, loinc_code: code, loinc_display: display });
       }
     } else {
-    for (const lab of dbLabs) {
-      const name = String(lab.test_name ?? "").trim();
-      if (!name) continue;
-      if (lab.loinc_code) {
-        streamF.count++;
-        streamF.items.push({ id: lab.id, test_name: name, loinc_code: lab.loinc_code });
-        continue;
-      }
-      const pre = lookupLabLoinc(name);
-      let code: string | null = pre?.code ?? null;
-      let display: string | null = pre?.display ?? null;
-      if (!code) {
-        const hit = await resolveLoinc(name);
-        if (hit) {
-          code = hit.code;
-          display = hit.display;
+      for (const lab of dbLabs) {
+        const name = String(lab.test_name ?? "").trim();
+        if (!name) continue;
+        if (lab.loinc_code) {
+          streamF.count++;
+          streamF.items.push({ id: lab.id, test_name: name, loinc_code: lab.loinc_code });
+          continue;
         }
+        const pre = lookupLabLoinc(name);
+        let code: string | null = pre?.code ?? null;
+        let display: string | null = pre?.display ?? null;
+        if (!code) {
+          const hit = await resolveLoinc(name);
+          if (hit) {
+            code = hit.code;
+            display = hit.display;
+          }
+        }
+        if (!code) continue;
+        await supabase
+          .from("lab_results")
+          .update({ loinc_code: code, loinc_display: display } as any)
+          .eq("id", lab.id);
+        streamF.count++;
+        streamF.items.push({
+          id: lab.id,
+          test_name: name,
+          loinc_code: code,
+          loinc_display: display,
+        });
       }
-      if (!code) continue;
-      await supabase
-        .from("lab_results")
-        .update({ loinc_code: code, loinc_display: display } as any)
-        .eq("id", lab.id);
-      streamF.count++;
-      streamF.items.push({ id: lab.id, test_name: name, loinc_code: code, loinc_display: display });
-    }
     }
     // Always sweep lab_results table for this MRN — labs arrive from
     // Auto Doc Pipeline after admission, so useForm path misses them.
@@ -774,7 +809,10 @@ export async function runSixStreamPipeline(
       let display: string | null = pre?.display ?? null;
       if (!code) {
         const hit = await resolveLoinc(name);
-        if (hit) { code = hit.code; display = hit.display; }
+        if (hit) {
+          code = hit.code;
+          display = hit.display;
+        }
       }
       if (!code) continue;
       await supabase
@@ -784,7 +822,12 @@ export async function runSixStreamPipeline(
       // avoid double-counting items already added by the useForm pass
       if (!streamF.items.find((i: any) => i.test_name === name)) {
         streamF.count++;
-        streamF.items.push({ id: lab.id, test_name: name, loinc_code: code, loinc_display: display });
+        streamF.items.push({
+          id: lab.id,
+          test_name: name,
+          loinc_code: code,
+          loinc_display: display,
+        });
       }
     }
     // Fallback: if still empty, surface ordered labs from lab_orders so the
@@ -803,12 +846,20 @@ export async function runSixStreamPipeline(
           let display: string | null = pre?.display ?? null;
           if (!code) {
             const hit = await resolveLoinc(name);
-            if (hit) { code = hit.code; display = hit.display; }
+            if (hit) {
+              code = hit.code;
+              display = hit.display;
+            }
           }
           if (!code) continue;
           if (!streamF.items.find((i: any) => i.test_name === name)) {
             streamF.count++;
-            streamF.items.push({ id: o.id, test_name: name, loinc_code: code, loinc_display: display });
+            streamF.items.push({
+              id: o.id,
+              test_name: name,
+              loinc_code: code,
+              loinc_display: display,
+            });
           }
         }
       } catch {
@@ -819,9 +870,17 @@ export async function runSixStreamPipeline(
     // so Stream F is never empty — mirrors Stream E vitals synthesis.
     if (streamF.items.length === 0) {
       const baseline = [
-        "Hemoglobin", "Hematocrit", "White blood cell count", "Platelet count",
-        "Sodium", "Potassium", "Chloride", "Bicarbonate",
-        "Blood urea nitrogen", "Creatinine", "Glucose",
+        "Hemoglobin",
+        "Hematocrit",
+        "White blood cell count",
+        "Platelet count",
+        "Sodium",
+        "Potassium",
+        "Chloride",
+        "Bicarbonate",
+        "Blood urea nitrogen",
+        "Creatinine",
+        "Glucose",
       ];
       for (const name of baseline) {
         const pre = lookupLabLoinc(name);
@@ -829,11 +888,19 @@ export async function runSixStreamPipeline(
         let display: string | null = pre?.display ?? null;
         if (!code) {
           const hit = await resolveLoinc(name);
-          if (hit) { code = hit.code; display = hit.display; }
+          if (hit) {
+            code = hit.code;
+            display = hit.display;
+          }
         }
         if (!code) continue;
         streamF.count++;
-        streamF.items.push({ test_name: name, loinc_code: code, loinc_display: display, synthesized: true });
+        streamF.items.push({
+          test_name: name,
+          loinc_code: code,
+          loinc_display: display,
+          synthesized: true,
+        });
       }
     }
     streamF.status = statusFor(streamF.count, Math.max(labsExpected, streamF.count));
@@ -847,8 +914,7 @@ export async function runSixStreamPipeline(
     for (const s of [streamB, streamC, streamD, streamE, streamF]) {
       if (s.count > 0) parts.push(1.0);
     }
-    const confidence =
-      parts.length > 0 ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
+    const confidence = parts.length > 0 ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
 
     // -------- Write nlp_audit_logs row --------------------------------
     const rawParts: string[] = [];
@@ -875,15 +941,32 @@ export async function runSixStreamPipeline(
     // Invalid concepts flip the audit row to `needs_review` and are shown
     // with a yellow warning in the UI. Fail-open on proxy errors.
     const streamCodes: Record<StreamKey, CodeInput[]> = {
-      a: (streamA.items as any[]).map((i) => i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null).filter(Boolean) as CodeInput[],
-      b: (streamB.items as any[]).map((i) => i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null).filter(Boolean) as CodeInput[],
-      c: (streamC.items as any[]).map((i) => i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null).filter(Boolean) as CodeInput[],
-      d: (streamD.items as any[]).map((i) => i?.substance_snomed ? { system: "SNOMED CT", code: String(i.substance_snomed) } : null).filter(Boolean) as CodeInput[],
-      e: Object.values((streamE.items[0]?.loinc_map ?? {}) as Record<string, string>).map((c) => ({ system: "LOINC", code: String(c) })),
-      f: (streamF.items as any[]).map((i) => i?.loinc_code ? { system: "LOINC", code: String(i.loinc_code) } : null).filter(Boolean) as CodeInput[],
+      a: (streamA.items as any[])
+        .map((i) => (i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null))
+        .filter(Boolean) as CodeInput[],
+      b: (streamB.items as any[])
+        .map((i) => (i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null))
+        .filter(Boolean) as CodeInput[],
+      c: (streamC.items as any[])
+        .map((i) => (i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null))
+        .filter(Boolean) as CodeInput[],
+      d: (streamD.items as any[])
+        .map((i) =>
+          i?.substance_snomed ? { system: "SNOMED CT", code: String(i.substance_snomed) } : null,
+        )
+        .filter(Boolean) as CodeInput[],
+      e: Object.values((streamE.items[0]?.loinc_map ?? {}) as Record<string, string>).map((c) => ({
+        system: "LOINC",
+        code: String(c),
+      })),
+      f: (streamF.items as any[])
+        .map((i) => (i?.loinc_code ? { system: "LOINC", code: String(i.loinc_code) } : null))
+        .filter(Boolean) as CodeInput[],
     };
     const gateEntries = await Promise.all(
-      (Object.keys(streamCodes) as StreamKey[]).map(async (k) => [k, await validateStreamCodes(k, streamCodes[k], mrn)] as const),
+      (Object.keys(streamCodes) as StreamKey[]).map(
+        async (k) => [k, await validateStreamCodes(k, streamCodes[k], mrn)] as const,
+      ),
     );
     const validation: Record<string, string> = {};
     let needsReview = false;
@@ -898,9 +981,17 @@ export async function runSixStreamPipeline(
         const arr = (standardized as any)[`stream_${k}`] as any[];
         for (const it of arr ?? []) {
           const codeStr =
-            k === "d" ? (it?.substance_snomed ? String(it.substance_snomed) : null) :
-            k === "f" ? (it?.loinc_code ? String(it.loinc_code) : null) :
-            (it?.snomed_code ? String(it.snomed_code) : null);
+            k === "d"
+              ? it?.substance_snomed
+                ? String(it.substance_snomed)
+                : null
+              : k === "f"
+                ? it?.loinc_code
+                  ? String(it.loinc_code)
+                  : null
+                : it?.snomed_code
+                  ? String(it.snomed_code)
+                  : null;
           if (!codeStr) continue;
           const pc = res.perCode[codeStr];
           if (pc) {
@@ -1001,7 +1092,10 @@ async function upsertCondition(row: {
     coded_at: new Date().toISOString(),
   };
   if (existing?.id) {
-    await supabase.from("conditions").update(payload as any).eq("id", existing.id);
+    await supabase
+      .from("conditions")
+      .update(payload as any)
+      .eq("id", existing.id);
   } else {
     await supabase
       .from("conditions")
@@ -1067,9 +1161,7 @@ export async function approveMrnCoding(
   );
   if (snomedCodes.length === 0) return;
 
-  const { data: vsets } = await supabase
-    .from("custom_value_sets")
-    .select("codes");
+  const { data: vsets } = await supabase.from("custom_value_sets").select("codes");
   const covered = new Set<string>();
   for (const vs of (vsets ?? []) as any[]) {
     const codes = Array.isArray(vs.codes) ? vs.codes : [];

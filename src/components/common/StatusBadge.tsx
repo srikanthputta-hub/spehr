@@ -30,7 +30,8 @@ const statusBadgeVariants = cva(
 );
 
 export interface StatusBadgeProps
-  extends Omit<React.HTMLAttributes<HTMLSpanElement>, "children">,
+  extends
+    Omit<React.HTMLAttributes<HTMLSpanElement>, "children">,
     VariantProps<typeof statusBadgeVariants> {
   /** Short text label — required, since color alone must never carry meaning. */
   label: string;

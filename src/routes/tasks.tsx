@@ -97,7 +97,8 @@ function TasksPage() {
     if (error) return toast.error("Administration failed");
     if (!data || data.length === 0) {
       toast.error("Order already updated", {
-        description: "Someone else (or the automation sweep) already acted on this order. Refresh to see its current state.",
+        description:
+          "Someone else (or the automation sweep) already acted on this order. Refresh to see its current state.",
       });
       load();
       return;

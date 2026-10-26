@@ -14,7 +14,13 @@
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureValueSetsLoaded } from "@/lib/safety-alerts-engine";
-import { matchTriggers, ORDER_SETS, firstTriggerCode, CODE_DISPLAY, setAcsCodes } from "@/lib/cds-order-sets";
+import {
+  matchTriggers,
+  ORDER_SETS,
+  firstTriggerCode,
+  CODE_DISPLAY,
+  setAcsCodes,
+} from "@/lib/cds-order-sets";
 import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
 
 let acsHydrated = false;
@@ -32,7 +38,9 @@ async function hydrateAcsCodes(): Promise<void> {
     }
     setAcsCodes(codes);
     acsHydrated = codes.length > 0;
-  })().finally(() => { acsHydratePromise = null; });
+  })().finally(() => {
+    acsHydratePromise = null;
+  });
   return acsHydratePromise;
 }
 
@@ -99,11 +107,9 @@ async function processMrn(mrn: string) {
   const codes = new Set<string>();
   for (const row of (audit ?? []) as Array<{ standardized_output: any }>) {
     const so = row.standardized_output ?? {};
-    const arr = (Array.isArray(so["SNOMED CT"])
-      ? so["SNOMED CT"]
-      : Array.isArray(so.snomed)
-        ? so.snomed
-        : []) as unknown[];
+    const arr = (
+      Array.isArray(so["SNOMED CT"]) ? so["SNOMED CT"] : Array.isArray(so.snomed) ? so.snomed : []
+    ) as unknown[];
     for (const c of arr) if (typeof c === "string") codes.add(c.trim());
   }
   if (codes.size === 0) return;
@@ -160,12 +166,9 @@ export function useCdsSuggestionsWatcher() {
     const onApproved = (e: Event) => {
       const mrn = (e as CustomEvent).detail?.mrn;
       if (!mrn) return;
-      void processMrn(String(mrn)).catch((err) =>
-        console.warn("[cds] processMrn failed", err),
-      );
+      void processMrn(String(mrn)).catch((err) => console.warn("[cds] processMrn failed", err));
     };
     window.addEventListener("nlp:approved", onApproved as EventListener);
-    return () =>
-      window.removeEventListener("nlp:approved", onApproved as EventListener);
+    return () => window.removeEventListener("nlp:approved", onApproved as EventListener);
   }, []);
 }

@@ -30,7 +30,6 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { severityRowVariants } from "@/components/common/SeverityRow";
 import { cn } from "@/lib/utils";
 
-
 export const Route = createFileRoute("/nursing-board")({
   component: Dashboard,
 });
@@ -432,7 +431,12 @@ function Dashboard() {
       .channel(`safety-alerts-board-${facility}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "clinical_safety_alerts", filter: `facility_name=eq.${facility}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "clinical_safety_alerts",
+          filter: `facility_name=eq.${facility}`,
+        },
         () => load(),
       )
       .subscribe();
@@ -939,7 +943,6 @@ function Dashboard() {
         </p>
       </div>
 
-
       {discharging && (
         <ConfirmDischargeModal
           patient={discharging}
@@ -1032,7 +1035,6 @@ function StatCard({
   );
 }
 
-
 function ConfirmDischargeModal({
   patient,
   onCancel,
@@ -1081,4 +1083,3 @@ function ConfirmDischargeModal({
     </div>
   );
 }
-

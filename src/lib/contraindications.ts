@@ -7,9 +7,9 @@
 export type CdsSeverity = "CONTRAINDICATION" | "CAUTION" | "INFO";
 
 export interface ContraindicationRule {
-  drug_match: RegExp;          // matches medication name
+  drug_match: RegExp; // matches medication name
   drug_rxnorm?: string;
-  condition_match: RegExp;      // matches chief complaint or condition name
+  condition_match: RegExp; // matches chief complaint or condition name
   condition_icd10?: string;
   condition_snomed?: string;
   severity: CdsSeverity;
@@ -74,10 +74,7 @@ export interface CdsHit {
   matched_condition: string;
 }
 
-export function checkDrugDisease(
-  drugName: string,
-  patientConditions: string[],
-): CdsHit[] {
+export function checkDrugDisease(drugName: string, patientConditions: string[]): CdsHit[] {
   if (!drugName) return [];
   const hits: CdsHit[] = [];
   for (const rule of CONTRAINDICATIONS) {
@@ -138,10 +135,11 @@ export async function checkDrugDiseaseFromValueSets(
 
     const codes = Array.isArray(vs.codes) ? vs.codes : [];
     // Optional severity/rationale override via description marker
-    const severity: CdsSeverity =
-      /caution/i.test(desc) ? "CAUTION"
-      : /info/i.test(desc) ? "INFO"
-      : "CONTRAINDICATION";
+    const severity: CdsSeverity = /caution/i.test(desc)
+      ? "CAUTION"
+      : /info/i.test(desc)
+        ? "INFO"
+        : "CONTRAINDICATION";
 
     for (const cond of patientConditions) {
       const condLower = String(cond ?? "").toLowerCase();
@@ -154,7 +152,10 @@ export async function checkDrugDiseaseFromValueSets(
       if (match) {
         const rule: ContraindicationRule = {
           drug_match: new RegExp(drugLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
-          condition_match: new RegExp(String(match.display).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+          condition_match: new RegExp(
+            String(match.display).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+            "i",
+          ),
           condition_snomed: match.code ? String(match.code) : undefined,
           severity,
           rationale: desc

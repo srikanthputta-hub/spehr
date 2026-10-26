@@ -75,7 +75,10 @@ function validateBundleEntries(bundle: any): { ok: true } | { ok: false; error: 
   for (const entry of entries) {
     const method = String(entry?.request?.method ?? "").toUpperCase();
     if (method !== "PUT") {
-      return { ok: false, error: `Bundle entries must use PUT (upsert); got ${method || "(none)"}` };
+      return {
+        ok: false,
+        error: `Bundle entries must use PUT (upsert); got ${method || "(none)"}`,
+      };
     }
     const url = String(entry?.request?.url ?? "");
     if (!/^[A-Za-z0-9]+\/[A-Za-z0-9._-]+$/.test(url)) {
@@ -85,7 +88,10 @@ function validateBundleEntries(bundle: any): { ok: true } | { ok: false; error: 
   return { ok: true };
 }
 
-function validatePassthroughRequest(method: string, path: string | undefined): { ok: true } | { ok: false; error: string } {
+function validatePassthroughRequest(
+  method: string,
+  path: string | undefined,
+): { ok: true } | { ok: false; error: string } {
   if (!PASSTHROUGH_METHODS.has(method)) {
     return { ok: false, error: `Method ${method} is not permitted on this endpoint` };
   }
@@ -119,7 +125,11 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
     if (res.status !== 409) return res;
     lastRes = res;
     // drain body so the connection can be reused
-    try { await res.clone().text(); } catch { /* ignore */ }
+    try {
+      await res.clone().text();
+    } catch {
+      /* ignore */
+    }
     const delay = 80 * Math.pow(2, attempt) + Math.floor(Math.random() * 120);
     await new Promise((r) => setTimeout(r, delay));
   }
@@ -136,8 +146,11 @@ const FORBIDDEN_FORWARD_HEADERS = new Set([
   "connection",
 ]);
 
-function buildUpstreamUrl(path: string | undefined, query: Record<string, string> | undefined): string {
-  let base = FHIR_SERVER_URL.replace(/\/+$/, "");
+function buildUpstreamUrl(
+  path: string | undefined,
+  query: Record<string, string> | undefined,
+): string {
+  const base = FHIR_SERVER_URL.replace(/\/+$/, "");
   let suffix = (path ?? "").trim();
   if (suffix && !suffix.startsWith("/")) suffix = "/" + suffix;
   let url = base + suffix;
@@ -180,10 +193,10 @@ serve(async (req) => {
       }
       const bundleValidation = validateBundleEntries(fhirBundle);
       if (!bundleValidation.ok) {
-        return new Response(
-          JSON.stringify({ success: false, error: bundleValidation.error }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 403 },
-        );
+        return new Response(JSON.stringify({ success: false, error: bundleValidation.error }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 403,
+        });
       }
       const upstream = await fetchWithRetry(FHIR_SERVER_URL, {
         method: "POST",
@@ -192,7 +205,11 @@ serve(async (req) => {
       });
       const text = await upstream.text();
       let body: unknown = text;
-      try { body = JSON.parse(text); } catch { /* keep text */ }
+      try {
+        body = JSON.parse(text);
+      } catch {
+        /* keep text */
+      }
       const ok = upstream.ok;
       return new Response(
         JSON.stringify({
@@ -200,7 +217,7 @@ serve(async (req) => {
           status: upstream.status,
           statusText: upstream.statusText,
           response: ok ? body : undefined,
-          error: ok ? undefined : (typeof body === "string" ? body : (body as any)?.issue ?? body),
+          error: ok ? undefined : typeof body === "string" ? body : ((body as any)?.issue ?? body),
         }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -216,10 +233,10 @@ serve(async (req) => {
     }
     const validation = validatePassthroughRequest(method, payload?.path);
     if (!validation.ok) {
-      return new Response(
-        JSON.stringify({ success: false, error: validation.error }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 403 },
-      );
+      return new Response(JSON.stringify({ success: false, error: validation.error }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 403,
+      });
     }
     // DELETE must never carry caller-supplied query params — HAPI JPA
     // supports _cascade=delete and conditional-delete-by-search, either of
@@ -237,28 +254,26 @@ serve(async (req) => {
 
     const text = await upstream.text();
     let body: unknown = text;
-    try { body = JSON.parse(text); } catch { /* keep text */ }
+    try {
+      body = JSON.parse(text);
+    } catch {
+      /* keep text */
+    }
 
     // Transparent return: surface upstream status + body to the caller, so the
     // UI can read the exact FHIR JSON response just like a direct call would.
-    return new Response(
-      typeof body === "string" ? body : JSON.stringify(body),
-      {
-        status: upstream.status,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": upstream.headers.get("content-type") ?? "application/fhir+json",
-        },
+    return new Response(typeof body === "string" ? body : JSON.stringify(body), {
+      status: upstream.status,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": upstream.headers.get("content-type") ?? "application/fhir+json",
       },
-    );
+    });
   } catch (error) {
     console.error("[fhir-proxy] error:", error);
-    return new Response(
-      JSON.stringify({ success: false, error: (error as Error).message }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500,
-      },
-    );
+    return new Response(JSON.stringify({ success: false, error: (error as Error).message }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500,
+    });
   }
 });

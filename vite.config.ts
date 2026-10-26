@@ -28,7 +28,13 @@ export default defineConfig({
   // lightningcss in both keeps dev preview and the built output consistent.
   css: { transformer: "lightningcss" },
   optimizeDeps: {
-    include: ["react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime"],
+    include: [
+      "react",
+      "react-dom",
+      "react-dom/client",
+      "react/jsx-runtime",
+      "react/jsx-dev-runtime",
+    ],
   },
   server: { host: "::", port: 8080 },
   plugins: [

@@ -2,11 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacility } from "@/lib/facility-context";
 import { MOCK_AI_MRNS } from "@/lib/mockAiNotes";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Printer, FileText, Brain } from "lucide-react";
 import { buildDischargeMarkdown } from "@/lib/discharge-narrative";
@@ -94,11 +90,7 @@ function durationHrs(a: string | null, b: string | null): string {
 }
 
 function fullName(p: PatientRow): string {
-  return (
-    p.name ||
-    [p.first_name, p.last_name].filter(Boolean).join(" ") ||
-    "Unknown"
-  );
+  return p.name || [p.first_name, p.last_name].filter(Boolean).join(" ") || "Unknown";
 }
 
 function DischargeSummaryModal({
@@ -136,7 +128,7 @@ function DischargeSummaryModal({
         .order("created_at", { ascending: false })
         .limit(1);
       if (cancelled) return;
-      setNote((data && data[0]) ? (data[0] as DischargeNote) : null);
+      setNote(data && data[0] ? (data[0] as DischargeNote) : null);
       setLoading(false);
     })();
     return () => {
@@ -160,28 +152,33 @@ function DischargeSummaryModal({
       const [obsRes, medReqRes, legacyMedsRes, legacyLabsRes, allergiesRes] = await Promise.all([
         supabase
           .from("observations")
-          .select("loinc_code, display_name, value, value_numeric, unit, abnormal_flag, status, recorded_at")
+          .select(
+            "loinc_code, display_name, value, value_numeric, unit, abnormal_flag, status, recorded_at",
+          )
           .eq("patient_mrn", mrn)
           .order("recorded_at", { ascending: true }),
         supabase
           .from("medication_requests")
-          .select("rxnorm_code, display_name, dosage, route, frequency, status, intent, ordered_at, requester")
+          .select(
+            "rxnorm_code, display_name, dosage, route, frequency, status, intent, ordered_at, requester",
+          )
           .eq("patient_mrn", mrn)
           .order("ordered_at", { ascending: true }),
         supabase
           .from("medication_orders")
-          .select("medication_name, drug_name, dose, route, status, ordered_by, administered_at, created_at")
+          .select(
+            "medication_name, drug_name, dose, route, status, ordered_by, administered_at, created_at",
+          )
           .eq("patient_mrn", mrn)
           .order("administered_at", { ascending: true }),
         supabase
           .from("lab_orders")
-          .select("test_type, status, result_value, requested_by, ordered_by, collected_at, created_at")
+          .select(
+            "test_type, status, result_value, requested_by, ordered_by, collected_at, created_at",
+          )
           .eq("patient_mrn", mrn)
           .order("collected_at", { ascending: true }),
-        supabase
-          .from("allergies")
-          .select("substance, reaction, severity, status")
-          .eq("mrn", mrn),
+        supabase.from("allergies").select("substance, reaction, severity, status").eq("mrn", mrn),
       ]);
       if (cancelled) return;
 
@@ -195,22 +192,23 @@ function DischargeSummaryModal({
         status: string | null;
         recorded_at: string | null;
       }>;
-      const mappedLabs: LabResultRow[] = obsRows.length > 0
-        ? obsRows.map((o) => ({
-            test_type: o.display_name,
-            status: o.status === "final" ? "Resulted" : o.status,
-            result_value: o.value ?? (o.value_numeric != null ? String(o.value_numeric) : null),
-            requested_by: null,
-            ordered_by: "Auto Doc",
-            collected_at: o.recorded_at,
-            created_at: o.recorded_at,
-            loinc_code: o.loinc_code,
-            display_name: o.display_name,
-            value_numeric: o.value_numeric,
-            unit: o.unit,
-            abnormal_flag: o.abnormal_flag,
-          }))
-        : ((legacyLabsRes.data ?? []) as LabResultRow[]);
+      const mappedLabs: LabResultRow[] =
+        obsRows.length > 0
+          ? obsRows.map((o) => ({
+              test_type: o.display_name,
+              status: o.status === "final" ? "Resulted" : o.status,
+              result_value: o.value ?? (o.value_numeric != null ? String(o.value_numeric) : null),
+              requested_by: null,
+              ordered_by: "Auto Doc",
+              collected_at: o.recorded_at,
+              created_at: o.recorded_at,
+              loinc_code: o.loinc_code,
+              display_name: o.display_name,
+              value_numeric: o.value_numeric,
+              unit: o.unit,
+              abnormal_flag: o.abnormal_flag,
+            }))
+          : ((legacyLabsRes.data ?? []) as LabResultRow[]);
 
       const mrRows = (medReqRes.data ?? []) as Array<{
         rxnorm_code: string | null;
@@ -222,21 +220,25 @@ function DischargeSummaryModal({
         ordered_at: string | null;
         requester: string | null;
       }>;
-      const mappedMeds: MedAdminRow[] = mrRows.length > 0
-        ? mrRows.map((m) => ({
-            medication_name: m.display_name,
-            drug_name: m.display_name,
-            dose: m.dosage,
-            route: m.route,
-            status: (m.status ?? "").toLowerCase() === "completed" ? "Administered" : (m.status ?? "active"),
-            ordered_by: m.requester ?? "Auto Doc",
-            administered_at: m.ordered_at,
-            created_at: m.ordered_at,
-            rxnorm_code: m.rxnorm_code,
-            display_name: m.display_name,
-            frequency: m.frequency,
-          }))
-        : ((legacyMedsRes.data ?? []) as MedAdminRow[]);
+      const mappedMeds: MedAdminRow[] =
+        mrRows.length > 0
+          ? mrRows.map((m) => ({
+              medication_name: m.display_name,
+              drug_name: m.display_name,
+              dose: m.dosage,
+              route: m.route,
+              status:
+                (m.status ?? "").toLowerCase() === "completed"
+                  ? "Administered"
+                  : (m.status ?? "active"),
+              ordered_by: m.requester ?? "Auto Doc",
+              administered_at: m.ordered_at,
+              created_at: m.ordered_at,
+              rxnorm_code: m.rxnorm_code,
+              display_name: m.display_name,
+              frequency: m.frequency,
+            }))
+          : ((legacyMedsRes.data ?? []) as MedAdminRow[]);
 
       setMeds(mappedMeds);
       setLabs(mappedLabs);
@@ -261,19 +263,12 @@ function DischargeSummaryModal({
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto p-0 print:max-w-full print:max-h-none print:shadow-none">
-        <DialogTitle className="sr-only">
-          Discharge Summary for {fullName(patient)}
-        </DialogTitle>
+        <DialogTitle className="sr-only">Discharge Summary for {fullName(patient)}</DialogTitle>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur px-6 py-3 print:hidden">
           <span className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
             Document ID · DS-{patient.mrn ?? "—"}
           </span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handlePrint}
-            className="gap-1.5"
-          >
+          <Button size="sm" variant="outline" onClick={handlePrint} className="gap-1.5">
             <Printer className="h-3.5 w-3.5" />
             Print to PDF
           </Button>
@@ -285,9 +280,7 @@ function DischargeSummaryModal({
         >
           {/* Letterhead */}
           <div className="text-center border-b-2 border-slate-900 pb-5 mb-6">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              {facility}
-            </h1>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">{facility}</h1>
             <p className="mt-2 text-[12px] font-semibold uppercase tracking-[0.3em] text-slate-600">
               Official Clinical Discharge Summary
             </p>
@@ -301,15 +294,8 @@ function DischargeSummaryModal({
             <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 border border-slate-300 rounded-sm p-4 bg-white text-[14px]">
               <Field label="Patient Name" value={fullName(patient)} />
               <Field label="MRN" value={patient.mrn ?? "—"} mono />
-              <Field
-                label="Status"
-                value={patient.status ?? "—"}
-              />
-              <Field
-                label="Chief Complaint"
-                value={patient.chief_complaint ?? "—"}
-                wide
-              />
+              <Field label="Status" value={patient.status ?? "—"} />
+              <Field label="Chief Complaint" value={patient.chief_complaint ?? "—"} wide />
               <Field label="Admission" value={fmtTs(patient.admission_time)} mono />
               <Field
                 label="Discharge"
@@ -374,12 +360,8 @@ function Field({
 }) {
   return (
     <div className={wide ? "col-span-2 md:col-span-3" : ""}>
-      <div className="text-[10px] uppercase tracking-wider text-slate-500">
-        {label}
-      </div>
-      <div
-        className={`text-slate-900 font-medium ${mono ? "font-mono text-[12.5px]" : "text-sm"}`}
-      >
+      <div className="text-[10px] uppercase tracking-wider text-slate-500">{label}</div>
+      <div className={`text-slate-900 font-medium ${mono ? "font-mono text-[12.5px]" : "text-sm"}`}>
         {value}
       </div>
     </div>
@@ -401,9 +383,17 @@ function renderInline(text: string): React.ReactNode {
     if (m.index > last) parts.push(text.slice(last, m.index));
     const tok = m[0];
     if (tok.startsWith("**")) {
-      parts.push(<strong key={key++} className="font-semibold text-slate-900">{tok.slice(2, -2)}</strong>);
+      parts.push(
+        <strong key={key++} className="font-semibold text-slate-900">
+          {tok.slice(2, -2)}
+        </strong>,
+      );
     } else {
-      parts.push(<em key={key++} className="text-slate-700">{tok.slice(1, -1)}</em>);
+      parts.push(
+        <em key={key++} className="text-slate-700">
+          {tok.slice(1, -1)}
+        </em>,
+      );
     }
     last = m.index + tok.length;
   }
@@ -419,7 +409,10 @@ function MarkdownBlock({ md }: { md: string }) {
   const flushBullets = () => {
     if (bullets.length === 0) return;
     out.push(
-      <ul key={`u-${out.length}`} className="list-disc pl-6 space-y-1.5 text-[14.5px] leading-[1.7] text-slate-800">
+      <ul
+        key={`u-${out.length}`}
+        className="list-disc pl-6 space-y-1.5 text-[14.5px] leading-[1.7] text-slate-800"
+      >
         {bullets.map((b, i) => (
           <li key={i}>{renderInline(b)}</li>
         ))}
@@ -471,7 +464,10 @@ function MarkdownBlock({ md }: { md: string }) {
       continue;
     }
     out.push(
-      <p key={`p-${out.length}`} className="text-[14.5px] leading-[1.8] text-slate-800 text-justify">
+      <p
+        key={`p-${out.length}`}
+        className="text-[14.5px] leading-[1.8] text-slate-800 text-justify"
+      >
         {renderInline(line)}
       </p>,
     );
@@ -520,9 +516,13 @@ function ClinicalNarrative({
       <MarkdownBlock md={md} />
       <div className="mt-6 pt-3 border-t border-slate-300 text-[12px] text-slate-600">
         Disposition:{" "}
-        {isDischarged
-          ? <>Discharged in stable condition · Length of stay <span className="font-mono">{los}</span></>
-          : <>Active inpatient — disposition pending clinical reassessment.</>}
+        {isDischarged ? (
+          <>
+            Discharged in stable condition · Length of stay <span className="font-mono">{los}</span>
+          </>
+        ) : (
+          <>Active inpatient — disposition pending clinical reassessment.</>
+        )}
       </div>
       <div className="mt-8 grid grid-cols-2 gap-8 text-[12.5px] text-slate-700">
         <div>
@@ -566,11 +566,7 @@ export function PatientFlowCensusLog() {
     load();
     const ch = supabase
       .channel(`patient-flow-${facility}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "patients" },
-        () => load(),
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, () => load())
       .subscribe();
     return () => {
       cancelled = true;
@@ -618,13 +614,27 @@ export function PatientFlowCensusLog() {
           <table className="w-full text-[12px] font-mono">
             <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10">
               <tr className="border-b border-slate-200">
-                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">MRN</th>
-                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">Patient Name</th>
-                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">Chief Complaint</th>
-                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">Status</th>
-                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">Admission Time</th>
-                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">Discharge Time</th>
-                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">Documentation</th>
+                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">
+                  MRN
+                </th>
+                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">
+                  Patient Name
+                </th>
+                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">
+                  Chief Complaint
+                </th>
+                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">
+                  Status
+                </th>
+                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">
+                  Admission Time
+                </th>
+                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">
+                  Discharge Time
+                </th>
+                <th className="text-left px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">
+                  Documentation
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -682,16 +692,12 @@ export function PatientFlowCensusLog() {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-1.5 text-slate-700">
-                        {fmtTs(p.admission_time)}
-                      </td>
+                      <td className="px-3 py-1.5 text-slate-700">{fmtTs(p.admission_time)}</td>
                       <td className="px-3 py-1.5 text-slate-700">
                         {p.discharge_time ? (
                           fmtTs(p.discharge_time)
                         ) : (
-                          <span className="text-emerald-600/80 italic font-sans">
-                            -- Active --
-                          </span>
+                          <span className="text-emerald-600/80 italic font-sans">-- Active --</span>
                         )}
                       </td>
                       <td className="px-3 py-1.5">

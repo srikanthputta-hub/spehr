@@ -15,10 +15,7 @@ export default defineTool({
       .max(100)
       .default(25)
       .describe("Maximum number of patients to return (1-100)."),
-    facility: z
-      .string()
-      .optional()
-      .describe("Optional facility name to filter by."),
+    facility: z.string().optional().describe("Optional facility name to filter by."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ limit, facility }) => {

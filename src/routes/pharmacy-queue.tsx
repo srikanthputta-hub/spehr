@@ -1,13 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  CheckCircle2,
-  Inbox,
-  Loader2,
-  Pill,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, Inbox, Loader2, Pill, XCircle } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
@@ -62,7 +56,6 @@ type Patient = {
   chief_complaint: string | null;
 };
 
-
 const orderMrn = (order: Pick<Order, "mrn" | "patient_mrn"> | null | undefined) =>
   order?.patient_mrn ?? order?.mrn ?? null;
 
@@ -84,8 +77,6 @@ interface DispensedFeedRow {
   status: string;
   pharmacist: string;
 }
-
-
 
 function PharmacyQueue() {
   const { facility } = useFacility();
@@ -140,21 +131,20 @@ function PharmacyQueue() {
         { data: [], error: null } as any,
       );
       if (!active) return;
-      const rows = (data as Array<{
-        mrn: string | null;
-        first_name: string | null;
-        last_name: string | null;
-        name: string | null;
-        admission_time: string | null;
-      }> | null) ?? [];
+      const rows =
+        (data as Array<{
+          mrn: string | null;
+          first_name: string | null;
+          last_name: string | null;
+          name: string | null;
+          admission_time: string | null;
+        }> | null) ?? [];
       setBoardPatients(
         rows
           .filter((p): p is typeof p & { mrn: string } => !!p.mrn)
           .map((p) => ({
             mrn: p.mrn,
-            name:
-              (p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ")) ||
-              "Unknown",
+            name: (p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ")) || "Unknown",
             admission_time: p.admission_time,
           })),
       );
@@ -170,11 +160,7 @@ function PharmacyQueue() {
     };
     const channel = supabase
       .channel(`pharmacy-board-${facility}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "patients" },
-        scheduleBoard,
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, scheduleBoard)
       .subscribe();
     return () => {
       active = false;
@@ -264,7 +250,9 @@ function PharmacyQueue() {
         () =>
           supabase
             .from("medication_orders")
-            .select("id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at, ordering_physician")
+            .select(
+              "id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at, ordering_physician",
+            )
             .eq("facility_name", facility)
             .in("status", PENDING_STATUSES)
             .order("created_at", { ascending: false })
@@ -313,10 +301,7 @@ function PharmacyQueue() {
   }, [facility]);
 
   const visibleOrders = useMemo(
-    () =>
-      orders.filter(
-        (o) => (o.facility_name ?? "Memorial Hospital") === facility,
-      ),
+    () => orders.filter((o) => (o.facility_name ?? "Memorial Hospital") === facility),
     [orders, facility],
   );
 
@@ -359,9 +344,7 @@ function PharmacyQueue() {
           // without waiting for the broader refetch below.
           const row = payload.new as any;
           if (row && row.facility_name === facility) {
-            setDispensed((prev) =>
-              prev.some((o) => o.id === row.id) ? prev : [row, ...prev],
-            );
+            setDispensed((prev) => (prev.some((o) => o.id === row.id) ? prev : [row, ...prev]));
           }
         },
       )
@@ -383,9 +366,7 @@ function PharmacyQueue() {
   // Real medication_orders rows win; otherwise fall back to the same
   // deterministic per-MRN panel the admission randomizer would have seeded.
   const recentDispensed: DispensedFeedRow[] = useMemo(() => {
-    const pharmacistName = pharm?.name
-      ? `${pharm.name}, PharmD`
-      : "Auto-Dispense, PharmD";
+    const pharmacistName = pharm?.name ? `${pharm.name}, PharmD` : "Auto-Dispense, PharmD";
 
     const rows: DispensedFeedRow[] = [];
     for (const o of dispensed) {
@@ -452,7 +433,6 @@ function PharmacyQueue() {
     }
   }, [visibleOrders, selectedId]);
 
-
   const actOnOrder = async (id: string, newStatus: "Approved" | "REJECTED") => {
     const prevOrders = orders;
     const current = orders.find((o) => o.id === id);
@@ -484,7 +464,8 @@ function PharmacyQueue() {
     if (!data || data.length === 0) {
       setOrders(prevOrders);
       toast.error("Order already updated", {
-        description: "Someone else (or the automation sweep) already acted on this order. Refresh to see its current state.",
+        description:
+          "Someone else (or the automation sweep) already acted on this order. Refresh to see its current state.",
       });
       return;
     }
@@ -518,7 +499,11 @@ function PharmacyQueue() {
         module="PHA"
         context={`${facility} · Central Pharmacy`}
         stats={[
-          { label: "Pending", value: visibleOrders.length, tone: visibleOrders.length > 0 ? "warn" : "good" },
+          {
+            label: "Pending",
+            value: visibleOrders.length,
+            tone: visibleOrders.length > 0 ? "warn" : "good",
+          },
           { label: "Dispensed", value: recentDispensed.length, tone: "good" },
           { label: "Pharmacist", value: pharm.name },
           { label: "Mode", value: automationEnabled ? "Verification" : "Manual Approval" },
@@ -526,8 +511,9 @@ function PharmacyQueue() {
       />
       {!automationEnabled && (
         <div className="mx-4 mt-3 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-          <span className="font-bold uppercase tracking-wider">Manual Approval Mode</span>
-          {" "}— AI engines are OFF. Medication orders will NOT auto-verify. Every order must be reviewed and approved here before it reaches the MAR.
+          <span className="font-bold uppercase tracking-wider">Manual Approval Mode</span> — AI
+          engines are OFF. Medication orders will NOT auto-verify. Every order must be reviewed and
+          approved here before it reaches the MAR.
         </div>
       )}
       <div className="grid grid-cols-12 gap-4 p-4">
@@ -546,9 +532,7 @@ function PharmacyQueue() {
                   <TableSkeleton rows={4} columns={2} />
                 </div>
               )}
-              {error && (
-                <div className="p-4 text-xs text-red-600">Unable to load — {error}</div>
-              )}
+              {error && <div className="p-4 text-xs text-red-600">Unable to load — {error}</div>}
               {!loading && visibleOrders.length === 0 && !error && (
                 <EmptyState
                   icon={CheckCircle2}
@@ -561,19 +545,25 @@ function PharmacyQueue() {
                 return (
                   <button
                     key={o.id}
-                    onClick={() => { if (!isHeld) setSelectedId(o.id); }}
+                    onClick={() => {
+                      if (!isHeld) setSelectedId(o.id);
+                    }}
                     disabled={isHeld}
                     className={cn(
                       severityRowVariants({ severity: isHeld ? "critical" : "none" }),
                       "w-full text-left pr-3 py-2.5 transition",
                       isHeld
                         ? "bg-slate-100 text-slate-500 cursor-not-allowed"
-                        : active ? "bg-[#0c2340] text-white" : "hover:bg-slate-50",
+                        : active
+                          ? "bg-[#0c2340] text-white"
+                          : "hover:bg-slate-50",
                     )}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-sm font-medium truncate flex items-center gap-1.5">
-                        <Pill className={`h-3.5 w-3.5 ${active ? "text-white/80" : "text-amber-600"}`} />
+                        <Pill
+                          className={`h-3.5 w-3.5 ${active ? "text-white/80" : "text-amber-600"}`}
+                        />
                         {o.drug_name ?? "—"}
                       </div>
                       {(() => {
@@ -618,10 +608,14 @@ function PharmacyQueue() {
                         return <StatusBadge status={badgeStatus} label={label} />;
                       })()}
                     </div>
-                    <div className={`mt-0.5 text-[11px] truncate ${active ? "text-white/75" : "text-slate-500"}`}>
+                    <div
+                      className={`mt-0.5 text-[11px] truncate ${active ? "text-white/75" : "text-slate-500"}`}
+                    >
                       {o.dose} · {o.route} · {o.frequency}
                     </div>
-                    <div className={`mt-1 text-[10px] font-mono ${active ? "text-white/70" : "text-slate-400"}`}>
+                    <div
+                      className={`mt-1 text-[10px] font-mono ${active ? "text-white/70" : "text-slate-400"}`}
+                    >
                       {o.mrn ?? "—"}
                     </div>
                     {/* Chronology — 4-phase timestamp pipeline */}
@@ -644,7 +638,9 @@ function PharmacyQueue() {
                         { k: "Adm", ts: o.administered_at },
                       ];
                       return (
-                        <div className={`mt-1 flex items-center gap-2 text-[9px] font-mono ${muted}`}>
+                        <div
+                          className={`mt-1 flex items-center gap-2 text-[9px] font-mono ${muted}`}
+                        >
                           {steps.map((s, idx) => (
                             <span key={s.k} className={s.ts ? lit : muted}>
                               {s.k} {fmt(s.ts)}
@@ -692,7 +688,9 @@ function PharmacyQueue() {
                       Patient
                     </div>
                     <div className="mt-1 text-sm font-semibold text-slate-900">
-                      {patient ? `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() : "—"}
+                      {patient
+                        ? `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim()
+                        : "—"}
                     </div>
                     <div className="text-[11px] text-slate-500 font-mono">
                       {selected.mrn}
@@ -710,35 +708,47 @@ function PharmacyQueue() {
                 {/* Actions */}
                 <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
                   <div className="inline-flex items-center gap-1">
-                  <button
-                    onClick={() => actOnOrder(selected.id, "Approved")}
-                    disabled={acting || !can("btn_dispense_med")}
-                    title={can("btn_dispense_med") ? undefined : "Action disabled — contact admin to activate"}
-                    className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
-                  >
-                    {acting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    Approve &amp; Verify → Send to MAR
-                  </button>
+                    <button
+                      onClick={() => actOnOrder(selected.id, "Approved")}
+                      disabled={acting || !can("btn_dispense_med")}
+                      title={
+                        can("btn_dispense_med")
+                          ? undefined
+                          : "Action disabled — contact admin to activate"
+                      }
+                      className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      {acting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" />
+                      )}
+                      Approve &amp; Verify → Send to MAR
+                    </button>
                     <InfoHint text="Sets status = Approved, which immediately surfaces this order on the nursing task board (MAR) as ready to administer. Cannot be undone from this screen." />
                   </div>
                   <div className="inline-flex items-center gap-1">
-                  <button
-                    onClick={() => actOnOrder(selected.id, "REJECTED")}
-                    disabled={acting || !can("btn_verify_med")}
-                    title={can("btn_verify_med") ? undefined : "Action disabled — contact admin to activate"}
-                    className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-                  >
-                    <XCircle className="h-4 w-4" />
-                    Reject Order
-                  </button>
+                    <button
+                      onClick={() => actOnOrder(selected.id, "REJECTED")}
+                      disabled={acting || !can("btn_verify_med")}
+                      title={
+                        can("btn_verify_med")
+                          ? undefined
+                          : "Action disabled — contact admin to activate"
+                      }
+                      className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                    >
+                      <XCircle className="h-4 w-4" />
+                      Reject Order
+                    </button>
                     <InfoHint text="Sets status = REJECTED and returns the order to the ordering physician for reissue. The medication never reaches the MAR." />
                   </div>
                   <div className="ml-auto text-[11px] text-slate-500">
-                    Approval routes status to <span className="font-mono text-slate-700">Approved</span>
+                    Approval routes status to{" "}
+                    <span className="font-mono text-slate-700">Approved</span>
                   </div>
                 </div>
               </div>
-
             </>
           )}
 
@@ -753,73 +763,94 @@ function PharmacyQueue() {
                 right={<span className="font-mono">LIVE</span>}
               />
               <div className="scroll-feed">
-              <table className="w-full text-xs">
-                <thead className="bg-[#0c2340] text-slate-100 sticky top-0 z-10">
-                  <tr>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Timestamp</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Patient</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">MRN</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Medication Order</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Status</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Verifying PharmD</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const rows = recentDispensed;
-                    if (rows.length === 0) {
-                      return (
-                        <tr>
-                          <td colSpan={6} className="p-0">
-                            <EmptyState
-                              className="border-0 rounded-none"
-                              description={`No dispensed or rejected medications yet for patients at ${facility}.`}
-                            />
+                <table className="w-full text-xs">
+                  <thead className="bg-[#0c2340] text-slate-100 sticky top-0 z-10">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                        Timestamp
+                      </th>
+                      <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                        Patient
+                      </th>
+                      <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                        MRN
+                      </th>
+                      <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                        Medication Order
+                      </th>
+                      <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                        Status
+                      </th>
+                      <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                        Verifying PharmD
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const rows = recentDispensed;
+                      if (rows.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={6} className="p-0">
+                              <EmptyState
+                                className="border-0 rounded-none"
+                                description={`No dispensed or rejected medications yet for patients at ${facility}.`}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return rows.map((m, i) => (
+                        <tr
+                          key={m.key}
+                          className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/70"} hover:bg-cyan-50/50 transition-colors`}
+                        >
+                          <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
+                            {(() => {
+                              const ts = m?.timestamp;
+                              return ts
+                                ? new Date(ts).toLocaleString([], {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                    second: "2-digit",
+                                    hour12: false,
+                                  })
+                                : "Just now";
+                            })()}
                           </td>
+                          <td className="px-3 py-2 font-medium text-slate-900">
+                            {m?.patient_name ?? "Unknown"}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-slate-600">
+                            {m?.patient_mrn ?? "—"}
+                          </td>
+                          <td className="px-3 py-2 text-slate-800">
+                            {[m?.drug_name, m?.dose, m?.route, m?.frequency]
+                              .filter(Boolean)
+                              .join(" ") || "Unknown"}
+                          </td>
+                          <td className="px-3 py-2">
+                            {(() => {
+                              const s = (m.status ?? "").toUpperCase();
+                              if (s === "ADMINISTERED") {
+                                return <StatusBadge status="success" label="Administered" />;
+                              }
+                              const label =
+                                s === "REJECTED_SAFETY_ALERT"
+                                  ? "Rejected (Safety Alert)"
+                                  : "Rejected";
+                              return <StatusBadge status="critical" label={label} />;
+                            })()}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">{m.pharmacist}</td>
                         </tr>
-                      );
-                    }
-                    return rows.map((m, i) => (
-                      <tr
-                        key={m.key}
-                        className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/70"} hover:bg-cyan-50/50 transition-colors`}
-                      >
-                        <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
-                          {(() => {
-                            const ts = m?.timestamp;
-                            return ts ? new Date(ts).toLocaleString([], {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              second: "2-digit",
-                              hour12: false,
-                            }) : "Just now";
-                          })()}
-                        </td>
-                        <td className="px-3 py-2 font-medium text-slate-900">{m?.patient_name ?? "Unknown"}</td>
-                        <td className="px-3 py-2 font-mono text-slate-600">{m?.patient_mrn ?? "—"}</td>
-                        <td className="px-3 py-2 text-slate-800">
-                          {[m?.drug_name, m?.dose, m?.route, m?.frequency].filter(Boolean).join(" ") || "Unknown"}
-                        </td>
-                        <td className="px-3 py-2">
-                          {(() => {
-                            const s = (m.status ?? "").toUpperCase();
-                            if (s === "ADMINISTERED") {
-                              return <StatusBadge status="success" label="Administered" />;
-                            }
-                            const label = s === "REJECTED_SAFETY_ALERT" ? "Rejected (Safety Alert)" : "Rejected";
-                            return <StatusBadge status="critical" label={label} />;
-                          })()}
-                        </td>
-                        <td className="px-3 py-2 text-slate-700">
-                          {m.pharmacist}
-                        </td>
-                      </tr>
-                    ));
-                  })()}
-                </tbody>
-              </table>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

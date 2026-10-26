@@ -1,9 +1,9 @@
-import http from 'node:http';
-import { exec, execFile } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
-import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
+import http from "node:http";
+import { exec, execFile } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 const pexec = promisify(exec);
 const pexecFile = promisify(execFile);
@@ -13,16 +13,20 @@ const PORT = process.env.RUFLO_DASHBOARD_PORT ? Number(process.env.RUFLO_DASHBOA
 
 async function run(cmd) {
   try {
-    const { stdout } = await pexec(cmd, { cwd: PROJECT_DIR, timeout: 15000, maxBuffer: 10 * 1024 * 1024 });
+    const { stdout } = await pexec(cmd, {
+      cwd: PROJECT_DIR,
+      timeout: 15000,
+      maxBuffer: 10 * 1024 * 1024,
+    });
     return stdout;
   } catch (err) {
-    return err.stdout || '';
+    return err.stdout || "";
   }
 }
 
 const AGENT_ID_RE = /^agent-[A-Za-z0-9_-]+$/;
-const AGENTS_STORE_PATH = () => path.join(PROJECT_DIR, '.claude-flow', 'agents', 'store.json');
-const TASKS_STORE_PATH = () => path.join(PROJECT_DIR, '.claude-flow', 'tasks', 'store.json');
+const AGENTS_STORE_PATH = () => path.join(PROJECT_DIR, ".claude-flow", "agents", "store.json");
+const TASKS_STORE_PATH = () => path.join(PROJECT_DIR, ".claude-flow", "tasks", "store.json");
 
 // The `ruflo agent list --format json` CLI strips custom fields (model,
 // modelRoutedBy) that the office-task-bridge writes when it registers a
@@ -30,7 +34,7 @@ const TASKS_STORE_PATH = () => path.join(PROJECT_DIR, '.claude-flow', 'tasks', '
 // same ground-truth-over-CLI approach as loadTaskStore() below.
 async function loadAgentModelMeta() {
   try {
-    const raw = await readFile(AGENTS_STORE_PATH(), 'utf8');
+    const raw = await readFile(AGENTS_STORE_PATH(), "utf8");
     const parsed = JSON.parse(raw);
     const meta = {};
     for (const [id, a] of Object.entries(parsed.agents || {})) {
@@ -49,8 +53,8 @@ async function loadAgentModelMeta() {
 async function removeAgentEntirely(agentId) {
   try {
     const [agentsRaw, tasksRaw] = await Promise.all([
-      readFile(AGENTS_STORE_PATH(), 'utf8').catch(() => null),
-      readFile(TASKS_STORE_PATH(), 'utf8').catch(() => null),
+      readFile(AGENTS_STORE_PATH(), "utf8").catch(() => null),
+      readFile(TASKS_STORE_PATH(), "utf8").catch(() => null),
     ]);
     if (agentsRaw) {
       const agentsStore = JSON.parse(agentsRaw);
@@ -64,19 +68,24 @@ async function removeAgentEntirely(agentId) {
       }
       await writeFile(TASKS_STORE_PATH(), JSON.stringify(tasksStore, null, 2));
     }
-  } catch { /* best-effort cleanup — stop already succeeded either way */ }
+  } catch {
+    /* best-effort cleanup — stop already succeeded either way */
+  }
 }
 
 async function stopAgent(agentId) {
-  if (!AGENT_ID_RE.test(agentId)) return { ok: false, error: 'invalid agent id' };
+  if (!AGENT_ID_RE.test(agentId)) return { ok: false, error: "invalid agent id" };
   try {
-    await pexecFile('ruflo', ['--no-color', 'agent', 'stop', agentId], {
-      cwd: PROJECT_DIR, timeout: 35000, maxBuffer: 5 * 1024 * 1024, shell: true
+    await pexecFile("ruflo", ["--no-color", "agent", "stop", agentId], {
+      cwd: PROJECT_DIR,
+      timeout: 35000,
+      maxBuffer: 5 * 1024 * 1024,
+      shell: true,
     });
     await removeAgentEntirely(agentId);
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err.message || 'stop failed' };
+    return { ok: false, error: err.message || "stop failed" };
   }
 }
 
@@ -84,10 +93,14 @@ function safeJsonParse(raw) {
   try {
     return JSON.parse(raw);
   } catch {
-    const start = raw.indexOf('{');
-    const end = raw.lastIndexOf('}');
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
     if (start !== -1 && end !== -1 && end > start) {
-      try { return JSON.parse(raw.slice(start, end + 1)); } catch { /* fall through */ }
+      try {
+        return JSON.parse(raw.slice(start, end + 1));
+      } catch {
+        /* fall through */
+      }
     }
     return null;
   }
@@ -97,13 +110,19 @@ function parseDaemonStatus(text) {
   const running = /RUNNING/i.test(text);
   const pidMatch = text.match(/PID:\s*(\d+)/);
   const workers = [];
-  const lineRe = /\|\s*([\w-]+)\s*\|\s*(✓|○)\s*\|\s*(\w+)\s*\|\s*(\d+)\s*\|\s*([\d.]+%)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/g;
+  const lineRe =
+    /\|\s*([\w-]+)\s*\|\s*(✓|○)\s*\|\s*(\w+)\s*\|\s*(\d+)\s*\|\s*([\d.]+%)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/g;
   let m;
   while ((m = lineRe.exec(text))) {
-    if (m[1] === 'Worker') continue;
+    if (m[1] === "Worker") continue;
     workers.push({
-      name: m[1], enabled: m[2] === '✓', status: m[3], runs: Number(m[4]),
-      success: m[5], lastRun: m[6].trim(), nextRun: m[7].trim()
+      name: m[1],
+      enabled: m[2] === "✓",
+      status: m[3],
+      runs: Number(m[4]),
+      success: m[5],
+      lastRun: m[6].trim(),
+      nextRun: m[7].trim(),
     });
   }
   return { running, pid: pidMatch ? Number(pidMatch[1]) : null, workers };
@@ -140,7 +159,10 @@ async function loadTaskStore() {
   // the bug entirely and matches the same ground-truth-over-CLI approach already
   // used for the agent store's undocumented `currentTask` field.
   try {
-    const raw = await readFile(path.join(PROJECT_DIR, '.claude-flow', 'tasks', 'store.json'), 'utf8');
+    const raw = await readFile(
+      path.join(PROJECT_DIR, ".claude-flow", "tasks", "store.json"),
+      "utf8",
+    );
     const parsed = JSON.parse(raw);
     const tasks = Object.values(parsed.tasks || {});
     return { tasks, total: tasks.length };
@@ -160,11 +182,11 @@ let lastGoodAgents = null;
 
 async function collect() {
   const [agentsRaw, swarmRaw, memRaw, taskList, daemonRaw, modelMeta] = await Promise.all([
-    run('ruflo --no-color --format json agent list'),
-    run('ruflo --no-color --format json swarm status'),
-    run('ruflo --no-color --format json status memory'),
+    run("ruflo --no-color --format json agent list"),
+    run("ruflo --no-color --format json swarm status"),
+    run("ruflo --no-color --format json status memory"),
     loadTaskStore(),
-    run('ruflo daemon status'),
+    run("ruflo daemon status"),
     loadAgentModelMeta(),
   ]);
 
@@ -960,36 +982,38 @@ const HTML = `<!doctype html>
 </html>`;
 
 const server = http.createServer(async (req, res) => {
-  if (req.url === '/api/data' && req.method === 'GET') {
+  if (req.url === "/api/data" && req.method === "GET") {
     try {
       const data = await collect();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(data));
     } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: String(e && e.message || e) }));
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: String((e && e.message) || e) }));
     }
     return;
   }
 
-  if (req.url === '/api/agent/stop' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', async () => {
+  if (req.url === "/api/agent/stop" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", async () => {
       try {
-        const { agentId } = JSON.parse(body || '{}');
+        const { agentId } = JSON.parse(body || "{}");
         const out = await stopAgent(agentId);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(out));
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: String(e && e.message || e) }));
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
       }
     });
     return;
   }
 
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(HTML);
 });
 

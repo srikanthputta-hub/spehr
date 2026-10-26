@@ -1,13 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  AlertTriangle,
-  ChevronDown,
-  Loader2,
-  Plus,
-  UserPlus,
-  Wand2,
-  X,
-} from "lucide-react";
+import { AlertTriangle, ChevronDown, Loader2, Plus, UserPlus, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { type CodeStatus } from "@/lib/patients";
 import { analyzeNarrative, loadDictionary, type NlpResult } from "@/lib/nlp-engine";
@@ -180,13 +172,25 @@ export function AdmitPatientModal({
         </div>
 
         <form onSubmit={handle} className="p-5 space-y-3">
-          <Section title="1 · Patient Demographics (Administrative & Identity)" open={open.demo} onToggle={() => toggleSection("demo")}>
+          <Section
+            title="1 · Patient Demographics (Administrative & Identity)"
+            open={open.demo}
+            onToggle={() => toggleSection("demo")}
+          >
             <div className="grid grid-cols-12 gap-3">
               <Field label="First Name" className="col-span-4">
-                <Input value={intake.firstName} onChange={(v) => patch({ firstName: v })} placeholder="John" />
+                <Input
+                  value={intake.firstName}
+                  onChange={(v) => patch({ firstName: v })}
+                  placeholder="John"
+                />
               </Field>
               <Field label="Last Name" className="col-span-4">
-                <Input value={intake.lastName} onChange={(v) => patch({ lastName: v })} placeholder="Doe" />
+                <Input
+                  value={intake.lastName}
+                  onChange={(v) => patch({ lastName: v })}
+                  placeholder="Doe"
+                />
               </Field>
               <Field label="Age" className="col-span-2">
                 <Input
@@ -220,58 +224,116 @@ export function AdmitPatientModal({
                 />
               </Field>
               <Field label="Phone" className="col-span-3">
-                <Input value={intake.phone} onChange={(v) => patch({ phone: v })} placeholder="(555) 123-4567" />
+                <Input
+                  value={intake.phone}
+                  onChange={(v) => patch({ phone: v })}
+                  placeholder="(555) 123-4567"
+                />
               </Field>
               <Field label="Occupation" className="col-span-3">
-                <Input value={intake.occupation} onChange={(v) => patch({ occupation: v })} placeholder="Teacher" />
+                <Input
+                  value={intake.occupation}
+                  onChange={(v) => patch({ occupation: v })}
+                  placeholder="Teacher"
+                />
               </Field>
               <Field label="Address" className="col-span-12">
-                <Input value={intake.address} onChange={(v) => patch({ address: v })} placeholder="123 Main St, Springfield" />
+                <Input
+                  value={intake.address}
+                  onChange={(v) => patch({ address: v })}
+                  placeholder="123 Main St, Springfield"
+                />
               </Field>
               <Field label="Emergency Contact Name" className="col-span-4">
-                <Input value={intake.emergencyName} onChange={(v) => patch({ emergencyName: v })} placeholder="Jane Doe" />
+                <Input
+                  value={intake.emergencyName}
+                  onChange={(v) => patch({ emergencyName: v })}
+                  placeholder="Jane Doe"
+                />
               </Field>
               <Field label="Relationship" className="col-span-3">
                 <Select
                   value={intake.emergencyRelationship}
-                  onChange={(v) => patch({ emergencyRelationship: v as IntakeRecord["emergencyRelationship"] })}
+                  onChange={(v) =>
+                    patch({ emergencyRelationship: v as IntakeRecord["emergencyRelationship"] })
+                  }
                   options={["", ...RELATIONSHIP_OPTIONS]}
                   placeholder="Select…"
                 />
               </Field>
               <Field label="Emergency Phone" className="col-span-5">
-                <Input value={intake.emergencyPhone} onChange={(v) => patch({ emergencyPhone: v })} placeholder="(555) 987-6543" />
+                <Input
+                  value={intake.emergencyPhone}
+                  onChange={(v) => patch({ emergencyPhone: v })}
+                  placeholder="(555) 987-6543"
+                />
               </Field>
               <Field label="Insurance Provider" className="col-span-4">
                 <Select
                   value={intake.insuranceProvider}
                   onChange={(v) => patch({ insuranceProvider: v })}
-                  options={["", "Blue Cross Blue Shield", "Aetna", "UnitedHealthcare", "Cigna", "Humana", "Kaiser Permanente", "Medicare", "Medicaid", "Self-Pay", "Other"]}
+                  options={[
+                    "",
+                    "Blue Cross Blue Shield",
+                    "Aetna",
+                    "UnitedHealthcare",
+                    "Cigna",
+                    "Humana",
+                    "Kaiser Permanente",
+                    "Medicare",
+                    "Medicaid",
+                    "Self-Pay",
+                    "Other",
+                  ]}
                   placeholder="Select…"
                 />
               </Field>
               <Field label="Policy #" className="col-span-3">
-                <Input value={intake.insurancePolicy} onChange={(v) => patch({ insurancePolicy: v })} placeholder="POL-123456" />
+                <Input
+                  value={intake.insurancePolicy}
+                  onChange={(v) => patch({ insurancePolicy: v })}
+                  placeholder="POL-123456"
+                />
               </Field>
               <Field label="Primary Care Physician" className="col-span-3">
-                <Input value={intake.pcp} onChange={(v) => patch({ pcp: v })} placeholder="Dr. Reyes, MD" />
+                <Input
+                  value={intake.pcp}
+                  onChange={(v) => patch({ pcp: v })}
+                  placeholder="Dr. Reyes, MD"
+                />
               </Field>
               <Field label="Guarantor" className="col-span-2">
-                <Input value={intake.guarantor} onChange={(v) => patch({ guarantor: v })} placeholder="Self" />
+                <Input
+                  value={intake.guarantor}
+                  onChange={(v) => patch({ guarantor: v })}
+                  placeholder="Self"
+                />
               </Field>
               <Field label="Room / Bed" className="col-span-3">
                 <Input value={room} onChange={(v) => setRoom(v)} placeholder="412-A" />
               </Field>
               <Field label="Code Status" className="col-span-3">
-                <Select value={code} onChange={(v) => setCode(v as CodeStatus)} options={["Full Code", "DNR", "DNI", "Comfort"]} />
+                <Select
+                  value={code}
+                  onChange={(v) => setCode(v as CodeStatus)}
+                  options={["Full Code", "DNR", "DNI", "Comfort"]}
+                />
               </Field>
               <Field label="MRN (optional)" className="col-span-6">
-                <Input value={mrn} onChange={(v) => setMrn(v)} placeholder="MRN-482910 — auto if blank" />
+                <Input
+                  value={mrn}
+                  onChange={(v) => setMrn(v)}
+                  placeholder="MRN-482910 — auto if blank"
+                />
               </Field>
             </div>
           </Section>
 
-          <Section title="2 · Chief Complaint (CC) — Patient's Own Words" open={open.cc} onToggle={() => toggleSection("cc")}>
+          <Section
+            title="2 · Chief Complaint (CC) — Patient's Own Words"
+            open={open.cc}
+            onToggle={() => toggleSection("cc")}
+          >
             <TerminologyCombobox
               value={intake.chiefComplaint}
               onChange={(v) =>
@@ -296,13 +358,25 @@ export function AdmitPatientModal({
             )}
           </Section>
 
-          <Section title="3 · History of Present Illness (HPI)" open={open.hpi} onToggle={() => toggleSection("hpi")}>
+          <Section
+            title="3 · History of Present Illness (HPI)"
+            open={open.hpi}
+            onToggle={() => toggleSection("hpi")}
+          >
             <div className="grid grid-cols-12 gap-3">
               <Field label="Onset" className="col-span-4">
-                <Input value={intake.hpiOnset} onChange={(v) => patch({ hpiOnset: v })} placeholder="2 hours ago" />
+                <Input
+                  value={intake.hpiOnset}
+                  onChange={(v) => patch({ hpiOnset: v })}
+                  placeholder="2 hours ago"
+                />
               </Field>
               <Field label="Location / Radiation" className="col-span-5">
-                <Input value={intake.hpiLocation} onChange={(v) => patch({ hpiLocation: v })} placeholder="Substernal, radiates to left arm" />
+                <Input
+                  value={intake.hpiLocation}
+                  onChange={(v) => patch({ hpiLocation: v })}
+                  placeholder="Substernal, radiates to left arm"
+                />
               </Field>
               <Field label="Duration / Frequency" className="col-span-3">
                 <Select
@@ -320,10 +394,18 @@ export function AdmitPatientModal({
                 />
               </Field>
               <Field label="Aggravating Factors" className="col-span-6">
-                <Input value={intake.hpiAggravating} onChange={(v) => patch({ hpiAggravating: v })} placeholder="Exertion, deep breathing" />
+                <Input
+                  value={intake.hpiAggravating}
+                  onChange={(v) => patch({ hpiAggravating: v })}
+                  placeholder="Exertion, deep breathing"
+                />
               </Field>
               <Field label="Alleviating Factors" className="col-span-6">
-                <Input value={intake.hpiAlleviating} onChange={(v) => patch({ hpiAlleviating: v })} placeholder="Rest, nitroglycerin" />
+                <Input
+                  value={intake.hpiAlleviating}
+                  onChange={(v) => patch({ hpiAlleviating: v })}
+                  placeholder="Rest, nitroglycerin"
+                />
               </Field>
               <Field label={`Severity: ${intake.hpiSeverity}/10`} className="col-span-12">
                 <input
@@ -338,7 +420,11 @@ export function AdmitPatientModal({
             </div>
           </Section>
 
-          <Section title="4 · Past Medical & Surgical History (PMH/PSH)" open={open.pmh} onToggle={() => toggleSection("pmh")}>
+          <Section
+            title="4 · Past Medical & Surgical History (PMH/PSH)"
+            open={open.pmh}
+            onToggle={() => toggleSection("pmh")}
+          >
             <div className="space-y-3">
               <Field label="Chronic Illnesses">
                 <div className="space-y-2">
@@ -349,10 +435,7 @@ export function AdmitPatientModal({
                       if (intake.chronicIllnesses.includes(hit.display)) return;
                       patch({
                         chronicIllnesses: [...intake.chronicIllnesses, hit.display],
-                        chronicIllnessCodes: [
-                          ...(intake.chronicIllnessCodes ?? []),
-                          hit,
-                        ],
+                        chronicIllnessCodes: [...(intake.chronicIllnessCodes ?? []), hit],
                       });
                     }}
                     sabs="SNOMEDCT_US"
@@ -360,15 +443,17 @@ export function AdmitPatientModal({
                     clearOnSelect
                   />
                   <ChipGroup
-                    options={Array.from(new Set([
-                      ...(CHRONIC_OPTIONS as unknown as string[]),
-                      ...intake.chronicIllnesses,
-                    ]))}
+                    options={Array.from(
+                      new Set([
+                        ...(CHRONIC_OPTIONS as unknown as string[]),
+                        ...intake.chronicIllnesses,
+                      ]),
+                    )}
                     value={intake.chronicIllnesses}
                     onToggle={(v) => {
                       const next = toggleInArray(intake.chronicIllnesses, v);
-                      const codes = (intake.chronicIllnessCodes ?? []).filter(
-                        (c) => next.includes(c.display),
+                      const codes = (intake.chronicIllnessCodes ?? []).filter((c) =>
+                        next.includes(c.display),
                       );
                       patch({ chronicIllnesses: next, chronicIllnessCodes: codes });
                     }}
@@ -394,12 +479,18 @@ export function AdmitPatientModal({
             </div>
           </Section>
 
-          <Section title="5 · Allergies & Current Medications" open={open.allergies} onToggle={() => toggleSection("allergies")}>
+          <Section
+            title="5 · Allergies & Current Medications"
+            open={open.allergies}
+            onToggle={() => toggleSection("allergies")}
+          >
             <div className="space-y-3">
               <Field label="Drug Allergies (name + reaction)">
                 <div className="space-y-1.5">
                   {intake.drugAllergies.length === 0 && (
-                    <p className="text-[11px] text-muted-foreground italic">No known drug allergies (NKDA)</p>
+                    <p className="text-[11px] text-muted-foreground italic">
+                      No known drug allergies (NKDA)
+                    </p>
                   )}
                   {intake.drugAllergies.map((a, idx) => (
                     <div key={idx} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
@@ -430,12 +521,20 @@ export function AdmitPatientModal({
                       />
                       <Input
                         value={a.reaction}
-                        onChange={(v) => patch({ drugAllergies: intake.drugAllergies.map((x, i) => (i === idx ? { ...x, reaction: v } : x)) })}
+                        onChange={(v) =>
+                          patch({
+                            drugAllergies: intake.drugAllergies.map((x, i) =>
+                              i === idx ? { ...x, reaction: v } : x,
+                            ),
+                          })
+                        }
                         placeholder="Hives / Anaphylaxis"
                       />
                       <button
                         type="button"
-                        onClick={() => patch({ drugAllergies: intake.drugAllergies.filter((_, i) => i !== idx) })}
+                        onClick={() =>
+                          patch({ drugAllergies: intake.drugAllergies.filter((_, i) => i !== idx) })
+                        }
                         className="grid place-items-center h-9 w-9 rounded-md border border-border hover:bg-red-50 hover:text-red-600"
                       >
                         <X className="h-3.5 w-3.5" />
@@ -444,7 +543,11 @@ export function AdmitPatientModal({
                   ))}
                   <button
                     type="button"
-                    onClick={() => patch({ drugAllergies: [...intake.drugAllergies, { name: "", reaction: "" }] })}
+                    onClick={() =>
+                      patch({
+                        drugAllergies: [...intake.drugAllergies, { name: "", reaction: "" }],
+                      })
+                    }
                     className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--teal)] hover:underline"
                   >
                     <Plus className="h-3 w-3" /> Add drug allergy
@@ -495,21 +598,46 @@ export function AdmitPatientModal({
                       <div className="col-span-3">
                         <Input
                           value={m.dose}
-                          onChange={(v) => patch({ currentMeds: intake.currentMeds.map((x, i) => (i === idx ? { ...x, dose: v } : x)) })}
+                          onChange={(v) =>
+                            patch({
+                              currentMeds: intake.currentMeds.map((x, i) =>
+                                i === idx ? { ...x, dose: v } : x,
+                              ),
+                            })
+                          }
                           placeholder="10 mg"
                         />
                       </div>
                       <div className="col-span-3">
                         <Select
                           value={m.freq}
-                          onChange={(v) => patch({ currentMeds: intake.currentMeds.map((x, i) => (i === idx ? { ...x, freq: v } : x)) })}
-                          options={["", "PO Daily", "PO BID", "PO TID", "PO QID", "PO QHS", "PO Q6H", "PO Q8H", "PRN", "IV Daily"]}
+                          onChange={(v) =>
+                            patch({
+                              currentMeds: intake.currentMeds.map((x, i) =>
+                                i === idx ? { ...x, freq: v } : x,
+                              ),
+                            })
+                          }
+                          options={[
+                            "",
+                            "PO Daily",
+                            "PO BID",
+                            "PO TID",
+                            "PO QID",
+                            "PO QHS",
+                            "PO Q6H",
+                            "PO Q8H",
+                            "PRN",
+                            "IV Daily",
+                          ]}
                           placeholder="Freq"
                         />
                       </div>
                       <button
                         type="button"
-                        onClick={() => patch({ currentMeds: intake.currentMeds.filter((_, i) => i !== idx) })}
+                        onClick={() =>
+                          patch({ currentMeds: intake.currentMeds.filter((_, i) => i !== idx) })
+                        }
                         className="col-span-1 grid place-items-center h-9 rounded-md border border-border hover:bg-red-50 hover:text-red-600"
                       >
                         <X className="h-3.5 w-3.5" />
@@ -518,7 +646,11 @@ export function AdmitPatientModal({
                   ))}
                   <button
                     type="button"
-                    onClick={() => patch({ currentMeds: [...intake.currentMeds, { name: "", dose: "", freq: "" }] })}
+                    onClick={() =>
+                      patch({
+                        currentMeds: [...intake.currentMeds, { name: "", dose: "", freq: "" }],
+                      })
+                    }
                     className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--teal)] hover:underline"
                   >
                     <Plus className="h-3 w-3" /> Add medication
@@ -528,13 +660,19 @@ export function AdmitPatientModal({
             </div>
           </Section>
 
-          <Section title="6 · Family History" open={open.family} onToggle={() => toggleSection("family")}>
+          <Section
+            title="6 · Family History"
+            open={open.family}
+            onToggle={() => toggleSection("family")}
+          >
             <div className="space-y-3">
               <Field label="Conditions in Immediate Blood Relatives">
                 <ChipGroup
                   options={FAMILY_OPTIONS as unknown as string[]}
                   value={intake.familyConditions}
-                  onToggle={(v) => patch({ familyConditions: toggleInArray(intake.familyConditions, v) })}
+                  onToggle={(v) =>
+                    patch({ familyConditions: toggleInArray(intake.familyConditions, v) })
+                  }
                 />
               </Field>
               <Field label="Notes (relationship, age, condition)">
@@ -557,7 +695,11 @@ export function AdmitPatientModal({
           )}
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-border sticky bottom-0 bg-card -mx-5 -mb-5 px-5 py-3">
-            <button type="button" onClick={onClose} className="rounded-md border border-border bg-background px-3 h-9 text-xs font-medium hover:bg-secondary transition">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border bg-background px-3 h-9 text-xs font-medium hover:bg-secondary transition"
+            >
               Cancel
             </button>
             <button
@@ -573,7 +715,11 @@ export function AdmitPatientModal({
               disabled={submitting}
               className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-9 text-xs font-semibold shadow-sm transition disabled:opacity-60"
             >
-              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+              {submitting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <UserPlus className="h-3.5 w-3.5" />
+              )}
               Admit Patient
             </button>
           </div>
@@ -693,7 +839,9 @@ function Field({
 }) {
   return (
     <label className={`flex flex-col gap-1.5 ${className ?? ""}`}>
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        {label}
+      </span>
       {children}
     </label>
   );

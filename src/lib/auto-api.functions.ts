@@ -11,17 +11,13 @@ import type { Database } from "@/integrations/supabase/types";
  */
 
 function client() {
-  return createClient<Database>(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_PUBLISHABLE_KEY!,
-    {
-      auth: {
-        storage: undefined,
-        persistSession: false,
-        autoRefreshToken: false,
-      },
+  return createClient<Database>(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
+    auth: {
+      storage: undefined,
+      persistSession: false,
+      autoRefreshToken: false,
     },
-  );
+  });
 }
 
 async function logEvent(
@@ -55,43 +51,31 @@ async function logEvent(
  * routes those writes through the service-role admin client instead.
  */
 export const updateSystemSettings = createServerFn({ method: "POST" })
-  .inputValidator(
-    (d: { automation_enabled?: boolean; auto_api_enabled?: boolean }) => d,
-  )
+  .inputValidator((d: { automation_enabled?: boolean; auto_api_enabled?: boolean }) => d)
   .handler(async ({ data }) => {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
-    const { error } = await supabaseAdmin
-      .from("system_settings")
-      .upsert({ id: 1, ...data } as any);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("system_settings").upsert({ id: 1, ...data } as any);
     return { ok: !error, error: error?.message ?? null };
   });
 
 /* ─────────────────────────── QA Governance Queue ─────────────────────── */
 
-export const getQaQueue = createServerFn({ method: "GET" }).handler(
-  async () => {
-    const { data, error } = await client()
-      .from("nlp_qa_queue")
-      .select("*")
-      .eq("status", "pending")
-      .order("created_at", { ascending: false })
-      .limit(20);
-    if (error) return { items: [], error: error.message };
-    return { items: data ?? [], error: null as string | null };
-  },
-);
+export const getQaQueue = createServerFn({ method: "GET" }).handler(async () => {
+  const { data, error } = await client()
+    .from("nlp_qa_queue")
+    .select("*")
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) return { items: [], error: error.message };
+  return { items: data ?? [], error: null as string | null };
+});
 
 export const approveQaItem = createServerFn({ method: "POST" })
   .inputValidator((d: { id: string; reviewer?: string }) => d)
   .handler(async ({ data }) => {
     const sb = client();
-    const { data: row } = await sb
-      .from("nlp_qa_queue")
-      .select("*")
-      .eq("id", data.id)
-      .maybeSingle();
+    const { data: row } = await sb.from("nlp_qa_queue").select("*").eq("id", data.id).maybeSingle();
     if (!row) return { ok: false, error: "Not found" };
     await sb
       .from("nlp_qa_queue")
@@ -111,10 +95,7 @@ export const approveQaItem = createServerFn({ method: "POST" })
         .select("standardized_output, snomed_codes, icd10_codes")
         .eq("mrn", (row as any).mrn)
         .maybeSingle();
-      const existing = ((patient as any)?.standardized_output ?? {}) as Record<
-        string,
-        any
-      >;
+      const existing = ((patient as any)?.standardized_output ?? {}) as Record<string, any>;
       const merged = {
         "SNOMED CT": Array.from(
           new Set([
@@ -188,34 +169,30 @@ export const editQaItem = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export const flushQaQueue = createServerFn({ method: "POST" }).handler(
-  async () => {
-    const sb = client();
-    await sb
-      .from("nlp_qa_queue")
-      .update({
-        status: "flushed",
-        reviewed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      } as any)
-      .eq("status", "pending");
-    await logEvent("NLP_QUEUE_FLUSHED", {});
-    return { ok: true };
-  },
-);
+export const flushQaQueue = createServerFn({ method: "POST" }).handler(async () => {
+  const sb = client();
+  await sb
+    .from("nlp_qa_queue")
+    .update({
+      status: "flushed",
+      reviewed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as any)
+    .eq("status", "pending");
+  await logEvent("NLP_QUEUE_FLUSHED", {});
+  return { ok: true };
+});
 
 /* ─────────────────────────── Custom Value Sets ───────────────────────── */
 
-export const listValueSets = createServerFn({ method: "GET" }).handler(
-  async () => {
-    const { data } = await client()
-      .from("custom_value_sets")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
-    return { items: data ?? [] };
-  },
-);
+export const listValueSets = createServerFn({ method: "GET" }).handler(async () => {
+  const { data } = await client()
+    .from("custom_value_sets")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  return { items: data ?? [] };
+});
 
 export const saveValueSet = createServerFn({ method: "POST" })
   .inputValidator(
@@ -289,115 +266,104 @@ export const logCdsOverride = createServerFn({ method: "POST" })
 
 /* ─────────────────────────── Loop Status / Events ────────────────────── */
 
-export const getAutoApiLoopStatus = createServerFn({ method: "GET" }).handler(
-  async () => {
-    const sb = client();
-    // Heuristic: derive each loop's last activity from recent table writes.
-    const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
-    const [qaPending, recentEvents, recentOverrides, recentDischarges] =
-      await Promise.all([
-        sb
-          .from("nlp_qa_queue")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "pending"),
-        sb
-          .from("auto_api_events")
-          .select("event_type, created_at")
-          .gte("created_at", fiveMinAgo)
-          .order("created_at", { ascending: false })
-          .limit(50),
-        sb
-          .from("cds_overrides")
-          .select("id", { count: "exact", head: true })
-          .gte("created_at", fiveMinAgo),
-        sb
-          .from("patients")
-          .select("discharge_time")
-          .eq("status", "Discharged")
-          .order("discharge_time", { ascending: false })
-          .limit(1),
-      ]);
-
-    const lastDischarge = (recentDischarges.data as any[])?.[0]?.discharge_time;
-    const lastEventByType: Record<string, string> = {};
-    for (const ev of (recentEvents.data as any[]) ?? []) {
-      if (!lastEventByType[ev.event_type])
-        lastEventByType[ev.event_type] = ev.created_at;
-    }
-
-    const loops = [
-      {
-        key: "UMLS_LIVE_QUERY",
-        label: "UMLS Live Query",
-        group: "Terminology",
-        status: "NORMAL" as const,
-        last_run: new Date().toISOString(),
-      },
-      {
-        key: "NLP_PIPELINE",
-        label: "NLP Pipeline (raw → mapping → standardised)",
-        group: "Coding",
-        status: "NORMAL" as const,
-        last_run: lastEventByType["NLP_MAPPING_APPROVED"] ?? new Date().toISOString(),
-      },
-      {
-        key: "PRE_PUSH_STANDARDISATION",
-        label: "Pre-Push Code Standardisation",
-        group: "Interop",
-        status: "NORMAL" as const,
-        last_run: lastDischarge ?? new Date().toISOString(),
-      },
-      {
-        key: "DRUG_SAFETY_RXNORM",
-        label: "Drug Safety · RxNorm × AllergyIntolerance",
-        group: "Safety",
-        status: "NORMAL" as const,
-        last_run: lastEventByType["DRUG_SAFETY_HALT"] ?? new Date().toISOString(),
-      },
-      {
-        key: "FHIR_SERVER_SYNC",
-        label: "FHIR Server Sync (400 ms heartbeat)",
-        group: "Interop",
-        status: "NORMAL" as const,
-        last_run: lastDischarge ?? new Date().toISOString(),
-      },
-      {
-        key: "NLP_CONFIDENCE_GATE",
-        label: "NLP Confidence Gate",
-        group: "Governance",
-        status: ((qaPending.count ?? 0) > 0 ? "WARNING" : "NORMAL") as
-          | "NORMAL"
-          | "WARNING",
-        last_run: new Date().toISOString(),
-      },
-      {
-        key: "AUTO_TERMINOLOGIST",
-        label: "Auto Terminologist (10 min coverage scan)",
-        group: "Terminology",
-        status: "NORMAL" as const,
-        last_run: new Date().toISOString(),
-      },
-    ];
-
-    return {
-      loops,
-      pending_qa: qaPending.count ?? 0,
-      recent_events: (recentEvents.data as any[]) ?? [],
-      recent_overrides: recentOverrides.count ?? 0,
-    };
-  },
-);
-
-export const listAutoApiEvents = createServerFn({ method: "GET" }).handler(
-  async () => {
-    const { data } = await client()
+export const getAutoApiLoopStatus = createServerFn({ method: "GET" }).handler(async () => {
+  const sb = client();
+  // Heuristic: derive each loop's last activity from recent table writes.
+  const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+  const [qaPending, recentEvents, recentOverrides, recentDischarges] = await Promise.all([
+    sb.from("nlp_qa_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    sb
       .from("auto_api_events")
-      .select("*")
+      .select("event_type, created_at")
+      .gte("created_at", fiveMinAgo)
       .order("created_at", { ascending: false })
-      .limit(100);
-    return { items: data ?? [] };
-  },
-);
+      .limit(50),
+    sb
+      .from("cds_overrides")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", fiveMinAgo),
+    sb
+      .from("patients")
+      .select("discharge_time")
+      .eq("status", "Discharged")
+      .order("discharge_time", { ascending: false })
+      .limit(1),
+  ]);
+
+  const lastDischarge = (recentDischarges.data as any[])?.[0]?.discharge_time;
+  const lastEventByType: Record<string, string> = {};
+  for (const ev of (recentEvents.data as any[]) ?? []) {
+    if (!lastEventByType[ev.event_type]) lastEventByType[ev.event_type] = ev.created_at;
+  }
+
+  const loops = [
+    {
+      key: "UMLS_LIVE_QUERY",
+      label: "UMLS Live Query",
+      group: "Terminology",
+      status: "NORMAL" as const,
+      last_run: new Date().toISOString(),
+    },
+    {
+      key: "NLP_PIPELINE",
+      label: "NLP Pipeline (raw → mapping → standardised)",
+      group: "Coding",
+      status: "NORMAL" as const,
+      last_run: lastEventByType["NLP_MAPPING_APPROVED"] ?? new Date().toISOString(),
+    },
+    {
+      key: "PRE_PUSH_STANDARDISATION",
+      label: "Pre-Push Code Standardisation",
+      group: "Interop",
+      status: "NORMAL" as const,
+      last_run: lastDischarge ?? new Date().toISOString(),
+    },
+    {
+      key: "DRUG_SAFETY_RXNORM",
+      label: "Drug Safety · RxNorm × AllergyIntolerance",
+      group: "Safety",
+      status: "NORMAL" as const,
+      last_run: lastEventByType["DRUG_SAFETY_HALT"] ?? new Date().toISOString(),
+    },
+    {
+      key: "FHIR_SERVER_SYNC",
+      label: "FHIR Server Sync (400 ms heartbeat)",
+      group: "Interop",
+      status: "NORMAL" as const,
+      last_run: lastDischarge ?? new Date().toISOString(),
+    },
+    {
+      key: "NLP_CONFIDENCE_GATE",
+      label: "NLP Confidence Gate",
+      group: "Governance",
+      status: ((qaPending.count ?? 0) > 0 ? "WARNING" : "NORMAL") as "NORMAL" | "WARNING",
+      last_run: new Date().toISOString(),
+    },
+    {
+      key: "AUTO_TERMINOLOGIST",
+      label: "Auto Terminologist (10 min coverage scan)",
+      group: "Terminology",
+      status: "NORMAL" as const,
+      last_run: new Date().toISOString(),
+    },
+  ];
+
+  return {
+    loops,
+    pending_qa: qaPending.count ?? 0,
+    recent_events: (recentEvents.data as any[]) ?? [],
+    recent_overrides: recentOverrides.count ?? 0,
+  };
+});
+
+export const listAutoApiEvents = createServerFn({ method: "GET" }).handler(async () => {
+  const { data } = await client()
+    .from("auto_api_events")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  return { items: data ?? [] };
+});
 
 /* ─────────────────────────── Population Health ───────────────────────── */
 
@@ -513,25 +479,23 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
       allCodesDebug = allCodes;
       vsMrns = new Set();
       if (allCodes.length > 0) {
-        const [
-          { data: vsCond, error: vsCondErr },
-          { data: vsLab, error: vsLabErr },
-        ] = await Promise.all([
-        sb
-            .from("conditions")
-            .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display")
-            .or(
-              `snomed_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")}),icd10_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")})`,
-            )
-            .order("created_at", { ascending: false })
-            .limit(5000),
-        sb
-            .from("lab_orders")
-            .select("patient_mrn, loinc_code, loinc_display")
-            .in("loinc_code", allCodes)
-            .order("created_at", { ascending: false })
-            .limit(5000),
-        ]);
+        const [{ data: vsCond, error: vsCondErr }, { data: vsLab, error: vsLabErr }] =
+          await Promise.all([
+            sb
+              .from("conditions")
+              .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display")
+              .or(
+                `snomed_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")}),icd10_code.in.(${allCodes.map((c: string) => `"${c}"`).join(",")})`,
+              )
+              .order("created_at", { ascending: false })
+              .limit(5000),
+            sb
+              .from("lab_orders")
+              .select("patient_mrn, loinc_code, loinc_display")
+              .in("loinc_code", allCodes)
+              .order("created_at", { ascending: false })
+              .limit(5000),
+          ]);
         if (vsCondErr) {
           vsCondErrMsg = vsCondErr.message;
           console.error("[population-query] vsCond failed", vsCondErr.message);
@@ -545,15 +509,15 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
           const key = r.snomed_display
             ? `${r.snomed_code ?? "?"} · ${r.snomed_display}`
             : r.icd10_display
-            ? `${r.icd10_code ?? "?"} · ${r.icd10_display}`
-            : "uncoded";
+              ? `${r.icd10_code ?? "?"} · ${r.icd10_display}`
+              : "uncoded";
           topSnomed[key] = (topSnomed[key] ?? 0) + 1;
         }
         for (const r of (vsLab as any[]) ?? []) {
           if (r.patient_mrn) vsMrns.add(r.patient_mrn);
           const key = r.loinc_display
             ? `${r.loinc_code ?? "?"} · ${r.loinc_display}`
-            : r.loinc_code ?? "uncoded";
+            : (r.loinc_code ?? "uncoded");
           topLoinc[key] = (topLoinc[key] ?? 0) + 1;
         }
       }
@@ -586,10 +550,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
           const { data: br, error: bErr } = await bq;
           if (bErr) {
             patientBatchErrors.push(bErr.message);
-            console.error(
-              "[population-query] patients batch failed",
-              bErr.message,
-            );
+            console.error("[population-query] patients batch failed", bErr.message);
           }
           return (br as any[]) ?? [];
         }),
@@ -611,8 +572,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
         q = q.lte("admission_time", data.until_iso);
       }
       const { data: qr, error: qErr } = await q;
-      if (qErr)
-        console.error("[population-query] patients failed", qErr.message);
+      if (qErr) console.error("[population-query] patients failed", qErr.message);
       rows = (qr as any[]) ?? [];
     }
     let filtered = rows;
@@ -625,8 +585,7 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
     }
 
     const ages = filtered.map((r) => Number(r.age)).filter((n) => !isNaN(n));
-    const avgAge =
-      ages.length > 0 ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : 0;
+    const avgAge = ages.length > 0 ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : 0;
     const genderCount: Record<string, number> = {};
     for (const r of filtered) {
       const g = (r.gender ?? "unknown").toLowerCase();
@@ -692,11 +651,14 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
           } as any);
         } else {
           let covered = false;
-          for (const row of ((phSets ?? []) as any[])) {
+          for (const row of (phSets ?? []) as any[]) {
             const rowCodes: any[] = Array.isArray(row?.codes) ? row.codes : [];
             for (const c of rowCodes) {
               const k = String(c?.code ?? "").trim();
-              if (k && foundCodeSet.has(k)) { covered = true; break; }
+              if (k && foundCodeSet.has(k)) {
+                covered = true;
+                break;
+              }
             }
             if (covered) break;
           }
@@ -790,15 +752,11 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
 /* ─────────────────────────── Coded keyword suggestions ───────────────── */
 
 export const getCodedKeywordSuggestions = createServerFn({ method: "POST" })
-  .inputValidator(
-    (d: {
-      system: "SNOMED" | "ICD10" | "LOINC" | "RXNORM";
-      query: string;
-    }) => d,
-  )
+  .inputValidator((d: { system: "SNOMED" | "ICD10" | "LOINC" | "RXNORM"; query: string }) => d)
   .handler(async ({ data }) => {
     const q = (data.query ?? "").trim();
-    if (q.length < 2) return { items: [] as Array<{ code: string; display: string; count: number }> };
+    if (q.length < 2)
+      return { items: [] as Array<{ code: string; display: string; count: number }> };
     const sb = client();
     const agg = new Map<string, { code: string; display: string; count: number }>();
     const bump = (code: string, display: string) => {
@@ -815,7 +773,8 @@ export const getCodedKeywordSuggestions = createServerFn({ method: "POST" })
         .not("snomed_code", "is", null)
         .limit(4000);
       for (const r of (rows as any[]) ?? []) {
-        if (r.snomed_code && r.snomed_display) bump(String(r.snomed_code), String(r.snomed_display));
+        if (r.snomed_code && r.snomed_display)
+          bump(String(r.snomed_code), String(r.snomed_display));
       }
     } else if (data.system === "ICD10") {
       const { data: rows } = await sb
@@ -845,7 +804,8 @@ export const getCodedKeywordSuggestions = createServerFn({ method: "POST" })
         .not("rxnorm_code", "is", null)
         .limit(4000);
       for (const r of (rows as any[]) ?? []) {
-        if (r.rxnorm_code && r.rxnorm_display) bump(String(r.rxnorm_code), String(r.rxnorm_display));
+        if (r.rxnorm_code && r.rxnorm_display)
+          bump(String(r.rxnorm_code), String(r.rxnorm_display));
       }
     }
     const items = Array.from(agg.values())

@@ -30,13 +30,7 @@ interface Props {
  * Builder, then one-click stages all member codes as PENDING lab_orders
  * pre-coded with their LOINC concept (no separate auto-coder round trip).
  */
-export function OrderPanelPicker({
-  mrn,
-  patientName,
-  facility,
-  diagnosis,
-  physicianName,
-}: Props) {
+export function OrderPanelPicker({ mrn, patientName, facility, diagnosis, physicianName }: Props) {
   const autoApi = useAutoApiEnabled();
   const [open, setOpen] = useState(false);
   const [sets, setSets] = useState<ValueSet[]>([]);
@@ -85,9 +79,7 @@ export function OrderPanelPicker({
         coded_at: new Date().toISOString(),
       }));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase.from("lab_orders") as any)
-        .insert(rows)
-        .select("id");
+      const { data, error } = await (supabase.from("lab_orders") as any).insert(rows).select("id");
       if (error) throw error;
       okCount = (data ?? []).length;
       toast.success(`Panel staged: ${panel.name}`, {
@@ -104,7 +96,8 @@ export function OrderPanelPicker({
     if (!autoApi) return "AUTO API engine OFF — value sets unavailable.";
     if (loading) return "Loading published value sets…";
     if (!fetched) return "Click to view published order panels.";
-    if (sets.length === 0) return "No published LOINC panels — publish one in System Admin → AUTO API.";
+    if (sets.length === 0)
+      return "No published LOINC panels — publish one in System Admin → AUTO API.";
     return `${sets.length} published panel${sets.length === 1 ? "" : "s"} available.`;
   }, [autoApi, loading, fetched, sets.length]);
 
@@ -137,9 +130,7 @@ export function OrderPanelPicker({
             </div>
           )}
           {!loading && sets.length === 0 && (
-            <div className="text-xs text-slate-500 italic">
-              No published LOINC panels yet.
-            </div>
+            <div className="text-xs text-slate-500 italic">No published LOINC panels yet.</div>
           )}
           {sets.map((panel) => (
             <div
@@ -147,9 +138,7 @@ export function OrderPanelPicker({
               className="flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-3 py-2"
             >
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-900 truncate">
-                  {panel.name}
-                </div>
+                <div className="text-sm font-semibold text-slate-900 truncate">{panel.name}</div>
                 <div className="text-[11px] text-slate-500">
                   {panel.system} · {panel.codes.length} codes
                   {panel.description ? ` · ${panel.description}` : ""}

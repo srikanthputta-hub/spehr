@@ -73,11 +73,7 @@ export const Route = createFileRoute("/api/public/umls-search")({
 
         const sabs = VOCAB_MAP[vocabularyRaw];
         if (!sabs) {
-          return json(
-            { error: `Unsupported vocabulary: ${vocabularyRaw}` },
-            400,
-            cors,
-          );
+          return json({ error: `Unsupported vocabulary: ${vocabularyRaw}` }, 400, cors);
         }
 
         const url = new URL("https://uts-ws.nlm.nih.gov/rest/search/current");
@@ -105,7 +101,11 @@ export const Route = createFileRoute("/api/public/umls-search")({
             headers: { "Content-Type": "application/json", ...cors },
           });
         } catch (err: any) {
-          return json({ error: "UMLS upstream failed", detail: String(err?.message ?? err) }, 502, cors);
+          return json(
+            { error: "UMLS upstream failed", detail: String(err?.message ?? err) },
+            502,
+            cors,
+          );
         }
       },
     },

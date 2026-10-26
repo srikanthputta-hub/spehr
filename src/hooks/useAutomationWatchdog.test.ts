@@ -35,7 +35,7 @@ describe("claimLease", () => {
     expect(result).toBe(true);
     expect(rpcMock).toHaveBeenCalledWith(
       "claim_automation_lease",
-      expect.objectContaining({ _engine: "automation_watchdog", _min_interval_ms: 60_000 })
+      expect.objectContaining({ _engine: "automation_watchdog", _min_interval_ms: 60_000 }),
     );
   });
 
@@ -47,7 +47,7 @@ describe("claimLease", () => {
     expect(result).toBe(true);
     expect(rpcMock).toHaveBeenCalledWith(
       "claim_automation_lease",
-      expect.objectContaining({ _engine: "automation_watchdog_ghost", _min_interval_ms: 600_000 })
+      expect.objectContaining({ _engine: "automation_watchdog_ghost", _min_interval_ms: 600_000 }),
     );
   });
 

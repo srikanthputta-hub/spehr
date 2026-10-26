@@ -34,11 +34,7 @@ export function SlaCountdown({
     : warning
       ? "border-amber-300 bg-amber-50 text-amber-700"
       : "border-slate-300 bg-slate-50 text-slate-700";
-  const barColor = critical
-    ? "bg-red-500"
-    : warning
-      ? "bg-amber-500"
-      : "bg-emerald-500";
+  const barColor = critical ? "bg-red-500" : warning ? "bg-amber-500" : "bg-emerald-500";
   const widthClass = compact ? "w-36" : "w-44";
   return (
     <div

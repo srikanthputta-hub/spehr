@@ -24,21 +24,78 @@ const RADIOLOGY_CATALOG: Array<{
   snomed: string;
   snomedDisplay: string;
 }> = [
-  { exam: "Chest X-ray",               modality: "XR",  bodyPart: "Chest",        snomed: "399208008", snomedDisplay: "Plain chest X-ray" },
-  { exam: "Knee X-ray",                modality: "XR",  bodyPart: "Knee",         snomed: "168731009", snomedDisplay: "Plain X-ray of knee" },
-  { exam: "CT Head",                   modality: "CT",  bodyPart: "Head",         snomed: "169069000", snomedDisplay: "Computed tomography of head" },
-  { exam: "CT Chest",                  modality: "CT",  bodyPart: "Chest",        snomed: "169070004", snomedDisplay: "Computed tomography of chest" },
-  { exam: "CT Abdomen/Pelvis",         modality: "CT",  bodyPart: "Abdomen/Pelvis", snomed: "169071000", snomedDisplay: "Computed tomography of abdomen and pelvis" },
-  { exam: "MRI Brain",                 modality: "MRI", bodyPart: "Brain",        snomed: "241601008", snomedDisplay: "MRI of brain" },
-  { exam: "MRI Spine",                 modality: "MRI", bodyPart: "Spine",        snomed: "241645009", snomedDisplay: "MRI of spine" },
-  { exam: "Abdominal Ultrasound",      modality: "US",  bodyPart: "Abdomen",      snomed: "45036003",  snomedDisplay: "Ultrasonography of abdomen" },
+  {
+    exam: "Chest X-ray",
+    modality: "XR",
+    bodyPart: "Chest",
+    snomed: "399208008",
+    snomedDisplay: "Plain chest X-ray",
+  },
+  {
+    exam: "Knee X-ray",
+    modality: "XR",
+    bodyPart: "Knee",
+    snomed: "168731009",
+    snomedDisplay: "Plain X-ray of knee",
+  },
+  {
+    exam: "CT Head",
+    modality: "CT",
+    bodyPart: "Head",
+    snomed: "169069000",
+    snomedDisplay: "Computed tomography of head",
+  },
+  {
+    exam: "CT Chest",
+    modality: "CT",
+    bodyPart: "Chest",
+    snomed: "169070004",
+    snomedDisplay: "Computed tomography of chest",
+  },
+  {
+    exam: "CT Abdomen/Pelvis",
+    modality: "CT",
+    bodyPart: "Abdomen/Pelvis",
+    snomed: "169071000",
+    snomedDisplay: "Computed tomography of abdomen and pelvis",
+  },
+  {
+    exam: "MRI Brain",
+    modality: "MRI",
+    bodyPart: "Brain",
+    snomed: "241601008",
+    snomedDisplay: "MRI of brain",
+  },
+  {
+    exam: "MRI Spine",
+    modality: "MRI",
+    bodyPart: "Spine",
+    snomed: "241645009",
+    snomedDisplay: "MRI of spine",
+  },
+  {
+    exam: "Abdominal Ultrasound",
+    modality: "US",
+    bodyPart: "Abdomen",
+    snomed: "45036003",
+    snomedDisplay: "Ultrasonography of abdomen",
+  },
 ];
 
 function slugifyExam(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
-export function RadiologyOrderPanel({ mrn, patientName, facility, diagnosis, physicianName }: Props) {
+export function RadiologyOrderPanel({
+  mrn,
+  patientName,
+  facility,
+  diagnosis,
+  physicianName,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [examIdx, setExamIdx] = useState(0);
   const [indication, setIndication] = useState(diagnosis ?? "");
@@ -111,20 +168,36 @@ export function RadiologyOrderPanel({ mrn, patientName, facility, diagnosis, phy
         meta: { tag: [{ system: "urn:spehr:source", code: "spehr" }] },
         status: "active",
         intent: "order",
-        category: [{
-          coding: [{ system: "http://snomed.info/sct", code: "363679005", display: "Imaging" }],
-        }],
+        category: [
+          {
+            coding: [{ system: "http://snomed.info/sct", code: "363679005", display: "Imaging" }],
+          },
+        ],
         code: {
-          coding: [{ system: "http://snomed.info/sct", code: chosen.snomed, display: chosen.snomedDisplay }],
+          coding: [
+            {
+              system: "http://snomed.info/sct",
+              code: chosen.snomed,
+              display: chosen.snomedDisplay,
+            },
+          ],
           text: chosen.exam,
         },
         subject: { reference: `Patient/${mrn}` },
-        reasonCode: [{
-          text: trimmed,
-          coding: coded
-            ? [{ system: "http://hl7.org/fhir/sid/icd-10-cm", code: coded.code, display: coded.display }]
-            : undefined,
-        }],
+        reasonCode: [
+          {
+            text: trimmed,
+            coding: coded
+              ? [
+                  {
+                    system: "http://hl7.org/fhir/sid/icd-10-cm",
+                    code: coded.code,
+                    display: coded.display,
+                  },
+                ]
+              : undefined,
+          },
+        ],
         authoredOn: new Date().toISOString(),
         requester: { display: physicianName ?? "Physician" },
       };
@@ -200,7 +273,9 @@ export function RadiologyOrderPanel({ mrn, patientName, facility, diagnosis, phy
             </label>
             <div className="text-[11px] text-slate-500 self-end pb-2">
               SNOMED {RADIOLOGY_CATALOG[examIdx].snomed} · Body site:{" "}
-              <span className="font-medium text-slate-700">{RADIOLOGY_CATALOG[examIdx].bodyPart}</span>
+              <span className="font-medium text-slate-700">
+                {RADIOLOGY_CATALOG[examIdx].bodyPart}
+              </span>
             </div>
           </div>
           <label className="block">

@@ -68,7 +68,11 @@ function generateMockResults(testType: string, condition: string | null): LabVal
   const hasSepsis = dx.includes("sepsis") || dx.includes("septic");
   const hasDKA = dx.includes("dka") || dx.includes("ketoacidosis");
   const hasCardiac =
-    dx.includes("chf") || dx.includes("heart failure") || dx.includes("mi") || dx.includes("myocardial") || dx.includes("infarction");
+    dx.includes("chf") ||
+    dx.includes("heart failure") ||
+    dx.includes("mi") ||
+    dx.includes("myocardial") ||
+    dx.includes("infarction");
 
   if (testType === "CBC Pack") {
     if (hasSepsis) {
@@ -126,7 +130,9 @@ function generateMockResults(testType: string, condition: string | null): LabVal
 
   if (testType === "Serum Lactate") {
     if (hasSepsis) {
-      return [{ test: "Lactate", value: "4.2", unit: "mmol/L", range: "0.5–2.2", flag: "CRITICAL" }];
+      return [
+        { test: "Lactate", value: "4.2", unit: "mmol/L", range: "0.5–2.2", flag: "CRITICAL" },
+      ];
     }
     return [{ test: "Lactate", value: "1.4", unit: "mmol/L", range: "0.5–2.2", flag: "NORMAL" }];
   }
@@ -151,51 +157,66 @@ function LabBoard() {
 
   const load = async () => {
     if (initialLoadRef.current) setLoading(true);
-    const [{ data: labData }, { data: completedData }, { data: patientData }] = await fetchWithTimeout(
-      () =>
-        Promise.all([
-          supabase
-            .from("lab_orders")
-            .select("*")
-            .eq("facility_name", facility)
-            .in("status", ["Ordered", "ORDERED", "Pending", "PENDING", "Pending Collection", "Processing", "PROCESSING", "Reported", "Resulted", "Completed"])
-            .order("created_at", { ascending: false })
-            .limit(250),
-          supabase
-            .from("lab_orders")
-            .select("*")
-            .eq("facility_name", facility)
-            .in("status", ["Reported", "Resulted", "Completed"])
-            .order("resulted_at", { ascending: false, nullsFirst: false })
-            .order("created_at", { ascending: false, nullsFirst: false })
-            .limit(150),
-          supabase
-            .from("patients")
-            .select("mrn, first_name, last_name, name, admission_time")
-            .eq("facility_name", facility)
-            .eq("status", "Admitted")
-            .order("admission_time", { ascending: false })
-            .limit(25),
-        ]),
-      [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }] as any,
-    );
+    const [{ data: labData }, { data: completedData }, { data: patientData }] =
+      await fetchWithTimeout(
+        () =>
+          Promise.all([
+            supabase
+              .from("lab_orders")
+              .select("*")
+              .eq("facility_name", facility)
+              .in("status", [
+                "Ordered",
+                "ORDERED",
+                "Pending",
+                "PENDING",
+                "Pending Collection",
+                "Processing",
+                "PROCESSING",
+                "Reported",
+                "Resulted",
+                "Completed",
+              ])
+              .order("created_at", { ascending: false })
+              .limit(250),
+            supabase
+              .from("lab_orders")
+              .select("*")
+              .eq("facility_name", facility)
+              .in("status", ["Reported", "Resulted", "Completed"])
+              .order("resulted_at", { ascending: false, nullsFirst: false })
+              .order("created_at", { ascending: false, nullsFirst: false })
+              .limit(150),
+            supabase
+              .from("patients")
+              .select("mrn, first_name, last_name, name, admission_time")
+              .eq("facility_name", facility)
+              .eq("status", "Admitted")
+              .order("admission_time", { ascending: false })
+              .limit(25),
+          ]),
+        [
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: [], error: null },
+        ] as any,
+      );
     setOrders((labData as LabOrderRow[]) ?? []);
     setCompletedOrders((completedData as LabOrderRow[]) ?? []);
-    const rows = (patientData as Array<{
-      mrn: string | null;
-      first_name: string | null;
-      last_name: string | null;
-      name: string | null;
-      admission_time: string | null;
-    }> | null) ?? [];
+    const rows =
+      (patientData as Array<{
+        mrn: string | null;
+        first_name: string | null;
+        last_name: string | null;
+        name: string | null;
+        admission_time: string | null;
+      }> | null) ?? [];
     setBoardPatients(
       rows
         .filter((p): p is typeof p & { mrn: string } => !!p.mrn)
         .map((p) => ({
           mrn: p.mrn,
-          name:
-            (p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ")) ||
-            "Unknown",
+          name: (p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ")) || "Unknown",
           admission_time: p.admission_time,
         })),
     );
@@ -226,22 +247,12 @@ function LabBoard() {
           // full refetch below.
           const row = payload.new as LabOrderRow | undefined;
           if (row && row.facility_name === facility) {
-            setOrders((prev) =>
-              prev.some((o) => o.id === row.id) ? prev : [row, ...prev],
-            );
+            setOrders((prev) => (prev.some((o) => o.id === row.id) ? prev : [row, ...prev]));
           }
         },
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "lab_orders" },
-        scheduleLoad,
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "patients" },
-        scheduleLoad,
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders" }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, scheduleLoad)
       .subscribe();
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -254,8 +265,7 @@ function LabBoard() {
     () => orders.filter((o) => o.facility_name === facility),
     [orders, facility],
   );
-  const tsOf = (o: LabOrderRow) =>
-    o.created_at ? new Date(o.created_at).getTime() : 0;
+  const tsOf = (o: LabOrderRow) => (o.created_at ? new Date(o.created_at).getTime() : 0);
   // Pending queue — every in-flight status (Ordered → Processing →
   // Pending only). The instant a row flips to Reported/Resulted the
   // realtime channel re-loads and it is evicted from this panel and
@@ -265,7 +275,9 @@ function LabBoard() {
       visible
         .filter((o) => {
           const s = (o.status ?? "").toUpperCase();
-          return s === "ORDERED" || s === "PENDING" || s === "PENDING COLLECTION" || s === "PROCESSING";
+          return (
+            s === "ORDERED" || s === "PENDING" || s === "PENDING COLLECTION" || s === "PROCESSING"
+          );
         })
         .sort((a, b) => tsOf(b) - tsOf(a))
         .slice(0, 25),
@@ -325,14 +337,15 @@ function LabBoard() {
     if (!results) return;
     setSubmitting(order.id);
     try {
-      const summary = Array.isArray(results) && results.length > 0
-        ? results
-            .map(
-              (r: any) =>
-                `${r.test}: ${r.value}${r.unit ? ` ${r.unit}` : ""}${r.flag && r.flag !== "NORMAL" ? ` [${r.flag}]` : ""}`,
-            )
-            .join(" | ")
-        : `${order.test_type}: Resulted`;
+      const summary =
+        Array.isArray(results) && results.length > 0
+          ? results
+              .map(
+                (r: any) =>
+                  `${r.test}: ${r.value}${r.unit ? ` ${r.unit}` : ""}${r.flag && r.flag !== "NORMAL" ? ` [${r.flag}]` : ""}`,
+              )
+              .join(" | ")
+          : `${order.test_type}: Resulted`;
       const officialAt = new Date().toISOString();
       const { error: e1 } = await supabase
         .from("lab_orders")
@@ -390,8 +403,9 @@ function LabBoard() {
       />
       {!automationEnabled && (
         <div className="mx-6 mt-3 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-          <span className="font-bold uppercase tracking-wider">Manual Approval Mode</span>
-          {" "}— AI engines are OFF. Lab specimens will NOT auto-process. A tech must manually collect, run, and result every order below.
+          <span className="font-bold uppercase tracking-wider">Manual Approval Mode</span> — AI
+          engines are OFF. Lab specimens will NOT auto-process. A tech must manually collect, run,
+          and result every order below.
         </div>
       )}
       <section className="max-w-[1400px] mx-auto px-6 py-8 space-y-8">
@@ -473,18 +487,18 @@ function LabBoard() {
                           )}
                           {results && (
                             <span className="inline-flex items-center gap-1">
-                            <button
-                              {...gate("btn_submit_report", () => submitReport(o))}
-                              disabled={submitting === o.id || !can("btn_submit_report")}
-                              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 h-9 text-xs font-semibold transition shadow-sm"
-                            >
-                              {submitting === o.id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                              )}
-                              {submitting === o.id ? "Posting…" : "Submit Official Report"}
-                            </button>
+                              <button
+                                {...gate("btn_submit_report", () => submitReport(o))}
+                                disabled={submitting === o.id || !can("btn_submit_report")}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 h-9 text-xs font-semibold transition shadow-sm"
+                              >
+                                {submitting === o.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                )}
+                                {submitting === o.id ? "Posting…" : "Submit Official Report"}
+                              </button>
                               <InfoHint text="Final, irreversible release: sets lab_orders.status = Reported, flags patients.unread_labs_alert = true, and makes results visible in the patient chart. Draft edits are locked after submission." />
                             </span>
                           )}
@@ -559,62 +573,80 @@ function LabBoard() {
               right={<span className="font-mono">LIVE</span>}
             />
             <div className="scroll-feed">
-            <table className="w-full text-xs">
-              <thead className="bg-[#0c2340] text-slate-100 sticky top-0 z-10">
-                <tr>
-                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Timestamp</th>
-                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Patient</th>
-                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">MRN</th>
-                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Test</th>
-                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Status</th>
-                  <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Physician</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentResulted.length === 0 ? (
+              <table className="w-full text-xs">
+                <thead className="bg-[#0c2340] text-slate-100 sticky top-0 z-10">
                   <tr>
-                    <td colSpan={6} className="p-0">
-                      <EmptyState
-                        className="border-0 rounded-none"
-                        description={`No completed labs yet for patients currently on the Nursing Board at ${facility}.`}
-                      />
-                    </td>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Timestamp
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Patient
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      MRN
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Test
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Status
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Physician
+                    </th>
                   </tr>
-                ) : (
-                  recentResulted.map((o, i) => (
-                    <tr
-                      key={o.key}
-                      className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/70"} hover:bg-cyan-50/50 transition-colors`}
-                    >
-                      <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
-                        {o.timestamp
-                          ? new Date(o.timestamp).toLocaleString([], {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              second: "2-digit",
-                              hour12: false,
-                            })
-                          : "Just now"}
+                </thead>
+                <tbody>
+                  {recentResulted.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-0">
+                        <EmptyState
+                          className="border-0 rounded-none"
+                          description={`No completed labs yet for patients currently on the Nursing Board at ${facility}.`}
+                        />
                       </td>
-                      <td className="px-3 py-2 font-medium text-slate-900">{o?.patient_name ?? "Unknown"}</td>
-                      <td className="px-3 py-2 font-mono text-slate-600">{o?.patient_mrn ?? "—"}</td>
-                      <td className="px-3 py-2 text-slate-800">
-                        <div className="font-medium">{o?.test_type ?? "Unknown"}</div>
-                        {o.result_value && (
-                          <div className="text-[11px] text-slate-500 mt-0.5">{o.result_value}</div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        <StatusBadge status="success" label={o?.status ?? "Reported"} />
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">{o.physician}</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    recentResulted.map((o, i) => (
+                      <tr
+                        key={o.key}
+                        className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/70"} hover:bg-cyan-50/50 transition-colors`}
+                      >
+                        <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
+                          {o.timestamp
+                            ? new Date(o.timestamp).toLocaleString([], {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                second: "2-digit",
+                                hour12: false,
+                              })
+                            : "Just now"}
+                        </td>
+                        <td className="px-3 py-2 font-medium text-slate-900">
+                          {o?.patient_name ?? "Unknown"}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-slate-600">
+                          {o?.patient_mrn ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-slate-800">
+                          <div className="font-medium">{o?.test_type ?? "Unknown"}</div>
+                          {o.result_value && (
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              {o.result_value}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <StatusBadge status="success" label={o?.status ?? "Reported"} />
+                        </td>
+                        <td className="px-3 py-2 text-slate-700">{o.physician}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

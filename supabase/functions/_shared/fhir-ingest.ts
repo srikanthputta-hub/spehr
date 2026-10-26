@@ -10,7 +10,14 @@
 // `auto_doc_logs`. Idempotent on `fhir_id` (or lab_orders.svcreq_fhir_id).
 
 export type IngestOutcome =
-  | { ok: true; action?: string; skipped?: string; localId?: string; mrn?: string; invoiceNo?: string }
+  | {
+      ok: true;
+      action?: string;
+      skipped?: string;
+      localId?: string;
+      mrn?: string;
+      invoiceNo?: string;
+    }
   | { ok: false; reason: string; [key: string]: unknown };
 
 function refIdOf(ref: string | undefined | null): string | null {
@@ -117,9 +124,7 @@ async function handleAppointment(admin: any, resource: any): Promise<IngestOutco
   if (!start || !end) return { ok: false, reason: "missing_time" };
 
   let facilityName: string =
-    resource?.location?.[0]?.display ??
-    resource?.location?.[0]?.reference ??
-    "";
+    resource?.location?.[0]?.display ?? resource?.location?.[0]?.reference ?? "";
   if (!facilityName && patientMrn) {
     try {
       const { data: pat } = await admin
@@ -129,7 +134,9 @@ async function handleAppointment(admin: any, resource: any): Promise<IngestOutco
         .limit(1)
         .maybeSingle();
       if (pat?.facility_name) facilityName = pat.facility_name;
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+      /* ignore */
+    }
   }
   if (!facilityName) {
     // Don't clobber a real local facility_name with the generic portal
@@ -184,9 +191,7 @@ async function handleAppointment(admin: any, resource: any): Promise<IngestOutco
     patient_name: patientName ?? "MySPEHR Patient",
     practitioner_name: practitionerName,
     service_type:
-      resource?.serviceType?.[0]?.text ??
-      resource?.serviceType?.[0]?.coding?.[0]?.display ??
-      null,
+      resource?.serviceType?.[0]?.text ?? resource?.serviceType?.[0]?.coding?.[0]?.display ?? null,
     description: resource?.description ?? null,
     start_time: start,
     end_time: end,
@@ -217,9 +222,7 @@ async function handlePaymentNotice(admin: any, resource: any): Promise<IngestOut
   }
 
   const invoiceRef: string =
-    resource?.request?.reference ??
-    resource?.paymentReference?.reference ??
-    "";
+    resource?.request?.reference ?? resource?.paymentReference?.reference ?? "";
   const invoiceKey = refIdOf(invoiceRef);
 
   let invoiceRow: any = null;
@@ -259,9 +262,7 @@ async function handlePaymentNotice(admin: any, resource: any): Promise<IngestOut
   const amountValue = Number(resource?.amount?.value ?? 0);
   const currency = resource?.amount?.currency ?? "USD";
   const status =
-    resource?.paymentStatus?.coding?.[0]?.code ??
-    resource?.paymentStatus?.text ??
-    "paid";
+    resource?.paymentStatus?.coding?.[0]?.code ?? resource?.paymentStatus?.text ?? "paid";
   const created = resource?.created ?? new Date().toISOString();
 
   // Derive payment_origin from the inbound resource's own source tag —
@@ -289,9 +290,7 @@ async function handlePaymentNotice(admin: any, resource: any): Promise<IngestOut
     status,
     payment_date: created,
     payment_method:
-      resource?.paymentMethod?.text ??
-      resource?.paymentMethod?.coding?.[0]?.display ??
-      null,
+      resource?.paymentMethod?.text ?? resource?.paymentMethod?.coding?.[0]?.display ?? null,
     payment_origin: paymentOrigin,
     payload: resource,
   };
@@ -346,7 +345,7 @@ function deriveFlag(resource: any): string | null {
 
 function extractLabValueText(resource: any): string | null {
   const vq = resource?.valueQuantity;
-  if (vq && (vq.value !== undefined && vq.value !== null)) {
+  if (vq && vq.value !== undefined && vq.value !== null) {
     const unit = vq.unit ? ` ${vq.unit}` : "";
     return `${vq.value}${unit}`.trim();
   }
@@ -382,10 +381,7 @@ async function handleLabObservation(admin: any, resource: any): Promise<IngestOu
   const svcReqId = refIdOf(svcReqRef);
 
   const loinc = loincFromResource(resource);
-  const testText =
-    resource?.code?.text ??
-    resource?.code?.coding?.[0]?.display ??
-    "Lab result";
+  const testText = resource?.code?.text ?? resource?.code?.coding?.[0]?.display ?? "Lab result";
   const resultText = extractLabValueText(resource);
   const unit = resource?.valueQuantity?.unit ?? null;
   const flag = deriveFlag(resource);
@@ -498,10 +494,7 @@ async function handleRadiologyReport(admin: any, resource: any): Promise<IngestO
     .find((r: string | undefined) => typeof r === "string" && r.startsWith("ServiceRequest/"));
   const svcReqId = refIdOf(svcReqRef);
 
-  const codeText =
-    resource?.code?.text ??
-    resource?.code?.coding?.[0]?.display ??
-    "Imaging study";
+  const codeText = resource?.code?.text ?? resource?.code?.coding?.[0]?.display ?? "Imaging study";
   const snomedHit = (resource?.code?.coding ?? []).find(
     (c: any) => typeof c?.system === "string" && c.system.toLowerCase().includes("snomed"),
   );
@@ -512,9 +505,15 @@ async function handleRadiologyReport(admin: any, resource: any): Promise<IngestO
   const reportText = conclusion ?? base64DecodeSafe(presentedB64);
 
   // Scan presentedForm for an image entry (contentType image/*, url set).
-  const presentedForms: any[] = Array.isArray(resource?.presentedForm) ? resource.presentedForm : [];
+  const presentedForms: any[] = Array.isArray(resource?.presentedForm)
+    ? resource.presentedForm
+    : [];
   const imageEntry = presentedForms.find(
-    (p: any) => typeof p?.contentType === "string" && p.contentType.toLowerCase().startsWith("image/") && typeof p?.url === "string" && p.url,
+    (p: any) =>
+      typeof p?.contentType === "string" &&
+      p.contentType.toLowerCase().startsWith("image/") &&
+      typeof p?.url === "string" &&
+      p.url,
   );
   const imageUrl: string | null = imageEntry?.url ?? null;
 
@@ -580,7 +579,10 @@ async function handleRadiologyReport(admin: any, resource: any): Promise<IngestO
   return { ok: true, action: "inserted", localId: ins.data?.id, mrn: subjectMrn };
 }
 
-export async function ingestFhirResource(admin: any, resource: any): Promise<{
+export async function ingestFhirResource(
+  admin: any,
+  resource: any,
+): Promise<{
   outcome: IngestOutcome;
   resourceType: string | null;
   fhirId: string | null;
@@ -599,17 +601,19 @@ export async function ingestFhirResource(admin: any, resource: any): Promise<{
   return { outcome, resourceType: rt, fhirId };
 }
 
-export async function logIngestEvent(admin: any, params: {
-  source: "webhook" | "poll";
-  resourceType: string | null;
-  fhirId: string | null;
-  outcome: IngestOutcome;
-}) {
+export async function logIngestEvent(
+  admin: any,
+  params: {
+    source: "webhook" | "poll";
+    resourceType: string | null;
+    fhirId: string | null;
+    outcome: IngestOutcome;
+  },
+) {
   const mrn = (params.outcome as any)?.mrn ?? "unknown";
-  const okAction =
-    params.outcome.ok
-      ? (params.outcome as any).action ?? (params.outcome as any).skipped ?? "ok"
-      : (params.outcome as any).reason;
+  const okAction = params.outcome.ok
+    ? ((params.outcome as any).action ?? (params.outcome as any).skipped ?? "ok")
+    : (params.outcome as any).reason;
   try {
     await admin.from("auto_doc_logs").insert({
       mrn: mrn || "unknown",

@@ -87,7 +87,7 @@ export async function purgeExpiredLocalData(): Promise<void> {
   }
 
   const total = localPurged + dbPurged;
-  // eslint-disable-next-line no-console
+
   console.info(`[Garbage Collection] Successfully purged ${total} expired local FHIR records`);
 }
 
@@ -97,8 +97,15 @@ export function startLocalGcSweeper(): void {
   if (scheduled || typeof window === "undefined") return;
   scheduled = true;
   // Defer initial sweep so it never blocks first paint
-  setTimeout(() => { void purgeExpiredLocalData(); }, 4_000);
-  setInterval(() => { void purgeExpiredLocalData(); }, 6 * 60 * 60 * 1000);
+  setTimeout(() => {
+    void purgeExpiredLocalData();
+  }, 4_000);
+  setInterval(
+    () => {
+      void purgeExpiredLocalData();
+    },
+    6 * 60 * 60 * 1000,
+  );
 
   // Sanitize local state between sessions
   try {

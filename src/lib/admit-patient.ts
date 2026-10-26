@@ -1,5 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
-import { seedAdmission, claimBedForAdmission, releaseBedForAdmission } from "@/hooks/useAIAutomation";
+import {
+  seedAdmission,
+  claimBedForAdmission,
+  releaseBedForAdmission,
+} from "@/hooks/useAIAutomation";
 import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
 import type { CodeStatus } from "@/lib/patients";
@@ -61,14 +65,20 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   const familyHistoryText = it
     ? [it.familyConditions?.join(", "), it.familyNotes].filter(Boolean).join(" — ") || null
     : null;
-  const drugAllergiesText = it?.drugAllergies
-    ?.map((a) => [a.name?.trim(), a.reaction?.trim() ? `(${a.reaction.trim()})` : ""].filter(Boolean).join(" "))
-    .filter(Boolean)
-    .join("; ") || null;
-  const currentMedicationsText = it?.currentMeds
-    ?.map((m) => [m.name?.trim(), m.dose?.trim(), m.freq?.trim()].filter(Boolean).join(" "))
-    .filter(Boolean)
-    .join("; ") || null;
+  const drugAllergiesText =
+    it?.drugAllergies
+      ?.map((a) =>
+        [a.name?.trim(), a.reaction?.trim() ? `(${a.reaction.trim()})` : ""]
+          .filter(Boolean)
+          .join(" "),
+      )
+      .filter(Boolean)
+      .join("; ") || null;
+  const currentMedicationsText =
+    it?.currentMeds
+      ?.map((m) => [m.name?.trim(), m.dose?.trim(), m.freq?.trim()].filter(Boolean).join(" "))
+      .filter(Boolean)
+      .join("; ") || null;
 
   // Reserve-then-insert: atomically claim a bed BEFORE writing the
   // `patients` row. If the facility has 0 truly-Available beds (or we
@@ -188,7 +198,9 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   // Pass form-time snapshot so Streams C/D/E/F don't depend on empty tables.
   const it2 = input.intake;
   const tempC =
-    typeof payload.temp === "number" ? +(((payload.temp as number) - 32) * (5 / 9)).toFixed(1) : null;
+    typeof payload.temp === "number"
+      ? +(((payload.temp as number) - 32) * (5 / 9)).toFixed(1)
+      : null;
   const admissionData = {
     medications: (it2?.currentMeds ?? [])
       .map((m) => ({
@@ -225,9 +237,7 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   // Auto Admin → Auto Terminologist: request an HRRP tracked-conditions
   // value set the first time an admission runs through this codepath.
   // Dedupe by requested_name so it's only ever submitted once.
-  void requestHrrpValueSet().catch((e) =>
-    console.warn("[admit] HRRP request failed", e),
-  );
+  void requestHrrpValueSet().catch((e) => console.warn("[admit] HRRP request failed", e));
 
   return { ok: true, patient: data };
 }
@@ -252,7 +262,11 @@ async function requestHrrpValueSet(): Promise<void> {
     priority: "high",
     seed_codes: [
       { code: "I50.9", display: "Heart failure, unspecified", vocabulary: "ICD-10" },
-      { code: "J44.9", display: "Chronic obstructive pulmonary disease, unspecified", vocabulary: "ICD-10" },
+      {
+        code: "J44.9",
+        display: "Chronic obstructive pulmonary disease, unspecified",
+        vocabulary: "ICD-10",
+      },
       { code: "J18.9", display: "Pneumonia, unspecified organism", vocabulary: "ICD-10" },
       { code: "I21.9", display: "Acute myocardial infarction, unspecified", vocabulary: "ICD-10" },
       { code: "Z96.641", display: "Presence of right artificial hip joint", vocabulary: "ICD-10" },

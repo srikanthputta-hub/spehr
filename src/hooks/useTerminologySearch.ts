@@ -28,9 +28,7 @@ export interface UseTerminologySearchResult {
   clear: () => void;
 }
 
-export function useTerminologySearch(
-  opts: UseTerminologySearchOpts,
-): UseTerminologySearchResult {
+export function useTerminologySearch(opts: UseTerminologySearchOpts): UseTerminologySearchResult {
   const { sabs, debounceMs = 300, pageSize = 10, minChars = 2 } = opts;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<TerminologyHit[]>([]);

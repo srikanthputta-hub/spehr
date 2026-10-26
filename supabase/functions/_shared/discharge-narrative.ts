@@ -149,24 +149,18 @@ export function computeSafetyFlags(
   const medNames = meds
     .map((m) => `${m.medication_name ?? m.drug_name ?? ""}`.toLowerCase())
     .join(" | ");
-  const labNames = labs
-    .map((l) => `${l.test_type ?? ""}`.toLowerCase())
-    .join(" | ");
+  const labNames = labs.map((l) => `${l.test_type ?? ""}`.toLowerCase()).join(" | ");
 
   for (const rule of HIGH_ACUITY_RULES) {
     if (!rule.match.test(cc)) continue;
-    const missingMeds = rule.requiredMeds.filter(
-      (k) => !medNames.includes(k.toLowerCase()),
-    );
-    const missingLabs = rule.requiredLabs.filter(
-      (k) => !labNames.includes(k.toLowerCase()),
-    );
+    const missingMeds = rule.requiredMeds.filter((k) => !medNames.includes(k.toLowerCase()));
+    const missingLabs = rule.requiredLabs.filter((k) => !labNames.includes(k.toLowerCase()));
     if (missingMeds.length > 0 || missingLabs.length > 0) {
       flags.push({
         severity: "critical",
-        message: `${rule.label} workup incomplete — missing ${
-          [...missingMeds, ...missingLabs].join(", ")
-        }. Recommend manual physician review before disposition.`,
+        message: `${rule.label} workup incomplete — missing ${[...missingMeds, ...missingLabs].join(
+          ", ",
+        )}. Recommend manual physician review before disposition.`,
       });
     }
   }
@@ -174,14 +168,9 @@ export function computeSafetyFlags(
   // Impossible length-of-stay on high-acuity complaints
   if (patient.admission_time && patient.discharge_time) {
     const losMin =
-      (new Date(patient.discharge_time).getTime() -
-        new Date(patient.admission_time).getTime()) /
+      (new Date(patient.discharge_time).getTime() - new Date(patient.admission_time).getTime()) /
       60_000;
-    if (
-      losMin >= 0 &&
-      losMin < 60 &&
-      HIGH_ACUITY_RULES.some((r) => r.match.test(cc))
-    ) {
+    if (losMin >= 0 && losMin < 60 && HIGH_ACUITY_RULES.some((r) => r.match.test(cc))) {
       flags.push({
         severity: "critical",
         message: `Length of stay ${Math.round(losMin)} min is implausibly short for a high-acuity presentation. Flagged for manual review.`,
@@ -201,15 +190,24 @@ const MED_INDICATIONS: Array<{ match: RegExp; reasoning: string }> = [
   { match: /nitroglycerin/i, reasoning: "coronary vasodilation for ischemic chest pain" },
   { match: /morphine/i, reasoning: "analgesia for acute pain control" },
   { match: /albuterol/i, reasoning: "bronchodilation for reactive airway symptoms" },
-  { match: /methylprednisolone|prednisone/i, reasoning: "systemic corticosteroid for airway inflammation" },
+  {
+    match: /methylprednisolone|prednisone/i,
+    reasoning: "systemic corticosteroid for airway inflammation",
+  },
   { match: /furosemide|lasix/i, reasoning: "diuresis for suspected volume overload" },
   { match: /atorvastatin|simvastatin/i, reasoning: "secondary prevention of vascular disease" },
   { match: /labetalol/i, reasoning: "blood-pressure control in acute neurologic event" },
   { match: /ondansetron|zofran/i, reasoning: "antiemetic for nausea control" },
   { match: /ketorolac|toradol/i, reasoning: "non-opioid analgesia" },
-  { match: /piperacillin|vancomycin|ceftriaxone|cefazolin/i, reasoning: "empiric broad-spectrum antimicrobial coverage" },
+  {
+    match: /piperacillin|vancomycin|ceftriaxone|cefazolin/i,
+    reasoning: "empiric broad-spectrum antimicrobial coverage",
+  },
   { match: /acetaminophen|tylenol/i, reasoning: "antipyresis and mild analgesia" },
-  { match: /pantoprazole|famotidine|omeprazole/i, reasoning: "acid suppression for suspected GERD or stress-ulcer prophylaxis" },
+  {
+    match: /pantoprazole|famotidine|omeprazole/i,
+    reasoning: "acid suppression for suspected GERD or stress-ulcer prophylaxis",
+  },
   { match: /insulin/i, reasoning: "correction of hyperglycemia" },
   { match: /normal saline|lactated ringer/i, reasoning: "intravenous volume resuscitation" },
   { match: /potassium/i, reasoning: "electrolyte repletion" },
@@ -228,7 +226,8 @@ export function indicationFor(medName: string): string {
 /* Lab filtering                                                       */
 /* ------------------------------------------------------------------ */
 
-const ABNORMAL_RE = /\b(high|low|critical|abnormal|positive|elevated|reactive)\b|↑|↓|\[\s*(h|l)\s*\]/i;
+const ABNORMAL_RE =
+  /\b(high|low|critical|abnormal|positive|elevated|reactive)\b|↑|↓|\[\s*(h|l)\s*\]/i;
 
 export function pickAbnormalLabs(labs: NarrativeLab[]): NarrativeLab[] {
   const abnormal = labs.filter(
@@ -273,13 +272,12 @@ export function buildDischargeMarkdown(
   // Final diagnosis comes from Auto Doc's clinical deduction. Fall back to
   // the chief complaint ONLY when no deduced diagnosis exists.
   const finalDx = (patient.diagnosis ?? "").trim();
-  const dx = finalDx.length > 0
-    ? finalDx.charAt(0).toUpperCase() + finalDx.slice(1)
-    : complaintToDiagnosis(patient.chief_complaint);
+  const dx =
+    finalDx.length > 0
+      ? finalDx.charAt(0).toUpperCase() + finalDx.slice(1)
+      : complaintToDiagnosis(patient.chief_complaint);
   const admittingDx = complaintToDiagnosis(patient.chief_complaint);
-  const administered = meds.filter(
-    (m) => (m.status ?? "").toLowerCase() === "administered",
-  );
+  const administered = meds.filter((m) => (m.status ?? "").toLowerCase() === "administered");
   const resulted = labs.filter((l) => {
     const s = (l.status ?? "").toLowerCase();
     return s === "resulted" || s === "reported";
@@ -300,7 +298,9 @@ export function buildDischargeMarkdown(
   lines.push("**Admitting & Discharge Diagnoses**");
   lines.push(`- **Admitting Diagnosis:** ${admittingDx}`);
   lines.push(`- **Discharge Diagnosis:** ${dx}, clinically stable`);
-  lines.push(`- **Condition at Discharge:** Stable, hemodynamically appropriate, tolerating oral intake, ambulating without assistance.`);
+  lines.push(
+    `- **Condition at Discharge:** Stable, hemodynamically appropriate, tolerating oral intake, ambulating without assistance.`,
+  );
   lines.push("");
 
   lines.push("**Chief Complaint**");
@@ -318,15 +318,23 @@ export function buildDischargeMarkdown(
     const pmh = (patient.past_medical_history ?? "").trim();
     const psh = (patient.past_surgical_history ?? "").trim();
     if (!pmh && !psh) {
-      lines.push("- No significant past medical or surgical history reported by patient or documented in chart.");
+      lines.push(
+        "- No significant past medical or surgical history reported by patient or documented in chart.",
+      );
     } else {
       if (pmh) {
-        for (const item of pmh.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)) {
+        for (const item of pmh
+          .split(/[,;\n]/)
+          .map((s) => s.trim())
+          .filter(Boolean)) {
           lines.push(`- ${item}`);
         }
       }
       if (psh) {
-        for (const item of psh.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)) {
+        for (const item of psh
+          .split(/[,;\n]/)
+          .map((s) => s.trim())
+          .filter(Boolean)) {
           lines.push(`- **PSH:** ${item}`);
         }
       }
@@ -343,7 +351,11 @@ export function buildDischargeMarkdown(
       const reaction = (a.reaction ?? "").trim();
       const severity = (a.severity ?? "").trim();
       const cat = (a.category ?? "").trim();
-      const tail = [reaction && `reaction: ${reaction}`, severity && `severity: ${severity}`, cat && `category: ${cat}`]
+      const tail = [
+        reaction && `reaction: ${reaction}`,
+        severity && `severity: ${severity}`,
+        cat && `category: ${cat}`,
+      ]
         .filter(Boolean)
         .join("; ");
       lines.push(`- **${sub}**${tail ? ` — ${tail}` : ""}`);
@@ -353,7 +365,9 @@ export function buildDischargeMarkdown(
 
   lines.push("**Physical Examination on Admission**");
   lines.push("- **General:** Alert, oriented, and in no acute distress at the time of evaluation.");
-  lines.push("- **Cardiovascular:** Regular rate and rhythm; no murmurs, rubs, or gallops appreciated.");
+  lines.push(
+    "- **Cardiovascular:** Regular rate and rhythm; no murmurs, rubs, or gallops appreciated.",
+  );
   lines.push("- **Pulmonary:** Clear to auscultation bilaterally with adequate air movement.");
   lines.push("- **Abdomen:** Soft, non-distended, with appropriate bowel sounds.");
   lines.push("- **Neurologic:** Grossly intact, no focal deficits identified.");
@@ -373,20 +387,26 @@ export function buildDischargeMarkdown(
           return `**${name}** (${indicationFor(name)})`;
         })
         .join("; ");
-      courseBits.push(`On admission the patient was treated with ${reasoning}. Each agent was selected in accordance with institutional protocols and reassessed on every nursing round for ongoing clinical appropriateness.`);
+      courseBits.push(
+        `On admission the patient was treated with ${reasoning}. Each agent was selected in accordance with institutional protocols and reassessed on every nursing round for ongoing clinical appropriateness.`,
+      );
     }
     if (resulted.length > 0) {
       courseBits.push(
         `Diagnostic workup included ${resulted.map((l) => `**${l.test_type}**`).join(", ")} to confirm the working diagnosis, exclude alternative etiologies, and trend the patient's clinical status throughout the admission.`,
       );
     }
-    courseBits.push("The patient remained hemodynamically stable, afebrile, and tolerated all interventions without acute complication. Pain was well controlled, oral intake was adequate, and the patient was ambulating independently prior to discharge. The multidisciplinary team agreed the patient met all clinical and functional discharge criteria.");
+    courseBits.push(
+      "The patient remained hemodynamically stable, afebrile, and tolerated all interventions without acute complication. Pain was well controlled, oral intake was adequate, and the patient was ambulating independently prior to discharge. The multidisciplinary team agreed the patient met all clinical and functional discharge criteria.",
+    );
     lines.push(courseBits.join(" "));
   }
   lines.push("");
 
   lines.push("**Procedures Performed**");
-  lines.push("- No major surgical or interventional procedures were performed during this admission.");
+  lines.push(
+    "- No major surgical or interventional procedures were performed during this admission.",
+  );
   lines.push("");
 
   lines.push("**Laboratory & Imaging Findings**");
@@ -417,7 +437,9 @@ export function buildDischargeMarkdown(
 
   lines.push("**Diet & Activity**");
   lines.push("- **Diet:** Resume regular diet as tolerated. Maintain adequate hydration.");
-  lines.push("- **Activity:** Activity as tolerated. No heavy lifting greater than 10 pounds for 72 hours.");
+  lines.push(
+    "- **Activity:** Activity as tolerated. No heavy lifting greater than 10 pounds for 72 hours.",
+  );
   lines.push("");
 
   lines.push("**Follow-Up Care**");
@@ -429,18 +451,26 @@ export function buildDischargeMarkdown(
         : "- Schedule follow-up with **Primary Care Provider within 7 days** of discharge.",
     );
   }
-  lines.push("- Specialty follow-up as clinically indicated; appointments to be confirmed by the patient.");
+  lines.push(
+    "- Specialty follow-up as clinically indicated; appointments to be confirmed by the patient.",
+  );
   lines.push("- Bring this discharge summary and an updated medication list to each appointment.");
   lines.push("");
 
   lines.push("**Return Precautions**");
-  lines.push("- Return immediately to the Emergency Department, or call 911, for any of the following: chest pain, shortness of breath, syncope, severe headache, focal weakness, uncontrolled bleeding, persistent fever, intractable nausea or vomiting, or any acute change in clinical status.");
+  lines.push(
+    "- Return immediately to the Emergency Department, or call 911, for any of the following: chest pain, shortness of breath, syncope, severe headache, focal weakness, uncontrolled bleeding, persistent fever, intractable nausea or vomiting, or any acute change in clinical status.",
+  );
   lines.push("");
 
   lines.push("**Patient Education & Counseling**");
   lines.push("- Discharge instructions were reviewed verbatim with the patient at the bedside.");
-  lines.push("- The patient verbalized understanding of the diagnosis, medication regimen, activity restrictions, and warning signs requiring re-evaluation.");
-  lines.push("- A written copy of these instructions was provided to the patient and primary contact.");
+  lines.push(
+    "- The patient verbalized understanding of the diagnosis, medication regimen, activity restrictions, and warning signs requiring re-evaluation.",
+  );
+  lines.push(
+    "- A written copy of these instructions was provided to the patient and primary contact.",
+  );
 
   return lines.join("\n");
 }

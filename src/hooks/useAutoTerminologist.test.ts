@@ -8,9 +8,8 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
 }));
 
-const { codeShapeMatches, claimLease, heartbeatLease, releaseLeaseBestEffort } = await import(
-  "./useAutoTerminologist"
-);
+const { codeShapeMatches, claimLease, heartbeatLease, releaseLeaseBestEffort } =
+  await import("./useAutoTerminologist");
 
 describe("codeShapeMatches", () => {
   it("accepts a valid SNOMED CT code (6-18 digits)", () => {
@@ -69,7 +68,7 @@ describe("claimLease", () => {
     expect(result).toBe(true);
     expect(rpcMock).toHaveBeenCalledWith(
       "claim_automation_lease",
-      expect.objectContaining({ _engine: "auto_terminologist" })
+      expect.objectContaining({ _engine: "auto_terminologist" }),
     );
   });
 
@@ -108,7 +107,7 @@ describe("heartbeatLease", () => {
     await expect(heartbeatLease()).resolves.toBeUndefined();
     expect(rpcMock).toHaveBeenCalledWith(
       "heartbeat_automation_lease",
-      expect.objectContaining({ _engine: "auto_terminologist" })
+      expect.objectContaining({ _engine: "auto_terminologist" }),
     );
   });
 
@@ -132,7 +131,7 @@ describe("releaseLeaseBestEffort", () => {
     expect(rpcMock).toHaveBeenCalledTimes(1);
     expect(rpcMock).toHaveBeenCalledWith(
       "heartbeat_automation_lease",
-      expect.objectContaining({ _engine: "auto_terminologist", _lease_ms: -1000 })
+      expect.objectContaining({ _engine: "auto_terminologist", _lease_ms: -1000 }),
     );
   });
 

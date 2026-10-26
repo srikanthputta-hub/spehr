@@ -112,9 +112,7 @@ export function SemanticAutocomplete({
       )}
       {autoApi && open && (items.length > 0 || err) && (
         <div className="absolute z-30 mt-1 w-full max-h-64 overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
-          {err && (
-            <div className="px-3 py-2 text-[11px] text-rose-600">{err}</div>
-          )}
+          {err && <div className="px-3 py-2 text-[11px] text-rose-600">{err}</div>}
           {items.map((s) => (
             <button
               key={s.source + s.code}

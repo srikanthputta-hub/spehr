@@ -20,9 +20,10 @@ export default function NlpApprovalTrail() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) =>
-      (r.patient_mrn ?? "").toLowerCase().includes(q) ||
-      (r.raw_text ?? "").toLowerCase().includes(q),
+    return rows.filter(
+      (r) =>
+        (r.patient_mrn ?? "").toLowerCase().includes(q) ||
+        (r.raw_text ?? "").toLowerCase().includes(q),
     );
   }, [rows, query]);
 
@@ -31,7 +32,9 @@ export default function NlpApprovalTrail() {
     try {
       const query = supabase
         .from("nlp_audit_logs" as any)
-        .select("id, patient_mrn, raw_text, extraction_mapping, standardized_output, confidence_score, status, created_at, updated_at, approved_by")
+        .select(
+          "id, patient_mrn, raw_text, extraction_mapping, standardized_output, confidence_score, status, created_at, updated_at, approved_by",
+        )
         .eq("status", "approved")
         .order("updated_at", { ascending: false })
         .order("id", { ascending: false })
@@ -96,10 +99,14 @@ export default function NlpApprovalTrail() {
       />
 
       {loading ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading…</div>
+        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+          Loading…
+        </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-          {rows.length === 0 ? "No approvals yet. Approve an audit card to populate this trail." : "No matches for your search."}
+          {rows.length === 0
+            ? "No approvals yet. Approve an audit card to populate this trail."
+            : "No matches for your search."}
         </div>
       ) : (
         <div className="scroll-feed space-y-3">

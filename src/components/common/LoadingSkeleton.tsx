@@ -23,7 +23,10 @@ export interface KpiRowSkeletonProps extends React.HTMLAttributes<HTMLDivElement
 
 function KpiRowSkeleton({ className, count = 3, ...props }: KpiRowSkeletonProps) {
   return (
-    <div className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4", className)} {...props}>
+    <div
+      className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4", className)}
+      {...props}
+    >
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="rounded-lg border border-border bg-card p-4 flex flex-col gap-2">
           <Skeleton className="h-6 w-16" />
@@ -47,10 +50,7 @@ function TableSkeleton({ className, rows = 5, columns = 4, ...props }: TableSkel
       {Array.from({ length: rows }).map((_, r) => (
         <div key={r} className="flex items-center gap-4 border-b border-border py-2 last:border-0">
           {Array.from({ length: columns }).map((_, c) => (
-            <Skeleton
-              key={c}
-              className={cn("h-4", c === 0 ? "w-1/4" : "flex-1")}
-            />
+            <Skeleton key={c} className={cn("h-4", c === 0 ? "w-1/4" : "flex-1")} />
           ))}
         </div>
       ))}
@@ -65,7 +65,10 @@ export interface CardSkeletonProps extends React.HTMLAttributes<HTMLDivElement> 
 
 function CardSkeleton({ className, lines = 3, ...props }: CardSkeletonProps) {
   return (
-    <div className={cn("rounded-lg border border-border bg-card p-4 flex flex-col gap-3", className)} {...props}>
+    <div
+      className={cn("rounded-lg border border-border bg-card p-4 flex flex-col gap-3", className)}
+      {...props}
+    >
       <Skeleton className="h-4 w-1/3" />
       <div className="flex flex-col gap-2">
         {Array.from({ length: lines }).map((_, i) => (

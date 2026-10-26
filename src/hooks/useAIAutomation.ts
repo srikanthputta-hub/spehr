@@ -3,12 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
 import { ensureNlpRulesHydrated } from "@/lib/safety-conflicts";
-import {
-  autoFillIntake,
-  intakeToSoap,
-  loadIntake,
-  saveIntake,
-} from "@/lib/intake-record";
+import { autoFillIntake, intakeToSoap, loadIntake, saveIntake } from "@/lib/intake-record";
 import { routeDepartment } from "@/lib/chief-complaints";
 import { templateForDepartment, findLabTemplateByName } from "@/lib/auto-doc-catalog";
 import { lookupLabLoinc } from "@/lib/lab-loinc-map";
@@ -67,20 +62,88 @@ const TRANSITION_GAP_MS = 3_000;
 /* on every cascade-released lab result so the chart, lab board and   */
 /* FHIR Observation exports all show the same rich clinical context.  */
 /* ------------------------------------------------------------------ */
-const LAB_PROFILE: Record<string, { specimen: string; method: string; tat: string; loinc?: string }> = {
-  WBC: { specimen: "Whole Blood, EDTA (lavender top)", method: "Automated impedance / flow cytometry (CBC analyzer)", tat: "≤ 45 min", loinc: "6690-2" },
-  Hemoglobin: { specimen: "Whole Blood, EDTA", method: "Spectrophotometry (cyanmethemoglobin)", tat: "≤ 45 min", loinc: "718-7" },
-  Platelets: { specimen: "Whole Blood, EDTA", method: "Impedance count, smear confirmation if flagged", tat: "≤ 45 min", loinc: "777-3" },
-  Glucose: { specimen: "Serum / Plasma (gold top SST)", method: "Hexokinase enzymatic assay", tat: "≤ 30 min", loinc: "2345-7" },
-  Creatinine: { specimen: "Serum (gold top SST)", method: "Jaffe kinetic / enzymatic IDMS-traceable", tat: "≤ 60 min", loinc: "2160-0" },
-  Sodium: { specimen: "Serum / Plasma", method: "Indirect ion-selective electrode (ISE)", tat: "≤ 30 min", loinc: "2951-2" },
-  Potassium: { specimen: "Serum / Plasma", method: "Indirect ion-selective electrode (ISE)", tat: "≤ 30 min", loinc: "2823-3" },
-  "Troponin I": { specimen: "Serum / Plasma (lithium heparin)", method: "High-sensitivity chemiluminescent immunoassay", tat: "≤ 60 min", loinc: "10839-9" },
-  "Creatine Kinase": { specimen: "Serum", method: "NAC-activated enzymatic UV", tat: "≤ 60 min", loinc: "2157-6" },
-  "PT/INR": { specimen: "Citrated Plasma (blue top, 3.2%)", method: "Optical clot detection, ISI-corrected", tat: "≤ 60 min", loinc: "5902-2" },
-  Lactate: { specimen: "Arterial / Venous whole blood, fluoride", method: "Enzymatic amperometric (lactate oxidase)", tat: "≤ 20 min STAT", loinc: "2532-0" },
-  Fibrinogen: { specimen: "Citrated Plasma (blue top)", method: "Clauss clotting method", tat: "≤ 90 min", loinc: "3255-7" },
-  "Lactate Dehydrogenase": { specimen: "Serum (avoid hemolysis)", method: "Lactate-to-pyruvate UV kinetic", tat: "≤ 90 min", loinc: "14804-9" },
+const LAB_PROFILE: Record<
+  string,
+  { specimen: string; method: string; tat: string; loinc?: string }
+> = {
+  WBC: {
+    specimen: "Whole Blood, EDTA (lavender top)",
+    method: "Automated impedance / flow cytometry (CBC analyzer)",
+    tat: "≤ 45 min",
+    loinc: "6690-2",
+  },
+  Hemoglobin: {
+    specimen: "Whole Blood, EDTA",
+    method: "Spectrophotometry (cyanmethemoglobin)",
+    tat: "≤ 45 min",
+    loinc: "718-7",
+  },
+  Platelets: {
+    specimen: "Whole Blood, EDTA",
+    method: "Impedance count, smear confirmation if flagged",
+    tat: "≤ 45 min",
+    loinc: "777-3",
+  },
+  Glucose: {
+    specimen: "Serum / Plasma (gold top SST)",
+    method: "Hexokinase enzymatic assay",
+    tat: "≤ 30 min",
+    loinc: "2345-7",
+  },
+  Creatinine: {
+    specimen: "Serum (gold top SST)",
+    method: "Jaffe kinetic / enzymatic IDMS-traceable",
+    tat: "≤ 60 min",
+    loinc: "2160-0",
+  },
+  Sodium: {
+    specimen: "Serum / Plasma",
+    method: "Indirect ion-selective electrode (ISE)",
+    tat: "≤ 30 min",
+    loinc: "2951-2",
+  },
+  Potassium: {
+    specimen: "Serum / Plasma",
+    method: "Indirect ion-selective electrode (ISE)",
+    tat: "≤ 30 min",
+    loinc: "2823-3",
+  },
+  "Troponin I": {
+    specimen: "Serum / Plasma (lithium heparin)",
+    method: "High-sensitivity chemiluminescent immunoassay",
+    tat: "≤ 60 min",
+    loinc: "10839-9",
+  },
+  "Creatine Kinase": {
+    specimen: "Serum",
+    method: "NAC-activated enzymatic UV",
+    tat: "≤ 60 min",
+    loinc: "2157-6",
+  },
+  "PT/INR": {
+    specimen: "Citrated Plasma (blue top, 3.2%)",
+    method: "Optical clot detection, ISI-corrected",
+    tat: "≤ 60 min",
+    loinc: "5902-2",
+  },
+  Lactate: {
+    specimen: "Arterial / Venous whole blood, fluoride",
+    method: "Enzymatic amperometric (lactate oxidase)",
+    tat: "≤ 20 min STAT",
+    loinc: "2532-0",
+  },
+  Fibrinogen: {
+    specimen: "Citrated Plasma (blue top)",
+    method: "Clauss clotting method",
+    tat: "≤ 90 min",
+    loinc: "3255-7",
+  },
+  "Lactate Dehydrogenase": {
+    specimen: "Serum (avoid hemolysis)",
+    method: "Lactate-to-pyruvate UV kinetic",
+    tat: "≤ 90 min",
+    loinc: "14804-9",
+  },
 };
 
 const DEFAULT_LAB_PROFILE = {
@@ -89,7 +152,12 @@ const DEFAULT_LAB_PROFILE = {
   tat: "Per facility TAT",
 };
 
-function interpretLab(name: string, value: number, ref: string, flag: "L" | "H" | "N" | "C"): string {
+function interpretLab(
+  name: string,
+  value: number,
+  ref: string,
+  flag: "L" | "H" | "N" | "C",
+): string {
   const trend =
     flag === "C"
       ? "Critical value — provider notified per facility critical-value policy. Immediate clinical correlation required."
@@ -101,16 +169,58 @@ function interpretLab(name: string, value: number, ref: string, flag: "L" | "H" 
   // Light-weight, lab-specific commentary so the narrative reads like a
   // real hospital report instead of a single numeric line.
   const commentary: Record<string, string> = {
-    WBC: flag === "H" ? "Leukocytosis — consider infectious / inflammatory / stress response." : flag === "L" ? "Leukopenia — consider marrow suppression, viral process, sepsis." : "",
-    Hemoglobin: flag === "L" ? "Anemia — evaluate iron studies, reticulocyte count and occult blood loss." : flag === "H" ? "Polycythemia — consider dehydration vs primary erythrocytosis." : "",
-    Platelets: flag === "L" ? "Thrombocytopenia — review medication list and consider peripheral smear." : flag === "H" ? "Thrombocytosis — reactive vs essential thrombocythemia." : "",
-    Glucose: flag === "H" ? "Hyperglycemia — correlate with A1c and clinical hydration status." : flag === "L" ? "Hypoglycemia — repeat fingerstick and treat per hypoglycemia protocol." : "",
-    Creatinine: flag === "H" ? "Reduced glomerular filtration — calculate eGFR and review nephrotoxic agents." : "",
-    "Troponin I": flag === "H" || flag === "C" ? "Elevated cardiac troponin — repeat in 3 hours, obtain ECG and cardiology consult." : "",
-    Lactate: flag === "H" || flag === "C" ? "Elevated lactate — assess tissue perfusion and initiate sepsis bundle if clinically indicated." : "",
-    Potassium: flag === "H" ? "Hyperkalemia — obtain ECG, recheck specimen for hemolysis." : flag === "L" ? "Hypokalemia — replete IV/PO per protocol, monitor cardiac rhythm." : "",
-    Sodium: flag === "H" ? "Hypernatremia — assess free water deficit." : flag === "L" ? "Hyponatremia — assess volume status and serum osmolality." : "",
-    "PT/INR": flag === "H" ? "Prolonged INR — review anticoagulation, hepatic function and vitamin K status." : "",
+    WBC:
+      flag === "H"
+        ? "Leukocytosis — consider infectious / inflammatory / stress response."
+        : flag === "L"
+          ? "Leukopenia — consider marrow suppression, viral process, sepsis."
+          : "",
+    Hemoglobin:
+      flag === "L"
+        ? "Anemia — evaluate iron studies, reticulocyte count and occult blood loss."
+        : flag === "H"
+          ? "Polycythemia — consider dehydration vs primary erythrocytosis."
+          : "",
+    Platelets:
+      flag === "L"
+        ? "Thrombocytopenia — review medication list and consider peripheral smear."
+        : flag === "H"
+          ? "Thrombocytosis — reactive vs essential thrombocythemia."
+          : "",
+    Glucose:
+      flag === "H"
+        ? "Hyperglycemia — correlate with A1c and clinical hydration status."
+        : flag === "L"
+          ? "Hypoglycemia — repeat fingerstick and treat per hypoglycemia protocol."
+          : "",
+    Creatinine:
+      flag === "H"
+        ? "Reduced glomerular filtration — calculate eGFR and review nephrotoxic agents."
+        : "",
+    "Troponin I":
+      flag === "H" || flag === "C"
+        ? "Elevated cardiac troponin — repeat in 3 hours, obtain ECG and cardiology consult."
+        : "",
+    Lactate:
+      flag === "H" || flag === "C"
+        ? "Elevated lactate — assess tissue perfusion and initiate sepsis bundle if clinically indicated."
+        : "",
+    Potassium:
+      flag === "H"
+        ? "Hyperkalemia — obtain ECG, recheck specimen for hemolysis."
+        : flag === "L"
+          ? "Hypokalemia — replete IV/PO per protocol, monitor cardiac rhythm."
+          : "",
+    Sodium:
+      flag === "H"
+        ? "Hypernatremia — assess free water deficit."
+        : flag === "L"
+          ? "Hyponatremia — assess volume status and serum osmolality."
+          : "",
+    "PT/INR":
+      flag === "H"
+        ? "Prolonged INR — review anticoagulation, hepatic function and vitamin K status."
+        : "",
   };
   const note = commentary[name] ?? "";
   return note ? `${trend} ${note}` : trend;
@@ -126,10 +236,15 @@ function buildLabReport(
   reportedIso: string,
 ): string {
   const profile = LAB_PROFILE[name] ?? DEFAULT_LAB_PROFILE;
-  const flagWord = flag === "C" ? "CRITICAL" : flag === "H" ? "HIGH" : flag === "L" ? "LOW" : "NORMAL";
+  const flagWord =
+    flag === "C" ? "CRITICAL" : flag === "H" ? "HIGH" : flag === "L" ? "LOW" : "NORMAL";
   const interp = interpretLab(name, value, ref, flag);
   const tFmt = (iso: string) => {
-    try { return new Date(iso).toLocaleString(undefined, { hour12: false }); } catch { return iso; }
+    try {
+      return new Date(iso).toLocaleString(undefined, { hour12: false });
+    } catch {
+      return iso;
+    }
   };
   return [
     `${name}: ${value} ${unit} [${flagWord}]  (Reference ${ref} ${unit})`,
@@ -197,7 +312,10 @@ async function assignBedForPatient(p: NewPatient): Promise<string | null> {
     .maybeSingle();
   if (existing) {
     const room = `${existing.room_number}-${existing.bed_letter}`;
-    await supabase.from("patients").update({ room } as any).eq("mrn", p.mrn);
+    await supabase
+      .from("patients")
+      .update({ room } as any)
+      .eq("mrn", p.mrn);
     return room;
   }
   // Try up to 5 Available beds in order; the optimistic guard
@@ -228,7 +346,10 @@ async function assignBedForPatient(p: NewPatient): Promise<string | null> {
       .select("id");
     if (error || !claimed || claimed.length === 0) continue; // lost race, try next
     const room = `${open.room_number}-${open.bed_letter}`;
-    await supabase.from("patients").update({ room } as any).eq("mrn", p.mrn);
+    await supabase
+      .from("patients")
+      .update({ room } as any)
+      .eq("mrn", p.mrn);
     return room;
   }
   // No bed available — DO NOT fabricate an ED/Triage placeholder. Caller
@@ -247,10 +368,7 @@ async function assignBedForPatient(p: NewPatient): Promise<string | null> {
  * caller never inserts at all). See release-in-admit-patient for the
  * insert-failure compensating path.
  */
-export async function claimBedForAdmission(
-  facility: string,
-  mrn: string,
-): Promise<string | null> {
+export async function claimBedForAdmission(facility: string, mrn: string): Promise<string | null> {
   if (!facility || !mrn) return null;
   const { data: candidates } = await supabase
     .from("bed_management")
@@ -393,10 +511,7 @@ async function cascadeLab(
     .update({ collected_at: collectedAt } as any)
     .eq("id", orderId);
   await trackedDelay(mrn, TRANSITION_GAP_MS);
-  await supabase
-    .from("lab_orders")
-    .update({ status: "Processing" })
-    .eq("id", orderId);
+  await supabase.from("lab_orders").update({ status: "Processing" }).eq("id", orderId);
   await trackedDelay(mrn, TRANSITION_GAP_MS);
   const resultedAt = new Date().toISOString();
   // Build the elaborative narrative AT report time so timestamps in the
@@ -475,41 +590,38 @@ async function cascadeLab(
     // word — match on the code itself. (Previous version compared this against
     // "LOW"/"HIGH"/"CRITICAL" substrings, which a single letter can never contain,
     // so every result silently fell through to NORMAL.)
-    const flag = flagCode === "C"
-      ? "CRITICAL"
-      : flagCode === "H"
-        ? "HIGH"
-        : flagCode === "L"
-          ? "LOW"
-          : flagCode === "A"
-            ? "ABNORMAL"
-            : result_value === null
-              ? null
-              : "NORMAL";
+    const flag =
+      flagCode === "C"
+        ? "CRITICAL"
+        : flagCode === "H"
+          ? "HIGH"
+          : flagCode === "L"
+            ? "LOW"
+            : flagCode === "A"
+              ? "ABNORMAL"
+              : result_value === null
+                ? null
+                : "NORMAL";
 
     // Unit: prefer the catalog unit, fall back to parsing it out of the
     // sample (e.g. "12.8 k/uL" -> "k/uL").
     let unit: string | null = labMeta.unit?.trim() || null;
     if (!unit && numericMatch) {
-      const afterNumber = sample.slice(
-        (numericMatch.index ?? 0) + numericMatch[0].length,
-      );
+      const afterNumber = sample.slice((numericMatch.index ?? 0) + numericMatch[0].length);
       const unitMatch = afterNumber.match(/^\s*([A-Za-z%/µμ°][A-Za-z0-9%/.^*·µμ°-]*)/);
       unit = unitMatch ? unitMatch[1] : null;
     }
 
-    const { error: labInsertError } = await supabase
-      .from("lab_results")
-      .insert({
-        mrn,
-        test_name: labMeta.name,
-        panel_name: labMeta.name,
-        result_value,
-        unit,
-        reference_range: labMeta.referenceRange || null,
-        flag,
-        time_drawn: resultedAt,
-      } as any);
+    const { error: labInsertError } = await supabase.from("lab_results").insert({
+      mrn,
+      test_name: labMeta.name,
+      panel_name: labMeta.name,
+      result_value,
+      unit,
+      reference_range: labMeta.referenceRange || null,
+      flag,
+      time_drawn: resultedAt,
+    } as any);
     if (labInsertError) {
       console.error("[cascadeLab] lab_results insert failed", {
         mrn,
@@ -564,13 +676,8 @@ export async function seedAdmission(
     // are currently viewing, to avoid cross-facility toast noise.
     try {
       const activeFacility =
-        typeof window !== "undefined"
-          ? localStorage.getItem("spehr.activeFacility")
-          : null;
-      if (
-        p.facility_name &&
-        (!activeFacility || activeFacility === p.facility_name)
-      ) {
+        typeof window !== "undefined" ? localStorage.getItem("spehr.activeFacility") : null;
+      if (p.facility_name && (!activeFacility || activeFacility === p.facility_name)) {
         toast.error("No empty beds available", {
           description: `${p.facility_name} is at full capacity. Please direct the patient to the Patient Lounge until a bed is released.`,
         });
@@ -630,17 +737,16 @@ export async function seedAdmission(
 
   const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
   const [{ data: existingMeds }, { data: existingLabs }] = await Promise.all([
-    supabase
-      .from("medication_orders")
-      .select("medication_name, drug_name")
-      .eq("patient_mrn", mrn),
-    supabase
-      .from("lab_orders")
-      .select("test_type")
-      .eq("patient_mrn", mrn),
+    supabase.from("medication_orders").select("medication_name, drug_name").eq("patient_mrn", mrn),
+    supabase.from("lab_orders").select("test_type").eq("patient_mrn", mrn),
   ]);
   const existingMedNames = new Set(
-    ((existingMeds as Array<{ medication_name?: string | null; drug_name?: string | null }> | null) ?? [])
+    (
+      (existingMeds as Array<{
+        medication_name?: string | null;
+        drug_name?: string | null;
+      }> | null) ?? []
+    )
       .map((m) => norm(m.medication_name ?? m.drug_name))
       .filter(Boolean),
   );
@@ -662,9 +768,7 @@ export async function seedAdmission(
   // SNOMED-CT / ICD-10 / LOINC / RxNorm + FHIR + discharge). Idempotent —
   // server short-circuits if the run is already complete. Fire-and-forget
   // so it doesn't delay the staged orders cascade below.
-  runAutoDoc({ data: { mrn } }).catch((e) =>
-    console.warn("[seedAdmission] runAutoDoc failed", e),
-  );
+  runAutoDoc({ data: { mrn } }).catch((e) => console.warn("[seedAdmission] runAutoDoc failed", e));
 
   // First 3 meds, first 2 labs — same shape as the legacy cascade.
   // Automation-only invariant: every ordered med MUST carry an RxNorm code at
@@ -727,9 +831,7 @@ export async function seedAdmission(
       } catch (e) {
         console.warn("[autoCodeMedication] failed", e);
       }
-      cascadeMed(mrn, data.id).catch((e) =>
-        console.warn("[cascadeMed] failed", e),
-      );
+      cascadeMed(mrn, data.id).catch((e) => console.warn("[cascadeMed] failed", e));
     }, t);
     trackTimer(mrn, timer);
   });
@@ -792,8 +894,14 @@ export function useAIAutomation() {
         .update({ status: "Administered", administered_at: nowIso } as any)
         .lt("created_at", cutoff)
         .in("status", [
-          "Ordered", "Pending", "Pending Verification", "Dispensed",
-          "ORDERED", "PENDING", "PENDING_VERIFICATION", "DISPENSED",
+          "Ordered",
+          "Pending",
+          "Pending Verification",
+          "Dispensed",
+          "ORDERED",
+          "PENDING",
+          "PENDING_VERIFICATION",
+          "DISPENSED",
         ]);
       await supabase
         .from("lab_orders")
@@ -812,36 +920,41 @@ export function useAIAutomation() {
     const reconcileActiveAdmissions = async () => {
       const { data } = await supabase
         .from("patients")
-        .select("id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob, snomed_codes, icd10_codes")
+        .select(
+          "id, mrn, first_name, last_name, name, facility_name, chief_complaint, age, gender, dob, snomed_codes, icd10_codes",
+        )
         .eq("status", "Admitted")
         .not("mrn", "is", null)
         .order("admission_time", { ascending: false })
         .limit(100);
-      for (const p of ((data as Array<NewPatient & { snomed_codes?: string[] | null; icd10_codes?: string[] | null }> | null) ?? [])) {
+      for (const p of (data as Array<
+        NewPatient & { snomed_codes?: string[] | null; icd10_codes?: string[] | null }
+      > | null) ?? []) {
         if (!p.mrn) continue;
         // Backfill Auto Doc codes for any admission missing SNOMED-CT or
         // ICD-10 (Auto Doc is idempotent — completed runs short-circuit).
         const needsCodes =
-          !(p.snomed_codes && p.snomed_codes.length) ||
-          !(p.icd10_codes && p.icd10_codes.length);
+          !(p.snomed_codes && p.snomed_codes.length) || !(p.icd10_codes && p.icd10_codes.length);
         if (needsCodes) {
           runAutoDoc({ data: { mrn: p.mrn } }).catch((e) =>
             console.warn("[admission-reconcile] runAutoDoc failed", e),
           );
         }
         const [{ count: medCount }, { count: labCount }] = await Promise.all([
-          supabase.from("medication_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
-          supabase.from("lab_orders").select("id", { count: "exact", head: true }).eq("patient_mrn", p.mrn),
+          supabase
+            .from("medication_orders")
+            .select("id", { count: "exact", head: true })
+            .eq("patient_mrn", p.mrn),
+          supabase
+            .from("lab_orders")
+            .select("id", { count: "exact", head: true })
+            .eq("patient_mrn", p.mrn),
         ]);
         if ((medCount ?? 0) > 0 || (labCount ?? 0) > 0) continue;
-        await seedAdmission(p).catch((e) =>
-          console.warn("[admission-reconcile] seed failed", e),
-        );
+        await seedAdmission(p).catch((e) => console.warn("[admission-reconcile] seed failed", e));
       }
     };
-    reconcileActiveAdmissions().catch((e) =>
-      console.warn("[admission-reconcile] failed", e),
-    );
+    reconcileActiveAdmissions().catch((e) => console.warn("[admission-reconcile] failed", e));
 
     const channel = supabase
       .channel("admission-randomizer")
@@ -852,9 +965,7 @@ export function useAIAutomation() {
           const p = payload.new as NewPatient;
           if (!p?.id || seeded.current.has(p.id)) return;
           seeded.current.add(p.id);
-          seedAdmission(p).catch((e) =>
-            console.warn("[admission-randomizer] seed failed", e),
-          );
+          seedAdmission(p).catch((e) => console.warn("[admission-randomizer] seed failed", e));
         },
       )
       .on(
@@ -902,7 +1013,8 @@ export function useAIAutomation() {
             source.includes("bedside rn") ||
             source.includes("ghost ai") ||
             source.includes("auto doc")
-          ) return;
+          )
+            return;
           cascadeMed(mrn, o.id).catch((e) => console.warn("[order-cascadeMed] failed", e));
         },
       )
@@ -920,7 +1032,8 @@ export function useAIAutomation() {
             source.includes("bedside rn") ||
             source.includes("ghost ai") ||
             source.includes("auto doc")
-          ) return;
+          )
+            return;
           (async () => {
             const testType = o.test_type ?? "Lab";
             const tmpl = findLabTemplateByName(testType);

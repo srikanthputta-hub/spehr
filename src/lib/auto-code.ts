@@ -7,10 +7,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import {
-  resolveConcept,
-  type Vocabulary,
-} from "@/lib/terminology-resolver";
+import { resolveConcept, type Vocabulary } from "@/lib/terminology-resolver";
 import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
 
 interface AutoCodeContext {

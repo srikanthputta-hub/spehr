@@ -15,7 +15,11 @@ export const Route = createFileRoute("/api/public/hooks/generate-invoice")({
         const url = new URL(request.url);
         const all = url.searchParams.get("all");
         let body: any = null;
-        try { body = await request.json(); } catch { /* empty */ }
+        try {
+          body = await request.json();
+        } catch {
+          /* empty */
+        }
         const mrn = String(body?.mrn ?? url.searchParams.get("mrn") ?? "").trim();
         try {
           if (all === "1" || (!mrn && all !== null)) {
@@ -46,10 +50,10 @@ export const Route = createFileRoute("/api/public/hooks/generate-invoice")({
             headers: { "Content-Type": "application/json" },
           });
         } catch (e) {
-          return new Response(
-            JSON.stringify({ error: (e as Error).message }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ error: (e as Error).message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
         }
       },
     },

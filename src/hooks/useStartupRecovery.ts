@@ -16,11 +16,7 @@ export function useStartupRecovery() {
     (async () => {
       const settings = await fetchWithTimeout(
         () =>
-          supabase
-            .from("system_settings")
-            .select("automation_enabled")
-            .eq("id", 1)
-            .maybeSingle(),
+          supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
         { data: null, error: new Error("system_settings timeout") } as any,
       );
 

@@ -54,15 +54,14 @@ export const Route = createFileRoute("/api/public/directory")({
           const providers = (data ?? [])
             .filter((r: any) => r.active !== false)
             .map((r: any) => ({ name: r.name, facility: r.facility }));
-          return new Response(
-            JSON.stringify({ facilities: FACILITIES, providers }),
-            { headers: cors },
-          );
+          return new Response(JSON.stringify({ facilities: FACILITIES, providers }), {
+            headers: cors,
+          });
         } catch (e) {
-          return new Response(
-            JSON.stringify({ error: (e as Error).message }),
-            { status: 500, headers: cors },
-          );
+          return new Response(JSON.stringify({ error: (e as Error).message }), {
+            status: 500,
+            headers: cors,
+          });
         }
       },
     },

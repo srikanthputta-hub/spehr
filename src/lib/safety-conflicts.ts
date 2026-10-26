@@ -26,20 +26,24 @@ import { loadIntake, type IntakeAllergy } from "@/lib/intake-record";
 export type BannedAbbrev = { token: string; meaning: string; preferred: string };
 
 export const JC_BANNED: BannedAbbrev[] = [
-  { token: "U",     meaning: "Unit",               preferred: 'Write "unit"' },
-  { token: "IU",    meaning: "International Unit", preferred: 'Write "international unit"' },
-  { token: "QD",    meaning: "Daily",              preferred: 'Write "daily"' },
-  { token: "Q.D.",  meaning: "Daily",              preferred: 'Write "daily"' },
-  { token: "QOD",   meaning: "Every other day",    preferred: 'Write "every other day"' },
-  { token: "Q.O.D.",meaning: "Every other day",    preferred: 'Write "every other day"' },
-  { token: "MS",    meaning: "Morphine sulfate / MgSO4 (ambiguous)", preferred: "Write the full drug name" },
-  { token: "MSO4",  meaning: "Morphine sulfate",   preferred: 'Write "morphine sulfate"' },
-  { token: "MgSO4", meaning: "Magnesium sulfate",  preferred: 'Write "magnesium sulfate"' },
-  { token: "cc",    meaning: "Cubic centimeters",  preferred: 'Write "mL"' },
-  { token: "µg",    meaning: "Microgram",          preferred: 'Write "mcg"' },
+  { token: "U", meaning: "Unit", preferred: 'Write "unit"' },
+  { token: "IU", meaning: "International Unit", preferred: 'Write "international unit"' },
+  { token: "QD", meaning: "Daily", preferred: 'Write "daily"' },
+  { token: "Q.D.", meaning: "Daily", preferred: 'Write "daily"' },
+  { token: "QOD", meaning: "Every other day", preferred: 'Write "every other day"' },
+  { token: "Q.O.D.", meaning: "Every other day", preferred: 'Write "every other day"' },
+  {
+    token: "MS",
+    meaning: "Morphine sulfate / MgSO4 (ambiguous)",
+    preferred: "Write the full drug name",
+  },
+  { token: "MSO4", meaning: "Morphine sulfate", preferred: 'Write "morphine sulfate"' },
+  { token: "MgSO4", meaning: "Magnesium sulfate", preferred: 'Write "magnesium sulfate"' },
+  { token: "cc", meaning: "Cubic centimeters", preferred: 'Write "mL"' },
+  { token: "µg", meaning: "Microgram", preferred: 'Write "mcg"' },
 ];
 
-const SAFETY_QUEUE_KEY  = "spehr.safety_queue.v1";
+const SAFETY_QUEUE_KEY = "spehr.safety_queue.v1";
 
 export type CustomRule = { id: string; phrase: string; canonical: string };
 export type CustomBanned = BannedAbbrev & { id: string };
@@ -59,8 +63,12 @@ let _rulesCache: CustomRule[] = [];
 let _hydrated = false;
 let _hydratePromise: Promise<void> | null = null;
 
-export function loadCustomBanned(): CustomBanned[] { return _bannedCache; }
-export function loadCustomRules(): CustomRule[] { return _rulesCache; }
+export function loadCustomBanned(): CustomBanned[] {
+  return _bannedCache;
+}
+export function loadCustomRules(): CustomRule[] {
+  return _rulesCache;
+}
 
 export async function refreshNlpRulesFromDb(): Promise<void> {
   const { data, error } = await supabase
@@ -87,7 +95,10 @@ export async function refreshNlpRulesFromDb(): Promise<void> {
 
 export function ensureNlpRulesHydrated(): Promise<void> {
   if (_hydrated) return Promise.resolve();
-  if (!_hydratePromise) _hydratePromise = refreshNlpRulesFromDb().finally(() => { _hydratePromise = null; });
+  if (!_hydratePromise)
+    _hydratePromise = refreshNlpRulesFromDb().finally(() => {
+      _hydratePromise = null;
+    });
   return _hydratePromise;
 }
 
@@ -101,7 +112,11 @@ export async function addCustomRuleDb(phrase: string, canonical: string): Promis
   await refreshNlpRulesFromDb();
 }
 
-export async function addBannedDb(token: string, meaning: string, preferred: string): Promise<void> {
+export async function addBannedDb(
+  token: string,
+  meaning: string,
+  preferred: string,
+): Promise<void> {
   const { error } = await supabase.from("nlp_custom_rules").insert({
     type: "banned_token",
     raw_term: token,
@@ -159,18 +174,18 @@ export function detectBanned(text: string): BannedAbbrev[] {
  */
 
 export type SafetyConflict = {
-  id: string;                       // stable: `${mrn}|${drug}`
+  id: string; // stable: `${mrn}|${drug}`
   mrn: string;
   patient_name: string;
   facility_name: string | null;
   detected_at: string;
-  kind: "allergy" | "ddi";          // allergy↔drug OR drug↔drug interaction
-  drug: string;                     // ordered / proposed drug (or "Drug A")
+  kind: "allergy" | "ddi"; // allergy↔drug OR drug↔drug interaction
+  drug: string; // ordered / proposed drug (or "Drug A")
   drug_source: "order" | "nlp";
-  allergy?: IntakeAllergy;          // populated when kind === "allergy"
-  drug_b?: string;                  // populated when kind === "ddi"
-  family: string;                   // human-readable family / interaction summary
-  severity?: "Major" | "Moderate";  // for DDIs
+  allergy?: IntakeAllergy; // populated when kind === "allergy"
+  drug_b?: string; // populated when kind === "ddi"
+  family: string; // human-readable family / interaction summary
+  severity?: "Major" | "Moderate"; // for DDIs
   status: "Pending" | "Overridden" | "Rejected";
   decided_by?: string;
   decided_at?: string;
@@ -180,8 +195,13 @@ export type SafetyConflict = {
 /* ---- Queue persistence (decisions only; conflicts are recomputed) ---- */
 type Decision = Pick<SafetyConflict, "status" | "decided_by" | "decided_at" | "rationale">;
 function loadDecisions(): Record<string, Decision> {
-  const s = ls(); if (!s) return {};
-  try { return JSON.parse(s.getItem(SAFETY_QUEUE_KEY) || "{}"); } catch { return {}; }
+  const s = ls();
+  if (!s) return {};
+  try {
+    return JSON.parse(s.getItem(SAFETY_QUEUE_KEY) || "{}");
+  } catch {
+    return {};
+  }
 }
 function saveDecisions(d: Record<string, Decision>) {
   ls()?.setItem(SAFETY_QUEUE_KEY, JSON.stringify(d));
@@ -423,7 +443,11 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
     }
 
     // ---- Drug ↔ Drug interactions (governed drug_interaction_rules) ----
-    const drugMatchesSide = (drug: { rxcui: string | null }, vsId: string | null, single: string | null): boolean => {
+    const drugMatchesSide = (
+      drug: { rxcui: string | null },
+      vsId: string | null,
+      single: string | null,
+    ): boolean => {
       if (!drug.rxcui) return false;
       if (single && drug.rxcui === single) return true;
       if (vsId) {
@@ -434,7 +458,8 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
     };
     for (let i = 0; i < drugs.length; i++) {
       for (let j = i + 1; j < drugs.length; j++) {
-        const da = drugs[i], db = drugs[j];
+        const da = drugs[i],
+          db = drugs[j];
         for (const r of rules.ddi) {
           const straight =
             drugMatchesSide(da, r.a_vs_id, r.a_single_code) &&

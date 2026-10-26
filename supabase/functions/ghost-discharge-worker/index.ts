@@ -56,7 +56,10 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const FHIR_SERVER_URL = (Deno.env.get("FHIR_SERVER_URL") ?? "").replace(/\/+$/, "");
 const FHIR_BEARER_TOKEN = Deno.env.get("FHIR_BEARER_TOKEN") ?? "";
 const FHIR_APIKEY = Deno.env.get("FHIR_APIKEY") ?? "";
-const SPEHR_APP_URL = (Deno.env.get("SPEHR_APP_URL") ?? "https://www.spehr.live").replace(/\/+$/, "");
+const SPEHR_APP_URL = (Deno.env.get("SPEHR_APP_URL") ?? "https://www.spehr.live").replace(
+  /\/+$/,
+  "",
+);
 
 // Phase D: recall/follow-up appointment settings, read fresh per discharge
 // (cheap single-row lookup) rather than cached, since an operator may flip
@@ -106,7 +109,14 @@ async function maybeScheduleRecall(
   patient: any,
   dischargeTimeMs: number,
   compositionId: string | undefined,
-): Promise<{ id: string; start: string; end: string; practitioner?: string; facility?: string; description?: string } | null> {
+): Promise<{
+  id: string;
+  start: string;
+  end: string;
+  practitioner?: string;
+  facility?: string;
+  description?: string;
+} | null> {
   try {
     const settings = await fetchRecallSettings(admin);
     if (!settings.recall_enabled) return null;
@@ -124,7 +134,8 @@ async function maybeScheduleRecall(
     const end = new Date(start.getTime() + 30 * 60_000);
 
     const id = sanitizeFhirId(`recall-${mrn}-${Math.floor(dischargeTimeMs / 1000)}`);
-    const patientName = [patient.first_name, patient.last_name].filter(Boolean).join(" ") || patient.name || mrn;
+    const patientName =
+      [patient.first_name, patient.last_name].filter(Boolean).join(" ") || patient.name || mrn;
     const description = `Post-discharge follow-up for ${patient.chief_complaint ?? "recent admission"}`;
 
     const { error } = await admin.from("fhir_appointments").insert({
@@ -144,7 +155,10 @@ async function maybeScheduleRecall(
       needs_fhir_push: false,
     });
     if (error) {
-      console.error(`[ghost-discharge-worker] recall appointment insert failed for ${mrn}:`, error.message);
+      console.error(
+        `[ghost-discharge-worker] recall appointment insert failed for ${mrn}:`,
+        error.message,
+      );
       return null;
     }
 
@@ -157,7 +171,10 @@ async function maybeScheduleRecall(
       description,
     };
   } catch (e) {
-    console.error(`[ghost-discharge-worker] maybeScheduleRecall exception for ${mrn}:`, (e as Error).message);
+    console.error(
+      `[ghost-discharge-worker] maybeScheduleRecall exception for ${mrn}:`,
+      (e as Error).message,
+    );
     return null;
   }
 }
@@ -166,14 +183,21 @@ async function maybeScheduleRecall(
  * B's outbound poller retries it independently on the next tick instead of
  * it being silently lost (it was inserted with needs_fhir_push:false on the
  * assumption the bundle push would succeed). */
-async function markRecallDirtyIfBundlePushFailed(admin: any, recallFhirId: string | undefined, pushOk: boolean) {
+async function markRecallDirtyIfBundlePushFailed(
+  admin: any,
+  recallFhirId: string | undefined,
+  pushOk: boolean,
+) {
   if (!recallFhirId || pushOk) return;
   const { error } = await admin
     .from("fhir_appointments")
     .update({ needs_fhir_push: true })
     .eq("fhir_id", recallFhirId);
   if (error) {
-    console.error(`[ghost-discharge-worker] failed to mark recall appt ${recallFhirId} dirty:`, error.message);
+    console.error(
+      `[ghost-discharge-worker] failed to mark recall appt ${recallFhirId} dirty:`,
+      error.message,
+    );
   }
 }
 
@@ -190,11 +214,16 @@ async function triggerInvoiceGeneration(mrn: string): Promise<void> {
       signal: AbortSignal.timeout(8000),
     });
   } catch (e) {
-    console.warn(`[ghost-discharge-worker] generate-invoice hook failed for ${mrn}:`, (e as Error).message);
+    console.warn(
+      `[ghost-discharge-worker] generate-invoice hook failed for ${mrn}:`,
+      (e as Error).message,
+    );
   }
 }
 
-async function pushDischargeBundleToFhir(bundle: unknown): Promise<{ ok: boolean; status: number }> {
+async function pushDischargeBundleToFhir(
+  bundle: unknown,
+): Promise<{ ok: boolean; status: number }> {
   if (!FHIR_SERVER_URL || !FHIR_BEARER_TOKEN) {
     return { ok: false, status: 0 };
   }
@@ -210,7 +239,11 @@ async function pushDischargeBundleToFhir(bundle: unknown): Promise<{ ok: boolean
     body: JSON.stringify(bundle),
   });
   let bodyText = "";
-  try { bodyText = await res.text(); } catch { /* ignore */ }
+  try {
+    bodyText = await res.text();
+  } catch {
+    /* ignore */
+  }
   if (!res.ok) {
     console.error(`[ghost-discharge-worker] FHIR push ${res.status}:`, bodyText.slice(0, 800));
   }
@@ -253,7 +286,10 @@ async function pickCandidates(admin: any): Promise<string[]> {
  * both by `buildSummaryForMrn` (narrative markdown) and by the FHIR
  * discharge Composition push (real drug/lab names).
  */
-async function fetchClinicalContext(admin: any, mrn: string): Promise<{
+async function fetchClinicalContext(
+  admin: any,
+  mrn: string,
+): Promise<{
   patient: any | null;
   meds: any[];
   labs: any[];
@@ -262,22 +298,26 @@ async function fetchClinicalContext(admin: any, mrn: string): Promise<{
 }> {
   const [pRes, mRes, lRes, lrRes, aRes, vRes] = await Promise.all([
     admin.from("patients").select("*").eq("mrn", mrn).maybeSingle(),
-    admin.from("medication_orders")
-      .select("id, drug_name, medication_name, dose, route, status, ordered_by, ordering_physician, administered_at, rxnorm_code, rxnorm_display, frequency")
+    admin
+      .from("medication_orders")
+      .select(
+        "id, drug_name, medication_name, dose, route, status, ordered_by, ordering_physician, administered_at, rxnorm_code, rxnorm_display, frequency",
+      )
       .eq("patient_mrn", mrn),
-    admin.from("lab_orders")
+    admin
+      .from("lab_orders")
       .select("id, test_type, status, result_value, collected_at, loinc_code")
       .eq("patient_mrn", mrn),
-    admin.from("lab_results")
+    admin
+      .from("lab_results")
       .select("id, test_name, result_value, unit, flag, reference_range, created_at")
       .eq("mrn", mrn),
-    admin.from("allergies")
-      .select("substance, reaction, severity")
-      .eq("mrn", mrn),
+    admin.from("allergies").select("substance, reaction, severity").eq("mrn", mrn),
     // Last recorded vitals row at/before discharge — pushed as FHIR
     // Observations so myspehr's Monitoring page has a discharge-time
     // snapshot instead of showing nothing.
-    admin.from("vitals")
+    admin
+      .from("vitals")
       .select("hr, bp_systolic, bp_diastolic, spo2, temp_c, rr, recorded_at")
       .eq("mrn", mrn)
       .order("recorded_at", { ascending: false })
@@ -321,11 +361,19 @@ async function fetchClinicalContext(admin: any, mrn: string): Promise<{
  * Turn the raw clinical context into the narrative markdown consumed by
  * `clinical_notes` / DocumentReference.
  */
-async function buildSummaryForMrn(admin: any, mrn: string): Promise<{
+async function buildSummaryForMrn(
+  admin: any,
+  mrn: string,
+): Promise<{
   summary: string | null;
   patient: any | null;
 }> {
-  const { patient, meds: rawMeds, labs: rawLabs, allergies: rawAllergies } = await fetchClinicalContext(admin, mrn);
+  const {
+    patient,
+    meds: rawMeds,
+    labs: rawLabs,
+    allergies: rawAllergies,
+  } = await fetchClinicalContext(admin, mrn);
   if (!patient) return { summary: null, patient: null };
 
   const meds: NarrativeMed[] = rawMeds.map((m: any) => ({
@@ -381,7 +429,11 @@ async function buildSummaryForMrn(admin: any, mrn: string): Promise<{
   return { summary, patient };
 }
 
-async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Promise<{
+async function processMrn(
+  admin: any,
+  mrn: string,
+  opts: { force: boolean },
+): Promise<{
   mrn: string;
   ok: boolean;
   reason?: string;
@@ -398,11 +450,11 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
   // (what the clinician wrote wins on the narrative surface). The FHIR
   // Composition below is ALWAYS rebuilt from real DB rows regardless, so
   // structured meds/labs/diagnoses remain accurate.
-  const override = typeof (opts as any).override === "string"
-    ? String((opts as any).override).trim()
-    : "";
+  const override =
+    typeof (opts as any).override === "string" ? String((opts as any).override).trim() : "";
   const summary = override.length > 0 ? override : autoSummary;
-  const noteAuthor = override.length > 0 ? "Clinician - Manual Discharge" : "Ghost AI - Auto Discharge";
+  const noteAuthor =
+    override.length > 0 ? "Clinician - Manual Discharge" : "Ghost AI - Auto Discharge";
 
   const alreadyDischarged = String(patient.status ?? "").toLowerCase() === "discharged";
   if (alreadyDischarged && !opts.force) {
@@ -430,10 +482,7 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
     patientUpdate.status = "Discharged";
     patientUpdate.discharge_time = new Date().toISOString();
   }
-  const { error: pErr } = await admin
-    .from("patients")
-    .update(patientUpdate)
-    .eq("mrn", mrn);
+  const { error: pErr } = await admin.from("patients").update(patientUpdate).eq("mrn", mrn);
   if (pErr) return { mrn, ok: false, reason: `patient_update_failed: ${pErr.message}` };
 
   // Phase D: independent of the invoice hook below — a configurable chance
@@ -485,7 +534,12 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
   // before any orders existed.
   let composition_push: { ok: boolean; status: number } | undefined;
   try {
-    const { patient: freshPatient, meds: rawMeds, labs: rawLabs, vitals: rawVitals } = await fetchClinicalContext(admin, mrn);
+    const {
+      patient: freshPatient,
+      meds: rawMeds,
+      labs: rawLabs,
+      vitals: rawVitals,
+    } = await fetchClinicalContext(admin, mrn);
     const fhirMeds: FhirDischargeMed[] = rawMeds.map((m: any) => ({
       id: m.id,
       drug: m.medication_name ?? m.drug_name ?? "medication",
@@ -517,7 +571,10 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
       age: freshPatient.age ?? null,
       gender: freshPatient.gender ?? freshPatient.biological_sex ?? null,
       admission_time: freshPatient.admission_time ?? null,
-      discharge_time: freshPatient.discharge_time ?? patientUpdate.discharge_time as string ?? new Date().toISOString(),
+      discharge_time:
+        freshPatient.discharge_time ??
+        (patientUpdate.discharge_time as string) ??
+        new Date().toISOString(),
       status: "Discharged",
       chief_complaint: freshPatient.chief_complaint ?? null,
       diagnosis: freshPatient.diagnosis ?? null,
@@ -550,7 +607,8 @@ async function processMrn(admin: any, mrn: string, opts: { force: boolean }): Pr
       ? (() => {
           const hours = Math.max(
             1,
-            (new Date(recallAppt!.start).getTime() - new Date(admissionPatient.discharge_time ?? Date.now()).getTime()) /
+            (new Date(recallAppt!.start).getTime() -
+              new Date(admissionPatient.discharge_time ?? Date.now()).getTime()) /
               3_600_000,
           );
           const startUtc = new Date(recallAppt!.start).toISOString();
@@ -614,12 +672,17 @@ Deno.serve(async (req) => {
   });
 
   let body: any = {};
-  try { body = await req.json(); } catch { /* empty body is fine */ }
+  try {
+    body = await req.json();
+  } catch {
+    /* empty body is fine */
+  }
   const targetMrn: string | undefined = body?.mrn;
   const force: boolean = !!body?.force;
-  const override: string | undefined = typeof body?.discharge_summary_override === "string"
-    ? body.discharge_summary_override
-    : undefined;
+  const override: string | undefined =
+    typeof body?.discharge_summary_override === "string"
+      ? body.discharge_summary_override
+      : undefined;
 
   // Automation gate — respect the global kill switch for the cron path
   // (backfill / explicit single-MRN calls bypass it).

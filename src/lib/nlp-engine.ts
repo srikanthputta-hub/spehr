@@ -45,9 +45,9 @@ export type NlpResult = {
   suggestedMeds: NlpMatch[];
   symptoms: NlpMatch[];
   byCode: Record<string, NlpMatch[]>;
-  confidence: number;        // 0-100; <95 means a human must approve
-  banned: BannedAbbrev[];    // Joint Commission "Do Not Use" hits in the raw text
-  streamAOk: boolean;        // structured demographics/vitals parsed cleanly without NLP
+  confidence: number; // 0-100; <95 means a human must approve
+  banned: BannedAbbrev[]; // Joint Commission "Do Not Use" hits in the raw text
+  streamAOk: boolean; // structured demographics/vitals parsed cleanly without NLP
   expansions: Array<{ short: string; long: string }>; // shorthand decoded by NLP
   dosingHazards: Array<{ token: string; reason: string }>; // 5.0 mg / .5 mg etc.
 };
@@ -61,35 +61,74 @@ export type NlpAudit = NlpResult & {
 };
 
 const STOP = new Set([
-  "the","a","an","and","or","with","of","to","for","is","are","was","were","has","have","had",
-  "in","on","at","by","be","pt","patient","hx","c/o","co","presents","arrives","reports","denies",
-  "complains","note","noted","mild","severe","acute","chronic","bad","new","old","known","also",
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "with",
+  "of",
+  "to",
+  "for",
+  "is",
+  "are",
+  "was",
+  "were",
+  "has",
+  "have",
+  "had",
+  "in",
+  "on",
+  "at",
+  "by",
+  "be",
+  "pt",
+  "patient",
+  "hx",
+  "c/o",
+  "co",
+  "presents",
+  "arrives",
+  "reports",
+  "denies",
+  "complains",
+  "note",
+  "noted",
+  "mild",
+  "severe",
+  "acute",
+  "chronic",
+  "bad",
+  "new",
+  "old",
+  "known",
+  "also",
 ]);
 
 /** Clinical shorthand → canonical expansion. Surfaced in the audit log so
  *  coders can verify the NLP decoded the abbreviation correctly. */
 const ABBREV: Array<{ pattern: RegExp; long: string; short: string }> = [
-  { pattern: /\bhx\b/i,        short: "Hx",    long: "history" },
-  { pattern: /\bpmh\b/i,       short: "PMH",   long: "past medical history" },
-  { pattern: /\bpsh\b/i,       short: "PSH",   long: "past surgical history" },
-  { pattern: /\bc\/o\b/i,      short: "c/o",   long: "complains of" },
-  { pattern: /\bs\/p\b/i,      short: "s/p",   long: "status post" },
-  { pattern: /\br\/o\b/i,      short: "r/o",   long: "rule out" },
-  { pattern: /\bnpo\b/i,       short: "NPO",   long: "nothing by mouth" },
-  { pattern: /\bprn\b/i,       short: "prn",   long: "as needed" },
-  { pattern: /\bpo\b/i,        short: "PO",    long: "by mouth" },
-  { pattern: /\biv\b/i,        short: "IV",    long: "intravenous" },
-  { pattern: /\bim\b/i,        short: "IM",    long: "intramuscular" },
-  { pattern: /\bsob\b/i,       short: "SOB",   long: "shortness of breath" },
-  { pattern: /\bcp\b/i,        short: "CP",    long: "chest pain" },
-  { pattern: /\bn\/v\b/i,      short: "N/V",   long: "nausea and vomiting" },
-  { pattern: /\bloc\b/i,       short: "LOC",   long: "loss of consciousness" },
-  { pattern: /\bnkda\b/i,      short: "NKDA",  long: "no known drug allergies" },
-  { pattern: /\bnka\b/i,       short: "NKA",   long: "no known allergies" },
-  { pattern: /\bbid\b/i,       short: "BID",   long: "twice daily" },
-  { pattern: /\btid\b/i,       short: "TID",   long: "three times daily" },
-  { pattern: /\bqid\b/i,       short: "QID",   long: "four times daily" },
-  { pattern: /\bqhs\b/i,       short: "qhs",   long: "at bedtime" },
+  { pattern: /\bhx\b/i, short: "Hx", long: "history" },
+  { pattern: /\bpmh\b/i, short: "PMH", long: "past medical history" },
+  { pattern: /\bpsh\b/i, short: "PSH", long: "past surgical history" },
+  { pattern: /\bc\/o\b/i, short: "c/o", long: "complains of" },
+  { pattern: /\bs\/p\b/i, short: "s/p", long: "status post" },
+  { pattern: /\br\/o\b/i, short: "r/o", long: "rule out" },
+  { pattern: /\bnpo\b/i, short: "NPO", long: "nothing by mouth" },
+  { pattern: /\bprn\b/i, short: "prn", long: "as needed" },
+  { pattern: /\bpo\b/i, short: "PO", long: "by mouth" },
+  { pattern: /\biv\b/i, short: "IV", long: "intravenous" },
+  { pattern: /\bim\b/i, short: "IM", long: "intramuscular" },
+  { pattern: /\bsob\b/i, short: "SOB", long: "shortness of breath" },
+  { pattern: /\bcp\b/i, short: "CP", long: "chest pain" },
+  { pattern: /\bn\/v\b/i, short: "N/V", long: "nausea and vomiting" },
+  { pattern: /\bloc\b/i, short: "LOC", long: "loss of consciousness" },
+  { pattern: /\bnkda\b/i, short: "NKDA", long: "no known drug allergies" },
+  { pattern: /\bnka\b/i, short: "NKA", long: "no known allergies" },
+  { pattern: /\bbid\b/i, short: "BID", long: "twice daily" },
+  { pattern: /\btid\b/i, short: "TID", long: "three times daily" },
+  { pattern: /\bqid\b/i, short: "QID", long: "four times daily" },
+  { pattern: /\bqhs\b/i, short: "qhs", long: "at bedtime" },
 ];
 
 function detectExpansions(text: string): Array<{ short: string; long: string }> {
@@ -122,23 +161,35 @@ function detectDosingHazards(text: string): Array<{ token: string; reason: strin
 }
 /** Common chief-complaint aliases → canonical phrase to seed extra matches. */
 const ALIASES: Array<{ pattern: RegExp; phrases: string[] }> = [
-  { pattern: /\b(sob|short(ness)? of breath|dyspnea|difficulty breathing)\b/i, phrases: ["dyspnea","shortness of breath"] },
+  {
+    pattern: /\b(sob|short(ness)? of breath|dyspnea|difficulty breathing)\b/i,
+    phrases: ["dyspnea", "shortness of breath"],
+  },
   { pattern: /\b(chest pain|cp|chest pressure|chest discomfort)\b/i, phrases: ["chest pain"] },
-  { pattern: /\b(htn|hypertensive|high blood pressure)\b/i, phrases: ["hypertension","essential hypertension"] },
-  { pattern: /\b(dm|t2dm|diabetic|diabetes mellitus)\b/i, phrases: ["diabetes","type 2 diabetes"] },
+  {
+    pattern: /\b(htn|hypertensive|high blood pressure)\b/i,
+    phrases: ["hypertension", "essential hypertension"],
+  },
+  {
+    pattern: /\b(dm|t2dm|diabetic|diabetes mellitus)\b/i,
+    phrases: ["diabetes", "type 2 diabetes"],
+  },
   { pattern: /\b(mi|stemi|nstemi|heart attack)\b/i, phrases: ["myocardial infarction"] },
-  { pattern: /\b(cva|stroke|tia)\b/i, phrases: ["stroke","cerebrovascular accident"] },
+  { pattern: /\b(cva|stroke|tia)\b/i, phrases: ["stroke", "cerebrovascular accident"] },
   { pattern: /\b(uti|urinary infection|dysuria)\b/i, phrases: ["urinary tract infection"] },
   { pattern: /\b(pna|pneumonia|lung infection)\b/i, phrases: ["pneumonia"] },
   { pattern: /\b(sepsis|septic)\b/i, phrases: ["sepsis"] },
-  { pattern: /\b(chf|heart failure|chf exacerbation)\b/i, phrases: ["heart failure","congestive heart failure"] },
+  {
+    pattern: /\b(chf|heart failure|chf exacerbation)\b/i,
+    phrases: ["heart failure", "congestive heart failure"],
+  },
   { pattern: /\b(afib|atrial fib(rillation)?)\b/i, phrases: ["atrial fibrillation"] },
-  { pattern: /\b(n\/v|nausea|vomiting)\b/i, phrases: ["nausea","vomiting"] },
+  { pattern: /\b(n\/v|nausea|vomiting)\b/i, phrases: ["nausea", "vomiting"] },
   { pattern: /\b(abd(ominal)? pain|stomach pain|belly pain)\b/i, phrases: ["abdominal pain"] },
   { pattern: /\b(fever|febrile|pyrexia)\b/i, phrases: ["fever"] },
   { pattern: /\b(headache|ha|migraine)\b/i, phrases: ["headache"] },
   { pattern: /\b(asthma|wheezing|bronchospasm)\b/i, phrases: ["asthma"] },
-  { pattern: /\b(copd|emphysema)\b/i, phrases: ["copd","chronic obstructive pulmonary disease"] },
+  { pattern: /\b(copd|emphysema)\b/i, phrases: ["copd", "chronic obstructive pulmonary disease"] },
 ];
 
 function tokens(s: string): string[] {
@@ -289,12 +340,13 @@ export function analyzeNarrative(narrative: string, dict: DictRow[]): NlpResult 
   const dosingHazards = detectDosingHazards(raw);
   let confidence = 0;
   if (matches.length > 0) {
-    confidence = 60
-      + Math.min(20, matches.length * 4)
-      + (suggestedDiagnoses.length ? 8 : 0)
-      + (symptoms.length ? 4 : 0)
-      + (suggestedLabs.length ? 4 : 0)
-      + (suggestedMeds.length ? 4 : 0);
+    confidence =
+      60 +
+      Math.min(20, matches.length * 4) +
+      (suggestedDiagnoses.length ? 8 : 0) +
+      (symptoms.length ? 4 : 0) +
+      (suggestedLabs.length ? 4 : 0) +
+      (suggestedMeds.length ? 4 : 0);
     const wordCount = raw.split(/\s+/).filter(Boolean).length;
     if (wordCount > 30 && matches.length < 3) confidence -= 10;
   }
@@ -316,7 +368,7 @@ export function analyzeNarrative(narrative: string, dict: DictRow[]): NlpResult 
     confidence,
     banned,
     streamAOk: true, // structured intake auto-fill (Stream A) runs server-side
-                     // and is always considered "parsed" when an audit is written.
+    // and is always considered "parsed" when an audit is written.
     expansions,
     dosingHazards,
   };

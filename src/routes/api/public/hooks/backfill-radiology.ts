@@ -16,18 +16,16 @@ export const Route = createFileRoute("/api/public/hooks/backfill-radiology")({
     handlers: {
       POST: async () => {
         try {
-          const { backfillMissingRadiologyOrders } = await import(
-            "@/lib/auto-doc.server"
-          );
+          const { backfillMissingRadiologyOrders } = await import("@/lib/auto-doc.server");
           const res = await backfillMissingRadiologyOrders();
           return new Response(JSON.stringify(res), {
             headers: { "Content-Type": "application/json" },
           });
         } catch (e) {
-          return new Response(
-            JSON.stringify({ error: (e as Error).message }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ error: (e as Error).message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
         }
       },
     },

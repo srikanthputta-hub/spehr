@@ -128,7 +128,9 @@ export async function validateStreamCodes(
         message: `Value set $validate-code proxy unavailable for stream ${streamKey}`,
         meta: { stream: streamKey, value_set_oid: info.oid, code_count: unique.length } as any,
       } as any);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
     return { perCode, gateStatus: "unavailable" };
   }
 

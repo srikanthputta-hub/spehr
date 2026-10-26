@@ -19,10 +19,7 @@
 // CLAUDE.md's Product topology section) — NOT because those domains are offline. They're still
 // live, just no longer actively maintained or designed around from this repo, so they no longer
 // need cross-origin access to these routes.
-const ALLOWED_ORIGINS = new Set([
-  "https://spehr.live",
-  "https://www.spehr.live",
-]);
+const ALLOWED_ORIGINS = new Set(["https://spehr.live", "https://www.spehr.live"]);
 
 // Matches the Vite dev server port (vite.config.ts: server.port = 8080) on
 // localhost/127.0.0.1/[::1], any port scheme, for local development only.
@@ -39,7 +36,10 @@ export function isAllowedOrigin(origin: string | null): boolean {
  * object when the origin isn't allowed — callers should treat "no
  * Access-Control-Allow-Origin header" plus a 403 body as the rejection.
  */
-export function corsHeadersFor(origin: string | null, extra: Record<string, string> = {}): Record<string, string> {
+export function corsHeadersFor(
+  origin: string | null,
+  extra: Record<string, string> = {},
+): Record<string, string> {
   if (!isAllowedOrigin(origin)) return {};
   return {
     "Access-Control-Allow-Origin": origin as string,

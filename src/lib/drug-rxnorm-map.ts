@@ -8,21 +8,21 @@ export type RxHit = { code: string; display: string };
 
 // Canonical ingredient → RxCUI
 const DRUG_RXNORM: Record<string, RxHit> = {
-  omeprazole:    { code: "7646",   display: "Omeprazole" },
-  metformin:     { code: "6809",   display: "Metformin" },
-  aspirin:       { code: "1191",   display: "Aspirin" },
-  atorvastatin:  { code: "83367",  display: "Atorvastatin" },
-  lisinopril:    { code: "29046",  display: "Lisinopril" },
-  metoprolol:    { code: "41493",  display: "Metoprolol" },
-  pantoprazole:  { code: "40790",  display: "Pantoprazole" },
-  amoxicillin:   { code: "723",    display: "Amoxicillin" },
-  azithromycin:  { code: "18631",  display: "Azithromycin" },
-  acetaminophen: { code: "161",    display: "Acetaminophen" },
-  ibuprofen:     { code: "5640",   display: "Ibuprofen" },
-  amlodipine:    { code: "17767",  display: "Amlodipine" },
-  warfarin:      { code: "11289",  display: "Warfarin" },
-  furosemide:    { code: "4603",   display: "Furosemide" },
-  insulin:       { code: "253182", display: "Insulin" },
+  omeprazole: { code: "7646", display: "Omeprazole" },
+  metformin: { code: "6809", display: "Metformin" },
+  aspirin: { code: "1191", display: "Aspirin" },
+  atorvastatin: { code: "83367", display: "Atorvastatin" },
+  lisinopril: { code: "29046", display: "Lisinopril" },
+  metoprolol: { code: "41493", display: "Metoprolol" },
+  pantoprazole: { code: "40790", display: "Pantoprazole" },
+  amoxicillin: { code: "723", display: "Amoxicillin" },
+  azithromycin: { code: "18631", display: "Azithromycin" },
+  acetaminophen: { code: "161", display: "Acetaminophen" },
+  ibuprofen: { code: "5640", display: "Ibuprofen" },
+  amlodipine: { code: "17767", display: "Amlodipine" },
+  warfarin: { code: "11289", display: "Warfarin" },
+  furosemide: { code: "4603", display: "Furosemide" },
+  insulin: { code: "253182", display: "Insulin" },
 };
 
 // Brand / abbreviation → canonical ingredient key above.
@@ -47,16 +47,48 @@ const ALIASES: Record<string, string> = {
 };
 
 const UNIT_WORDS = new Set([
-  "mg","mcg","g","kg","ml","l","iu","units","unit","tab","tabs","cap","caps",
-  "po","iv","im","sc","sq","pr","sl","od","bid","tid","qid","qhs","qd","prn",
-  "daily","nightly","hourly","hs","stat",
+  "mg",
+  "mcg",
+  "g",
+  "kg",
+  "ml",
+  "l",
+  "iu",
+  "units",
+  "unit",
+  "tab",
+  "tabs",
+  "cap",
+  "caps",
+  "po",
+  "iv",
+  "im",
+  "sc",
+  "sq",
+  "pr",
+  "sl",
+  "od",
+  "bid",
+  "tid",
+  "qid",
+  "qhs",
+  "qd",
+  "prn",
+  "daily",
+  "nightly",
+  "hourly",
+  "hs",
+  "stat",
 ]);
 
 /** Return the leading alphabetic ingredient token from a free-text drug string. */
 export function leadingDrugToken(text: string): string {
   const s = String(text ?? "").toLowerCase();
   // Split on whitespace / punctuation, drop numbers, units, route/frequency words.
-  const tokens = s.split(/[^a-z]+/).filter(Boolean).filter((t) => !UNIT_WORDS.has(t));
+  const tokens = s
+    .split(/[^a-z]+/)
+    .filter(Boolean)
+    .filter((t) => !UNIT_WORDS.has(t));
   return tokens[0] ?? "";
 }
 

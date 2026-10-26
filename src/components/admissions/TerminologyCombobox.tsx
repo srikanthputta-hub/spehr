@@ -28,8 +28,7 @@ export function TerminologyCombobox({
   className,
   clearOnSelect,
 }: TerminologyComboboxProps) {
-  const { query, setQuery, results, loading, error, clear } =
-    useTerminologySearch({ sabs });
+  const { query, setQuery, results, loading, error, clear } = useTerminologySearch({ sabs });
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);

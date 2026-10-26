@@ -27,15 +27,31 @@ const CLEAN_PHASE_MS = 45_000;
 function bedTone(status: string): { wrap: string; label: string; dot: string } {
   const s = status.toLowerCase();
   if (s.startsWith("available"))
-    return { wrap: "bg-emerald-50 border-emerald-300", label: "text-emerald-800", dot: "bg-emerald-500" };
+    return {
+      wrap: "bg-emerald-50 border-emerald-300",
+      label: "text-emerald-800",
+      dot: "bg-emerald-500",
+    };
   if (s.startsWith("occupied"))
     return { wrap: "bg-sky-50 border-sky-300", label: "text-sky-800", dot: "bg-sky-500" };
   if (s.startsWith("cleaning") || s.includes("deep cleaning") || s.startsWith("discharged"))
-    return { wrap: "bg-amber-50 border-amber-300", label: "text-amber-900", dot: "bg-amber-500 animate-pulse" };
+    return {
+      wrap: "bg-amber-50 border-amber-300",
+      label: "text-amber-900",
+      dot: "bg-amber-500 animate-pulse",
+    };
   if (s.startsWith("disinfecting"))
-    return { wrap: "bg-violet-50 border-violet-300", label: "text-violet-800", dot: "bg-violet-500 animate-pulse" };
+    return {
+      wrap: "bg-violet-50 border-violet-300",
+      label: "text-violet-800",
+      dot: "bg-violet-500 animate-pulse",
+    };
   if (s.startsWith("making bed"))
-    return { wrap: "bg-teal-50 border-teal-300", label: "text-teal-800", dot: "bg-teal-500 animate-pulse" };
+    return {
+      wrap: "bg-teal-50 border-teal-300",
+      label: "text-teal-800",
+      dot: "bg-teal-500 animate-pulse",
+    };
   return { wrap: "bg-slate-50 border-slate-300", label: "text-slate-700", dot: "bg-slate-400" };
 }
 
@@ -50,7 +66,8 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
   const pct = Math.min(100, (elapsed / CLEAN_PHASE_MS) * 100);
   const remain = Math.max(0, Math.ceil((CLEAN_PHASE_MS - elapsed) / 1000));
   const s = status.toLowerCase();
-  const isClean = s.startsWith("cleaning") || s.includes("deep cleaning") || s.startsWith("discharged");
+  const isClean =
+    s.startsWith("cleaning") || s.includes("deep cleaning") || s.startsWith("discharged");
   const isDis = s.startsWith("disinfecting");
   const isMaking = s.startsWith("making bed");
   if (!isClean && !isDis && !isMaking) return null;
@@ -68,7 +85,13 @@ function CleaningMeter({ status, updatedAt }: { status: string; updatedAt: strin
   );
 }
 
-export function BedManagementBoard({ facility, onClose }: { facility: string; onClose: () => void }) {
+export function BedManagementBoard({
+  facility,
+  onClose,
+}: {
+  facility: string;
+  onClose: () => void;
+}) {
   const [beds, setBeds] = useState<BedRow[]>([]);
   const [names, setNames] = useState<PatientNameMap>({});
   const [precautions, setPrecautions] = useState<PrecautionMap>({});
@@ -77,60 +100,61 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
   const cancelledRef = useRef(false);
 
   const load = useCallback(async () => {
-      const cancelled = cancelledRef.current;
-      await reconcileOrphanedBeds(facility).catch(() => {});
-      const { data } = await supabase
-        .from("bed_management")
-        .select("id, facility_name, room_number, bed_letter, status, current_patient_mrn, status_updated_at")
-        .eq("facility_name", facility)
-        .order("room_number", { ascending: true })
-        .order("bed_letter", { ascending: true })
-        .limit(20);
+    const cancelled = cancelledRef.current;
+    await reconcileOrphanedBeds(facility).catch(() => {});
+    const { data } = await supabase
+      .from("bed_management")
+      .select(
+        "id, facility_name, room_number, bed_letter, status, current_patient_mrn, status_updated_at",
+      )
+      .eq("facility_name", facility)
+      .order("room_number", { ascending: true })
+      .order("bed_letter", { ascending: true })
+      .limit(20);
+    if (cancelled) return;
+    setBeds((data ?? []) as BedRow[]);
+    setLoading(false);
+    const mrns = (data ?? []).map((b) => b.current_patient_mrn).filter((m): m is string => !!m);
+    if (mrns.length) {
+      const { data: pts } = await supabase
+        .from("patients")
+        .select("mrn, first_name, last_name")
+        .in("mrn", mrns);
       if (cancelled) return;
-      setBeds((data ?? []) as BedRow[]);
-      setLoading(false);
-      const mrns = (data ?? [])
-        .map((b) => b.current_patient_mrn)
-        .filter((m): m is string => !!m);
-      if (mrns.length) {
-        const { data: pts } = await supabase
-          .from("patients")
-          .select("mrn, first_name, last_name")
-          .in("mrn", mrns);
-        if (cancelled) return;
-        const map: PatientNameMap = {};
-        for (const p of pts ?? []) {
-          map[p.mrn as string] = `${(p as any).first_name ?? ""} ${(p as any).last_name ?? ""}`.trim();
-        }
-        setNames(map);
-        // Best-effort precaution lookup — never blocks bed board rendering.
-        try {
-          const hits = await loadPublishedValueSetsForConsumer({
-            consumer: "Auto Admin — Isolation/Status Flags",
-          });
-          const iso = hits.find((h) => h.value_set_name === "Isolation Precaution Diagnoses");
-          const codes: Array<{ code: string; display?: string; precaution_type?: string }> =
-            iso?.row?.codes ?? [];
-          if (codes.length && mrns.length) {
-            const { data: conds } = await supabase
-              .from("conditions")
-              .select("mrn, snomed_code")
-              .in("mrn", mrns);
-            const codeMap = new Map(codes.map((c) => [c.code, c]));
-            const pmap: PrecautionMap = {};
-            for (const c of (conds ?? []) as any[]) {
-              const hit = codeMap.get(String(c.snomed_code));
-              if (hit && !pmap[c.mrn]) pmap[c.mrn] = hit.precaution_type ?? "Contact";
-            }
-            if (!cancelledRef.current) setPrecautions(pmap);
-          }
-        } catch {
-          /* silent — banner is informational */
-        }
-      } else {
-        setNames({});
-        setPrecautions({});
+      const map: PatientNameMap = {};
+      for (const p of pts ?? []) {
+        map[p.mrn as string] =
+          `${(p as any).first_name ?? ""} ${(p as any).last_name ?? ""}`.trim();
       }
+      setNames(map);
+      // Best-effort precaution lookup — never blocks bed board rendering.
+      try {
+        const hits = await loadPublishedValueSetsForConsumer({
+          consumer: "Auto Admin — Isolation/Status Flags",
+        });
+        const iso = hits.find((h) => h.value_set_name === "Isolation Precaution Diagnoses");
+        const codes: Array<{ code: string; display?: string; precaution_type?: string }> =
+          iso?.row?.codes ?? [];
+        if (codes.length && mrns.length) {
+          const { data: conds } = await supabase
+            .from("conditions")
+            .select("mrn, snomed_code")
+            .in("mrn", mrns);
+          const codeMap = new Map(codes.map((c) => [c.code, c]));
+          const pmap: PrecautionMap = {};
+          for (const c of (conds ?? []) as any[]) {
+            const hit = codeMap.get(String(c.snomed_code));
+            if (hit && !pmap[c.mrn]) pmap[c.mrn] = hit.precaution_type ?? "Contact";
+          }
+          if (!cancelledRef.current) setPrecautions(pmap);
+        }
+      } catch {
+        /* silent — banner is informational */
+      }
+    } else {
+      setNames({});
+      setPrecautions({});
+    }
   }, [facility]);
 
   useEffect(() => {
@@ -140,12 +164,34 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
     const buildChannel = () => {
       const channel = supabase
         .channel(`bed-board-${facility}-${Date.now()}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` }, () => load())
-        .on("postgres_changes", { event: "*", schema: "public", table: "patients", filter: `facility_name=eq.${facility}` }, () => load())
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "bed_management",
+            filter: `facility_name=eq.${facility}`,
+          },
+          () => load(),
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "patients",
+            filter: `facility_name=eq.${facility}`,
+          },
+          () => load(),
+        )
         .subscribe((status) => {
           if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
             // Realtime dropped — tear down and rebuild so the board self-heals.
-            try { supabase.removeChannel(channel); } catch { /* ignore */ }
+            try {
+              supabase.removeChannel(channel);
+            } catch {
+              /* ignore */
+            }
             if (ch === channel && !cancelledRef.current) {
               ch = buildChannel();
               // Also do an immediate catch-up fetch in case we missed events.
@@ -175,7 +221,11 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
       const s = b.status.toLowerCase();
       if (s.startsWith("available")) c.available++;
       else if (s.startsWith("occupied")) c.occupied++;
-      else if (s.startsWith("cleaning") || s.includes("deep cleaning") || s.startsWith("discharged"))
+      else if (
+        s.startsWith("cleaning") ||
+        s.includes("deep cleaning") ||
+        s.startsWith("discharged")
+      )
         c.cleaning++;
       else if (s.startsWith("disinfecting")) c.disinfecting++;
       else if (s.startsWith("making bed")) c.makingBed++;
@@ -187,41 +237,56 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex flex-col">
       <div className="flex items-center justify-between px-6 h-14 border-b border-slate-700 bg-[#0c2340] text-white">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.24em] text-white/55">Unit Bed Allocation</div>
+          <div className="text-[10px] uppercase tracking-[0.24em] text-white/55">
+            Unit Bed Allocation
+          </div>
           <div className="text-base font-semibold">{facility} — Floor Bed Board</div>
         </div>
         <div className="flex items-center gap-3 text-xs">
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-400" /> Available {counts.available}</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" /> Occupied {counts.occupied}</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" /> Available {counts.available}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-sky-400" /> Occupied {counts.occupied}
+          </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-amber-400" /> Cleaning {counts.cleaning}
             <InfoHint text="Phase 1 of the 3-phase turnover cycle (45 seconds). Terminal wipe-down of high-touch surfaces immediately after discharge before the bed can be disinfected." />
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-violet-400" /> Disinfecting {counts.disinfecting}
+            <span className="h-2 w-2 rounded-full bg-violet-400" /> Disinfecting{" "}
+            {counts.disinfecting}
             <InfoHint text="Phase 2 of the 3-phase turnover cycle (45 seconds). Hospital-grade disinfectant applied to the mattress, rails and equipment surfaces (extended protocol for isolation-precaution patients)." />
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-teal-400" /> Making Bed {counts.makingBed}
             <InfoHint text="Phase 3 of the 3-phase turnover cycle (45 seconds). Fresh linens, pillows and privacy curtain are set up. Bed auto-flips to Available when this phase completes." />
           </span>
-          <button onClick={onClose} className="ml-2 inline-flex items-center gap-1 rounded-md bg-white/10 hover:bg-white/20 px-3 h-8 text-xs font-semibold">
+          <button
+            onClick={onClose}
+            className="ml-2 inline-flex items-center gap-1 rounded-md bg-white/10 hover:bg-white/20 px-3 h-8 text-xs font-semibold"
+          >
             <X className="h-3.5 w-3.5" /> Close
           </button>
         </div>
       </div>
       <div className="flex-1 overflow-auto bg-slate-100 p-6">
         {loading ? (
-          <div className="grid place-items-center h-full text-slate-500"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          <div className="grid place-items-center h-full text-slate-500">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 max-w-[1400px] mx-auto">
             {beds.map((b) => {
               const tone = bedTone(b.status);
-              const isOccupied = b.status.toLowerCase().startsWith("occupied") && b.current_patient_mrn;
+              const isOccupied =
+                b.status.toLowerCase().startsWith("occupied") && b.current_patient_mrn;
               const handleClick = () => {
                 if (!isOccupied || !b.current_patient_mrn) return;
                 onClose();
-                navigate({ to: "/patient/$mrn", params: { mrn: b.current_patient_mrn } }).catch(() => {});
+                navigate({ to: "/patient/$mrn", params: { mrn: b.current_patient_mrn } }).catch(
+                  () => {},
+                );
               };
               return (
                 <div
@@ -231,16 +296,24 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
                   title={isOccupied ? `Open chart · ${b.current_patient_mrn}` : undefined}
                 >
                   <div className="flex items-center justify-between">
-                    <div className="font-mono font-bold text-slate-900 text-lg tabular-nums">{b.room_number}-{b.bed_letter}</div>
+                    <div className="font-mono font-bold text-slate-900 text-lg tabular-nums">
+                      {b.room_number}-{b.bed_letter}
+                    </div>
                     <span className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
                   </div>
-                  <div className={`mt-1 text-[11px] font-semibold uppercase tracking-wider ${tone.label}`}>{b.status}</div>
+                  <div
+                    className={`mt-1 text-[11px] font-semibold uppercase tracking-wider ${tone.label}`}
+                  >
+                    {b.status}
+                  </div>
                   <div className="mt-2 text-xs text-slate-700 min-h-[18px] font-mono">
                     {b.current_patient_mrn ? (
                       <span className="flex items-center gap-1.5 flex-wrap">
                         <span className="underline decoration-dotted">{b.current_patient_mrn}</span>
                         {names[b.current_patient_mrn] && (
-                          <span className="font-sans font-medium text-slate-900">· {names[b.current_patient_mrn]}</span>
+                          <span className="font-sans font-medium text-slate-900">
+                            · {names[b.current_patient_mrn]}
+                          </span>
                         )}
                         {precautions[b.current_patient_mrn] && (
                           <span className="inline-flex items-center gap-1">
@@ -251,7 +324,9 @@ export function BedManagementBoard({ facility, onClose }: { facility: string; on
                           </span>
                         )}
                       </span>
-                    ) : "—"}
+                    ) : (
+                      "—"
+                    )}
                   </div>
                   <CleaningMeter status={b.status} updatedAt={b.status_updated_at} />
                 </div>

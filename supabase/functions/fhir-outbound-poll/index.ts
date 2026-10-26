@@ -46,7 +46,8 @@ const CLINICAL_MRN_LIMIT = 25;
 const FHIR_PUSH_TIMEOUT_MS = 20_000;
 
 function isoMax(a: string, b: string): string {
-  const ai = toIso(a), bi = toIso(b);
+  const ai = toIso(a),
+    bi = toIso(b);
   return new Date(ai).getTime() >= new Date(bi).getTime() ? ai : bi;
 }
 
@@ -81,11 +82,7 @@ function toIso(ts: string | null | undefined): string {
 }
 
 async function readState(admin: any, key: string): Promise<string> {
-  const { data } = await admin
-    .from("fhir_sync_state")
-    .select("value")
-    .eq("key", key)
-    .maybeSingle();
+  const { data } = await admin.from("fhir_sync_state").select("value").eq("key", key).maybeSingle();
   // Preserve raw postgres text (with microsecond precision) so `.gt()`
   // doesn't re-match the same row after we already pushed it. Fall back to
   // a 24h window if the cursor row is missing.
@@ -95,9 +92,7 @@ async function readState(admin: any, key: string): Promise<string> {
 }
 
 async function writeState(admin: any, key: string, ts: string) {
-  await admin
-    .from("fhir_sync_state")
-    .upsert({ key, value: { ts } }, { onConflict: "key" });
+  await admin.from("fhir_sync_state").upsert({ key, value: { ts } }, { onConflict: "key" });
 }
 
 // Composite cursor for the clinical poll. See `pollClinical` for the
@@ -116,9 +111,10 @@ async function readClinicalCursor(admin: any): Promise<ClinicalCursor> {
     .eq("key", "outbound_clinical_last_synced_at")
     .maybeSingle();
   const v = data?.value ?? {};
-  const ts = typeof v.ts === "string" && v.ts.length
-    ? v.ts
-    : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const ts =
+    typeof v.ts === "string" && v.ts.length
+      ? v.ts
+      : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const mrn = typeof v.mrn === "string" ? v.mrn : "";
   return { ts, mrn };
 }
@@ -142,7 +138,10 @@ const FAILCOUNT_THRESHOLD = 3;
 
 async function readFailCounts(admin: any): Promise<Record<string, number>> {
   const { data } = await admin
-    .from("fhir_sync_state").select("value").eq("key", FAILCOUNT_KEY).maybeSingle();
+    .from("fhir_sync_state")
+    .select("value")
+    .eq("key", FAILCOUNT_KEY)
+    .maybeSingle();
   const c = (data?.value?.counts ?? {}) as Record<string, number>;
   return typeof c === "object" && c ? c : {};
 }
@@ -164,9 +163,11 @@ function cursorGt(a: { ts: string; mrn: string }, b: { ts: string; mrn: string }
 const SPEHR_TAG = { system: "urn:spehr:source", code: "spehr" };
 
 function fhirSafeId(input: string): string {
-  return String(input ?? "")
-    .replace(/[^A-Za-z0-9\-\.]/g, "-")
-    .slice(0, 64) || "unknown";
+  return (
+    String(input ?? "")
+      .replace(/[^A-Za-z0-9\-\.]/g, "-")
+      .slice(0, 64) || "unknown"
+  );
 }
 
 function tagged<T extends Record<string, any>>(r: T): T {
@@ -249,7 +250,10 @@ function buildAppointment(row: any) {
   const participants: any[] = [];
   if (row.patient_mrn) {
     participants.push({
-      actor: { reference: `Patient/${fhirSafeId(row.patient_mrn)}`, display: row.patient_name ?? undefined },
+      actor: {
+        reference: `Patient/${fhirSafeId(row.patient_mrn)}`,
+        display: row.patient_name ?? undefined,
+      },
       status: "accepted",
     });
   }
@@ -266,7 +270,10 @@ function buildAppointment(row: any) {
   // Reference — HAPI's referential-integrity check would reject the whole
   // transaction bundle if that Composition doesn't exist yet on the server.
   if (row.source_composition_id) {
-    extension.push({ url: "urn:spehr:source-composition-id", valueString: String(row.source_composition_id) });
+    extension.push({
+      url: "urn:spehr:source-composition-id",
+      valueString: String(row.source_composition_id),
+    });
   }
 
   // Stable id: every writer (reception insert trigger, outbound poller,
@@ -287,7 +294,13 @@ function buildAppointment(row: any) {
     ...(origin === "recall"
       ? {
           appointmentType: {
-            coding: [{ system: V2_0276, code: "FOLLOWUP", display: "A follow up visit from a previous appointment" }],
+            coding: [
+              {
+                system: V2_0276,
+                code: "FOLLOWUP",
+                display: "A follow up visit from a previous appointment",
+              },
+            ],
           },
         }
       : {}),
@@ -298,10 +311,7 @@ function buildAppointment(row: any) {
     ...(row.facility_name ? { location: [{ display: row.facility_name }] } : {}),
     extension,
     meta: {
-      tag: [
-        { ...SPEHR_TAG },
-        { system: "urn:spehr:appointment-origin", code: String(origin) },
-      ],
+      tag: [{ ...SPEHR_TAG }, { system: "urn:spehr:appointment-origin", code: String(origin) }],
     },
   };
 }
@@ -313,25 +323,37 @@ function buildAppointment(row: any) {
 // Reference: src/lib/fhir-bundle.ts lines 248-291.
 
 function slugify(input: string): string {
-  return String(input ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40) || "unknown";
+  return (
+    String(input ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40) || "unknown"
+  );
 }
 
 const LAB_LOINC_BY_NAME: Record<string, string> = {
-  "hemoglobin": "718-7", "hgb": "718-7",
-  "wbc": "6690-2", "white blood cell count": "6690-2",
-  "glucose": "2345-7", "creatinine": "2160-0",
-  "troponin t": "89579-7", "troponin t hs": "89579-7",
-  "creatine kinase": "2157-6", "ck": "2157-6",
-  "platelets": "777-3", "hematocrit": "4544-3",
-  "sodium": "2951-2", "potassium": "2823-3",
+  hemoglobin: "718-7",
+  hgb: "718-7",
+  wbc: "6690-2",
+  "white blood cell count": "6690-2",
+  glucose: "2345-7",
+  creatinine: "2160-0",
+  "troponin t": "89579-7",
+  "troponin t hs": "89579-7",
+  "creatine kinase": "2157-6",
+  ck: "2157-6",
+  platelets: "777-3",
+  hematocrit: "4544-3",
+  sodium: "2951-2",
+  potassium: "2823-3",
 };
 function loincForLabName(name: string | null | undefined): string | null {
   if (!name) return null;
-  const n = name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const n = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
   if (LAB_LOINC_BY_NAME[n]) return LAB_LOINC_BY_NAME[n];
   for (const k of Object.keys(LAB_LOINC_BY_NAME)) if (n.includes(k)) return LAB_LOINC_BY_NAME[k];
   return null;
@@ -344,12 +366,15 @@ const stableIds = {
   medAdmin: (drug: string, mrn: string) => `medadmin-${slugify(drug)}-${mrn}`,
   lab: (name: string, mrn: string, loinc?: string | null) => {
     if (loinc) {
-      const code = String(loinc).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 40);
+      const code = String(loinc)
+        .replace(/[^A-Za-z0-9\-\.]/g, "")
+        .slice(0, 40);
       if (code) return `lab-${code}-${mrn}`;
     }
     return `lab-${slugify(name)}-${mrn}`;
   },
-  condition: (type: string, mrn: string) => `cond-${slugify(type).slice(0, 30) || "unknown"}-${mrn}`,
+  condition: (type: string, mrn: string) =>
+    `cond-${slugify(type).slice(0, 30) || "unknown"}-${mrn}`,
   docRef: (mrn: string) => `docref-${mrn}`,
 };
 
@@ -360,7 +385,9 @@ const noteStableIds = {
 
 function radStableId(r: any, mrn: string): string {
   const seed = r.snomed_code
-    ? String(r.snomed_code).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 20)
+    ? String(r.snomed_code)
+        .replace(/[^A-Za-z0-9\-\.]/g, "")
+        .slice(0, 20)
     : slugify(r.exam_type ?? r.id ?? "exam");
   return `svcreq-rad-${seed || "exam"}-${mrn}`;
 }
@@ -407,7 +434,13 @@ function buildEncounterResource(p: any) {
     reasonCode: p.chief_complaint ? [{ text: p.chief_complaint }] : undefined,
     serviceProvider: p.facility_name ? { display: p.facility_name } : undefined,
     location: p.room
-      ? [{ location: { display: p.assigned_department ? `${p.room} (${p.assigned_department})` : p.room } }]
+      ? [
+          {
+            location: {
+              display: p.assigned_department ? `${p.room} (${p.assigned_department})` : p.room,
+            },
+          },
+        ]
       : undefined,
     participant: p.primary_care_physician
       ? [
@@ -438,7 +471,10 @@ function buildMedRequest(mrn: string, m: any) {
       ? "completed"
       : raw.includes("rejected")
         ? "stopped"
-        : raw === "pending" || raw === "draft" || raw === "pending verification" || raw === "pending_pharmacy"
+        : raw === "pending" ||
+            raw === "draft" ||
+            raw === "pending verification" ||
+            raw === "pending_pharmacy"
           ? "draft"
           : raw === "cancelled" || raw === "canceled"
             ? "cancelled"
@@ -447,7 +483,13 @@ function buildMedRequest(mrn: string, m: any) {
               : "active";
   const medCC = m.rxnorm_code
     ? {
-        coding: [{ system: "http://www.nlm.nih.gov/research/umls/rxnorm", code: m.rxnorm_code, display: m.rxnorm_display ?? drug }],
+        coding: [
+          {
+            system: "http://www.nlm.nih.gov/research/umls/rxnorm",
+            code: m.rxnorm_code,
+            display: m.rxnorm_display ?? drug,
+          },
+        ],
         text: `${drug}${m.dose ? ` ${m.dose}` : ""}`,
       }
     : { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` };
@@ -463,7 +505,10 @@ function buildMedRequest(mrn: string, m: any) {
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
     authoredOn: m.created_at ?? undefined,
-    requester: m.ordered_by || m.ordering_physician ? { display: m.ordering_physician ?? m.ordered_by } : undefined,
+    requester:
+      m.ordered_by || m.ordering_physician
+        ? { display: m.ordering_physician ?? m.ordered_by }
+        : undefined,
     dosageInstruction: m.route
       ? [{ route: { text: m.route }, text: `${m.dose ?? ""} ${m.route}`.trim() }]
       : undefined,
@@ -474,7 +519,13 @@ function buildMedAdmin(mrn: string, m: any) {
   const drug = m.drug_name ?? m.medication_name ?? m.drug ?? "medication";
   const medCC = m.rxnorm_code
     ? {
-        coding: [{ system: "http://www.nlm.nih.gov/research/umls/rxnorm", code: m.rxnorm_code, display: m.rxnorm_display ?? drug }],
+        coding: [
+          {
+            system: "http://www.nlm.nih.gov/research/umls/rxnorm",
+            code: m.rxnorm_code,
+            display: m.rxnorm_display ?? drug,
+          },
+        ],
         text: `${drug}${m.dose ? ` ${m.dose}` : ""}`,
       }
     : { text: `${drug}${m.dose ? ` ${m.dose}` : ""}` };
@@ -510,12 +561,25 @@ function buildLabObservation(mrn: string, l: any) {
     category: [
       {
         coding: [
-          { system: "http://terminology.hl7.org/CodeSystem/observation-category", code: "laboratory", display: "Laboratory" },
+          {
+            system: "http://terminology.hl7.org/CodeSystem/observation-category",
+            code: "laboratory",
+            display: "Laboratory",
+          },
         ],
       },
     ],
     code: loinc
-      ? { coding: [{ system: "http://loinc.org", code: loinc, display: l.test_type ?? l.test_name ?? undefined }], text: l.test_type ?? l.test_name ?? "Lab" }
+      ? {
+          coding: [
+            {
+              system: "http://loinc.org",
+              code: loinc,
+              display: l.test_type ?? l.test_name ?? undefined,
+            },
+          ],
+          text: l.test_type ?? l.test_name ?? "Lab",
+        }
       : { text: l.test_type ?? l.test_name ?? "Lab" },
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
@@ -553,7 +617,16 @@ function buildLabServiceRequest(mrn: string, l: any) {
       },
     ],
     code: loinc
-      ? { coding: [{ system: "http://loinc.org", code: loinc, display: l.test_type ?? l.test_name ?? undefined }], text: l.test_type ?? l.test_name ?? "Lab" }
+      ? {
+          coding: [
+            {
+              system: "http://loinc.org",
+              code: loinc,
+              display: l.test_type ?? l.test_name ?? undefined,
+            },
+          ],
+          text: l.test_type ?? l.test_name ?? "Lab",
+        }
       : { text: l.test_type ?? l.test_name ?? "Lab" },
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
@@ -576,15 +649,17 @@ function buildRadiologyServiceRequest(mrn: string, r: any) {
     intent: "order",
     category: [
       {
-        coding: [
-          { system: "http://snomed.info/sct", code: "363679005", display: "Imaging" },
-        ],
+        coding: [{ system: "http://snomed.info/sct", code: "363679005", display: "Imaging" }],
       },
     ],
     code: r.snomed_code
       ? {
           coding: [
-            { system: "http://snomed.info/sct", code: r.snomed_code, display: r.snomed_display ?? r.exam_type ?? undefined },
+            {
+              system: "http://snomed.info/sct",
+              code: r.snomed_code,
+              display: r.snomed_display ?? r.exam_type ?? undefined,
+            },
           ],
           text: r.exam_type ?? r.snomed_display ?? "Imaging exam",
         }
@@ -598,30 +673,52 @@ function buildRadiologyServiceRequest(mrn: string, r: any) {
   });
 }
 
-function buildCondition(mrn: string, c: any, opts: { type: string; verification: "provisional" | "confirmed"; recordedDate?: string | null }) {
+function buildCondition(
+  mrn: string,
+  c: any,
+  opts: { type: string; verification: "provisional" | "confirmed"; recordedDate?: string | null },
+) {
   const coding: any[] = [];
   if (c.snomed_code)
-    coding.push({ system: "http://snomed.info/sct", code: c.snomed_code, display: c.snomed_display ?? c.display_text ?? undefined });
+    coding.push({
+      system: "http://snomed.info/sct",
+      code: c.snomed_code,
+      display: c.snomed_display ?? c.display_text ?? undefined,
+    });
   if (c.icd10_code)
-    coding.push({ system: "http://hl7.org/fhir/sid/icd-10-cm", code: c.icd10_code, display: c.icd10_display ?? c.display_text ?? undefined });
+    coding.push({
+      system: "http://hl7.org/fhir/sid/icd-10-cm",
+      code: c.icd10_code,
+      display: c.icd10_display ?? c.display_text ?? undefined,
+    });
   const text = c.display_text ?? c.snomed_display ?? c.icd10_display ?? opts.type;
   return tagged({
     resourceType: "Condition",
     id: stableIds.condition(opts.type, mrn),
     clinicalStatus: {
       coding: [
-        { system: "http://terminology.hl7.org/CodeSystem/condition-clinical", code: (c.clinical_status ?? "active") },
+        {
+          system: "http://terminology.hl7.org/CodeSystem/condition-clinical",
+          code: c.clinical_status ?? "active",
+        },
       ],
     },
     verificationStatus: {
       coding: [
-        { system: "http://terminology.hl7.org/CodeSystem/condition-ver-status", code: c.verification_status ?? opts.verification },
+        {
+          system: "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+          code: c.verification_status ?? opts.verification,
+        },
       ],
     },
     category: [
       {
         coding: [
-          { system: "http://terminology.hl7.org/CodeSystem/condition-category", code: "encounter-diagnosis", display: "Encounter Diagnosis" },
+          {
+            system: "http://terminology.hl7.org/CodeSystem/condition-category",
+            code: "encounter-diagnosis",
+            display: "Encounter Diagnosis",
+          },
         ],
       },
     ],
@@ -664,8 +761,8 @@ function buildDocRef(mrn: string, n: any) {
 
 function buildProviderNoteDocRef(mrn: string, n: any) {
   const noteType = n.note_type ?? "Progress Note";
-  const authorDisplay = [n.author_name, n.author_role].filter(Boolean).join(", ")
-    || n.author_name || "Provider";
+  const authorDisplay =
+    [n.author_name, n.author_role].filter(Boolean).join(", ") || n.author_name || "Provider";
   return tagged({
     resourceType: "DocumentReference",
     id: noteStableIds.providerNote(String(n.id)),
@@ -696,9 +793,7 @@ function buildShiftNoteDocRef(mrn: string, n: any) {
     n.sbar_assessment ? `A: ${n.sbar_assessment}` : null,
     n.sbar_recommendation ? `R: ${n.sbar_recommendation}` : null,
   ].filter(Boolean);
-  const body = n.note_text && n.note_text.trim().length > 0
-    ? n.note_text
-    : sbarParts.join("\n");
+  const body = n.note_text && n.note_text.trim().length > 0 ? n.note_text : sbarParts.join("\n");
   return tagged({
     resourceType: "DocumentReference",
     id: noteStableIds.shiftNote(String(n.id)),
@@ -734,7 +829,9 @@ async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number
     const url = String(e?.request?.url ?? `_noid_${i}`);
     seen.set(url, i);
   });
-  const deduped = Array.from(seen.values()).sort((a, b) => a - b).map((i) => entries[i]);
+  const deduped = Array.from(seen.values())
+    .sort((a, b) => a - b)
+    .map((i) => entries[i]);
   const bundle = { resourceType: "Bundle", type: "transaction", entry: deduped };
   // Bound the upstream call: an unresponsive FHIR server must surface as a
   // per-bundle failure (fail-counted / retried next tick), not stall the
@@ -755,7 +852,11 @@ async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number
     return { ok: false, status: 0, body: msg };
   }
   let body: any = text;
-  try { body = JSON.parse(text); } catch { /* keep text */ }
+  try {
+    body = JSON.parse(text);
+  } catch {
+    /* keep text */
+  }
   // Per-entry inspection: HAPI transaction bundles are atomic, but the
   // per-entry `response.status` reveals WHICH resources landed as create /
   // update / error. Aggregate any non-2xx entry into the failure so a
@@ -778,18 +879,24 @@ async function pushBundle(entries: any[]): Promise<{ ok: boolean; status: number
   }
   const ok = res.ok && entryOk;
   if (!ok) {
-    console.error("[pushBundle] failures:", JSON.stringify({
-      httpStatus: res.status,
-      entryCount: deduped.length,
-      inputEntryCount: entries.length,
-      entryFailures: entryFailures.slice(0, 10),
-      rawBodyPreview: typeof body === "string"
-        ? body.slice(0, 1500)
-        : JSON.stringify(body).slice(0, 1500),
-      firstEntryUrls: deduped.slice(0, 5).map((e) => e?.request?.url),
-    }));
+    console.error(
+      "[pushBundle] failures:",
+      JSON.stringify({
+        httpStatus: res.status,
+        entryCount: deduped.length,
+        inputEntryCount: entries.length,
+        entryFailures: entryFailures.slice(0, 10),
+        rawBodyPreview:
+          typeof body === "string" ? body.slice(0, 1500) : JSON.stringify(body).slice(0, 1500),
+        firstEntryUrls: deduped.slice(0, 5).map((e) => e?.request?.url),
+      }),
+    );
   }
-  return { ok, status: res.status, body: entryFailures.length > 0 ? { httpStatus: res.status, entryFailures, raw: body } : body };
+  return {
+    ok,
+    status: res.status,
+    body: entryFailures.length > 0 ? { httpStatus: res.status, entryFailures, raw: body } : body,
+  };
 }
 
 function entryFor(res: any) {
@@ -818,7 +925,9 @@ async function pollInvoices(admin: any) {
   const cutoff = new Date().toISOString();
   const { data, error } = await admin
     .from("fhir_invoices")
-    .select("id, invoice_no, mrn, patient_name, facility_name, status, subtotal, tax, total, currency, issued_at, paid_at, updated_at, payment_origin, discharged_at")
+    .select(
+      "id, invoice_no, mrn, patient_name, facility_name, status, subtotal, tax, total, currency, issued_at, paid_at, updated_at, payment_origin, discharged_at",
+    )
     .gt("updated_at", since)
     .order("updated_at", { ascending: true })
     .limit(BATCH_LIMIT);
@@ -831,7 +940,11 @@ async function pollInvoices(admin: any) {
   }
   const entries = rows.map((r) => entryFor(buildInvoice(r)));
   const result = await pushBundle(entries);
-  if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
+  if (!result.ok) {
+    stats.failed = rows.length;
+    stats.error = result.body;
+    return stats;
+  }
   stats.pushed = rows.length;
   // Rows sorted asc; last row is newest updated_at (raw postgres text —
   // full microsecond precision, so .gt won't re-match it next run).
@@ -861,7 +974,11 @@ async function pollPaymentNotices(admin: any) {
     .filter((r) => r.payload && r.fhir_id)
     .map((r) => entryFor({ ...r.payload, id: r.fhir_id }));
   const result = await pushBundle(entries);
-  if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
+  if (!result.ok) {
+    stats.failed = rows.length;
+    stats.error = result.body;
+    return stats;
+  }
   stats.pushed = rows.length;
 
   const nowIso = new Date().toISOString();
@@ -870,7 +987,9 @@ async function pollPaymentNotices(admin: any) {
     .from("fhir_payment_notices")
     .update({ fhir_pushed_at: nowIso })
     .in("id", ids);
-  if (updErr) { stats.markFailed = updErr.message; }
+  if (updErr) {
+    stats.markFailed = updErr.message;
+  }
   return stats;
 }
 
@@ -882,7 +1001,9 @@ async function pollChargeItems(admin: any) {
   const cutoff = new Date().toISOString();
   const { data, error } = await admin
     .from("fhir_charge_items")
-    .select("id, invoice_id, mrn, charge_code, code_system, description, category, quantity, unit_price, amount, currency, service_date, created_at")
+    .select(
+      "id, invoice_id, mrn, charge_code, code_system, description, category, quantity, unit_price, amount, currency, service_date, created_at",
+    )
     .gt("created_at", since)
     .order("created_at", { ascending: true })
     .limit(BATCH_LIMIT);
@@ -898,12 +1019,18 @@ async function pollChargeItems(admin: any) {
   const invMap = new Map<string, string>();
   if (invIds.length > 0) {
     const { data: invs } = await admin
-      .from("fhir_invoices").select("id, invoice_no").in("id", invIds);
+      .from("fhir_invoices")
+      .select("id, invoice_no")
+      .in("id", invIds);
     for (const i of (invs ?? []) as any[]) invMap.set(String(i.id), String(i.invoice_no));
   }
   const entries = rows.map((r) => entryFor(buildChargeItem(r, invMap.get(String(r.invoice_id)))));
   const result = await pushBundle(entries);
-  if (!result.ok) { stats.failed = rows.length; stats.error = result.body; return stats; }
+  if (!result.ok) {
+    stats.failed = rows.length;
+    stats.error = result.body;
+    return stats;
+  }
   stats.pushed = rows.length;
   await writeState(admin, "outbound_chargeitem_last_synced_at", rows[rows.length - 1].created_at);
   return stats;
@@ -917,7 +1044,10 @@ const APPT_FAILCOUNT_KEY = "appointment_failcounts";
 
 async function readApptFailCounts(admin: any): Promise<Record<string, number>> {
   const { data } = await admin
-    .from("fhir_sync_state").select("value").eq("key", APPT_FAILCOUNT_KEY).maybeSingle();
+    .from("fhir_sync_state")
+    .select("value")
+    .eq("key", APPT_FAILCOUNT_KEY)
+    .maybeSingle();
   const c = (data?.value?.counts ?? {}) as Record<string, number>;
   return typeof c === "object" && c ? c : {};
 }
@@ -976,7 +1106,10 @@ async function pollAppointments(admin: any) {
     if (rowResult.ok) {
       stats.pushed += 1;
       acked.push(row);
-      if (failCounts[row.id]) { delete failCounts[row.id]; failCountsDirty = true; }
+      if (failCounts[row.id]) {
+        delete failCounts[row.id];
+        failCountsDirty = true;
+      }
       continue;
     }
     stats.failed += 1;
@@ -1050,13 +1183,48 @@ async function collectChangedMrns(
 
   const since = cursor.ts;
   const [meds, labs, rads, results, notes, conds, pats] = await Promise.all([
-    admin.from("medication_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("lab_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("radiology_orders").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("lab_results").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("clinical_notes").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("conditions").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("patients").select("mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("medication_orders")
+      .select("patient_mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("lab_orders")
+      .select("patient_mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("radiology_orders")
+      .select("patient_mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("lab_results")
+      .select("mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("clinical_notes")
+      .select("mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("conditions")
+      .select("mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("patients")
+      .select("mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
   ]);
 
   if (meds.error) throw new Error(`meds change scan: ${meds.error.message}`);
@@ -1077,8 +1245,18 @@ async function collectChangedMrns(
 
   // provider_notes / shift_notes use patient_mrn — bump() handles both keys.
   const [provNotes, shiftNotes] = await Promise.all([
-    admin.from("provider_notes").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
-    admin.from("shift_notes").select("patient_mrn, updated_at").gte("updated_at", since).order("updated_at", { ascending: true }).limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("provider_notes")
+      .select("patient_mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("shift_notes")
+      .select("patient_mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
   ]);
   if (provNotes.error) throw new Error(`provider_notes change scan: ${provNotes.error.message}`);
   if (shiftNotes.error) throw new Error(`shift_notes change scan: ${shiftNotes.error.message}`);
@@ -1092,7 +1270,7 @@ async function collectChangedMrns(
   // MRN with a fresh update always re-qualifies on subsequent ticks,
   // even if we already processed it at an earlier `newest` value.
   const eligible = [...byMrn.values()].filter((r) =>
-    cursorGt({ ts: r.newest, mrn: r.mrn }, cursor)
+    cursorGt({ ts: r.newest, mrn: r.mrn }, cursor),
   );
   eligible.sort((a, b) => {
     if (a.newest !== b.newest) return a.newest < b.newest ? -1 : 1;
@@ -1104,33 +1282,86 @@ async function collectChangedMrns(
 
 // Build the full FHIR entry list for a single MRN by fetching all of its
 // active clinical rows and mapping them through the builders above.
-async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: any[]; skipped: string | null }> {
-  const [patientRes, medsRes, labsRes, radsRes, resultsRes, notesRes, condsRes, provNotesRes, shiftNotesRes] = await Promise.all([
-    admin.from("patients").select("mrn, name, first_name, last_name, dob, gender, biological_sex, phone, address, facility_name, admission_time, discharge_time, status, chief_complaint, diagnosis, room, assigned_department, primary_care_physician").eq("mrn", mrn).maybeSingle(),
-    admin.from("medication_orders")
-      .select("id, drug_name, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, created_at, updated_at, rxnorm_code, rxnorm_display")
-      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(200),
-    admin.from("lab_orders")
-      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code, requested_by, ordered_by")
-      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(80),
-    admin.from("radiology_orders")
-      .select("id, exam_type, modality, body_part, clinical_indication, status, snomed_code, snomed_display, report_text, impression, requested_by, ordered_at, created_at")
-      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(80),
-    admin.from("lab_results")
+async function buildEntriesForMrn(
+  admin: any,
+  mrn: string,
+): Promise<{ entries: any[]; skipped: string | null }> {
+  const [
+    patientRes,
+    medsRes,
+    labsRes,
+    radsRes,
+    resultsRes,
+    notesRes,
+    condsRes,
+    provNotesRes,
+    shiftNotesRes,
+  ] = await Promise.all([
+    admin
+      .from("patients")
+      .select(
+        "mrn, name, first_name, last_name, dob, gender, biological_sex, phone, address, facility_name, admission_time, discharge_time, status, chief_complaint, diagnosis, room, assigned_department, primary_care_physician",
+      )
+      .eq("mrn", mrn)
+      .maybeSingle(),
+    admin
+      .from("medication_orders")
+      .select(
+        "id, drug_name, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, created_at, updated_at, rxnorm_code, rxnorm_display",
+      )
+      .eq("patient_mrn", mrn)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    admin
+      .from("lab_orders")
+      .select(
+        "id, test_type, result_value, status, collected_at, created_at, loinc_code, requested_by, ordered_by",
+      )
+      .eq("patient_mrn", mrn)
+      .order("created_at", { ascending: false })
+      .limit(80),
+    admin
+      .from("radiology_orders")
+      .select(
+        "id, exam_type, modality, body_part, clinical_indication, status, snomed_code, snomed_display, report_text, impression, requested_by, ordered_at, created_at",
+      )
+      .eq("patient_mrn", mrn)
+      .order("created_at", { ascending: false })
+      .limit(80),
+    admin
+      .from("lab_results")
       .select("id, test_name, result_value, unit, reference_range, flag, created_at")
-      .eq("mrn", mrn).order("created_at", { ascending: false }).limit(80),
-    admin.from("clinical_notes")
+      .eq("mrn", mrn)
+      .order("created_at", { ascending: false })
+      .limit(80),
+    admin
+      .from("clinical_notes")
       .select("id, note_type, author, content, created_at")
-      .eq("mrn", mrn).order("created_at", { ascending: false }).limit(20),
-    admin.from("conditions")
-      .select("display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at, created_at")
-      .eq("mrn", mrn).order("coded_at", { ascending: false }).limit(20),
-    admin.from("provider_notes")
+      .eq("mrn", mrn)
+      .order("created_at", { ascending: false })
+      .limit(20),
+    admin
+      .from("conditions")
+      .select(
+        "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at, created_at",
+      )
+      .eq("mrn", mrn)
+      .order("coded_at", { ascending: false })
+      .limit(20),
+    admin
+      .from("provider_notes")
       .select("id, note_type, author_name, author_role, content, signed_at, created_at")
-      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(50),
-    admin.from("shift_notes")
-      .select("id, author_nurse, note_text, sbar_situation, sbar_background, sbar_assessment, sbar_recommendation, esigned_at, created_at")
-      .eq("patient_mrn", mrn).order("created_at", { ascending: false }).limit(50),
+      .eq("patient_mrn", mrn)
+      .order("created_at", { ascending: false })
+      .limit(50),
+    admin
+      .from("shift_notes")
+      .select(
+        "id, author_nurse, note_text, sbar_situation, sbar_background, sbar_assessment, sbar_recommendation, esigned_at, created_at",
+      )
+      .eq("patient_mrn", mrn)
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
   const patient = (patientRes as any)?.data;
@@ -1144,11 +1375,19 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
   if (patient.chief_complaint) {
     entries.push(
       entryFor(
-        buildCondition(mrn, {
-          display_text: patient.chief_complaint,
-          verification_status: "provisional",
-          coded_at: patient.admission_time,
-        }, { type: "hpi", verification: "provisional", recordedDate: patient.admission_time ?? null }),
+        buildCondition(
+          mrn,
+          {
+            display_text: patient.chief_complaint,
+            verification_status: "provisional",
+            coded_at: patient.admission_time,
+          },
+          {
+            type: "hpi",
+            verification: "provisional",
+            recordedDate: patient.admission_time ?? null,
+          },
+        ),
       ),
     );
   }
@@ -1156,10 +1395,24 @@ async function buildEntriesForMrn(admin: any, mrn: string): Promise<{ entries: a
   // Additional coded conditions from the `conditions` table.
   let condCounter = 0;
   for (const c of ((condsRes as any)?.data ?? []) as any[]) {
-    const token = c.snomed_code ? `snomed-${String(c.snomed_code).replace(/[^A-Za-z0-9]/g, "").slice(0, 20)}`
-      : c.icd10_code ? `icd-${String(c.icd10_code).replace(/[^A-Za-z0-9]/g, "").slice(0, 20)}`
-      : `pmh-${++condCounter}`;
-    entries.push(entryFor(buildCondition(mrn, c, { type: token, verification: "confirmed", recordedDate: c.coded_at ?? c.created_at ?? null })));
+    const token = c.snomed_code
+      ? `snomed-${String(c.snomed_code)
+          .replace(/[^A-Za-z0-9]/g, "")
+          .slice(0, 20)}`
+      : c.icd10_code
+        ? `icd-${String(c.icd10_code)
+            .replace(/[^A-Za-z0-9]/g, "")
+            .slice(0, 20)}`
+        : `pmh-${++condCounter}`;
+    entries.push(
+      entryFor(
+        buildCondition(mrn, c, {
+          type: token,
+          verification: "confirmed",
+          recordedDate: c.coded_at ?? c.created_at ?? null,
+        }),
+      ),
+    );
   }
 
   // Medications: emit BOTH MedicationRequest (order intent) AND
@@ -1312,13 +1565,19 @@ async function pollClinical(admin: any) {
 
     if (built?.skipped || (built && built.entries.length === 0)) {
       stats.skipped.push({ mrn, reason: built?.skipped ?? "no_entries" });
-      if (failCounts[mrn]) { delete failCounts[mrn]; failCountsDirty = true; }
+      if (failCounts[mrn]) {
+        delete failCounts[mrn];
+        failCountsDirty = true;
+      }
       lastAdvanced = { ts: row.newest, mrn: row.mrn };
       continue;
     }
 
     stats.pushed += 1;
-    if (failCounts[mrn]) { delete failCounts[mrn]; failCountsDirty = true; }
+    if (failCounts[mrn]) {
+      delete failCounts[mrn];
+      failCountsDirty = true;
+    }
     lastAdvanced = { ts: row.newest, mrn: row.mrn };
   }
   if (failCountsDirty) await writeFailCounts(admin, failCounts);
@@ -1405,7 +1664,15 @@ Deno.serve(async (req) => {
     // Clinical push runs last so a slow/blocked FHIR write on many entries
     // never delays billing (which is the tighter demo dependency).
     const clinical = await pollClinical(admin);
-    const result = { ok: true, ranAt: new Date().toISOString(), invoice, paymentNotice, chargeItem, appointment, clinical };
+    const result = {
+      ok: true,
+      ranAt: new Date().toISOString(),
+      invoice,
+      paymentNotice,
+      chargeItem,
+      appointment,
+      clinical,
+    };
     await logEvent(admin, result);
     return json(result);
   } catch (e) {

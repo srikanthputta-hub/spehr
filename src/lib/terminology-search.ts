@@ -27,9 +27,7 @@ export interface SearchTerminologyOpts {
   pageSize?: number;
 }
 
-export async function searchTerminology(
-  opts: SearchTerminologyOpts,
-): Promise<TerminologyHit[]> {
+export async function searchTerminology(opts: SearchTerminologyOpts): Promise<TerminologyHit[]> {
   const term = opts.query.trim();
   if (term.length < 2) return [];
   const { data, error } = await supabase.functions.invoke("umls-proxy", {

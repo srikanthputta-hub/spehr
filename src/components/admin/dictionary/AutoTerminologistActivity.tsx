@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Bot, RefreshCw, CheckCircle2, AlertTriangle, Pause, Clock, Inbox, Archive, Copy } from "lucide-react";
+import {
+  Bot,
+  RefreshCw,
+  CheckCircle2,
+  AlertTriangle,
+  Pause,
+  Clock,
+  Inbox,
+  Archive,
+  Copy,
+} from "lucide-react";
 import { Trash2, Download } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 import { toast } from "sonner";
@@ -114,7 +124,10 @@ export function AutoTerminologistActivity() {
       const now = new Date().toISOString();
       const name = r.requested_name;
       const vocab = r.vocabulary || (codes[0] as any)?.vocabulary || "SNOMED CT";
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const slug = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
       const { data: inserted, error: insertErr } = await supabase
         .from("custom_value_sets")
         .insert({
@@ -124,11 +137,18 @@ export function AutoTerminologistActivity() {
           type: "extensional",
           codes,
           status: "draft",
-          description: `Imported from UMLS in response to terminology request from ${r.requesting_consumer}: ${r.justification ?? ""}`.trim(),
+          description:
+            `Imported from UMLS in response to terminology request from ${r.requesting_consumer}: ${r.justification ?? ""}`.trim(),
           clinical_application: r.clinical_application ?? null,
           fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
           oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
-          change_history: [{ at: now, actor: "S.P.E.H.R. Terminology Services", change: `Imported from UMLS (${codes.length} concepts) — ${vocab}` }],
+          change_history: [
+            {
+              at: now,
+              actor: "S.P.E.H.R. Terminology Services",
+              change: `Imported from UMLS (${codes.length} concepts) — ${vocab}`,
+            },
+          ],
         } as any)
         .select("id")
         .single();
@@ -136,7 +156,13 @@ export function AutoTerminologistActivity() {
       const valueSetId = (inserted as any)?.id;
       await supabase
         .from("terminology_requests" as any)
-        .update({ status: "drafted", value_set_id: valueSetId, resolved_at: now, updated_at: now, quality_gate_notes: `Imported from UMLS (${codes.length} concepts).` } as any)
+        .update({
+          status: "drafted",
+          value_set_id: valueSetId,
+          resolved_at: now,
+          updated_at: now,
+          quality_gate_notes: `Imported from UMLS (${codes.length} concepts).`,
+        } as any)
         .eq("id", r.id);
       await supabase.from("auto_terminologist_log" as any).insert({
         action: "drafted",
@@ -145,7 +171,9 @@ export function AutoTerminologistActivity() {
         codes_count: codes.length,
         value_set_id: valueSetId,
       } as any);
-      setRequests((rs) => rs.map((x) => x.id === r.id ? { ...x, status: "drafted", resolved_at: now } : x));
+      setRequests((rs) =>
+        rs.map((x) => (x.id === r.id ? { ...x, status: "drafted", resolved_at: now } : x)),
+      );
       toast.success(`Imported "${name}" from UMLS as draft value set`);
     } catch (e: any) {
       console.warn("[auto-term] UMLS import failed", e);
@@ -180,10 +208,11 @@ export function AutoTerminologistActivity() {
   const filteredDrafted = useMemo(() => {
     const q = draftedQuery.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) =>
-      (r.message ?? "").toLowerCase().includes(q) ||
-      (r.theme ?? "").toLowerCase().includes(q) ||
-      (r.action ?? "").toLowerCase().includes(q),
+    return rows.filter(
+      (r) =>
+        (r.message ?? "").toLowerCase().includes(q) ||
+        (r.theme ?? "").toLowerCase().includes(q) ||
+        (r.action ?? "").toLowerCase().includes(q),
     );
   }, [rows, draftedQuery]);
   // Recompute "X minutes ago" every 30s
@@ -318,10 +347,7 @@ export function AutoTerminologistActivity() {
     if (ids.length === 0) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
-        .from("custom_value_sets")
-        .select("id, name")
-        .in("id", ids);
+      const { data } = await supabase.from("custom_value_sets").select("id, name").in("id", ids);
       if (cancelled || !data) return;
       setTargetNames((prev) => {
         const next = { ...prev };
@@ -356,8 +382,8 @@ export function AutoTerminologistActivity() {
       {latest && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
           <span className="font-semibold text-slate-800">Last cycle:</span>{" "}
-          {new Date(latest.run_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          {" "}({formatAgo(lastRunAt)}) — {latest.message}
+          {new Date(latest.run_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} (
+          {formatAgo(lastRunAt)}) — {latest.message}
         </div>
       )}
 
@@ -369,7 +395,9 @@ export function AutoTerminologistActivity() {
         </span>
         <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5">
           <span className="font-semibold text-slate-700">Auto Admin</span>
-          <span className="ml-1 text-slate-500">→ billing / population health (+ IT hand-off on infra failure)</span>
+          <span className="ml-1 text-slate-500">
+            → billing / population health (+ IT hand-off on infra failure)
+          </span>
         </span>
         <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5">
           <span className="font-semibold text-slate-700">Safety Alerts Engine</span>
@@ -412,7 +440,9 @@ export function AutoTerminologistActivity() {
       <div className="scroll-feed rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
         {filteredRequests.length === 0 ? (
           <div className="px-4 py-6 text-sm text-slate-500">
-            {requests.length === 0 ? "No terminology requests submitted yet." : "No matches for your search."}
+            {requests.length === 0
+              ? "No terminology requests submitted yet."
+              : "No matches for your search."}
           </div>
         ) : (
           filteredRequests.map((r) => {
@@ -438,14 +468,20 @@ export function AutoTerminologistActivity() {
                           Deprecation Request
                         </span>
                         <p className="text-sm font-medium text-slate-800 leading-snug">
-                          {targetName ? `Target: ${targetName}` : `Deprecation target label: ${r.requested_name}`}
+                          {targetName
+                            ? `Target: ${targetName}`
+                            : `Deprecation target label: ${r.requested_name}`}
                         </p>
                       </>
                     ) : (
-                      <p className="text-sm font-medium text-slate-800 leading-snug">{r.requested_name}</p>
+                      <p className="text-sm font-medium text-slate-800 leading-snug">
+                        {r.requested_name}
+                      </p>
                     )}
-                    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBadge(r.status)}`}>
-                      {(r.status ?? "pending")}
+                    <span
+                      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBadge(r.status)}`}
+                    >
+                      {r.status ?? "pending"}
                     </span>
                     {r.priority && r.priority !== "normal" && (
                       <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
@@ -511,9 +547,7 @@ export function AutoTerminologistActivity() {
           <Archive className="h-3.5 w-3.5" />
           Deprecation Suggestions
         </div>
-        <span className="text-[11px] text-slate-500">
-          {deprecations.length} pending
-        </span>
+        <span className="text-[11px] text-slate-500">{deprecations.length} pending</span>
       </div>
       <div className="scroll-feed rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
         {deprecations.length === 0 ? (
@@ -535,9 +569,7 @@ export function AutoTerminologistActivity() {
                     {d.vocabulary && <span>{d.vocabulary}</span>}
                     {d.oid && <span className="font-mono text-slate-600">OID {d.oid}</span>}
                   </div>
-                  {change && (
-                    <p className="mt-1 text-xs text-slate-600 leading-snug">{change}</p>
-                  )}
+                  {change && <p className="mt-1 text-xs text-slate-600 leading-snug">{change}</p>}
                 </div>
                 {d.oid && (
                   <button
@@ -593,7 +625,9 @@ export function AutoTerminologistActivity() {
             });
             return (
               <div key={r.id} className="flex items-start gap-3 px-4 py-3">
-                <span className={`mt-0.5 inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold ${cls}`}>
+                <span
+                  className={`mt-0.5 inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold ${cls}`}
+                >
                   <Icon className="h-3 w-3" />
                   {(r.action ?? "log").replace(/_/g, " ")}
                 </span>
@@ -601,12 +635,23 @@ export function AutoTerminologistActivity() {
                   <p className="text-sm text-slate-800 leading-snug">{r.message}</p>
                   <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-0.5">
                     <span>{time}</span>
-                    {r.theme && <span>theme: <span className="font-medium text-slate-700">{r.theme}</span></span>}
+                    {r.theme && (
+                      <span>
+                        theme: <span className="font-medium text-slate-700">{r.theme}</span>
+                      </span>
+                    )}
                     {typeof r.confidence === "number" && (
-                      <span>confidence: <span className="font-medium text-slate-700">{r.confidence.toFixed(2)}</span></span>
+                      <span>
+                        confidence:{" "}
+                        <span className="font-medium text-slate-700">
+                          {r.confidence.toFixed(2)}
+                        </span>
+                      </span>
                     )}
                     {typeof r.codes_count === "number" && r.codes_count > 0 && (
-                      <span>{r.codes_count} code{r.codes_count === 1 ? "" : "s"}</span>
+                      <span>
+                        {r.codes_count} code{r.codes_count === 1 ? "" : "s"}
+                      </span>
                     )}
                   </div>
                 </div>

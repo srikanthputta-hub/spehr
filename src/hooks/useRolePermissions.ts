@@ -103,7 +103,11 @@ export function useRolePermissions(roleOverride?: StaffRole, facilityOverride?: 
 }
 
 /** Pure helper for non-button surfaces (Link, custom divs). */
-export function disabledTooltip(allowed: boolean): { title?: string; "aria-disabled"?: boolean; className?: string } {
+export function disabledTooltip(allowed: boolean): {
+  title?: string;
+  "aria-disabled"?: boolean;
+  className?: string;
+} {
   if (allowed) return {};
   return {
     title: DISABLED_MESSAGE,

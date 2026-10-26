@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ShieldCheck, X } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
-import { checkDrugDisease, checkDrugDiseaseFromValueSets, type CdsHit } from "@/lib/contraindications";
+import {
+  checkDrugDisease,
+  checkDrugDiseaseFromValueSets,
+  type CdsHit,
+} from "@/lib/contraindications";
 import { logCdsOverride } from "@/lib/auto-api.functions";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
 import { toast } from "sonner";
@@ -55,7 +59,9 @@ export function CdsHookAlert({
         setVsHits([]);
         setVsMatchedAnyDrugSet(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [drugName, patientConditions, autoApi]);
 
   const hits = vsMatchedAnyDrugSet ? vsHits : staticHits;
@@ -102,7 +108,10 @@ export function CdsHookAlert({
         const key = `allergy:${a}`;
         if (overridden.has(key)) {
           return (
-            <div key={key} className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800">
+            <div
+              key={key}
+              className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800"
+            >
               <ShieldCheck className="h-3.5 w-3.5" />
               Allergy alert overridden — proceed with caution.
             </div>
@@ -144,14 +153,17 @@ export function CdsHookAlert({
               </div>
             ) : (
               <>
-              <button
-                type="button"
-                onClick={() => setShowInput(key)}
-                className="mt-2 text-[11px] font-semibold text-rose-800 underline"
-              >
-                Override with reason →
-              </button>
-              <InfoHint className="ml-2 align-middle" text="Overriding is not silent — it writes a permanent audit row to cds_overrides with your name, the drug (RxNorm), the condition/allergy, and your justification. Reviewable in System Admin → CDS Hook Decisions." />
+                <button
+                  type="button"
+                  onClick={() => setShowInput(key)}
+                  className="mt-2 text-[11px] font-semibold text-rose-800 underline"
+                >
+                  Override with reason →
+                </button>
+                <InfoHint
+                  className="ml-2 align-middle"
+                  text="Overriding is not silent — it writes a permanent audit row to cds_overrides with your name, the drug (RxNorm), the condition/allergy, and your justification. Reviewable in System Admin → CDS Hook Decisions."
+                />
               </>
             )}
           </div>
@@ -166,7 +178,10 @@ export function CdsHookAlert({
           : "border-amber-300 bg-amber-50 text-amber-900";
         if (overridden.has(key)) {
           return (
-            <div key={key} className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800">
+            <div
+              key={key}
+              className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800"
+            >
               <ShieldCheck className="h-3.5 w-3.5" />
               {h.rule.severity} override logged.
             </div>
@@ -175,7 +190,9 @@ export function CdsHookAlert({
         return (
           <div key={key} className={`rounded-md border-2 p-3 ${tone}`}>
             <div className="flex items-start gap-2">
-              <AlertTriangle className={`h-4 w-4 mt-0.5 ${isContra ? "text-rose-700" : "text-amber-700"}`} />
+              <AlertTriangle
+                className={`h-4 w-4 mt-0.5 ${isContra ? "text-rose-700" : "text-amber-700"}`}
+              />
               <div className="flex-1">
                 <div className="text-[11px] font-bold uppercase tracking-wider inline-flex items-center gap-1">
                   Drug-Disease · {h.rule.severity}

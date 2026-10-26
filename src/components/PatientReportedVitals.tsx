@@ -17,12 +17,22 @@ function isPatientReported(r: any): boolean {
       const code = String(coding?.code ?? "").toLowerCase();
       if (code === "survey" || code === "patient-reported" || code === "self-reported") return true;
     }
-    if (String(c?.text ?? "").toLowerCase().includes("patient")) return true;
+    if (
+      String(c?.text ?? "")
+        .toLowerCase()
+        .includes("patient")
+    )
+      return true;
   }
   // FHIR extension or performer hint
   const perf = r?.resource?.performer ?? [];
   for (const p of perf) {
-    if (String(p?.reference ?? "").toLowerCase().startsWith("patient/")) return true;
+    if (
+      String(p?.reference ?? "")
+        .toLowerCase()
+        .startsWith("patient/")
+    )
+      return true;
   }
   return false;
 }
@@ -73,7 +83,12 @@ export function PatientReportedVitals({ mrn }: { mrn: string }) {
       .channel(`pr-vitals-${mrn}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "fhir_observations", filter: `patient_mrn=eq.${mrn}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "fhir_observations",
+          filter: `patient_mrn=eq.${mrn}`,
+        },
         () => load(),
       )
       .subscribe();

@@ -94,7 +94,9 @@ export function RadiologyFhirCard({ mrn }: { mrn: string }) {
         <div className="flex items-center gap-2">
           <Scan className="h-4 w-4 text-cyan-700" />
           <div>
-            <div className="text-sm font-semibold text-slate-900">Radiology / Imaging (Live FHIR)</div>
+            <div className="text-sm font-semibold text-slate-900">
+              Radiology / Imaging (Live FHIR)
+            </div>
             <div className="text-[10px] text-slate-500">
               ServiceRequest + DiagnosticReport · sourced from shared imaging network
             </div>

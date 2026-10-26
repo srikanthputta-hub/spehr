@@ -48,10 +48,7 @@ function KpiTile({ className, value, label, trend, ...props }: KpiTileProps) {
 
   return (
     <div
-      className={cn(
-        "rounded-lg border border-border bg-card p-4 flex flex-col gap-1",
-        className,
-      )}
+      className={cn("rounded-lg border border-border bg-card p-4 flex flex-col gap-1", className)}
       {...props}
     >
       <div className="text-[22px] font-semibold leading-tight tabular-nums text-card-foreground">

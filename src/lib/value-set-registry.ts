@@ -76,8 +76,10 @@ export async function requestTerminologyUpdate(req: {
 
     if (!insertErr) return; // fresh pending request created
     if ((insertErr as any).code !== "23505") {
-      // eslint-disable-next-line no-console
-      console.warn("[value-set-registry] requestTerminologyUpdate insert failed", insertErr.message);
+      console.warn(
+        "[value-set-registry] requestTerminologyUpdate insert failed",
+        insertErr.message,
+      );
       return;
     }
 
@@ -111,7 +113,6 @@ export async function requestTerminologyUpdate(req: {
       .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
       .eq("id", (existing as any).id);
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.warn("[value-set-registry] requestTerminologyUpdate failed", (e as Error)?.message);
   }
 }

@@ -91,8 +91,7 @@ export function buildSafetyRationale(
     if (/rhabdomyolysis|statin/.test(fam))
       return {
         monitor: "CK + LFTs at 72 h; counsel on muscle pain/dark urine",
-        substitute:
-          "hold statin for the duration of macrolide/azole course; resume on day 8",
+        substitute: "hold statin for the duration of macrolide/azole course; resume on day 8",
       };
     if (/digoxin/.test(fam))
       return {
@@ -103,8 +102,7 @@ export function buildSafetyRationale(
       return {
         monitor:
           "continuous SpO₂ + capnography, q1h RASS, naloxone 0.4 mg + flumazenil 0.2 mg at bedside",
-        substitute:
-          "discontinue benzodiazepine; substitute hydroxyzine 25 mg PO q6h prn anxiety",
+        substitute: "discontinue benzodiazepine; substitute hydroxyzine 25 mg PO q6h prn anxiety",
       };
     if (/penicillin|β-lactam|beta-lactam|cephalosporin/.test(fam))
       return {
@@ -132,8 +130,10 @@ export function buildSafetyRationale(
       };
     if (/contrast|iodinated/.test(fam))
       return {
-        monitor: "premedicate methylprednisolone 32 mg PO at 12 h and 2 h pre-scan + diphenhydramine 50 mg IV",
-        substitute: "if life-threatening reaction history → switch to gadolinium MR or non-contrast study",
+        monitor:
+          "premedicate methylprednisolone 32 mg PO at 12 h and 2 h pre-scan + diphenhydramine 50 mg IV",
+        substitute:
+          "if life-threatening reaction history → switch to gadolinium MR or non-contrast study",
       };
     if (/statin/.test(fam))
       return {
@@ -184,7 +184,12 @@ export function buildAlternateMed(
   if (/sulfonamide/.test(fam))
     return { medication_name: "Nitrofurantoin", dose: "100 mg", route: "PO", frequency: "BID" };
   if (/nsaid|bleeding|antiplatelet|anticoagulant/.test(fam))
-    return { medication_name: "Acetaminophen", dose: "650 mg", route: "PO", frequency: "q6h prn pain" };
+    return {
+      medication_name: "Acetaminophen",
+      dose: "650 mg",
+      route: "PO",
+      frequency: "q6h prn pain",
+    };
   if (/opioid|respiratory depression/.test(fam))
     return { medication_name: "Hydroxyzine", dose: "25 mg", route: "PO", frequency: "q6h prn" };
   if (/serotonin/.test(fam))
@@ -192,17 +197,37 @@ export function buildAlternateMed(
   if (/cyp2c19|clopidogrel/.test(fam))
     return { medication_name: "Pantoprazole", dose: "40 mg", route: "PO", frequency: "Daily" };
   if (/hyperkalemia/.test(fam))
-    return { medication_name: "Hydrochlorothiazide", dose: "25 mg", route: "PO", frequency: "Daily" };
+    return {
+      medication_name: "Hydrochlorothiazide",
+      dose: "25 mg",
+      route: "PO",
+      frequency: "Daily",
+    };
   if (/inr|warfarin potentiation/.test(fam))
     return { medication_name: "Cephalexin", dose: "500 mg", route: "PO", frequency: "QID" };
   if (/lactic acidosis|contrast/.test(fam))
-    return { medication_name: "Insulin sliding scale", dose: "per protocol", route: "SubQ", frequency: "AC & HS" };
+    return {
+      medication_name: "Insulin sliding scale",
+      dose: "per protocol",
+      route: "SubQ",
+      frequency: "AC & HS",
+    };
   if (/rhabdomyolysis|statin/.test(fam))
     return { medication_name: "Pravastatin", dose: "40 mg", route: "PO", frequency: "qHS" };
   if (/digoxin/.test(fam))
-    return { medication_name: "Digoxin (dose-reduced)", dose: "0.125 mg", route: "PO", frequency: "Daily" };
+    return {
+      medication_name: "Digoxin (dose-reduced)",
+      dose: "0.125 mg",
+      route: "PO",
+      frequency: "Daily",
+    };
   if (/contrast|iodinated/.test(fam))
-    return { medication_name: "Gadolinium MR contrast", dose: "0.1 mmol/kg", route: "IV", frequency: "once" };
+    return {
+      medication_name: "Gadolinium MR contrast",
+      dose: "0.1 mmol/kg",
+      route: "IV",
+      frequency: "once",
+    };
   return { medication_name: "Acetaminophen", dose: "650 mg", route: "PO", frequency: "q6h prn" };
 }
 
@@ -237,8 +262,7 @@ export async function resolveAlertSideEffects(
       alert_type: c.kind,
       severity: c.severity ?? "high",
       drug_name: c.drug,
-      condition_name:
-        c.kind === "Drug-Drug" ? (c.drug_b ?? null) : (c.allergy_name ?? null),
+      condition_name: c.kind === "Drug-Drug" ? (c.drug_b ?? null) : (c.allergy_name ?? null),
       reason: rationale,
       physician_name: physicianName,
       fired_at: decidedAt,
@@ -275,10 +299,7 @@ export async function resolveAlertSideEffects(
   if (!original) return;
   const alt = buildAlternateMed(c);
   const originalName =
-    (original as any).drug_name ??
-    (original as any).medication_name ??
-    c.drug ??
-    "prior order";
+    (original as any).drug_name ?? (original as any).medication_name ?? c.drug ?? "prior order";
   const displayName = `${alt.medication_name} (auto-substitute for rejected ${originalName})`;
   try {
     await supabase.from("medication_orders").insert({

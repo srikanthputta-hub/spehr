@@ -4,15 +4,9 @@
  */
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import {
-  templateForDepartment,
-  type ConditionTemplate,
-} from "./auto-doc-catalog";
+import { templateForDepartment, type ConditionTemplate } from "./auto-doc-catalog";
 import { routeDepartment, type Department } from "./chief-complaints";
-import {
-  buildAdmissionTransactionBundle,
-  type AdmissionPatient,
-} from "./fhir-admission-discharge";
+import { buildAdmissionTransactionBundle, type AdmissionPatient } from "./fhir-admission-discharge";
 import {
   buildChargeItemResource,
   buildInvoiceResource,
@@ -64,13 +58,15 @@ export async function log(
   // the sole insert path for this table and the contract is error-only.
   if (level !== "error") return;
   try {
-    await admin().from("auto_doc_logs").insert({
-      mrn,
-      stage,
-      message,
-      level,
-      meta: meta ? JSON.parse(JSON.stringify(meta)) : null,
-    } as never);
+    await admin()
+      .from("auto_doc_logs")
+      .insert({
+        mrn,
+        stage,
+        message,
+        level,
+        meta: meta ? JSON.parse(JSON.stringify(meta)) : null,
+      } as never);
   } catch (e) {
     console.warn("[auto-doc] log failed", (e as Error).message);
   }
@@ -130,10 +126,12 @@ export async function umlsCodes(term: string, vocab: keyof typeof VOCAB_MAP): Pr
     const codes = results
       .map((x) => x?.ui)
       .filter((c): c is string => typeof c === "string" && c !== "NONE");
-    await sb.from("umls_term_cache").upsert(
-      { term: cacheKey, vocabulary: vocab, codes, fetched_at: new Date().toISOString() } as never,
-      { onConflict: "term,vocabulary" },
-    );
+    await sb
+      .from("umls_term_cache")
+      .upsert(
+        { term: cacheKey, vocabulary: vocab, codes, fetched_at: new Date().toISOString() } as never,
+        { onConflict: "term,vocabulary" },
+      );
     return codes;
   } catch (e) {
     console.warn("[umls] lookup failed", term, (e as Error).message);
@@ -158,11 +156,7 @@ export async function runAutoDocPipeline(mrn: string) {
 
   // STAGE: analyze
   await setRunStage(mrn, "analyze");
-  const { data: patient } = await sb
-    .from("patients")
-    .select("*")
-    .eq("mrn", mrn)
-    .maybeSingle();
+  const { data: patient } = await sb.from("patients").select("*").eq("mrn", mrn).maybeSingle();
   if (!patient) {
     await setRunStage(mrn, "error", { error: "patient not found" });
     await log(mrn, "error", "Auto Doc could not locate patient row", null, "error");
@@ -170,9 +164,11 @@ export async function runAutoDocPipeline(mrn: string) {
   }
   const p = patient as any;
   const department: Department =
-    (p.assigned_department as Department) ||
-    routeDepartment(String(p.chief_complaint ?? ""));
-  await sb.from("patients").update({ assigned_department: department } as never).eq("mrn", mrn);
+    (p.assigned_department as Department) || routeDepartment(String(p.chief_complaint ?? ""));
+  await sb
+    .from("patients")
+    .update({ assigned_department: department } as never)
+    .eq("mrn", mrn);
   await setRunStage(mrn, "analyze", { department });
   await log(mrn, "analyze", `Auto Doc evaluating MRN-${mrn} — assigned to ${department}`);
 
@@ -226,9 +222,7 @@ export async function runAutoDocPipeline(mrn: string) {
   // Idempotent: re-running Auto Doc updates the same HPI/Assessment/Plan
   // notes instead of stacking duplicates. Backed by the partial unique
   // index uq_clinical_notes_mrn_type_auto_author.
-  await sb
-    .from("clinical_notes")
-    .upsert(notes as never, { onConflict: "mrn,note_type,author" });
+  await sb.from("clinical_notes").upsert(notes as never, { onConflict: "mrn,note_type,author" });
   await log(mrn, "document", "Authored HPI, Assessment and Plan notes");
 
   // STAGE: umls (multi-code expansion)
@@ -267,7 +261,10 @@ export async function runAutoDocPipeline(mrn: string) {
    * leave the field null when there is no clinically relevant match.
    * ---------------------------------------------------------------- */
   const norm = (s: string) =>
-    s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
   const loincForLab = (testType: string | null | undefined): string | null => {
     const t = norm(testType ?? "");
     if (!t) return null;
@@ -382,11 +379,14 @@ export async function runAutoDocPipeline(mrn: string) {
         .eq("vocabulary", "SNOMED CT")
         .eq("status", "published");
       let covered = false;
-      for (const row of ((publishedSets ?? []) as any[])) {
+      for (const row of (publishedSets ?? []) as any[]) {
         const rowCodes: any[] = Array.isArray(row?.codes) ? row.codes : [];
         for (const c of rowCodes) {
           const k = String(c?.code ?? "").trim();
-          if (k && wanted.has(k)) { covered = true; break; }
+          if (k && wanted.has(k)) {
+            covered = true;
+            break;
+          }
         }
         if (covered) break;
       }
@@ -410,9 +410,7 @@ export async function runAutoDocPipeline(mrn: string) {
 
         if (existingReq) {
           const prevCodes: Array<{ code: string; display?: string; vocabulary?: string }> =
-            Array.isArray((existingReq as any).seed_codes)
-              ? (existingReq as any).seed_codes
-              : [];
+            Array.isArray((existingReq as any).seed_codes) ? (existingReq as any).seed_codes : [];
           const seen = new Set(prevCodes.map((c) => String(c?.code ?? "").trim()));
           const merged = [...prevCodes];
           for (const c of seedCodes) {
@@ -450,15 +448,18 @@ export async function runAutoDocPipeline(mrn: string) {
   await setRunStage(mrn, "fhir");
   try {
     const admission = buildAdmissionTransactionBundle(p as AdmissionPatient);
-    await sb.rpc("persist_fhir_resource" as never, {
-      _resource_type: "Bundle",
-      _resource_id: `admission-${mrn}`,
-      _mrn: mrn,
-      _payload: admission.bundle as never,
-      _source: "auto-doc:admission",
-      _origin: "automation",
-      _author_id: "auto-doc",
-    } as never);
+    await sb.rpc(
+      "persist_fhir_resource" as never,
+      {
+        _resource_type: "Bundle",
+        _resource_id: `admission-${mrn}`,
+        _mrn: mrn,
+        _payload: admission.bundle as never,
+        _source: "auto-doc:admission",
+        _origin: "automation",
+        _author_id: "auto-doc",
+      } as never,
+    );
     const pushed = await pushBundle(admission.bundle, mrn);
     await log(mrn, "fhir", "Admission transaction Bundle pushed to Medblocks", {
       entries: admission.bundle.entry?.length ?? 0,
@@ -466,7 +467,13 @@ export async function runAutoDocPipeline(mrn: string) {
       status: pushed.status,
     });
   } catch (e) {
-    await log(mrn, "fhir", `Admission Bundle build/push failed: ${(e as Error).message}`, null, "warn");
+    await log(
+      mrn,
+      "fhir",
+      `Admission Bundle build/push failed: ${(e as Error).message}`,
+      null,
+      "warn",
+    );
   }
 
   // STAGE: discharge
@@ -494,17 +501,23 @@ export async function runAutoDocPipeline(mrn: string) {
      * the freshly-updated patient row so the Composition gets the AI
      * deduced `diagnosis` and PMH/allergies recorded at admission.
      * ----------------------------------------------------------------- */
-    const [
-      { data: patientRow },
-      { data: labRows },
-      { data: medRows },
-      { data: allergyRows },
-    ] = await Promise.all([
-      sb.from("patients").select("*").eq("mrn", mrn).maybeSingle(),
-      sb.from("lab_orders").select("id,test_type,result_value,collected_at,status").eq("patient_mrn", mrn).limit(50),
-      sb.from("medication_orders").select("id,drug,drug_name,medication_name,dose,route,frequency,ordering_physician,status").eq("patient_mrn", mrn).limit(50),
-      sb.from("allergies").select("substance,reaction,severity,status").eq("mrn", mrn).limit(50),
-    ]);
+    const [{ data: patientRow }, { data: labRows }, { data: medRows }, { data: allergyRows }] =
+      await Promise.all([
+        sb.from("patients").select("*").eq("mrn", mrn).maybeSingle(),
+        sb
+          .from("lab_orders")
+          .select("id,test_type,result_value,collected_at,status")
+          .eq("patient_mrn", mrn)
+          .limit(50),
+        sb
+          .from("medication_orders")
+          .select(
+            "id,drug,drug_name,medication_name,dose,route,frequency,ordering_physician,status",
+          )
+          .eq("patient_mrn", mrn)
+          .limit(50),
+        sb.from("allergies").select("substance,reaction,severity,status").eq("mrn", mrn).limit(50),
+      ]);
     const patientUuid = (patientRow ?? p)?.id as string | undefined;
 
     /* -----------------------------------------------------------------
@@ -539,7 +552,8 @@ export async function runAutoDocPipeline(mrn: string) {
         const { error: obsErr } = await sb
           .from("observations")
           .upsert(obsRows as never, { onConflict: "patient_id,loinc_code,source" });
-        if (obsErr) await log(mrn, "fhir", `observations insert failed: ${obsErr.message}`, null, "warn");
+        if (obsErr)
+          await log(mrn, "fhir", `observations insert failed: ${obsErr.message}`, null, "warn");
       }
 
       const medReqRows = (medRows ?? []).map((m: any, idx: number) => ({
@@ -550,7 +564,11 @@ export async function runAutoDocPipeline(mrn: string) {
         dosage: m.dose ?? null,
         route: m.route ?? "PO",
         frequency: m.frequency ?? null,
-        status: String(m.status ?? "active").toLowerCase().includes("administ") ? "completed" : "active",
+        status: String(m.status ?? "active")
+          .toLowerCase()
+          .includes("administ")
+          ? "completed"
+          : "active",
         intent: "order",
         ordered_at: new Date().toISOString(),
         requester: m.ordering_physician ?? "Auto Doc Attending",
@@ -562,7 +580,14 @@ export async function runAutoDocPipeline(mrn: string) {
         const { error: mrErr } = await sb
           .from("medication_requests")
           .upsert(medReqRows as never, { onConflict: "patient_id,rxnorm_code,source" });
-        if (mrErr) await log(mrn, "fhir", `medication_requests insert failed: ${mrErr.message}`, null, "warn");
+        if (mrErr)
+          await log(
+            mrn,
+            "fhir",
+            `medication_requests insert failed: ${mrErr.message}`,
+            null,
+            "warn",
+          );
       }
 
       await log(mrn, "fhir", "Structured FHIR rows persisted", {
@@ -652,9 +677,7 @@ export async function runAutoDocPipeline(mrn: string) {
 
         if (existingReq) {
           const prevCodes: Array<{ code: string; display?: string; vocabulary?: string }> =
-            Array.isArray((existingReq as any).seed_codes)
-              ? (existingReq as any).seed_codes
-              : [];
+            Array.isArray((existingReq as any).seed_codes) ? (existingReq as any).seed_codes : [];
           const seen = new Set(prevCodes.map((c) => String(c?.code ?? "").trim()));
           if (!seen.has(seedCode.code)) {
             await sb
@@ -692,7 +715,13 @@ export async function runAutoDocPipeline(mrn: string) {
     // physician-driven discharge flow) once the patient is actually
     // discharged. Do not re-introduce a Composition push here.
   } catch (e) {
-    await log(mrn, "discharge", `Admission structured-data upsert failed: ${(e as Error).message}`, null, "warn");
+    await log(
+      mrn,
+      "discharge",
+      `Admission structured-data upsert failed: ${(e as Error).message}`,
+      null,
+      "warn",
+    );
   }
 
   await setRunStage(mrn, "complete");
@@ -717,7 +746,13 @@ export async function runAutoDocPipeline(mrn: string) {
       }
     }
   } catch (e) {
-    await log(mrn, "billing", `Auto Doc billing issue failed: ${(e as Error).message}`, null, "error");
+    await log(
+      mrn,
+      "billing",
+      `Auto Doc billing issue failed: ${(e as Error).message}`,
+      null,
+      "error",
+    );
   }
 
   return { ok: true, department, condition: tpl.condition };
@@ -725,7 +760,10 @@ export async function runAutoDocPipeline(mrn: string) {
 
 /* ---------------- FHIR push helper ---------------- */
 
-async function pushBundle(bundle: unknown, mrn: string): Promise<{ ok: boolean; status?: number; error?: string }> {
+async function pushBundle(
+  bundle: unknown,
+  mrn: string,
+): Promise<{ ok: boolean; status?: number; error?: string }> {
   const url = process.env.FHIR_SERVER_URL;
   const token = process.env.FHIR_BEARER_TOKEN;
   if (!url || !token) {
@@ -756,7 +794,10 @@ async function putFhirResource(
   const url = process.env.FHIR_SERVER_URL;
   const token = process.env.FHIR_BEARER_TOKEN;
   if (!url || !token) {
-    console.warn("[auto-doc] FHIR endpoint not configured; resource persisted locally only", { mrn, path });
+    console.warn("[auto-doc] FHIR endpoint not configured; resource persisted locally only", {
+      mrn,
+      path,
+    });
     return { ok: false, error: "FHIR endpoint not configured" };
   }
   try {
@@ -799,7 +840,8 @@ function bodyPartFor(examType: string): string {
   if (s.includes("chest")) return "Chest";
   if (s.includes("head")) return "Head";
   if (s.includes("brain")) return "Brain";
-  if (s.includes("abdomen") || s.includes("abdominal")) return s.includes("pelvis") ? "Abdomen/Pelvis" : "Abdomen";
+  if (s.includes("abdomen") || s.includes("abdominal"))
+    return s.includes("pelvis") ? "Abdomen/Pelvis" : "Abdomen";
   if (s.includes("spine")) return "Spine";
   if (s.includes("knee")) return "Knee";
   return "General";
@@ -822,9 +864,7 @@ function buildServiceRequest(input: {
     intent: "order",
     category: [
       {
-        coding: [
-          { system: "http://snomed.info/sct", code: "363679005", display: "Imaging" },
-        ],
+        coding: [{ system: "http://snomed.info/sct", code: "363679005", display: "Imaging" }],
       },
     ],
     code: {
@@ -856,8 +896,7 @@ async function orderImagingForMrn(
   const results: Array<{ examType: string; svcId: string; pushed: boolean; status?: number }> = [];
   const errors: string[] = [];
   let inserted = 0;
-  const patientName =
-    p?.name || [p?.first_name, p?.last_name].filter(Boolean).join(" ") || null;
+  const patientName = p?.name || [p?.first_name, p?.last_name].filter(Boolean).join(" ") || null;
 
   for (const img of imaging) {
     const svcId = `radsvc-${mrn}-${slugifyExam(img.examType)}`;
@@ -888,7 +927,8 @@ async function orderImagingForMrn(
         ordered_at: nowIso,
       } as never);
       if (insErr) {
-        const msg = `${(insErr as any).code ?? ""} ${insErr.message ?? ""} ${(insErr as any).details ?? ""}`.trim();
+        const msg =
+          `${(insErr as any).code ?? ""} ${insErr.message ?? ""} ${(insErr as any).details ?? ""}`.trim();
         console.warn("[auto-doc] radiology_orders insert failed", msg);
         try {
           await log(mrn, "order", `radiology_orders insert failed: ${msg}`, insErr as any, "error");
@@ -917,15 +957,18 @@ async function orderImagingForMrn(
     });
 
     try {
-      await sb.rpc("persist_fhir_resource" as never, {
-        _resource_type: "ServiceRequest",
-        _resource_id: svcId,
-        _mrn: mrn,
-        _payload: svcReq as never,
-        _source: "auto-doc:imaging",
-        _origin: "automation",
-        _author_id: "auto-doc",
-      } as never);
+      await sb.rpc(
+        "persist_fhir_resource" as never,
+        {
+          _resource_type: "ServiceRequest",
+          _resource_id: svcId,
+          _mrn: mrn,
+          _payload: svcReq as never,
+          _source: "auto-doc:imaging",
+          _origin: "automation",
+          _author_id: "auto-doc",
+        } as never,
+      );
     } catch (e) {
       console.warn("[auto-doc] persist_fhir_resource(ServiceRequest) failed", (e as Error).message);
     }
@@ -979,8 +1022,7 @@ export async function backfillMissingRadiologyOrders(): Promise<{
     }
 
     const dept: Department =
-      (row.assigned_department as Department) ||
-      routeDepartment(String(row.chief_complaint ?? ""));
+      (row.assigned_department as Department) || routeDepartment(String(row.chief_complaint ?? ""));
     const tpl = templateForDepartment(dept);
     if (!tpl.imaging || tpl.imaging.length === 0) {
       skipped++;
@@ -1009,12 +1051,7 @@ export async function backfillMissingRadiologyOrders(): Promise<{
 /* ---------------- Billing / FHIR Invoice generation ---------------- */
 
 function safeFullName(p: any): string {
-  return (
-    p?.name ||
-    [p?.first_name, p?.last_name].filter(Boolean).join(" ") ||
-    p?.mrn ||
-    "Unknown"
-  );
+  return p?.name || [p?.first_name, p?.last_name].filter(Boolean).join(" ") || p?.mrn || "Unknown";
 }
 
 export async function generateInvoiceForPatient(mrn: string): Promise<{
@@ -1066,13 +1103,12 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
       .from("medication_orders")
       .select("medication_name,drug_name,drug,rxnorm_code,status,administered_at")
       .eq("patient_mrn", mrn),
-    sb
-      .from("lab_orders")
-      .select("test_type,loinc_code,status,collected_at")
-      .eq("patient_mrn", mrn),
+    sb.from("lab_orders").select("test_type,loinc_code,status,collected_at").eq("patient_mrn", mrn),
     sb
       .from("radiology_orders")
-      .select("snomed_code,exam_type,modality,body_part,status,ordered_at,indication_icd10_code,indication_icd10_display")
+      .select(
+        "snomed_code,exam_type,modality,body_part,status,ordered_at,indication_icd10_code,indication_icd10_display",
+      )
       .eq("patient_mrn", mrn),
     sb
       .from("conditions")
@@ -1130,10 +1166,11 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   const primaryCond =
     condsWithIcd10.find(
       (r) => String(r?.clinical_status ?? "active").toLowerCase() !== "resolved",
-    ) ?? condsWithIcd10[0] ?? null;
+    ) ??
+    condsWithIcd10[0] ??
+    null;
   const primaryIcd10: string | null = primaryCond?.icd10_code ?? null;
-  const primaryIcd10Display: string | null =
-    primaryCond?.icd10_display ?? null;
+  const primaryIcd10Display: string | null = primaryCond?.icd10_display ?? null;
   if (icd10Codes.length === 0) {
     const { data: pRow } = await sb
       .from("patients")
@@ -1166,9 +1203,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
         code: String(e?.code ?? ""),
         display: e?.display ? String(e.display) : undefined,
         system: e?.system ? String(e.system) : undefined,
-        internal_category: e?.internal_category
-          ? String(e.internal_category)
-          : undefined,
+        internal_category: e?.internal_category ? String(e.internal_category) : undefined,
       }))
     : [];
 
@@ -1200,65 +1235,68 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   const unmatchedIcd10 = icd10Codes.filter((c) => !matchedIcd10.has(c));
   if (unmatchedIcd10.length > 0) {
     void (async () => {
-    try {
-      const { data: dictRows } = await sb
-        .from("medical_terminology")
-        .select("code, display")
-        .eq("code_system", "ICD-10")
-        .in("code", unmatchedIcd10);
-      const displayByCode = new Map(((dictRows ?? []) as any[]).map((r) => [r.code, r.display]));
-      const seedCodes = unmatchedIcd10.map((c) => ({ code: c, display: displayByCode.get(c) ?? c }));
+      try {
+        const { data: dictRows } = await sb
+          .from("medical_terminology")
+          .select("code, display")
+          .eq("code_system", "ICD-10")
+          .in("code", unmatchedIcd10);
+        const displayByCode = new Map(((dictRows ?? []) as any[]).map((r) => [r.code, r.display]));
+        const seedCodes = unmatchedIcd10.map((c) => ({
+          code: c,
+          display: displayByCode.get(c) ?? c,
+        }));
 
-      const { error: insertErr } = await sb.from("terminology_requests" as any).insert({
-        requesting_consumer: "Auto Admin",
-        requested_name: "Billing Coverage Gaps",
-        justification: `Invoice ${invoiceNo} for MRN-${mrn} includes ${unmatchedIcd10.length} ICD-10 diagnosis code(s) with no match in any published Billing value set — these codes are being charged without a governed coverage/risk-adjustment mapping.`,
-        priority: "normal",
-        vocabulary: "ICD-10",
-        seed_codes: seedCodes,
-        clinical_application: "Billing",
-        related_mrn: mrn,
-        status: "pending",
-      } as any);
+        const { error: insertErr } = await sb.from("terminology_requests" as any).insert({
+          requesting_consumer: "Auto Admin",
+          requested_name: "Billing Coverage Gaps",
+          justification: `Invoice ${invoiceNo} for MRN-${mrn} includes ${unmatchedIcd10.length} ICD-10 diagnosis code(s) with no match in any published Billing value set — these codes are being charged without a governed coverage/risk-adjustment mapping.`,
+          priority: "normal",
+          vocabulary: "ICD-10",
+          seed_codes: seedCodes,
+          clinical_application: "Billing",
+          related_mrn: mrn,
+          status: "pending",
+        } as any);
 
-      if (!insertErr) {
-        // fresh pending request created
-      } else if ((insertErr as any).code === "23505") {
-        // Unique-violation: a pending request already exists — merge seed codes.
-        const { data: existingReq } = await sb
-          .from("terminology_requests" as any)
-          .select("id, seed_codes")
-          .eq("requesting_consumer", "Auto Admin")
-          .eq("requested_name", "Billing Coverage Gaps")
-          .eq("status", "pending")
-          .maybeSingle();
-        if (existingReq) {
-          const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(
-            (existingReq as any).seed_codes,
-          )
-            ? (existingReq as any).seed_codes
-            : [];
-          const seen = new Set(prevCodes.map((c) => String(c?.code ?? "")));
-          const merged = [...prevCodes];
-          for (const c of seedCodes) {
-            const code = String(c?.code ?? "").trim();
-            if (!code || seen.has(code)) continue;
-            seen.add(code);
-            merged.push(c);
+        if (!insertErr) {
+          // fresh pending request created
+        } else if ((insertErr as any).code === "23505") {
+          // Unique-violation: a pending request already exists — merge seed codes.
+          const { data: existingReq } = await sb
+            .from("terminology_requests" as any)
+            .select("id, seed_codes")
+            .eq("requesting_consumer", "Auto Admin")
+            .eq("requested_name", "Billing Coverage Gaps")
+            .eq("status", "pending")
+            .maybeSingle();
+          if (existingReq) {
+            const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(
+              (existingReq as any).seed_codes,
+            )
+              ? (existingReq as any).seed_codes
+              : [];
+            const seen = new Set(prevCodes.map((c) => String(c?.code ?? "")));
+            const merged = [...prevCodes];
+            for (const c of seedCodes) {
+              const code = String(c?.code ?? "").trim();
+              if (!code || seen.has(code)) continue;
+              seen.add(code);
+              merged.push(c);
+            }
+            if (merged.length !== prevCodes.length) {
+              await sb
+                .from("terminology_requests" as any)
+                .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
+                .eq("id", (existingReq as any).id);
+            }
           }
-          if (merged.length !== prevCodes.length) {
-            await sb
-              .from("terminology_requests" as any)
-              .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
-              .eq("id", (existingReq as any).id);
-          }
+        } else {
+          console.warn("[billing] terminology gap request insert failed", insertErr.message);
         }
-      } else {
-        console.warn("[billing] terminology gap request insert failed", insertErr.message);
+      } catch (e) {
+        console.warn("[billing] terminology gap request failed", (e as Error).message);
       }
-    } catch (e) {
-      console.warn("[billing] terminology gap request failed", (e as Error).message);
-    }
     })();
   }
 
@@ -1288,7 +1326,12 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
 
   // Don't overwrite a balanced invoice
   if (existing && (existing as any).status === "balanced") {
-    return { ok: true, invoiceId: (existing as any).id, invoiceNo: (existing as any).invoice_no, skipped: true };
+    return {
+      ok: true,
+      invoiceId: (existing as any).id,
+      invoiceNo: (existing as any).invoice_no,
+      skipped: true,
+    };
   }
 
   let invoiceId: string;
@@ -1387,15 +1430,18 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
 
   // Mirror into the canonical local FHIR resource cache (best-effort)
   try {
-    await sb.rpc("persist_fhir_resource" as never, {
-      _resource_type: "Invoice",
-      _resource_id: invoiceId,
-      _mrn: mrn,
-      _payload: invoiceResource as never,
-      _source: "auto-doc:billing",
-      _origin: "automation",
-      _author_id: "auto-doc",
-    } as never);
+    await sb.rpc(
+      "persist_fhir_resource" as never,
+      {
+        _resource_type: "Invoice",
+        _resource_id: invoiceId,
+        _mrn: mrn,
+        _payload: invoiceResource as never,
+        _source: "auto-doc:billing",
+        _origin: "automation",
+        _author_id: "auto-doc",
+      } as never,
+    );
   } catch (e) {
     console.warn("[billing] persist_fhir_resource (Invoice) failed", (e as Error).message);
   }
@@ -1410,7 +1456,11 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
   return { ok: true, invoiceId, invoiceNo, total };
 }
 
-export async function backfillMissingInvoices(): Promise<{ ok: true; generated: number; skipped: number }> {
+export async function backfillMissingInvoices(): Promise<{
+  ok: true;
+  generated: number;
+  skipped: number;
+}> {
   const sb = admin();
   // Delegate the "discharged but no invoice yet" set-difference to the DB
   // via discharges_missing_invoice(), replacing the previous unbounded
@@ -1461,7 +1511,11 @@ export async function backfillMissingInvoices(): Promise<{ ok: true; generated: 
       } else {
         skipped++;
         if (!res.skipped) {
-          await log(row.mrn, "error", `Auto Doc billing backfill: ${res.error ?? "invoice generation failed"}`);
+          await log(
+            row.mrn,
+            "error",
+            `Auto Doc billing backfill: ${res.error ?? "invoice generation failed"}`,
+          );
         }
       }
     } catch (e) {
@@ -1528,15 +1582,18 @@ export async function payInvoiceById(
     .eq("id", i.id);
 
   try {
-    await sb.rpc("persist_fhir_resource" as never, {
-      _resource_type: "PaymentNotice",
-      _resource_id: noticeId,
-      _mrn: i.mrn,
-      _payload: notice as never,
-      _source: "patient-portal:payment",
-      _origin: "patient",
-      _author_id: "patient-portal",
-    } as never);
+    await sb.rpc(
+      "persist_fhir_resource" as never,
+      {
+        _resource_type: "PaymentNotice",
+        _resource_id: noticeId,
+        _mrn: i.mrn,
+        _payload: notice as never,
+        _source: "patient-portal:payment",
+        _origin: "patient",
+        _author_id: "patient-portal",
+      } as never,
+    );
   } catch (e) {
     console.warn("[billing] persist_fhir_resource (PaymentNotice) failed", (e as Error).message);
   }

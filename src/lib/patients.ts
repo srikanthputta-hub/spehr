@@ -88,31 +88,25 @@ function mockLabValue(lab: LabCatalogEntry): string {
 }
 
 function randomMedsFor(mrn: string): MedOrder[] {
-  return pickUnique(MEDICATION_CATALOG, 3).map(
-    (m: MedicationCatalogEntry, i): MedOrder => ({
-      id: `${mrn}-m${i + 1}`,
-      name: m.name,
-      dose: m.dose,
-      route: m.route,
-      freq: "Q8H",
-      due: ["08:00", "12:00", "14:00", "18:00", "22:00"][
-        Math.floor(Math.random() * 5)
-      ],
-    }),
-  );
+  return pickUnique(MEDICATION_CATALOG, 3).map((m: MedicationCatalogEntry, i): MedOrder => ({
+    id: `${mrn}-m${i + 1}`,
+    name: m.name,
+    dose: m.dose,
+    route: m.route,
+    freq: "Q8H",
+    due: ["08:00", "12:00", "14:00", "18:00", "22:00"][Math.floor(Math.random() * 5)],
+  }));
 }
 
 function randomLabsFor(mrn: string): LabResult[] {
-  return pickUnique(LAB_CATALOG, 2).map(
-    (l: LabCatalogEntry, i): LabResult => ({
-      id: `${mrn}-l${i + 1}`,
-      name: l.name,
-      value: mockLabValue(l),
-      unit: l.unit,
-      referenceRange: l.referenceRange,
-      status: "RESULTED",
-    }),
-  );
+  return pickUnique(LAB_CATALOG, 2).map((l: LabCatalogEntry, i): LabResult => ({
+    id: `${mrn}-l${i + 1}`,
+    name: l.name,
+    value: mockLabValue(l),
+    unit: l.unit,
+    referenceRange: l.referenceRange,
+    status: "RESULTED",
+  }));
 }
 
 // (No seed census to randomize — PATIENTS is intentionally empty.)

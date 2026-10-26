@@ -4,26 +4,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import {
-  Users,
-  PillBottle,
-  Loader2,
-  Inbox,
-  Check,
-  X,
-  ArrowRightLeft,
-} from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { Users, PillBottle, Loader2, Inbox, Check, X, ArrowRightLeft } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Progress } from "@/components/ui/progress";
-import { useFacility, useActiveStaff, STAFF_BY_FACILITY, type Facility, type StaffRole } from "@/lib/facility-context";
+import {
+  useFacility,
+  useActiveStaff,
+  STAFF_BY_FACILITY,
+  type Facility,
+  type StaffRole,
+} from "@/lib/facility-context";
 import { PatientFlowCensusLog } from "@/components/PatientFlowCensusLog";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
@@ -91,14 +81,7 @@ function shiftStateNow() {
 // signed in for each role at each facility (canonical names come from
 // STAFF_BY_FACILITY — same source of truth used by every board header).
 type RoleKey = StaffRole;
-const STAFF_ROLES: readonly RoleKey[] = [
-  "RN",
-  "MD",
-  "PharmD",
-  "Lab",
-  "Admin",
-  "Finance",
-] as const;
+const STAFF_ROLES: readonly RoleKey[] = ["RN", "MD", "PharmD", "Lab", "Admin", "Finance"] as const;
 
 const ROLE_SUFFIX: Record<RoleKey, string> = {
   RN: ", RN",
@@ -111,21 +94,47 @@ const ROLE_SUFFIX: Record<RoleKey, string> = {
   Rad: ", MD",
 };
 const ROLE_RATE: Record<RoleKey, number> = {
-  RN: 52, MD: 150, PharmD: 68, Lab: 38, Admin: 45, Finance: 60, Reception: 28, Rad: 160,
+  RN: 52,
+  MD: 150,
+  PharmD: 68,
+  Lab: 38,
+  Admin: 45,
+  Finance: 60,
+  Reception: 28,
+  Rad: 160,
 };
 const ROLE_CAP: Record<RoleKey, number> = {
-  RN: 5, MD: 15, PharmD: 50, Lab: 20, Admin: 0, Finance: 0, Reception: 0, Rad: 0,
+  RN: 5,
+  MD: 15,
+  PharmD: 50,
+  Lab: 20,
+  Admin: 0,
+  Finance: 0,
+  Reception: 0,
+  Rad: 0,
 };
 
 // Deterministic per-facility name pool keeps each hospital's roster
 // consistent across reloads (no random churn between renders).
 const NAME_POOL: Array<[string, string]> = [
-  ["Sarah", "Jenkins"], ["Marcus", "Patel"], ["Elena", "Rostova"],
-  ["David", "Okafor"], ["Aisha", "Bauer"], ["Hiro", "Quintero"],
-  ["Nadia", "Mendez"], ["Owen", "Sullivan"], ["Priya", "Reyes"],
-  ["Felix", "Carter"], ["Grace", "Holloway"], ["Jonah", "Brennan"],
-  ["Kira", "Tanaka"], ["Leon", "Ortiz"], ["Mira", "Singh"],
-  ["Noor", "Adler"], ["Otis", "Bishop"], ["Rhea", "Costa"],
+  ["Sarah", "Jenkins"],
+  ["Marcus", "Patel"],
+  ["Elena", "Rostova"],
+  ["David", "Okafor"],
+  ["Aisha", "Bauer"],
+  ["Hiro", "Quintero"],
+  ["Nadia", "Mendez"],
+  ["Owen", "Sullivan"],
+  ["Priya", "Reyes"],
+  ["Felix", "Carter"],
+  ["Grace", "Holloway"],
+  ["Jonah", "Brennan"],
+  ["Kira", "Tanaka"],
+  ["Leon", "Ortiz"],
+  ["Mira", "Singh"],
+  ["Noor", "Adler"],
+  ["Otis", "Bishop"],
+  ["Rhea", "Costa"],
 ] as const as Array<[string, string]>;
 
 function hashString(s: string): number {
@@ -162,10 +171,13 @@ function buildRoster(facility: string): Record<RoleKey, string[]> {
     const canonical = facilityStaff?.[role]?.name;
     const names: string[] = [];
     // Slot 0 = the real, system-synced staff member for this role/facility.
-    names.push(canonical ?? `${pool[idx % pool.length][0]} ${pool[idx % pool.length][1]}${ROLE_SUFFIX[role]}`);
+    names.push(
+      canonical ??
+        `${pool[idx % pool.length][0]} ${pool[idx % pool.length][1]}${ROLE_SUFFIX[role]}`,
+    );
     // Slots 1 & 2 = relief pool for Next Shift / Resting.
     for (let k = 0; k < 2; k++) {
-      const [f, l] = pool[(idx++) % pool.length];
+      const [f, l] = pool[idx++ % pool.length];
       names.push(`${f} ${l}${ROLE_SUFFIX[role]}`);
     }
     out[role] = names;
@@ -209,12 +221,7 @@ function roleBadgeClass(role: string) {
 }
 
 function fullName(p: Patient) {
-  return (
-    p.name ||
-    [p.first_name, p.last_name].filter(Boolean).join(" ") ||
-    p.mrn ||
-    "—"
-  );
+  return p.name || [p.first_name, p.last_name].filter(Boolean).join(" ") || p.mrn || "—";
 }
 
 function codeColor(c: string | null) {
@@ -255,14 +262,19 @@ function AdminDashboard() {
           Promise.all([
             supabase
               .from("patients")
-              .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time")
+              .select(
+                "id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time",
+              )
               .order("admission_time", { ascending: false }),
             supabase
               .from("medication_orders")
               .select("id", { count: "exact", head: true })
               .eq("status", "PENDING_PHARMACY"),
           ]),
-        [{ data: [], error: null }, { count: 0, error: null }] as any,
+        [
+          { data: [], error: null },
+          { count: 0, error: null },
+        ] as any,
       );
       if (pRes.error) toast.error(pRes.error.message);
       else setPatients((pRes.data ?? []) as Patient[]);
@@ -295,7 +307,9 @@ function AdminDashboard() {
   const reloadPatients = async () => {
     const { data, error } = await supabase
       .from("patients")
-      .select("id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time")
+      .select(
+        "id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time",
+      )
       .order("admission_time", { ascending: false });
     if (!error) setPatients((data ?? []) as Patient[]);
   };
@@ -360,9 +374,7 @@ function AdminDashboard() {
         }
       }
 
-      toast.success(
-        "Patient successfully transferred and rerouted across network servers.",
-      );
+      toast.success("Patient successfully transferred and rerouted across network servers.");
       setTransfers((cur) => cur.filter((x) => x.id !== t.id));
       await reloadPatients();
     } catch (e: any) {
@@ -407,10 +419,7 @@ function AdminDashboard() {
   // across the entire app (previously used status !== "discharged"
   // which loosely counted null / pending / cancelled rows too).
   const activePatients = useMemo(
-    () =>
-      facilityPatients.filter(
-        (p) => (p.status ?? "").toString().toLowerCase() === "admitted",
-      ),
+    () => facilityPatients.filter((p) => (p.status ?? "").toString().toLowerCase() === "admitted"),
     [facilityPatients],
   );
   // No-op placeholder — staffing now derives purely from the shift clock
@@ -430,10 +439,9 @@ function AdminDashboard() {
           // Relief slot rotates between 1 & 2 each block; the canonical
           // on-duty clinician (slot 0) stays put for system-wide sync.
           const reliefIdx = 1 + (s.block % 2);
-          toast(
-            `Shift change · ${r}: ${roster[r][reliefIdx]} queued as next shift.`,
-            { className: "bg-slate-100 text-slate-800" },
-          );
+          toast(`Shift change · ${r}: ${roster[r][reliefIdx]} queued as next shift.`, {
+            className: "bg-slate-100 text-slate-800",
+          });
         }
         lastBlockRef.current = s.block;
       }
@@ -468,13 +476,16 @@ function AdminDashboard() {
       const rate = ROLE_RATE[role];
       // Synthetic patient load — proportional to census, capped at role limit.
       const loadFactor =
-        role === "RN" ? 0.25 :
-        role === "MD" ? 0.5 :
-        role === "PharmD" ? 0.8 :
-        role === "Lab" ? 0.4 : 0;
-      const assigned = cap > 0
-        ? Math.min(cap, Math.max(1, Math.round(census * loadFactor)))
-        : 0;
+        role === "RN"
+          ? 0.25
+          : role === "MD"
+            ? 0.5
+            : role === "PharmD"
+              ? 0.8
+              : role === "Lab"
+                ? 0.4
+                : 0;
+      const assigned = cap > 0 ? Math.min(cap, Math.max(1, Math.round(census * loadFactor))) : 0;
       out.push({
         key: `${role}-on`,
         role,
@@ -545,7 +556,9 @@ function AdminDashboard() {
             {transfersLoading ? (
               <TableSkeleton rows={3} columns={4} />
             ) : facilityTransfers.length === 0 ? (
-              <EmptyState description={`No pending inter-facility transfer requests for ${facility}.`} />
+              <EmptyState
+                description={`No pending inter-facility transfer requests for ${facility}.`}
+              />
             ) : (
               <ul className="space-y-3">
                 {facilityTransfers.map((t) => {
@@ -568,9 +581,7 @@ function AdminDashboard() {
                             <span className="text-[11px] font-mono text-slate-500">
                               MRN {t.patient_mrn}
                             </span>
-                            {outside && (
-                              <StatusBadge status="critical" label="Outside Network" />
-                            )}
+                            {outside && <StatusBadge status="critical" label="Outside Network" />}
                           </div>
                           <div className="mt-1 text-xs text-slate-600 flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{t.source_facility}</span>
@@ -594,7 +605,11 @@ function AdminDashboard() {
                             size="sm"
                             disabled={busy || !can("btn_approve_transfer")}
                             onClick={() => approveTransfer(t)}
-                            title={can("btn_approve_transfer") ? undefined : "Action disabled — contact admin to activate"}
+                            title={
+                              can("btn_approve_transfer")
+                                ? undefined
+                                : "Action disabled — contact admin to activate"
+                            }
                             className="bg-emerald-600 hover:bg-emerald-700"
                           >
                             {busy ? (
@@ -610,11 +625,14 @@ function AdminDashboard() {
                             variant="outline"
                             disabled={busy || !can("btn_deny_transfer")}
                             onClick={() => denyTransfer(t)}
-                            title={can("btn_deny_transfer") ? undefined : "Action disabled — contact admin to activate"}
+                            title={
+                              can("btn_deny_transfer")
+                                ? undefined
+                                : "Action disabled — contact admin to activate"
+                            }
                             className="border-red-200 text-red-700 hover:bg-red-50"
                           >
-                            <X className="h-3.5 w-3.5" />
-                            ❌ Deny
+                            <X className="h-3.5 w-3.5" />❌ Deny
                           </Button>
                         </div>
                       </div>
@@ -638,7 +656,10 @@ function AdminDashboard() {
             </h2>
             <span className="text-[11px] text-slate-500 font-mono">
               3-per-role rotation · {MAX_SHIFT_HOURS}h shifts (simulated)
-              <InfoHint className="ml-1" text="Wall-clock UTC rotation: 3 staff members per role cycle through 12-hour shift blocks aligned to absolute UTC time, so shift changes happen at the same instant network-wide regardless of local timezone. This entire rotation is synthetic — no real shift data drives it." />
+              <InfoHint
+                className="ml-1"
+                text="Wall-clock UTC rotation: 3 staff members per role cycle through 12-hour shift blocks aligned to absolute UTC time, so shift changes happen at the same instant network-wide regardless of local timezone. This entire rotation is synthetic — no real shift data drives it."
+              />
             </span>
           </div>
 
@@ -646,9 +667,7 @@ function AdminDashboard() {
           <div className="p-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {rosterCards.map((s) => {
-                const pct = s.cap > 0
-                  ? Math.min(100, Math.round((s.assigned / s.cap) * 100))
-                  : 0;
+                const pct = s.cap > 0 ? Math.min(100, Math.round((s.assigned / s.cap) * 100)) : 0;
                 const onDuty = s.status === "On Duty";
                 const hoursRemaining = MAX_SHIFT_HOURS - s.hours;
                 return (
@@ -662,9 +681,7 @@ function AdminDashboard() {
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-slate-900">
-                          {s.name}
-                        </span>
+                        <span className="text-sm font-semibold text-slate-900">{s.name}</span>
                         <span
                           className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${roleBadgeClass(
                             s.role,
@@ -690,15 +707,18 @@ function AdminDashboard() {
                                   s.hours >= 11
                                     ? "text-red-600 font-semibold"
                                     : s.hours >= 9
-                                    ? "text-amber-600"
-                                    : "text-slate-500"
+                                      ? "text-amber-600"
+                                      : "text-slate-500"
                                 }`}
                                 title="Hours worked this shift"
                               >
                                 ⏱ {s.hours.toFixed(0)}h / {MAX_SHIFT_HOURS}h
                               </span>
                             ) : (
-                              <span className="text-sky-700 tabular-nums" title="Hours until shift change">
+                              <span
+                                className="text-sky-700 tabular-nums"
+                                title="Hours until shift change"
+                              >
                                 in ~{hoursRemaining.toFixed(0)}h
                               </span>
                             )}
@@ -708,16 +728,13 @@ function AdminDashboard() {
                         {onDuty && <Progress value={pct} />}
                       </div>
                     )}
-                    <div className="mt-2 text-[11px] text-slate-500">
-                      ${s.rate}/hr
-                    </div>
+                    <div className="mt-2 text-[11px] text-slate-500">${s.rate}/hr</div>
                   </div>
                 );
               })}
             </div>
           </div>
         </div>
-
       </section>
       <section className="max-w-[1400px] mx-auto px-6 pb-10">
         <PatientFlowCensusLog />
@@ -754,9 +771,7 @@ function MetricCard({
           {label}
           {info && <InfoHint className="ml-1.5" text={info} />}
         </div>
-        <div className={`grid place-items-center h-8 w-8 rounded-md ${tint}`}>
-          {icon}
-        </div>
+        <div className={`grid place-items-center h-8 w-8 rounded-md ${tint}`}>{icon}</div>
       </div>
       <div className="mt-2 text-3xl font-bold text-slate-900">{value}</div>
       {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
@@ -815,9 +830,7 @@ function FacilityAnalytics({
         <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
           📊 Analytics Overview — {facility}
         </h2>
-        <span className="text-[11px] text-slate-500 font-mono">
-          Scoped to selected facility
-        </span>
+        <span className="text-[11px] text-slate-500 font-mono">Scoped to selected facility</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -875,8 +888,6 @@ function FacilityAnalytics({
           </ResponsiveContainer>
         </div>
       </div>
-
     </div>
   );
 }
-

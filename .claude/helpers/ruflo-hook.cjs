@@ -27,13 +27,15 @@
  *      file that a non-Windows CI run cannot prove.
  */
 
-'use strict';
+"use strict";
 
-const { spawnSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+const { spawnSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
-function done() { process.exit(0); }
+function done() {
+  process.exit(0);
+}
 
 /** Case-insensitive env lookup — Windows env keys are not case-stable. */
 function envValue(env, name) {
@@ -51,25 +53,26 @@ function envValue(env, name) {
  * Linux/macOS CI run — see the Windows argv tests.
  */
 function resolveCommandPath(command, env = process.env, platform = process.platform) {
-  const hasSeparator = command.includes('/') || command.includes('\\');
+  const hasSeparator = command.includes("/") || command.includes("\\");
   const dirs = hasSeparator
-    ? ['']
-    : (envValue(env, 'PATH') || '').split(platform === 'win32' ? ';' : path.delimiter);
-  const hasExtension = path.extname(command) !== '';
-  const extensions = platform === 'win32' && !(hasSeparator && hasExtension)
-    ? (envValue(env, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD').split(';')
-    : [''];
+    ? [""]
+    : (envValue(env, "PATH") || "").split(platform === "win32" ? ";" : path.delimiter);
+  const hasExtension = path.extname(command) !== "";
+  const extensions =
+    platform === "win32" && !(hasSeparator && hasExtension)
+      ? (envValue(env, "PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";")
+      : [""];
   for (const dir of dirs) {
     for (const ext of extensions) {
-      const base = path.resolve(dir || '.', command);
-      const candidates = ext
-        ? [base + ext.toLowerCase(), base + ext.toUpperCase()]
-        : [base];
+      const base = path.resolve(dir || ".", command);
+      const candidates = ext ? [base + ext.toLowerCase(), base + ext.toUpperCase()] : [base];
       for (const file of candidates) {
         try {
-          fs.accessSync(file, platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
+          fs.accessSync(file, platform === "win32" ? fs.constants.F_OK : fs.constants.X_OK);
           if (fs.statSync(file).isFile()) return file;
-        } catch { /* keep searching */ }
+        } catch {
+          /* keep searching */
+        }
       }
     }
   }
@@ -92,23 +95,26 @@ function resolveCommandPath(command, env = process.env, platform = process.platf
  */
 function resolveNpmShim(shimPath) {
   const command = path.basename(shimPath, path.extname(shimPath)).toLowerCase();
-  const packageName = command === 'npx' ? 'npm' : command;
-  if (!['ruflo', 'claude-flow', 'npm'].includes(packageName)) return null;
+  const packageName = command === "npx" ? "npm" : command;
+  if (!["ruflo", "claude-flow", "npm"].includes(packageName)) return null;
   try {
     const shimDir = path.dirname(shimPath);
-    const packageDir = path.basename(shimDir).toLowerCase() === '.bin'
-      ? path.resolve(shimDir, '..', packageName)
-      : path.resolve(shimDir, 'node_modules', packageName);
-    const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'));
-    const declared = typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.[command];
-    if (typeof declared !== 'string') return null;
+    const packageDir =
+      path.basename(shimDir).toLowerCase() === ".bin"
+        ? path.resolve(shimDir, "..", packageName)
+        : path.resolve(shimDir, "node_modules", packageName);
+    const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, "package.json"), "utf8"));
+    const declared = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.[command];
+    if (typeof declared !== "string") return null;
     const canonicalPackageDir = fs.realpathSync(packageDir);
     const canonicalEntry = fs.realpathSync(path.resolve(packageDir, declared));
     const relativeEntry = path.relative(canonicalPackageDir, canonicalEntry);
-    if (relativeEntry.startsWith('..' + path.sep) || path.isAbsolute(relativeEntry)) return null;
+    if (relativeEntry.startsWith(".." + path.sep) || path.isAbsolute(relativeEntry)) return null;
     if (!fs.statSync(canonicalEntry).isFile()) return null;
     return { command: process.execPath, args: [canonicalEntry] };
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -122,7 +128,7 @@ function resolveInvocation(bin, binArgs, options = {}) {
   const platform = options.platform || process.platform;
   const commandPath = resolveCommandPath(bin, env, platform);
   if (!commandPath) return null;
-  if (platform === 'win32' && /\.(?:cmd|bat|ps1)$/i.test(commandPath)) {
+  if (platform === "win32" && /\.(?:cmd|bat|ps1)$/i.test(commandPath)) {
     const npmBin = resolveNpmShim(commandPath);
     return npmBin ? { command: npmBin.command, args: [...npmBin.args, ...binArgs] } : null;
   }
@@ -155,18 +161,18 @@ function resolveInvocation(bin, binArgs, options = {}) {
  */
 function escapeCmdArg(arg) {
   let s = String(arg);
-  s = s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1');
+  s = s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1");
   s = `"${s}"`;
-  return s.replace(/[()%!^"<>&|;,]/g, '^$&');
+  return s.replace(/[()%!^"<>&|;,]/g, "^$&");
 }
 
 function invokeHook(bin, binArgs, hookArgs, stdinData, options = {}) {
   const env = options.env || process.env;
   const platform = options.platform || process.platform;
   const spawnOpts = {
-    input: stdinData || '',
-    encoding: 'utf8',
-    stdio: ['pipe', 'ignore', 'ignore'],
+    input: stdinData || "",
+    encoding: "utf8",
+    stdio: ["pipe", "ignore", "ignore"],
     timeout: 30_000,
     env,
   };
@@ -187,7 +193,7 @@ function invokeHook(bin, binArgs, hookArgs, stdinData, options = {}) {
   // refused to since CVE-2024-27980), so every element is escaped. Losing
   // the hook entirely would be the wrong trade — telemetry is best-effort,
   // but silently doing nothing hides breakage.
-  const useShell = platform === 'win32';
+  const useShell = platform === "win32";
   const args = [...binArgs, ...hookArgs];
   const result = spawnSync(
     useShell ? escapeCmdArg(bin) : bin,
@@ -203,16 +209,26 @@ function main() {
 
   const [subcommand, ...rest] = args;
 
-  let stdinData = '';
-  try { stdinData = fs.readFileSync(0, 'utf8'); } catch { stdinData = ''; }
+  let stdinData = "";
+  try {
+    stdinData = fs.readFileSync(0, "utf8");
+  } catch {
+    stdinData = "";
+  }
 
-  const hookArgs = ['hooks', subcommand, ...rest];
+  const hookArgs = ["hooks", subcommand, ...rest];
 
   // Presence is checked separately from invocation strategy: a command that
   // exists but cannot be resolved to an entrypoint still runs, via layer 2.
-  if (resolveCommandPath('ruflo')) { invokeHook('ruflo', [], hookArgs, stdinData); done(); }
-  if (resolveCommandPath('claude-flow')) { invokeHook('claude-flow', [], hookArgs, stdinData); done(); }
-  invokeHook('npx', ['--prefer-offline', '--yes', 'ruflo@latest'], hookArgs, stdinData);
+  if (resolveCommandPath("ruflo")) {
+    invokeHook("ruflo", [], hookArgs, stdinData);
+    done();
+  }
+  if (resolveCommandPath("claude-flow")) {
+    invokeHook("claude-flow", [], hookArgs, stdinData);
+    done();
+  }
+  invokeHook("npx", ["--prefer-offline", "--yes", "ruflo@latest"], hookArgs, stdinData);
   done();
 }
 
@@ -222,4 +238,10 @@ function main() {
 // invokes this file directly, so main() runs unconditionally otherwise.
 if (!globalThis.__RUFLO_HOOK_IMPORT_ONLY__) main();
 
-module.exports = { invokeHook, resolveCommandPath, resolveInvocation, resolveNpmShim, escapeCmdArg };
+module.exports = {
+  invokeHook,
+  resolveCommandPath,
+  resolveInvocation,
+  resolveNpmShim,
+  escapeCmdArg,
+};

@@ -15,7 +15,10 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import { loadPublishedValueSetsForConsumer, requestTerminologyUpdate } from "@/lib/value-set-registry";
+import {
+  loadPublishedValueSetsForConsumer,
+  requestTerminologyUpdate,
+} from "@/lib/value-set-registry";
 
 /* ------------------------------------------------------------------ */
 /*  Value-set cache                                                    */
@@ -97,7 +100,7 @@ export async function loadAllPublishedValueSets(): Promise<VsRow[]> {
       allVsLoadedAt = Date.now();
       return;
     }
-    allVsCache = (data as any[]) as VsRow[];
+    allVsCache = data as any[] as VsRow[];
     allVsLoadedAt = Date.now();
   })().finally(() => {
     allVsLoadPromise = null;
@@ -112,15 +115,36 @@ export async function loadAllPublishedValueSets(): Promise<VsRow[]> {
  * suffixes) rather than the clinical class itself.
  */
 const VS_NAME_STOPWORDS = new Set([
-  "allergy", "allergies", "allergen", "allergens", "hypersensitivity",
-  "class", "drug", "drugs", "medication", "medications", "agents", "agent",
-  "rxnorm", "snomed", "loinc", "optum", "spehr", "auto",
-  "and", "or", "the", "of", "for", "with", "to",
+  "allergy",
+  "allergies",
+  "allergen",
+  "allergens",
+  "hypersensitivity",
+  "class",
+  "drug",
+  "drugs",
+  "medication",
+  "medications",
+  "agents",
+  "agent",
+  "rxnorm",
+  "snomed",
+  "loinc",
+  "optum",
+  "spehr",
+  "auto",
+  "and",
+  "or",
+  "the",
+  "of",
+  "for",
+  "with",
+  "to",
 ]);
 
 function classTokens(name: string): string[] {
   const cleaned = name
-    .replace(/\([^)]*\)/g, " ")   // drop parenthetical vocabulary tags
+    .replace(/\([^)]*\)/g, " ") // drop parenthetical vocabulary tags
     .replace(/[^A-Za-z]+/g, " ")
     .toLowerCase();
   const out: string[] = [];
@@ -258,7 +282,7 @@ async function fireAlert(input: FireInput): Promise<void> {
     .select("id");
   if (error) {
     if ((error as any).code === "23505") return;
-    // eslint-disable-next-line no-console
+
     console.warn("[safety-alerts] insert failed", error.message);
     return;
   }
@@ -305,8 +329,7 @@ export type MedOrderEvent = {
 
 function riskScoreFor(severity: string | null | undefined): number {
   const s = String(severity ?? "").toUpperCase();
-  const rand = (min: number, max: number) =>
-    Math.floor(Math.random() * (max - min + 1)) + min;
+  const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
   // Ranges are intentionally wide so demo alerts spread across the
   // SAFETY_AUTO_REJECT_THRESHOLD (=50) and produce a visible mix of
   // Overridden vs Rejected outcomes on the safety dashboard.
@@ -336,7 +359,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
     .maybeSingle();
   const patient_name =
     (pRow as any)?.name ??
-    [((pRow as any)?.first_name ?? ""), ((pRow as any)?.last_name ?? "")].join(" ").trim() ??
+    [(pRow as any)?.first_name ?? "", (pRow as any)?.last_name ?? ""].join(" ").trim() ??
     null;
   const facility_name = (pRow as any)?.facility_name ?? null;
   const sinceIso = (pRow as any)?.admission_time ?? null;
@@ -429,8 +452,6 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
     }
   }
 
-
-
   /* ---- RULE 2: Anticoagulant Bleeding Risk ---- */
   const isAnticoag = !!code && extensionalContains(anticoags, code);
   if (isAnticoag) {
@@ -469,9 +490,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           drug_b: conflict.name,
           medication_order_id: evt.medication_order_id ?? null,
           valueSetNames:
-            conflict.kind === "nsaid"
-              ? ["Anticoagulants", "NSAIDs"]
-              : ["Anticoagulants"],
+            conflict.kind === "nsaid" ? ["Anticoagulants", "NSAIDs"] : ["Anticoagulants"],
         });
       }
     }
@@ -508,7 +527,7 @@ function extractSnomedCodes(std: any): Array<{ code: string; display: string }> 
     if (!Array.isArray(arr)) continue;
     for (const item of arr) {
       const code = String(
-        typeof item === "string" ? item : (item?.code ?? item?.value ?? "")
+        typeof item === "string" ? item : (item?.code ?? item?.value ?? ""),
       ).trim();
       const display = String(item?.display ?? item?.name ?? "").trim();
       if (!code || seen.has(code)) continue;
@@ -541,7 +560,7 @@ export async function runNlpApprovalRules(auditRow: {
     .maybeSingle();
   const patient_name =
     (pRow as any)?.name ??
-    [((pRow as any)?.first_name ?? ""), ((pRow as any)?.last_name ?? "")].join(" ").trim() ??
+    [(pRow as any)?.first_name ?? "", (pRow as any)?.last_name ?? ""].join(" ").trim() ??
     null;
   const facility_name = (pRow as any)?.facility_name ?? null;
   const sinceIso = (pRow as any)?.admission_time ?? null;

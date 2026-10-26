@@ -43,11 +43,13 @@ export function AutoApiCard() {
   const [dedupResult, setDedupResult] = useState<string | null>(null);
   const [radBackfillRunning, setRadBackfillRunning] = useState(false);
   const [radBackfillResult, setRadBackfillResult] = useState<string | null>(null);
-  const [idemp, setIdemp] = useState<{ lastRun: number; pass: boolean; duplicates: number }>(() => ({
-    lastRun: Date.now() - 2 * 60_000,
-    pass: true,
-    duplicates: 0,
-  }));
+  const [idemp, setIdemp] = useState<{ lastRun: number; pass: boolean; duplicates: number }>(
+    () => ({
+      lastRun: Date.now() - 2 * 60_000,
+      pass: true,
+      duplicates: 0,
+    }),
+  );
 
   // Idempotency self-test heartbeat: every 5 minutes, simulate a re-sync and
   // verify resource counts are stable. With stable-ID PUTs this is invariant.
@@ -60,12 +62,7 @@ export function AutoApiCard() {
 
   const loadEnabled = async () => {
     const { data } = await fetchWithTimeout(
-      () =>
-        supabase
-          .from("system_settings")
-          .select("auto_api_enabled")
-          .eq("id", 1)
-          .maybeSingle(),
+      () => supabase.from("system_settings").select("auto_api_enabled").eq("id", 1).maybeSingle(),
       { data: { auto_api_enabled: true }, error: null } as any,
     );
     setEnabled(Boolean((data as any)?.auto_api_enabled ?? true));
@@ -92,7 +89,10 @@ export function AutoApiCard() {
       () => updateSystemSettings({ data: { auto_api_enabled: next } }),
       { ok: false, error: "system_settings write timeout" },
     );
-    if (!ok) supabase.functions.invoke("apply-grants", { body: { reason: "auto-api-write-failed" } }).catch(() => {});
+    if (!ok)
+      supabase.functions
+        .invoke("apply-grants", { body: { reason: "auto-api-write-failed" } })
+        .catch(() => {});
   };
 
   const forceSync = async () => {
@@ -129,7 +129,9 @@ export function AutoApiCard() {
     // MRN, groups duplicate resources by content fingerprint, and DELETEs
     // the newer copies via the FHIR REST API. UI flow is identical.
     await new Promise((r) => setTimeout(r, 1200));
-    setDedupResult("✓ Deduplication complete · Removed 12 duplicate resources across 4 patients · all surviving resources renamed to deterministic stable IDs.");
+    setDedupResult(
+      "✓ Deduplication complete · Removed 12 duplicate resources across 4 patients · all surviving resources renamed to deterministic stable IDs.",
+    );
     setDedupRunning(false);
   };
 
@@ -226,7 +228,9 @@ export function AutoApiCard() {
             <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
             <span className="text-[11px] font-semibold text-slate-700">FHIR Data Quality</span>
           </div>
-          <span className={`text-[10px] font-bold uppercase tracking-wider ${idemp.pass ? "text-emerald-700" : "text-rose-700"}`}>
+          <span
+            className={`text-[10px] font-bold uppercase tracking-wider ${idemp.pass ? "text-emerald-700" : "text-rose-700"}`}
+          >
             {idemp.pass ? "Clean" : "Action Required"}
           </span>
         </div>
@@ -237,7 +241,8 @@ export function AutoApiCard() {
               <InfoHint text="Idempotency = re-sending the same FHIR resource (via PUT with a deterministic stable ID) produces no duplicate rows on the Medblocks FHIR server. This heartbeat re-syncs known bundles every ~5 minutes and confirms zero duplicates were created." />
             </div>
             <div className="font-semibold text-slate-800">
-              {idemp.pass ? "PASS" : "FAIL"} · {idemp.duplicates} duplicates · {fmtAgo(idemp.lastRun)}
+              {idemp.pass ? "PASS" : "FAIL"} · {idemp.duplicates} duplicates ·{" "}
+              {fmtAgo(idemp.lastRun)}
             </div>
           </div>
           <div>
@@ -247,7 +252,12 @@ export function AutoApiCard() {
         </div>
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button size="sm" variant="outline" disabled={!enabled || dedupRunning} className="w-full justify-center">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!enabled || dedupRunning}
+              className="w-full justify-center"
+            >
               <Sparkles className="h-3.5 w-3.5 mr-1.5" />
               {dedupRunning ? "Deduplicating…" : "🧹 Deduplicate FHIR Server"}
             </Button>
@@ -256,10 +266,9 @@ export function AutoApiCard() {
             <AlertDialogHeader>
               <AlertDialogTitle>Deduplicate FHIR Server?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently delete duplicate FHIR resources on the
-                Medblocks server. The oldest copy of each resource is kept and
-                renamed to its deterministic stable ID; newer duplicates are
-                deleted. <strong>This action cannot be undone.</strong>
+                This will permanently delete duplicate FHIR resources on the Medblocks server. The
+                oldest copy of each resource is kept and renamed to its deterministic stable ID;
+                newer duplicates are deleted. <strong>This action cannot be undone.</strong>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

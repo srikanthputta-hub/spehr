@@ -705,7 +705,9 @@ function OfficePage() {
 
   // ---------- Central console screen (shared by desktop + mobile stages) ----------
   const renderConsole = () => {
-    const shown = [...workingEntries].sort((a, b) => roleRank(a.role) - roleRank(b.role)).slice(0, 3);
+    const shown = [...workingEntries]
+      .sort((a, b) => roleRank(a.role) - roleRank(b.role))
+      .slice(0, 3);
     const more = workingEntries.length - shown.length;
     const latest = ticker[ticker.length - 1];
     return (
@@ -1135,7 +1137,13 @@ function OfficePage() {
             strokeWidth="1"
           />
           {/* raised console platform */}
-          <ellipse cx={HUB.x} cy={HUB.y} rx={HUB.rx + 70} ry={HUB.ry + 30} fill={`url(#${idp}hubGlow)`} />
+          <ellipse
+            cx={HUB.x}
+            cy={HUB.y}
+            rx={HUB.rx + 70}
+            ry={HUB.ry + 30}
+            fill={`url(#${idp}hubGlow)`}
+          />
           <ellipse
             cx={HUB.x}
             cy={HUB.y + 10}
@@ -1157,7 +1165,12 @@ function OfficePage() {
             strokeWidth="2"
           />
           {/* console body under the screen */}
-          <path d="M425,272 H575 L588,352 H412 Z" fill="#1a2c38" stroke="#3d6377" strokeWidth="1.5" />
+          <path
+            d="M425,272 H575 L588,352 H412 Z"
+            fill="#1a2c38"
+            stroke="#3d6377"
+            strokeWidth="1.5"
+          />
           <rect x="432" y="300" width="136" height="10" rx="3" fill="#0d1a22" />
           <g fill="#35e08a" opacity=".7">
             <rect x="442" y="318" width="10" height="4" rx="1" />

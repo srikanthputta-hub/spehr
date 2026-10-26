@@ -49,12 +49,15 @@ const TAB_ID = Math.random().toString(36).slice(2);
  */
 export async function claimLease(): Promise<boolean> {
   try {
-    const { data, error } = await supabase.rpc("claim_automation_lease" as any, {
-      _engine: "coding_pipeline_sweep",
-      _holder: TAB_ID,
-      _lease_ms: LEADER_LEASE_MS,
-      _min_interval_ms: TICK_MS,
-    } as any);
+    const { data, error } = await supabase.rpc(
+      "claim_automation_lease" as any,
+      {
+        _engine: "coding_pipeline_sweep",
+        _holder: TAB_ID,
+        _lease_ms: LEADER_LEASE_MS,
+        _min_interval_ms: TICK_MS,
+      } as any,
+    );
     if (error) {
       console.warn("[coding-sweep] claim_automation_lease failed", error);
       return false;
@@ -75,11 +78,14 @@ export async function claimLease(): Promise<boolean> {
  */
 export async function heartbeatLease(): Promise<void> {
   try {
-    const { error } = await supabase.rpc("heartbeat_automation_lease" as any, {
-      _engine: "coding_pipeline_sweep",
-      _holder: TAB_ID,
-      _lease_ms: LEADER_LEASE_MS,
-    } as any);
+    const { error } = await supabase.rpc(
+      "heartbeat_automation_lease" as any,
+      {
+        _engine: "coding_pipeline_sweep",
+        _holder: TAB_ID,
+        _lease_ms: LEADER_LEASE_MS,
+      } as any,
+    );
     if (error) console.warn("[coding-sweep] heartbeat_automation_lease failed", error);
   } catch (e) {
     console.warn("[coding-sweep] heartbeat_automation_lease threw", e);
@@ -100,11 +106,19 @@ export function releaseLeaseBestEffort(): void {
     // A bare `void supabase.rpc(...)` never fires the request at all. Chain
     // a no-op `.then()` so it executes, without awaiting it here — React
     // cleanup functions can't be async and this must stay fire-and-forget.
-    supabase.rpc("heartbeat_automation_lease" as any, {
-      _engine: "coding_pipeline_sweep",
-      _holder: TAB_ID,
-      _lease_ms: -1000,
-    } as any).then(() => {}, () => {});
+    supabase
+      .rpc(
+        "heartbeat_automation_lease" as any,
+        {
+          _engine: "coding_pipeline_sweep",
+          _holder: TAB_ID,
+          _lease_ms: -1000,
+        } as any,
+      )
+      .then(
+        () => {},
+        () => {},
+      );
   } catch {
     /* best-effort only — cleanup must not depend on this */
   }

@@ -45,28 +45,38 @@
 // KNOWN_ROLES mirrors office.tsx's ROLE_ORDER and the migration's role ->
 // home_room CASE mapping. Keep all three in sync if the roster ever changes.
 const KNOWN_ROLES = [
-  'boss', 'coder', 'reviewer', 'tester', 'architect', 'devops',
-  'data-engineer', 'product-manager', 'ux-designer',
-  'clinical-informaticist', 'security-auditor', 'analyst', 'researcher',
+  "boss",
+  "coder",
+  "reviewer",
+  "tester",
+  "architect",
+  "devops",
+  "data-engineer",
+  "product-manager",
+  "ux-designer",
+  "clinical-informaticist",
+  "security-auditor",
+  "analyst",
+  "researcher",
 ];
 
-const SUPABASE_URL = 'https://qxyvmvtecnnwqeqaouzh.supabase.co';
+const SUPABASE_URL = "https://qxyvmvtecnnwqeqaouzh.supabase.co";
 // Publishable/anon key — not a secret, safe to commit. office_board's RLS
 // policies intentionally allow anon read/write: this table only ever holds
 // Claude Code's own dev-activity visualization, never patient data.
-const SUPABASE_ANON_KEY = 'sb_publishable_Ki9OarmjSVz_KdSuenGZMQ_jB4eIvGO';
+const SUPABASE_ANON_KEY = "sb_publishable_Ki9OarmjSVz_KdSuenGZMQ_jB4eIvGO";
 
 const REST = `${SUPABASE_URL}/rest/v1/office_board`;
 const HEADERS = {
   apikey: SUPABASE_ANON_KEY,
   Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
+  "Content-Type": "application/json",
 };
 
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) {
+    if (argv[i].startsWith("--")) {
       out[argv[i].slice(2)] = argv[i + 1];
       i++;
     }
@@ -76,8 +86,8 @@ function parseArgs(argv) {
 
 async function upsertRow(row) {
   const res = await fetch(`${REST}?on_conflict=id`, {
-    method: 'POST',
-    headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    method: "POST",
+    headers: { ...HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
     body: JSON.stringify([row]),
   });
   if (!res.ok) {
@@ -87,8 +97,8 @@ async function upsertRow(row) {
 
 async function deleteRow(id) {
   const res = await fetch(`${REST}?id=eq.${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    headers: { ...HEADERS, Prefer: 'return=minimal' },
+    method: "DELETE",
+    headers: { ...HEADERS, Prefer: "return=minimal" },
   });
   if (!res.ok) {
     throw new Error(`Supabase delete failed: ${res.status} ${await res.text()}`);
@@ -106,19 +116,21 @@ async function main() {
   const [, , cmd, ...rest] = process.argv;
   const args = parseArgs(rest);
 
-  if (cmd === 'start') {
+  if (cmd === "start") {
     const { id, type, model, desc, pipeline, stage, of } = args;
     if (!id || !type) {
-      console.error('Usage: start --id <correlationId> --type <agentType> --model <model> --desc "<description>" [--pipeline <name> --stage <n> --of <total>]');
+      console.error(
+        'Usage: start --id <correlationId> --type <agentType> --model <model> --desc "<description>" [--pipeline <name> --stage <n> --of <total>]',
+      );
       process.exit(1);
     }
     await upsertRow({
       id: rowId(type, id),
       role: type,
-      status: 'working',
-      description: desc || '(no description)',
-      model: model || 'sonnet',
-      model_routed_by: 'task-difficulty',
+      status: "working",
+      description: desc || "(no description)",
+      model: model || "sonnet",
+      model_routed_by: "task-difficulty",
       pipeline_name: pipeline || null,
       pipeline_stage: stage ? Number(stage) : null,
       pipeline_total: of ? Number(of) : null,
@@ -127,10 +139,10 @@ async function main() {
       updated_at: new Date().toISOString(),
     });
     console.log(`[office-bridge] "${id}" started (role: ${type}) — status set to working`);
-  } else if (cmd === 'complete' || cmd === 'fail') {
+  } else if (cmd === "complete" || cmd === "fail") {
     const { id, type } = args;
     if (!id || !type) {
-      console.error('Usage: complete|fail --id <correlationId> --type <agentType>');
+      console.error("Usage: complete|fail --id <correlationId> --type <agentType>");
       process.exit(1);
     }
     const knownRole = KNOWN_ROLES.includes(type);
@@ -141,10 +153,10 @@ async function main() {
       await upsertRow({
         id: rowId(type, id),
         role: type,
-        status: 'idle',
+        status: "idle",
         description: null,
         model: null,
-        model_routed_by: 'default',
+        model_routed_by: "default",
         pipeline_name: null,
         pipeline_stage: null,
         pipeline_total: null,
@@ -157,10 +169,14 @@ async function main() {
       // Unrecognized role: this was its own standalone row (see rowId),
       // so remove it entirely rather than leaving a permanent extra tile.
       await deleteRow(rowId(type, id));
-      console.log(`[office-bridge] "${id}" ${cmd}d (role: ${type}) — removed from the shared board`);
+      console.log(
+        `[office-bridge] "${id}" ${cmd}d (role: ${type}) — removed from the shared board`,
+      );
     }
   } else {
-    console.error('Usage: office-task-bridge.cjs <start|complete|fail> --id <correlationId> --type <agentType> [...]');
+    console.error(
+      "Usage: office-task-bridge.cjs <start|complete|fail> --id <correlationId> --type <agentType> [...]",
+    );
     process.exit(1);
   }
 }

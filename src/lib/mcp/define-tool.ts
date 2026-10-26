@@ -12,6 +12,8 @@ export interface ToolDefinition<Args extends ZodRawShape = ZodRawShape> {
 
 // Identity helper kept only for type inference at the call site — same
 // no-op shape as the tool definitions previously wrapped in defineTool().
-export function defineTool<Args extends ZodRawShape>(def: ToolDefinition<Args>): ToolDefinition<Args> {
+export function defineTool<Args extends ZodRawShape>(
+  def: ToolDefinition<Args>,
+): ToolDefinition<Args> {
   return def;
 }

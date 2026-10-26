@@ -34,10 +34,7 @@ function memoKey(action: Action, params: Record<string, unknown>): string {
   return `${action}:${JSON.stringify(params)}`;
 }
 
-async function invokeProxy(
-  action: Action,
-  params: Record<string, unknown>,
-): Promise<unknown> {
+async function invokeProxy(action: Action, params: Record<string, unknown>): Promise<unknown> {
   const { data, error } = await supabase.functions.invoke("umls-proxy", {
     body: { action, params },
   });

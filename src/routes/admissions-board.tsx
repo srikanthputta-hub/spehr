@@ -41,14 +41,10 @@ function AdmissionsBoard() {
   const [bedCounts, setBedCounts] = useState({ available: 0, total: 0 });
 
   useEffect(() => {
-    let cancelled = false;
+    const cancelled = false;
     const load = async () => {
       const { data } = await fetchWithTimeout(
-        () =>
-          supabase
-            .from("bed_management")
-            .select("status")
-            .eq("facility_name", facility),
+        () => supabase.from("bed_management").select("status").eq("facility_name", facility),
         { data: [], error: null } as any,
       );
       if (cancelled || !data) return;
@@ -62,7 +58,12 @@ function AdmissionsBoard() {
       .channel(`reception-bed-count-${facility}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "bed_management", filter: `facility_name=eq.${facility}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "bed_management",
+          filter: `facility_name=eq.${facility}`,
+        },
         () => load(),
       )
       .subscribe();
@@ -131,7 +132,9 @@ function AdmissionsBoard() {
           </div>
           <div className="hidden sm:inline-flex shrink-0 text-[11px] text-white/60 items-center gap-1">
             {bedCounts.available} / {bedCounts.total} beds open
-            <InfoHint text={`Beds where bed_management.status = "Available" at ${facility}. Beds in "Cleaning" or "Disinfecting" are not counted as open — they roll back to Available automatically when the cleaning cycle finishes.`} />
+            <InfoHint
+              text={`Beds where bed_management.status = "Available" at ${facility}. Beds in "Cleaning" or "Disinfecting" are not counted as open — they roll back to Available automatically when the cleaning cycle finishes.`}
+            />
           </div>
         </div>
       </div>
@@ -201,7 +204,9 @@ function RosterTab({ facility }: { facility: string }) {
       () =>
         supabase
           .from("patients")
-          .select("mrn, first_name, last_name, dob, address, status, admission_time, discharge_time, room")
+          .select(
+            "mrn, first_name, last_name, dob, address, status, admission_time, discharge_time, room",
+          )
           .eq("facility_name", facility)
           .order("admission_time", { ascending: false })
           .limit(150),
@@ -329,7 +334,9 @@ function RosterTab({ facility }: { facility: string }) {
                   <td className="px-3 py-2 font-mono text-slate-700">{r.mrn}</td>
                   <td className="px-3 py-2 font-semibold text-slate-900">{r.name || "—"}</td>
                   <td className="px-3 py-2 font-mono text-slate-700">{r.room ?? "—"}</td>
-                  <td className="px-3 py-2 font-mono text-[11.5px] text-slate-700 whitespace-nowrap">{r.dob ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono text-[11.5px] text-slate-700 whitespace-nowrap">
+                    {r.dob ?? "—"}
+                  </td>
                   <td className="px-3 py-2 text-slate-700">{r.address ?? "—"}</td>
                   <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">
                     {fmtTs(r.start)}
@@ -350,7 +357,12 @@ function fmtTs(ts: string | null | undefined): string {
   if (!ts) return "—";
   const d = new Date(ts);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /* ----------------------------------------------------------------- */
@@ -374,7 +386,17 @@ interface AppointmentRow {
   accepted_by: string | null;
 }
 
-const APPT_STATUSES = ["proposed", "waitlist", "pending", "booked", "arrived", "checked-in", "fulfilled", "cancelled", "noshow"] as const;
+const APPT_STATUSES = [
+  "proposed",
+  "waitlist",
+  "pending",
+  "booked",
+  "arrived",
+  "checked-in",
+  "fulfilled",
+  "cancelled",
+  "noshow",
+] as const;
 
 // Statuses that no longer belong on the "Upcoming" list.
 const CLOSED_APPT_STATUSES = ["fulfilled", "cancelled", "noshow"];
@@ -421,8 +443,12 @@ function SchedulingTab({ facility }: { facility: string }) {
         { data: [], error: null } as any,
       ),
     ]);
-    if (upcomingRes.error) toast.error("Could not load upcoming appointments", { description: upcomingRes.error.message });
-    if (historyRes.error) toast.error("Could not load appointment history", { description: historyRes.error.message });
+    if (upcomingRes.error)
+      toast.error("Could not load upcoming appointments", {
+        description: upcomingRes.error.message,
+      });
+    if (historyRes.error)
+      toast.error("Could not load appointment history", { description: historyRes.error.message });
     setUpcomingRows((upcomingRes.data ?? []) as AppointmentRow[]);
     setHistoryRows((historyRes.data ?? []) as AppointmentRow[]);
     setLoading(false);
@@ -443,7 +469,12 @@ function SchedulingTab({ facility }: { facility: string }) {
       .channel(`reception-appts-${facility}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "fhir_appointments", filter: `facility_name=eq.${facility}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "fhir_appointments",
+          filter: `facility_name=eq.${facility}`,
+        },
         scheduleLoad,
       )
       .subscribe();
@@ -512,7 +543,12 @@ function SchedulingTab({ facility }: { facility: string }) {
           <CheckCircle2 className="h-4 w-4 text-slate-500 mr-2" />
           <h2 className="text-sm font-semibold">Completed / Cancelled</h2>
         </div>
-        <AppointmentTable rows={historyRows} loading={loading} onUpdateStatus={updateStatus} onReschedule={reschedule} />
+        <AppointmentTable
+          rows={historyRows}
+          loading={loading}
+          onUpdateStatus={updateStatus}
+          onReschedule={reschedule}
+        />
       </section>
 
       {open && (
@@ -601,137 +637,147 @@ function AppointmentTable({
           {!loading &&
             rows.map((r, i) => (
               <Fragment key={r.id}>
-              <tr
-                className={`border-b border-slate-200 ${
-                  r.status === "proposed" || r.status === "pending"
-                    ? "bg-amber-50/70 ring-1 ring-amber-200"
-                    : i % 2 === 1
-                    ? "bg-slate-50/60"
-                    : "bg-white"
-                }`}
-              >
-                <td className="px-3 py-2 font-mono text-[11.5px] text-slate-700 whitespace-nowrap">{fmtTs(r.start_time)}</td>
-                <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">{fmtTs(r.end_time)}</td>
-                <td className="px-3 py-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-slate-900">{r.patient_name}</span>
-                    {(() => {
-                      const chip = originChip(r);
-                      return chip ? (
-                        <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${chip.cls}`}>
-                          {chip.label}
-                        </span>
-                      ) : null;
-                    })()}
-                  </div>
-                  {r.patient_mrn && <div className="font-mono text-[11px] text-slate-500">{r.patient_mrn}</div>}
-                </td>
-                <td className="px-3 py-2 text-slate-700">{r.practitioner_name ?? "—"}</td>
-                <td className="px-3 py-2 text-slate-700">
-                  <div className="font-medium">{r.service_type ?? "—"}</div>
-                  {r.description && <div className="text-[11px] text-slate-500">{r.description}</div>}
-                </td>
-                <td className="px-3 py-2">
-                  <StatusBadge
-                    status={
-                      r.status === "proposed" || r.status === "pending"
-                        ? "warning"
-                        : r.status === "booked"
-                        ? "success"
-                        : r.status === "cancelled" || r.status === "noshow"
-                        ? "critical"
-                        : "neutral"
-                    }
-                    label={r.status}
-                  />
-                </td>
-                {showActions && (
-                  <td className="px-3 py-2 text-right pr-4">
-                    <div className="inline-flex items-center gap-1.5">
-                      {(r.status === "proposed" || r.status === "pending") && (
-                        <>
-                          <button
-                            onClick={() => onUpdateStatus(r.id, "booked")}
-                            className="rounded-md bg-emerald-600 hover:bg-emerald-700 text-white px-2 h-7 text-[11px] font-semibold"
-                            title="Confirm patient-requested appointment"
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            onClick={() => onUpdateStatus(r.id, "cancelled")}
-                            className="rounded-md border border-rose-300 text-rose-700 bg-white hover:bg-rose-50 px-2 h-7 text-[11px] font-semibold"
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      )}
-                      <button
-                        onClick={() => {
-                          setEditing(editing === r.id ? null : r.id);
-                          setEditStart(toLocal(r.start_time));
-                          setEditEnd(toLocal(r.end_time));
-                        }}
-                        className="rounded-md border border-slate-300 bg-white hover:bg-slate-50 px-2 h-7 text-[11px] font-semibold text-slate-700"
-                      >
-                        Reschedule
-                      </button>
-                      <select
-                        value={r.status}
-                        onChange={(e) => onUpdateStatus(r.id, e.target.value)}
-                        className="h-7 rounded-md border border-slate-300 bg-white text-[11px] px-2"
-                      >
-                        {APPT_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                <tr
+                  className={`border-b border-slate-200 ${
+                    r.status === "proposed" || r.status === "pending"
+                      ? "bg-amber-50/70 ring-1 ring-amber-200"
+                      : i % 2 === 1
+                        ? "bg-slate-50/60"
+                        : "bg-white"
+                  }`}
+                >
+                  <td className="px-3 py-2 font-mono text-[11.5px] text-slate-700 whitespace-nowrap">
+                    {fmtTs(r.start_time)}
                   </td>
-                )}
-              </tr>
-              {editing === r.id && (
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <td colSpan={showActions ? 7 : 6} className="px-4 py-3">
-                    <div className="flex flex-wrap items-end gap-3">
-                      <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-600 font-semibold">
-                        New start
-                        <input
-                          type="datetime-local"
-                          value={editStart}
-                          onChange={(e) => setEditStart(e.target.value)}
-                          className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-600 font-semibold">
-                        New end
-                        <input
-                          type="datetime-local"
-                          value={editEnd}
-                          onChange={(e) => setEditEnd(e.target.value)}
-                          className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs"
-                        />
-                      </label>
-                      <button
-                        onClick={async () => {
-                          if (!editStart || !editEnd) return;
-                          await onReschedule(r.id, editStart, editEnd);
-                          setEditing(null);
-                        }}
-                        className="rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold"
-                      >
-                        Save & Confirm
-                      </button>
-                      <button
-                        onClick={() => setEditing(null)}
-                        className="rounded-md border border-slate-300 bg-white hover:bg-slate-50 px-3 h-8 text-xs font-semibold text-slate-700"
-                      >
-                        Close
-                      </button>
-                    </div>
+                  <td className="px-3 py-2 font-mono text-[11.5px] text-slate-500 whitespace-nowrap">
+                    {fmtTs(r.end_time)}
                   </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-slate-900">{r.patient_name}</span>
+                      {(() => {
+                        const chip = originChip(r);
+                        return chip ? (
+                          <span
+                            className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${chip.cls}`}
+                          >
+                            {chip.label}
+                          </span>
+                        ) : null;
+                      })()}
+                    </div>
+                    {r.patient_mrn && (
+                      <div className="font-mono text-[11px] text-slate-500">{r.patient_mrn}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-slate-700">{r.practitioner_name ?? "—"}</td>
+                  <td className="px-3 py-2 text-slate-700">
+                    <div className="font-medium">{r.service_type ?? "—"}</div>
+                    {r.description && (
+                      <div className="text-[11px] text-slate-500">{r.description}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <StatusBadge
+                      status={
+                        r.status === "proposed" || r.status === "pending"
+                          ? "warning"
+                          : r.status === "booked"
+                            ? "success"
+                            : r.status === "cancelled" || r.status === "noshow"
+                              ? "critical"
+                              : "neutral"
+                      }
+                      label={r.status}
+                    />
+                  </td>
+                  {showActions && (
+                    <td className="px-3 py-2 text-right pr-4">
+                      <div className="inline-flex items-center gap-1.5">
+                        {(r.status === "proposed" || r.status === "pending") && (
+                          <>
+                            <button
+                              onClick={() => onUpdateStatus(r.id, "booked")}
+                              className="rounded-md bg-emerald-600 hover:bg-emerald-700 text-white px-2 h-7 text-[11px] font-semibold"
+                              title="Confirm patient-requested appointment"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => onUpdateStatus(r.id, "cancelled")}
+                              className="rounded-md border border-rose-300 text-rose-700 bg-white hover:bg-rose-50 px-2 h-7 text-[11px] font-semibold"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => {
+                            setEditing(editing === r.id ? null : r.id);
+                            setEditStart(toLocal(r.start_time));
+                            setEditEnd(toLocal(r.end_time));
+                          }}
+                          className="rounded-md border border-slate-300 bg-white hover:bg-slate-50 px-2 h-7 text-[11px] font-semibold text-slate-700"
+                        >
+                          Reschedule
+                        </button>
+                        <select
+                          value={r.status}
+                          onChange={(e) => onUpdateStatus(r.id, e.target.value)}
+                          className="h-7 rounded-md border border-slate-300 bg-white text-[11px] px-2"
+                        >
+                          {APPT_STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </td>
+                  )}
                 </tr>
-              )}
+                {editing === r.id && (
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <td colSpan={showActions ? 7 : 6} className="px-4 py-3">
+                      <div className="flex flex-wrap items-end gap-3">
+                        <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-600 font-semibold">
+                          New start
+                          <input
+                            type="datetime-local"
+                            value={editStart}
+                            onChange={(e) => setEditStart(e.target.value)}
+                            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-600 font-semibold">
+                          New end
+                          <input
+                            type="datetime-local"
+                            value={editEnd}
+                            onChange={(e) => setEditEnd(e.target.value)}
+                            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs"
+                          />
+                        </label>
+                        <button
+                          onClick={async () => {
+                            if (!editStart || !editEnd) return;
+                            await onReschedule(r.id, editStart, editEnd);
+                            setEditing(null);
+                          }}
+                          className="rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold"
+                        >
+                          Save & Confirm
+                        </button>
+                        <button
+                          onClick={() => setEditing(null)}
+                          className="rounded-md border border-slate-300 bg-white hover:bg-slate-50 px-3 h-8 text-xs font-semibold text-slate-700"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </Fragment>
             ))}
         </tbody>
@@ -813,7 +859,12 @@ function BookAppointmentModal({
     }
     const p: any = candidates[Math.floor(Math.random() * candidates.length)];
     const start = new Date(Date.now() + (1 + Math.floor(Math.random() * 14)) * 24 * 60 * 60 * 1000);
-    start.setHours(9 + Math.floor(Math.random() * 8), [0, 15, 30, 45][Math.floor(Math.random() * 4)], 0, 0);
+    start.setHours(
+      9 + Math.floor(Math.random() * 8),
+      [0, 15, 30, 45][Math.floor(Math.random() * 4)],
+      0,
+      0,
+    );
     const end = new Date(start.getTime() + 30 * 60 * 1000);
     const toLocal = (d: Date) => {
       const x = new Date(d);
@@ -886,19 +937,23 @@ function BookAppointmentModal({
     // same `fhir_id`, so there is exactly one writer and one resource id
     // per appointment (previously this booking flow PUT directly AND the
     // poller separately PUT under a different id for the same row).
-    const { data: inserted, error } = await (supabase as any).from("fhir_appointments").insert({
-      facility_name: facility,
-      patient_name: form.patient_name.trim(),
-      patient_mrn: mrnTrim || null,
-      practitioner_name: form.practitioner_name.trim() || null,
-      service_type: form.service_type.trim() || null,
-      description: form.description.trim() || null,
-      start_time: startIso,
-      end_time: endIso,
-      status: form.status,
-      comment: form.comment.trim() || null,
-      origin: "reception",
-    }).select().maybeSingle();
+    const { data: inserted, error } = await (supabase as any)
+      .from("fhir_appointments")
+      .insert({
+        facility_name: facility,
+        patient_name: form.patient_name.trim(),
+        patient_mrn: mrnTrim || null,
+        practitioner_name: form.practitioner_name.trim() || null,
+        service_type: form.service_type.trim() || null,
+        description: form.description.trim() || null,
+        start_time: startIso,
+        end_time: endIso,
+        status: form.status,
+        comment: form.comment.trim() || null,
+        origin: "reception",
+      })
+      .select()
+      .maybeSingle();
     if (error) {
       setSubmitting(false);
       toast.error("Could not book appointment", { description: error.message });
@@ -910,9 +965,7 @@ function BookAppointmentModal({
       resourceType: "Appointment",
       id: fhirId,
       status: form.status,
-      serviceType: form.service_type.trim()
-        ? [{ text: form.service_type.trim() }]
-        : undefined,
+      serviceType: form.service_type.trim() ? [{ text: form.service_type.trim() }] : undefined,
       description: form.description.trim() || undefined,
       start: startIso,
       end: endIso,
@@ -921,9 +974,7 @@ function BookAppointmentModal({
         {
           actor: {
             reference: mrnTrim ? `Patient/${mrnTrim}` : undefined,
-            identifier: mrnTrim
-              ? { system: "http://spehr.local/mrn", value: mrnTrim }
-              : undefined,
+            identifier: mrnTrim ? { system: "http://spehr.local/mrn", value: mrnTrim } : undefined,
             display: form.patient_name.trim(),
           },
           required: "required",
@@ -964,7 +1015,10 @@ function BookAppointmentModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--navy)]/70 backdrop-blur-sm p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[var(--navy)]/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
       <form
         onSubmit={submit}
         className="w-full max-w-xl rounded-xl bg-card border border-border shadow-2xl overflow-hidden"
@@ -975,7 +1029,11 @@ function BookAppointmentModal({
             <CalendarClock className="h-4 w-4 text-[var(--teal)]" />
             <h2 className="text-sm font-semibold">Book Appointment</h2>
           </div>
-          <button type="button" onClick={onClose} className="grid place-items-center h-7 w-7 rounded-md hover:bg-white/10">
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid place-items-center h-7 w-7 rounded-md hover:bg-white/10"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1086,7 +1144,11 @@ function BookAppointmentModal({
             className="inline-flex items-center gap-1.5 rounded-md border border-[var(--teal)]/40 bg-[var(--teal-soft)] text-[var(--teal)] hover:bg-[var(--teal)]/10 px-3 h-9 text-xs font-semibold disabled:opacity-60"
             title="Pick a random existing patient at this facility and fill realistic details"
           >
-            {looking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+            {looking ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Wand2 className="h-3.5 w-3.5" />
+            )}
             Auto-fill
           </button>
           <button
@@ -1094,7 +1156,11 @@ function BookAppointmentModal({
             disabled={submitting}
             className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-4 h-9 text-xs font-semibold shadow-sm disabled:opacity-60"
           >
-            {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            {submitting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Plus className="h-3.5 w-3.5" />
+            )}
             Book Appointment
           </button>
         </div>
@@ -1114,7 +1180,9 @@ function FormField({
 }) {
   return (
     <label className={`flex flex-col gap-1.5 ${className ?? ""}`}>
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        {label}
+      </span>
       {children}
     </label>
   );
@@ -1123,4 +1191,3 @@ function FormField({
 /* ----------------------------------------------------------------- */
 /* Bed Management — shared with the Nurse Dashboard                   */
 /* ----------------------------------------------------------------- */
-
