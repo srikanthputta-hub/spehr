@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import {
   CheckCircle2,
@@ -10,18 +10,42 @@ import {
   User,
   AlertTriangle,
 } from "lucide-react";
+import type { CodedItem } from "@/lib/coding-pipeline";
+
+/**
+ * `extraction_mapping` / `standardized_output` are jsonb columns (see the
+ * NOTE in coding-pipeline.ts about the generated Supabase types being
+ * stale for `extraction_mapping`); this card only ever reads the shapes
+ * `runSixStreamPipeline` writes, captured here instead of `any`.
+ */
+export type ExtractionMapping = {
+  streams?: Record<string, { source?: string; status?: string; count?: number }>;
+  validation?: Record<string, string>;
+  auto_reviewed?: boolean;
+};
+export type StandardizedOutput = {
+  stream_a?: CodedItem[];
+  stream_b?: CodedItem[];
+  stream_c?: CodedItem[];
+  stream_d?: CodedItem[];
+  stream_e?: Record<string, string>;
+  stream_e_validation?: Record<string, unknown>;
+  stream_f?: CodedItem[];
+};
 
 export type AuditRow = {
   id: string;
   patient_mrn: string;
   raw_text: string | null;
-  extraction_mapping: any;
-  standardized_output: any;
+  extraction_mapping: ExtractionMapping | null;
+  standardized_output: StandardizedOutput | null;
   confidence_score: number | null;
   status: string | null;
   created_at: string;
   updated_at?: string | null;
   approved_by?: string | null;
+  /** Set client-side only when an auto-review cycle has already run on this row. */
+  __autoReviewed?: boolean;
 };
 
 const STREAM_META: Record<string, { title: string; blurb: string }> = {
@@ -38,36 +62,64 @@ const NEEDS_REVIEW_AUTO_APPROVE_MS = 360_000;
 
 function StatusPill({ s }: { s: string | undefined }) {
   const cls =
-    s === "coded" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-    s === "partial" ? "bg-amber-50 text-amber-700 border-amber-200" :
-    s === "failed" ? "bg-red-50 text-red-700 border-red-200" :
-    "bg-slate-50 text-slate-600 border-slate-200";
-  const label = s === "coded" ? "coded" : s === "partial" ? "partial" : s === "failed" ? "failed" : "—";
-  return <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${cls}`}>{label}</span>;
+    s === "coded"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : s === "partial"
+        ? "bg-amber-50 text-amber-700 border-amber-200"
+        : s === "failed"
+          ? "bg-red-50 text-red-700 border-red-200"
+          : "bg-slate-50 text-slate-600 border-slate-200";
+  const label =
+    s === "coded" ? "coded" : s === "partial" ? "partial" : s === "failed" ? "failed" : "—";
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${cls}`}
+    >
+      {label}
+    </span>
+  );
 }
 
-function CodePill({ system, code, display }: { system: string; code: string; display?: string | null }) {
+function CodePill({
+  system,
+  code,
+  display,
+}: {
+  system: string;
+  code: string;
+  display?: string | null;
+}) {
   const chip: Record<string, string> = {
-    "SNOMED":  "border-sky-200 bg-sky-50 text-sky-700",
-    "ICD-10":  "border-violet-200 bg-violet-50 text-violet-700",
-    "RxNorm":  "border-orange-200 bg-orange-50 text-orange-700",
-    "LOINC":   "border-emerald-200 bg-emerald-50 text-emerald-700",
+    SNOMED: "border-sky-200 bg-sky-50 text-sky-700",
+    "ICD-10": "border-violet-200 bg-violet-50 text-violet-700",
+    RxNorm: "border-orange-200 bg-orange-50 text-orange-700",
+    LOINC: "border-emerald-200 bg-emerald-50 text-emerald-700",
   };
   return (
-    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] ${chip[system] ?? "border-slate-200 bg-slate-50 text-slate-700"}`}>
-      <span className="font-bold">{system} {code}</span>
+    <span
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] ${chip[system] ?? "border-slate-200 bg-slate-50 text-slate-700"}`}
+    >
+      <span className="font-bold">
+        {system} {code}
+      </span>
       {display ? <span className="text-slate-500">· {display}</span> : null}
     </span>
   );
 }
 
+type StreamPillPayload = CodedItem[] | CodedItem | Record<string, string> | null | undefined;
+
 function StreamCard({
-  streamKey, meta, status, payload, gate,
+  streamKey,
+  meta,
+  status,
+  payload,
+  gate,
 }: {
   streamKey: string;
   meta: { title: string; blurb: string };
   status?: string;
-  payload: any;
+  payload: StreamPillPayload;
   gate?: string;
 }) {
   return (
@@ -79,57 +131,126 @@ function StreamCard({
         </div>
         <div className="flex items-center gap-1">
           {gate === "needs_review" && (
-            <span className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700" title="One or more codes not in value set">
+            <span
+              className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700"
+              title="One or more codes not in value set"
+            >
               <AlertTriangle className="h-3 w-3" /> Review
             </span>
           )}
           <StatusPill s={status} />
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1">
-        {renderStreamPills(streamKey, payload)}
-      </div>
+      <div className="mt-2 flex flex-wrap gap-1">{renderStreamPills(streamKey, payload)}</div>
     </div>
   );
 }
 
-function renderStreamPills(key: string, payload: any) {
+/** `v` is `unknown` (from a CodedItem field); coerce to a display string, or undefined for empty. */
+function s(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  const str = String(v);
+  return str || undefined;
+}
+
+function renderStreamPills(key: string, payload: StreamPillPayload) {
   if (!payload) return <span className="text-[11px] text-slate-400">No coded items.</span>;
   const pills: ReactElement[] = [];
-  const warn = (validated: any) => (validated === false ? "ring-1 ring-amber-400" : "");
-  const warnTitle = (validated: any, reason?: string) =>
-    validated === false ? (reason ? `Not in value set — ${reason}` : "Not in value set") : undefined;
-  if (key === "a") {
-    const arr = Array.isArray(payload) ? payload : payload ? [payload] : [];
-    arr.forEach((p: any, i: number) => {
-      if (p?.snomed_code) pills.push(<span key={`asn${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="SNOMED" code={p.snomed_code} display={p.snomed_display} /></span>);
-      if (p?.icd10_code) pills.push(<CodePill key={`ai${i}`} system="ICD-10" code={p.icd10_code} display={p.icd10_display} />);
-    });
-  } else if (key === "b") {
-    const arr = Array.isArray(payload) ? payload : [];
-    arr.forEach((p: any, i: number) => {
-      if (p.snomed_code) pills.push(<span key={`bs${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="SNOMED" code={p.snomed_code} display={p.snomed_display} /></span>);
-      if (p.icd10_code) pills.push(<CodePill key={`bi${i}`} system="ICD-10" code={p.icd10_code} display={p.icd10_display} />);
+  const warn = (validated: unknown) => (validated === false ? "ring-1 ring-amber-400" : "");
+  const warnTitle = (validated: unknown, reason?: unknown) =>
+    validated === false
+      ? reason
+        ? `Not in value set — ${String(reason)}`
+        : "Not in value set"
+      : undefined;
+  const asArray = (p: StreamPillPayload): CodedItem[] =>
+    Array.isArray(p) ? p : p && typeof p === "object" ? [p as CodedItem] : [];
+  if (key === "a" || key === "b") {
+    asArray(payload).forEach((p, i) => {
+      const snomedCode = s(p.snomed_code);
+      if (snomedCode)
+        pills.push(
+          <span
+            key={`${key}sn${i}`}
+            className={`inline-block rounded ${warn(p.validated)}`}
+            title={warnTitle(p.validated, p.validation_reason)}
+          >
+            <CodePill system="SNOMED" code={snomedCode} display={s(p.snomed_display)} />
+          </span>,
+        );
+      const icd10Code = s(p.icd10_code);
+      if (icd10Code)
+        pills.push(
+          <CodePill
+            key={`${key}i${i}`}
+            system="ICD-10"
+            code={icd10Code}
+            display={s(p.icd10_display)}
+          />,
+        );
     });
   } else if (key === "c") {
-    (Array.isArray(payload) ? payload : []).forEach((p: any, i: number) =>
-      p.rxnorm_code && pills.push(<span key={`c${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="RxNorm" code={p.rxnorm_code} display={p.rxnorm_display ?? p.name} /></span>)
-    );
+    asArray(payload).forEach((p, i) => {
+      const rxnormCode = s(p.rxnorm_code);
+      if (!rxnormCode) return;
+      pills.push(
+        <span
+          key={`c${i}`}
+          className={`inline-block rounded ${warn(p.validated)}`}
+          title={warnTitle(p.validated, p.validation_reason)}
+        >
+          <CodePill system="RxNorm" code={rxnormCode} display={s(p.rxnorm_display ?? p.name)} />
+        </span>,
+      );
+    });
   } else if (key === "d") {
-    (Array.isArray(payload) ? payload : []).forEach((p: any, i: number) => {
-      if (p.substance_rxcui) pills.push(<CodePill key={`dr${i}`} system="RxNorm" code={p.substance_rxcui} display={p.substance} />);
-      if (p.substance_snomed) pills.push(<span key={`ds${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="SNOMED" code={p.substance_snomed} display={p.substance} /></span>);
-      if (p.reaction_snomed) pills.push(<CodePill key={`drx${i}`} system="SNOMED" code={p.reaction_snomed} display="reaction" />);
+    asArray(payload).forEach((p, i) => {
+      const substanceRxcui = s(p.substance_rxcui);
+      if (substanceRxcui)
+        pills.push(
+          <CodePill
+            key={`dr${i}`}
+            system="RxNorm"
+            code={substanceRxcui}
+            display={s(p.substance)}
+          />,
+        );
+      const substanceSnomed = s(p.substance_snomed);
+      if (substanceSnomed)
+        pills.push(
+          <span
+            key={`ds${i}`}
+            className={`inline-block rounded ${warn(p.validated)}`}
+            title={warnTitle(p.validated, p.validation_reason)}
+          >
+            <CodePill system="SNOMED" code={substanceSnomed} display={s(p.substance)} />
+          </span>,
+        );
+      const reactionSnomed = s(p.reaction_snomed);
+      if (reactionSnomed)
+        pills.push(
+          <CodePill key={`drx${i}`} system="SNOMED" code={reactionSnomed} display="reaction" />,
+        );
     });
   } else if (key === "e") {
-    const map = payload && typeof payload === "object" ? payload : {};
-    Object.entries(map).forEach(([field, code]: any, i) =>
-      pills.push(<CodePill key={`e${i}`} system="LOINC" code={String(code)} display={field} />)
+    const map = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : {};
+    Object.entries(map).forEach(([field, code], i) =>
+      pills.push(<CodePill key={`e${i}`} system="LOINC" code={String(code)} display={field} />),
     );
   } else if (key === "f") {
-    (Array.isArray(payload) ? payload : []).forEach((p: any, i: number) =>
-      p.loinc_code && pills.push(<span key={`f${i}`} className={`inline-block rounded ${warn(p.validated)}`} title={warnTitle(p.validated, p.validation_reason)}><CodePill system="LOINC" code={p.loinc_code} display={p.loinc_display ?? p.test_name} /></span>)
-    );
+    asArray(payload).forEach((p, i) => {
+      const loincCode = s(p.loinc_code);
+      if (!loincCode) return;
+      pills.push(
+        <span
+          key={`f${i}`}
+          className={`inline-block rounded ${warn(p.validated)}`}
+          title={warnTitle(p.validated, p.validation_reason)}
+        >
+          <CodePill system="LOINC" code={loincCode} display={s(p.loinc_display ?? p.test_name)} />
+        </span>,
+      );
+    });
   }
   return pills.length ? pills : <span className="text-[11px] text-slate-400">No coded items.</span>;
 }
@@ -164,8 +285,7 @@ export function AuditCard({
   const created = new Date(row.created_at).toLocaleString();
   const approvedBy = (row.approved_by ?? "").toLowerCase();
   const autoReviewed =
-    (row as any).__autoReviewed === true ||
-    row.extraction_mapping?.auto_reviewed === true;
+    row.__autoReviewed === true || row.extraction_mapping?.auto_reviewed === true;
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   // CSS-only auto-approve countdown — no interval / no per-tick state.
@@ -178,7 +298,10 @@ export function AuditCard({
     const remainingMs = Math.max(0, AUTO_APPROVE_MS - elapsedMs);
     const startPct = Math.max(0, Math.min(100, (remainingMs / AUTO_APPROVE_MS) * 100));
     const nrRemainingMs = Math.max(0, NEEDS_REVIEW_AUTO_APPROVE_MS - elapsedMs);
-    const nrStartPct = Math.max(0, Math.min(100, (nrRemainingMs / NEEDS_REVIEW_AUTO_APPROVE_MS) * 100));
+    const nrStartPct = Math.max(
+      0,
+      Math.min(100, (nrRemainingMs / NEEDS_REVIEW_AUTO_APPROVE_MS) * 100),
+    );
     return { remainingMs, startPct, nrRemainingMs, nrStartPct };
   }, [admissionAt, row.created_at, needsReview]);
 
@@ -190,7 +313,7 @@ export function AuditCard({
       if (firedRef.current) return;
       firedRef.current = true;
       if (isNr) {
-        (row as any).__autoReviewed = true;
+        row.__autoReviewed = true;
       }
       onAutoApprove?.(row);
     };
@@ -224,7 +347,11 @@ export function AuditCard({
       >
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-            {expanded ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+            {expanded ? (
+              <ChevronUp className="h-4 w-4 text-slate-500" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-slate-500" />
+            )}
             {row.patient_mrn}
             <span className="ml-2 text-[11px] font-normal text-slate-500">{created}</span>
           </div>
@@ -248,18 +375,26 @@ export function AuditCard({
               <Sparkles className="h-3 w-3" /> AI Reviewed
             </span>
           )}
-          <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-            conf >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-            : conf >= 50 ? "border-amber-200 bg-amber-50 text-amber-700"
-            : "border-red-200 bg-red-50 text-red-700"
-          }`}>
+          <span
+            className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+              conf >= 80
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : conf >= 50
+                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                  : "border-red-200 bg-red-50 text-red-700"
+            }`}
+          >
             Confidence · {conf}%
           </span>
-          <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-            approved ? "border-emerald-300 bg-emerald-100 text-emerald-800"
-            : needsReview ? "border-amber-300 bg-amber-100 text-amber-800"
-            : "border-amber-200 bg-amber-50 text-amber-700"
-          }`}>
+          <span
+            className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+              approved
+                ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+                : needsReview
+                  ? "border-amber-300 bg-amber-100 text-amber-800"
+                  : "border-amber-200 bg-amber-50 text-amber-700"
+            }`}
+          >
             {approved ? "Approved" : needsReview ? "⚠ Needs Review" : "Pending"}
           </span>
         </div>
@@ -269,12 +404,14 @@ export function AuditCard({
         <div className="h-1.5 w-full bg-slate-100">
           <div
             className="h-full"
-            style={{
-              width: `${startPct}%`,
-              animation: `audit-drain ${remainingMs}ms linear forwards, audit-drain-color ${remainingMs}ms linear forwards`,
-              ["--audit-start" as any]: `${startPct}%`,
-              backgroundColor: "var(--success)",
-            }}
+            style={
+              {
+                width: `${startPct}%`,
+                animation: `audit-drain ${remainingMs}ms linear forwards, audit-drain-color ${remainingMs}ms linear forwards`,
+                "--audit-start": `${startPct}%`,
+                backgroundColor: "var(--success)",
+              } as CSSProperties & Record<string, string>
+            }
             title={`Auto-approves in ${Math.ceil(remainingMs / 1000)}s`}
           />
         </div>
@@ -284,12 +421,14 @@ export function AuditCard({
         <div className="h-1.5 w-full bg-slate-100">
           <div
             className="h-full"
-            style={{
-              width: `${nrStartPct}%`,
-              animation: `audit-drain ${nrRemainingMs}ms linear forwards`,
-              ["--audit-start" as any]: `${nrStartPct}%`,
-              backgroundColor: "var(--warning)",
-            }}
+            style={
+              {
+                width: `${nrStartPct}%`,
+                animation: `audit-drain ${nrRemainingMs}ms linear forwards`,
+                "--audit-start": `${nrStartPct}%`,
+                backgroundColor: "var(--warning)",
+              } as CSSProperties & Record<string, string>
+            }
             title={`Auto-reviews in ${Math.ceil(nrRemainingMs / 1000)}s`}
           />
         </div>
@@ -298,7 +437,7 @@ export function AuditCard({
       {expanded && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3">
-            {(["a","b","c","d","e","f"] as const).map((k) => (
+            {(["a", "b", "c", "d", "e", "f"] as const).map((k) => (
               <StreamCard
                 key={k}
                 streamKey={k}

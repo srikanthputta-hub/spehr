@@ -184,47 +184,50 @@ async function flagSafetyAlert(mrn: string, quality: FhirQuality) {
 }
 
 async function buildBundleForMrn(r: Row) {
-  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes] = await Promise.all([
-    supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
-    supabase
-      .from("lab_orders")
-      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
-      .eq("patient_mrn", r.mrn)
-      .order("created_at", { ascending: false })
-      .limit(40),
-    supabase
-      .from("medication_orders")
-      .select(
-        "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
-      )
-      .eq("patient_mrn", r.mrn)
-      .order("created_at", { ascending: false })
-      .limit(200),
-    supabase
-      .from("clinical_notes")
-      .select("id, note_type, author, content, created_at")
-      .eq("mrn", r.mrn)
-      .order("created_at", { ascending: false })
-      .limit(20),
-    supabase
-      .from("conditions")
-      .select(
-        "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at",
-      )
-      .eq("mrn", r.mrn)
-      .order("coded_at", { ascending: false })
-      .limit(20),
-    supabase
-      .from("allergies")
-      .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
-      .eq("mrn", r.mrn)
-      .limit(40),
-    supabase
-      .from("allergy_reactions")
-      .select("allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display")
-      .eq("mrn", r.mrn)
-      .limit(80),
-  ]);
+  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes] =
+    await Promise.all([
+      supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
+      supabase
+        .from("lab_orders")
+        .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
+        .eq("patient_mrn", r.mrn)
+        .order("created_at", { ascending: false })
+        .limit(40),
+      supabase
+        .from("medication_orders")
+        .select(
+          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
+        )
+        .eq("patient_mrn", r.mrn)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase
+        .from("clinical_notes")
+        .select("id, note_type, author, content, created_at")
+        .eq("mrn", r.mrn)
+        .order("created_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("conditions")
+        .select(
+          "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at",
+        )
+        .eq("mrn", r.mrn)
+        .order("coded_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("allergies")
+        .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
+        .eq("mrn", r.mrn)
+        .limit(40),
+      supabase
+        .from("allergy_reactions")
+        .select(
+          "allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display",
+        )
+        .eq("mrn", r.mrn)
+        .limit(80),
+    ]);
   const p = (patientRes.data ?? {}) as any;
   const reactionsByAllergy = new Map<string, any[]>();
   for (const rx of ((reactionsRes as any)?.data ?? []) as any[]) {
@@ -281,19 +284,25 @@ async function buildBundleForMrn(r: Row) {
       const [invRes, chargesRes, apptRes] = await Promise.all([
         supabase
           .from("fhir_invoices")
-          .select("id, invoice_no, mrn, patient_name, facility_name, status, subtotal, tax, total, currency, issued_at, paid_at")
+          .select(
+            "id, invoice_no, mrn, patient_name, facility_name, status, subtotal, tax, total, currency, issued_at, paid_at",
+          )
           .eq("mrn", r.mrn)
           .order("issued_at", { ascending: false })
           .limit(50),
         supabase
           .from("fhir_charge_items")
-          .select("id, invoice_id, mrn, charge_code, code_system, description, category, quantity, unit_price, amount, currency, service_date")
+          .select(
+            "id, invoice_id, mrn, charge_code, code_system, description, category, quantity, unit_price, amount, currency, service_date",
+          )
           .eq("mrn", r.mrn)
           .order("service_date", { ascending: false })
           .limit(200),
         supabase
           .from("fhir_appointments")
-          .select("id, fhir_id, facility_name, patient_mrn, patient_name, practitioner_name, service_type, description, start_time, end_time, status, comment")
+          .select(
+            "id, fhir_id, facility_name, patient_mrn, patient_name, practitioner_name, service_type, description, start_time, end_time, status, comment",
+          )
           .eq("patient_mrn", r.mrn)
           .order("start_time", { ascending: false })
           .limit(50),
@@ -304,21 +313,23 @@ async function buildBundleForMrn(r: Row) {
       );
       const extras: any[] = [];
       for (const inv of invoices) {
-        try { extras.push(buildInvoiceResource(inv)); } catch (e) {
+        try {
+          extras.push(buildInvoiceResource(inv));
+        } catch (e) {
           console.warn("[bg-fhir-sync] invoice build failed", inv.invoice_no, e);
         }
       }
       for (const ch of (chargesRes.data ?? []) as any[]) {
         try {
-          extras.push(
-            buildChargeItemResource(ch, invoiceNoById.get(String(ch.invoice_id))),
-          );
+          extras.push(buildChargeItemResource(ch, invoiceNoById.get(String(ch.invoice_id))));
         } catch (e) {
           console.warn("[bg-fhir-sync] charge build failed", ch.id, e);
         }
       }
       for (const a of (apptRes.data ?? []) as any[]) {
-        try { extras.push(buildRealAppointmentResource(a)); } catch (e) {
+        try {
+          extras.push(buildRealAppointmentResource(a));
+        } catch (e) {
           console.warn("[bg-fhir-sync] appointment build failed", a.id, e);
         }
       }
@@ -366,9 +377,7 @@ export function useBackgroundFhirSync() {
     const loadRows = async () => {
       const { data } = await supabase
         .from("patients")
-        .select(
-          "mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint",
-        )
+        .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint")
         .not("mrn", "is", null)
         .order("admission_time", { ascending: false })
         .limit(200);
@@ -409,7 +418,10 @@ export function useBackgroundFhirSync() {
       for (const [mrn, st] of statusRef.current) {
         if (st !== "queued") continue;
         const row = rowsRef.current.get(mrn);
-        if (row) { target = row; break; }
+        if (row) {
+          target = row;
+          break;
+        }
       }
       if (!target) return;
       inFlightRef.current = true;
@@ -423,15 +435,12 @@ export function useBackgroundFhirSync() {
         persistQuality(target.mrn, quality);
         if (!quality.ok) void flagSafetyAlert(target.mrn, quality);
         const isDischarged =
-          (target.status ?? "").toLowerCase() === "discharged" ||
-          !!target.discharge_time;
+          (target.status ?? "").toLowerCase() === "discharged" || !!target.discharge_time;
         if (isDischarged) {
           // Pre-push conformance validation. Fail-open: helper logs to
           // auto_doc_logs, persists the banner state, and never throws.
           try {
-            const { validateDischargeConformance } = await import(
-              "@/lib/discharge-conformance"
-            );
+            const { validateDischargeConformance } = await import("@/lib/discharge-conformance");
             await validateDischargeConformance(bundle, target.mrn);
           } catch (e) {
             console.warn("[discharge-conformance]", target.mrn, e);
@@ -446,8 +455,7 @@ export function useBackgroundFhirSync() {
             body: { mrn: target.mrn, bundle: primary },
           });
           if (first.error) throw first.error;
-          if (first.data?.success === false)
-            throw new Error(first.data?.error ?? "Sync failed");
+          if (first.data?.success === false) throw new Error(first.data?.error ?? "Sync failed");
           if (composition) {
             const second = await supabase.functions.invoke("fhir-proxy", {
               body: { mrn: target.mrn, bundle: composition },
@@ -461,8 +469,7 @@ export function useBackgroundFhirSync() {
             body: { mrn: target.mrn, bundle },
           });
           if (error) throw error;
-          if (data?.success === false)
-            throw new Error(data?.error ?? "Sync failed");
+          if (data?.success === false) throw new Error(data?.error ?? "Sync failed");
         }
         statusRef.current.set(target.mrn, "ok");
         persistPushed(target.mrn, "ok");
@@ -491,9 +498,7 @@ export function useBackgroundFhirSync() {
       // Guard against runaway loops with a hard cap per drain invocation.
       for (let i = 0; i < 500; i++) {
         if (cancelled || inFlightRef.current) return;
-        const hasQueued = Array.from(statusRef.current.values()).some(
-          (s) => s === "queued",
-        );
+        const hasQueued = Array.from(statusRef.current.values()).some((s) => s === "queued");
         if (!hasQueued) return;
         await pushNext();
       }
@@ -513,46 +518,32 @@ export function useBackgroundFhirSync() {
 
     const channel = supabase
       .channel("bg-fhir-live-sync")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "patients" },
-        (p: any) => {
-          const mrn = p?.new?.mrn ?? p?.old?.mrn;
-          // Refresh row map on any patient change so newly admitted /
-          // updated patients enter the live sync queue immediately.
-          void loadRows().then(() => void drain());
-          requeueByMrn(mrn);
-        },
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, (p: any) => {
+        const mrn = p?.new?.mrn ?? p?.old?.mrn;
+        // Refresh row map on any patient change so newly admitted /
+        // updated patients enter the live sync queue immediately.
+        void loadRows().then(() => void drain());
+        requeueByMrn(mrn);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders" }, (p: any) =>
+        requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "lab_orders" },
-        (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "lab_results" },
-        (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn ?? p?.new?.mrn ?? p?.old?.mrn),
+      .on("postgres_changes", { event: "*", schema: "public", table: "lab_results" }, (p: any) =>
+        requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn ?? p?.new?.mrn ?? p?.old?.mrn),
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "medication_orders" },
         (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "vitals" },
-        (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn ?? p?.new?.mrn ?? p?.old?.mrn),
+      .on("postgres_changes", { event: "*", schema: "public", table: "vitals" }, (p: any) =>
+        requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn ?? p?.new?.mrn ?? p?.old?.mrn),
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "clinical_notes" },
-        (p: any) => requeueByMrn(p?.new?.mrn ?? p?.old?.mrn),
+      .on("postgres_changes", { event: "*", schema: "public", table: "clinical_notes" }, (p: any) =>
+        requeueByMrn(p?.new?.mrn ?? p?.old?.mrn),
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "fhir_invoices" },
-        (p: any) => requeueByMrn(p?.new?.mrn ?? p?.old?.mrn),
+      .on("postgres_changes", { event: "*", schema: "public", table: "fhir_invoices" }, (p: any) =>
+        requeueByMrn(p?.new?.mrn ?? p?.old?.mrn),
       )
       .on(
         "postgres_changes",

@@ -13,7 +13,11 @@ export function ModuleRibbon({
 }: {
   module: string;
   context?: string;
-  stats?: { label: string; value: ReactNode; tone?: "default" | "good" | "warn" | "bad" | "info" }[];
+  stats?: {
+    label: string;
+    value: ReactNode;
+    tone?: "default" | "good" | "warn" | "bad" | "info";
+  }[];
   right?: ReactNode;
 }) {
   const toneClass = (t?: string) =>
@@ -25,7 +29,7 @@ export function ModuleRibbon({
           ? "text-red-300"
           : t === "info"
             ? "text-cyan-200"
-          : "text-cyan-200";
+            : "text-cyan-200";
   return (
     <div className="border-b border-[#0a1a30] bg-gradient-to-r from-[#08172b] via-[#0c2340] to-[#0e2b4f] text-slate-100">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 px-6 py-2">
@@ -85,16 +89,16 @@ export function SectionHeader({
         ? "from-[#7a4a08] to-[#b06f10]"
         : "from-[#0c2340] to-[#163b6b]";
   return (
-    <div className={`flex items-center justify-between bg-gradient-to-r ${bg} px-4 py-2 border-b-2 border-[#2d8a9e]`}>
+    <div
+      className={`flex items-center justify-between bg-gradient-to-r ${bg} px-4 py-2 border-b-2 border-[#2d8a9e]`}
+    >
       <div className="flex items-center gap-2 min-w-0">
         {icon && <span className="text-slate-100">{icon}</span>}
         <h3 className="text-[11px] uppercase tracking-[0.22em] font-bold text-white truncate">
           {title}
         </h3>
         {subtitle && (
-          <span className="text-[10px] font-mono text-cyan-200 truncate">
-            · {subtitle}
-          </span>
+          <span className="text-[10px] font-mono text-cyan-200 truncate">· {subtitle}</span>
         )}
       </div>
       {right && <div className="flex items-center gap-2 text-[10px] text-cyan-100">{right}</div>}

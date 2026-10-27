@@ -22,7 +22,13 @@ function stamp(row: Record<string, unknown>, opts: PersistOptions) {
   };
 }
 
-function archiveLocally(table: string, op: string, payload: unknown, opts: PersistOptions, error: string) {
+function archiveLocally(
+  table: string,
+  op: string,
+  payload: unknown,
+  opts: PersistOptions,
+  error: string,
+) {
   try {
     const raw = localStorage.getItem(LOCAL_OUTBOX_KEY);
     const list = raw ? JSON.parse(raw) : [];
@@ -33,7 +39,13 @@ function archiveLocally(table: string, op: string, payload: unknown, opts: Persi
   }
 }
 
-async function recordOutbox(table: string, op: string, payload: unknown, opts: PersistOptions, error: string) {
+async function recordOutbox(
+  table: string,
+  op: string,
+  payload: unknown,
+  opts: PersistOptions,
+  error: string,
+) {
   archiveLocally(table, op, payload, opts, error);
   try {
     await supabase.from("pending_writes").insert({
@@ -49,7 +61,13 @@ async function recordOutbox(table: string, op: string, payload: unknown, opts: P
   }
 }
 
-async function recordProvenance(table: string, rowId: string | null, op: string, opts: PersistOptions, payload: unknown) {
+async function recordProvenance(
+  table: string,
+  rowId: string | null,
+  op: string,
+  opts: PersistOptions,
+  payload: unknown,
+) {
   try {
     await supabase.from("data_provenance").insert({
       table_name: table,
@@ -75,7 +93,11 @@ export async function persistInsert<T extends Record<string, unknown>>(
   opts: PersistOptions = {},
 ) {
   const stamped = stamp(row, opts);
-  const q = supabase.from(table as never).insert(stamped as never).select().maybeSingle();
+  const q = supabase
+    .from(table as never)
+    .insert(stamped as never)
+    .select()
+    .maybeSingle();
   const { data, error } = await q;
   if (error) {
     await recordOutbox(table, "INSERT", stamped, opts, error.message);
@@ -92,7 +114,9 @@ export async function persistUpsert<T extends Record<string, unknown>>(
   opts: PersistOptions = {},
 ) {
   const stamped = stamp(row, opts);
-  const builder = supabase.from(table as never).upsert(stamped as never, opts.onConflict ? { onConflict: opts.onConflict } : undefined);
+  const builder = supabase
+    .from(table as never)
+    .upsert(stamped as never, opts.onConflict ? { onConflict: opts.onConflict } : undefined);
   const { data, error } = await builder.select().maybeSingle();
   if (error) {
     await recordOutbox(table, "UPSERT", stamped, opts, error.message);
@@ -129,7 +153,13 @@ export async function persistFhirResource(input: {
   } as never;
   const { data, error } = await supabase.rpc("persist_fhir_resource", args);
   if (error) {
-    await recordOutbox("fhir_resources", "UPSERT", input, { origin: input.origin, authorId: input.authorId }, error.message);
+    await recordOutbox(
+      "fhir_resources",
+      "UPSERT",
+      input,
+      { origin: input.origin, authorId: input.authorId },
+      error.message,
+    );
     return { data: null, error };
   }
   return { data, error: null };
@@ -144,14 +174,24 @@ export async function flushLocalOutbox() {
     return;
   }
   if (!raw) return;
-  let list: Array<{ table: string; op: string; payload: Record<string, unknown>; opts: PersistOptions }>; 
-  try { list = JSON.parse(raw); } catch { return; }
+  let list: Array<{
+    table: string;
+    op: string;
+    payload: Record<string, unknown>;
+    opts: PersistOptions;
+  }>;
+  try {
+    list = JSON.parse(raw);
+  } catch {
+    return;
+  }
   const remaining: typeof list = [];
   for (const item of list) {
     try {
-      const res = item.op === "UPSERT"
-        ? await persistUpsert(item.table, item.payload, item.opts)
-        : await persistInsert(item.table, item.payload, item.opts);
+      const res =
+        item.op === "UPSERT"
+          ? await persistUpsert(item.table, item.payload, item.opts)
+          : await persistInsert(item.table, item.payload, item.opts);
       if (res.error) remaining.push(item);
     } catch {
       remaining.push(item);
@@ -166,5 +206,7 @@ export async function flushLocalOutbox() {
 }
 
 if (typeof window !== "undefined") {
-  window.addEventListener("online", () => { void flushLocalOutbox(); });
+  window.addEventListener("online", () => {
+    void flushLocalOutbox();
+  });
 }

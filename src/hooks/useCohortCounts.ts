@@ -55,9 +55,7 @@ export interface HighAcuityPatient {
   room: string | null;
 }
 
-async function loadAdmittedHighAcuity(
-  facilityName?: string,
-): Promise<HighAcuityPatient[] | null> {
+async function loadAdmittedHighAcuity(facilityName?: string): Promise<HighAcuityPatient[] | null> {
   const codes = await loadHighAcuityCodes();
   if (codes.length === 0) return [];
 

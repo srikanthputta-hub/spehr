@@ -27,12 +27,12 @@ export interface SearchTerminologyOpts {
   pageSize?: number;
 }
 
-export async function searchTerminology(
-  opts: SearchTerminologyOpts,
-): Promise<TerminologyHit[]> {
+export async function searchTerminology(opts: SearchTerminologyOpts): Promise<TerminologyHit[]> {
   const term = opts.query.trim();
   if (term.length < 2) return [];
-  const { data, error } = await supabase.functions.invoke("umls-proxy", {
+  const { data, error } = await supabase.functions.invoke<{
+    result?: { results?: Array<{ ui?: string; name?: string }> };
+  }>("umls-proxy", {
     body: {
       action: "search",
       params: {
@@ -44,7 +44,7 @@ export async function searchTerminology(
     },
   });
   if (error) throw error;
-  const results = (data as any)?.result?.results;
+  const results = data?.result?.results;
   if (!Array.isArray(results)) return [];
   const system = SYSTEM_BY_SAB[opts.sabs];
   const out: TerminologyHit[] = [];

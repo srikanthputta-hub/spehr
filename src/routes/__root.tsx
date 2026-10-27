@@ -87,16 +87,36 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "S.P.E.H.R" },
-      { name: "description", content: "S Group Private Network - Unified multi-role clinical workstation, provider CPOE, live telemetry simulator, and pharmacy verification queue.\"" },
+      {
+        name: "description",
+        content:
+          'S Group Private Network - Unified multi-role clinical workstation, provider CPOE, live telemetry simulator, and pharmacy verification queue."',
+      },
       { name: "author", content: "S Group" },
       { property: "og:title", content: "S.P.E.H.R" },
-      { property: "og:description", content: "S Group Private Network - Unified multi-role clinical workstation, provider CPOE, live telemetry simulator, and pharmacy verification queue.\"" },
+      {
+        property: "og:description",
+        content:
+          'S Group Private Network - Unified multi-role clinical workstation, provider CPOE, live telemetry simulator, and pharmacy verification queue."',
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:title", content: "S.P.E.H.R" },
-      { name: "twitter:description", content: "S Group Private Network - Unified multi-role clinical workstation, provider CPOE, live telemetry simulator, and pharmacy verification queue.\"" },
-      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/0d2c7edd-d642-42a1-986a-b9ecefb42945" },
-      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/0d2c7edd-d642-42a1-986a-b9ecefb42945" },
+      {
+        name: "twitter:description",
+        content:
+          'S Group Private Network - Unified multi-role clinical workstation, provider CPOE, live telemetry simulator, and pharmacy verification queue."',
+      },
+      {
+        property: "og:image",
+        content:
+          "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/0d2c7edd-d642-42a1-986a-b9ecefb42945",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/0d2c7edd-d642-42a1-986a-b9ecefb42945",
+      },
     ],
     links: [
       {

@@ -32,7 +32,7 @@ export function PatientCommsInbox({
   const [sending, setSending] = useState(false);
 
   const load = async () => {
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("fhir_communications")
       .select("*")
       .eq("mrn", mrn)
@@ -45,10 +45,13 @@ export function PatientCommsInbox({
       (m) => m.sender === "patient" && m.status === "unread",
     );
     if (unread.length) {
-      await (supabase as any)
+      await supabase
         .from("fhir_communications")
         .update({ status: "read" })
-        .in("id", unread.map((u) => u.id));
+        .in(
+          "id",
+          unread.map((u) => u.id),
+        );
     }
   };
 
@@ -86,7 +89,7 @@ export function PatientCommsInbox({
       recipient: [{ reference: `Patient/${mrn}` }],
       payload: [{ contentString: text }],
     };
-    const { error } = await (supabase as any).from("fhir_communications").insert({
+    const { error } = await supabase.from("fhir_communications").insert({
       mrn,
       facility_name: facility ?? null,
       sender: "provider",
@@ -145,7 +148,9 @@ export function PatientCommsInbox({
                     {new Date(m.created_at).toLocaleString()}
                   </div>
                 </div>
-                {m.subject && <div className="text-xs font-semibold text-slate-900">{m.subject}</div>}
+                {m.subject && (
+                  <div className="text-xs font-semibold text-slate-900">{m.subject}</div>
+                )}
                 <div className="text-[13px] text-slate-800 whitespace-pre-wrap">{m.message}</div>
               </li>
             );
@@ -166,7 +171,11 @@ export function PatientCommsInbox({
           disabled={sending || !reply.trim()}
           className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-9 text-xs font-semibold shadow-sm disabled:opacity-60"
         >
-          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+          {sending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Send className="h-3.5 w-3.5" />
+          )}
           Send
         </button>
       </div>

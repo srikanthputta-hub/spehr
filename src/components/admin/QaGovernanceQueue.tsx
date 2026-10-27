@@ -3,11 +3,7 @@ import { CheckCircle2, X, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { InfoHint } from "@/components/ui/info-hint";
-import {
-  getQaQueue,
-  approveQaItem,
-  rejectQaItem,
-} from "@/lib/auto-api.functions";
+import { getQaQueue, approveQaItem, rejectQaItem } from "@/lib/auto-api.functions";
 
 type Item = {
   id: string;
@@ -48,18 +44,12 @@ function CountdownBar({ expiresAt }: { expiresAt: string }) {
           style={{ width: `${pctRemain}%` }}
         />
       </div>
-      <span className="font-mono text-slate-500">
-        {Math.ceil(remaining / 1000)}s SLA
-      </span>
+      <span className="font-mono text-slate-500">{Math.ceil(remaining / 1000)}s SLA</span>
     </div>
   );
 }
 
-export function QaGovernanceQueue({
-  onCountChange,
-}: {
-  onCountChange?: (count: number) => void;
-}) {
+export function QaGovernanceQueue({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -101,9 +91,7 @@ export function QaGovernanceQueue({
     <div className="mt-6 rounded-xl border border-violet-200 bg-violet-50/30 p-4">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-bold text-slate-900">
-            NLP Confidence & QA Governance Queue
-          </h3>
+          <h3 className="text-sm font-bold text-slate-900">NLP Confidence & QA Governance Queue</h3>
           <InfoHint text="Mappings scoring 80–94% confidence are held here for mandatory administrator review before FHIR push. 95% or higher auto-commits; below 80% auto-rejects." />
           <Badge variant="outline" className="bg-white text-violet-700 border-violet-300">
             {items.length} pending
@@ -115,8 +103,7 @@ export function QaGovernanceQueue({
       </div>
       {items.length === 0 ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-6 text-center text-sm text-emerald-700">
-          ✓ All NLP mappings are within auto-commit confidence thresholds. No
-          items pending review.
+          ✓ All NLP mappings are within auto-commit confidence thresholds. No items pending review.
         </div>
       ) : (
         <div className="space-y-2">
@@ -124,23 +111,15 @@ export function QaGovernanceQueue({
             const icd10 = (it.proposed_codes?.["ICD-10"] as string[]) ?? [];
             const snomed = (it.proposed_codes?.["SNOMED CT"] as string[]) ?? [];
             return (
-              <div
-                key={it.id}
-                className="rounded-lg border border-slate-200 bg-white p-3"
-              >
+              <div key={it.id} className="rounded-lg border border-slate-200 bg-white p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-[11px] text-slate-500">
-                        {it.mrn}
-                      </span>
+                      <span className="font-mono text-[11px] text-slate-500">{it.mrn}</span>
                       <span className="text-sm font-semibold text-slate-900">
                         {it.patient_name ?? "—"}
                       </span>
-                      <Badge
-                        variant="outline"
-                        className={tone(it.confidence)}
-                      >
+                      <Badge variant="outline" className={tone(it.confidence)}>
                         {pct(it.confidence)} confidence
                       </Badge>
                     </div>
@@ -169,9 +148,7 @@ export function QaGovernanceQueue({
                     </div>
                     <div className="mt-2 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
                       <div
-                        className={`h-full ${
-                          it.confidence >= 90 ? "bg-lime-500" : "bg-amber-500"
-                        }`}
+                        className={`h-full ${it.confidence >= 90 ? "bg-lime-500" : "bg-amber-500"}`}
                         style={{ width: `${Math.min(100, it.confidence)}%` }}
                       />
                     </div>

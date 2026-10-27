@@ -44,7 +44,11 @@ type Payment = {
 
 function fmt(ts: string | null) {
   if (!ts) return "—";
-  try { return new Date(ts).toLocaleString(); } catch { return ts; }
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return ts;
+  }
 }
 
 export function MyspehrPortalActivity({ facility }: { facility: string }) {
@@ -79,18 +83,23 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
           .limit(15),
       ]);
       if (cancelled) return;
-      setAppts((aRes.data ?? []) as any[]);
-      const pRows = ((pRes.data ?? []) as any[])
+      setAppts((aRes.data ?? []) as Appt[]);
+      type PaymentJoinRow = Payment & {
+        fhir_invoices?: { invoice_no?: string | null; facility_name?: string | null } | null;
+      };
+      const pRows = ((pRes.data ?? []) as unknown as PaymentJoinRow[])
         .filter((r) => {
           if (!facility || facility === "all") return true;
           return r?.fhir_invoices?.facility_name === facility;
         })
         .map((r) => ({ ...r, invoice_no: r?.fhir_invoices?.invoice_no ?? null }));
-      setPayments(pRows as Payment[]);
+      setPayments(pRows);
       setLoading(false);
     }
     void run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [facility, nonce]);
 
   useEffect(() => {
@@ -107,7 +116,9 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
         () => setNonce((n) => n + 1),
       )
       .subscribe();
-    return () => { void supabase.removeChannel(ch); };
+    return () => {
+      void supabase.removeChannel(ch);
+    };
   }, []);
 
   const isEmpty = !loading && appts.length === 0 && payments.length === 0;
@@ -140,8 +151,8 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
         <div className="px-5 py-8 text-center text-xs text-slate-500">Loading…</div>
       ) : isEmpty ? (
         <div className="px-5 py-8 text-center text-xs text-slate-500">
-          No portal activity yet. Once a MySPEHR patient books an appointment
-          or pays an invoice, it lands here in real time.
+          No portal activity yet. Once a MySPEHR patient books an appointment or pays an invoice, it
+          lands here in real time.
         </div>
       ) : (
         <div className="grid gap-4 px-5 py-4 md:grid-cols-2">
@@ -151,13 +162,14 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
             empty="No portal-booked appointments."
           >
             {appts.map((a) => (
-              <li key={a.id} className="rounded-md border border-slate-200 bg-slate-50/50 p-2.5 text-xs">
+              <li
+                key={a.id}
+                className="rounded-md border border-slate-200 bg-slate-50/50 p-2.5 text-xs"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-semibold text-slate-900 truncate">
                     {a.patient_name}
-                    <span className="ml-2 font-normal text-slate-500">
-                      {a.patient_mrn ?? "—"}
-                    </span>
+                    <span className="ml-2 font-normal text-slate-500">{a.patient_mrn ?? "—"}</span>
                   </div>
                   <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                     {a.status}
@@ -180,19 +192,22 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
             empty="No portal payments yet."
           >
             {payments.map((p) => (
-              <li key={p.id} className="rounded-md border border-slate-200 bg-slate-50/50 p-2.5 text-xs">
+              <li
+                key={p.id}
+                className="rounded-md border border-slate-200 bg-slate-50/50 p-2.5 text-xs"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-semibold text-slate-900 truncate">
                     {p.invoice_no ?? p.invoice_id.slice(0, 8)}
-                    <span className="ml-2 font-normal text-slate-500">
-                      {p.mrn}
-                    </span>
+                    <span className="ml-2 font-normal text-slate-500">{p.mrn}</span>
                   </div>
-                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                    p.status.toLowerCase() === "paid"
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 bg-white text-slate-600"
-                  }`}>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                      p.status.toLowerCase() === "paid"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-slate-200 bg-white text-slate-600"
+                    }`}
+                  >
                     {p.status}
                   </span>
                 </div>

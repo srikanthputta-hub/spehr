@@ -34,7 +34,11 @@ async function fhirProxy(body: unknown) {
   });
   const text = await res.text();
   let parsed: unknown = text;
-  try { parsed = JSON.parse(text); } catch { /* leave as text */ }
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    /* leave as text */
+  }
   return { status: res.status, body: parsed };
 }
 
@@ -103,5 +107,10 @@ Deno.serve(async (req) => {
     });
   }
 
-  return json({ ok: true, webhookUrl: webhookUrl.replace(WEBHOOK_SECRET, "***"), removed, created });
+  return json({
+    ok: true,
+    webhookUrl: webhookUrl.replace(WEBHOOK_SECRET, "***"),
+    removed,
+    created,
+  });
 });

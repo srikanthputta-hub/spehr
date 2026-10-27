@@ -44,10 +44,7 @@ export default function DischargeConformanceBanner({ mrn }: { mrn: string }) {
 
   const dismiss = () => {
     try {
-      window.localStorage.setItem(
-        keyFor(mrn),
-        JSON.stringify({ ...state, dismissed: true }),
-      );
+      window.localStorage.setItem(keyFor(mrn), JSON.stringify({ ...state, dismissed: true }));
     } catch {
       /* noop */
     }
@@ -58,7 +55,9 @@ export default function DischargeConformanceBanner({ mrn }: { mrn: string }) {
     <div className="mx-3 mt-2 flex items-start gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
       <AlertTriangle className="mt-0.5 h-4 w-4 flex-none text-amber-600" />
       <div className="flex-1">
-        <span className="font-semibold">⚠ {state.count} non-conformant code{state.count === 1 ? "" : "s"} detected</span>
+        <span className="font-semibold">
+          ⚠ {state.count} non-conformant code{state.count === 1 ? "" : "s"} detected
+        </span>
         <span className="ml-1">— review before sharing externally.</span>
       </div>
       <button

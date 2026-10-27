@@ -36,12 +36,10 @@ export function TerminologyStatusStrip() {
     let alive = true;
     const tick = async () => {
       // Value set counts
-      const { data: vs } = await supabase
-        .from("custom_value_sets")
-        .select("status");
+      const { data: vs } = await supabase.from("custom_value_sets").select("status");
       if (vs && alive) {
         const c = { published: 0, review: 0, draft: 0 };
-        vs.forEach((r: any) => {
+        vs.forEach((r) => {
           if (r.status === "published") c.published++;
           else if (r.status === "review") c.review++;
           else if (r.status === "draft") c.draft++;
@@ -55,8 +53,10 @@ export function TerminologyStatusStrip() {
         body: { action: "snomed", params: { string: "hypertension", pageSize: 1 } },
       });
       if (!alive) return;
-      if (error) { setUmlsOk(false); setUmlsMs(null); }
-      else {
+      if (error) {
+        setUmlsOk(false);
+        setUmlsMs(null);
+      } else {
         setUmlsOk(true);
         setUmlsMs(Math.round(performance.now() - t0));
       }
@@ -87,7 +87,11 @@ export function TerminologyStatusStrip() {
     // Re-render every 30s even between fetches so "Last resolved" keeps
     // advancing ("2m ago" → "3m ago") without a fresh query.
     const clockId = setInterval(() => forceTick((n) => n + 1), 30000);
-    return () => { alive = false; clearInterval(id); clearInterval(clockId); };
+    return () => {
+      alive = false;
+      clearInterval(id);
+      clearInterval(clockId);
+    };
   }, []);
 
   return (

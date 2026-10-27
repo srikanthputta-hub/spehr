@@ -34,10 +34,7 @@ function memoKey(action: Action, params: Record<string, unknown>): string {
   return `${action}:${JSON.stringify(params)}`;
 }
 
-async function invokeProxy(
-  action: Action,
-  params: Record<string, unknown>,
-): Promise<unknown> {
+async function invokeProxy(action: Action, params: Record<string, unknown>): Promise<unknown> {
   const { data, error } = await supabase.functions.invoke("umls-proxy", {
     body: { action, params },
   });
@@ -45,24 +42,47 @@ async function invokeProxy(
   return data;
 }
 
-function topUmlsHit(payload: any): ResolvedCode | null {
-  const results = payload?.result?.results;
+interface UmlsSearchPayload {
+  result?: { results?: Array<{ ui?: string; name?: string }> };
+}
+
+interface RxNormIdGroupPayload {
+  idGroup?: { rxnormId?: string[]; name?: string };
+}
+
+interface RxNormDetailPayload {
+  properties?: { name?: string };
+}
+
+interface CrosswalkPayload {
+  result?: { code?: string; name?: string } | null;
+  matches?: Array<{ code?: string; name?: string }>;
+}
+
+interface ResolveAndValidatePayload {
+  resolvedCode?: string | null;
+  resolvedName?: string | null;
+  confidence?: number;
+}
+
+function topUmlsHit(payload: unknown): ResolvedCode | null {
+  const results = (payload as UmlsSearchPayload | undefined)?.result?.results;
   if (!Array.isArray(results) || results.length === 0) return null;
   const top = results[0];
   if (!top?.ui || top.ui === "NONE") return null;
   return { code: String(top.ui), display: String(top.name ?? top.ui) };
 }
 
-function topRxnormHit(payload: any): ResolvedCode | null {
-  const ids = payload?.idGroup?.rxnormId;
+function topRxnormHit(payload: unknown): ResolvedCode | null {
+  const ids = (payload as RxNormIdGroupPayload | undefined)?.idGroup?.rxnormId;
   if (!Array.isArray(ids) || ids.length === 0) return null;
   const rxcui = String(ids[0] ?? "").trim();
   if (!rxcui) return null;
-  const name = String(payload?.idGroup?.name ?? "").trim();
+  const name = String((payload as RxNormIdGroupPayload)?.idGroup?.name ?? "").trim();
   return { code: rxcui, display: name || rxcui };
 }
 
-function topMeddraHit(payload: any): ResolvedCode | null {
+function topMeddraHit(payload: unknown): ResolvedCode | null {
   // MedDRA search returns the same UTS structure as `search`.
   return topUmlsHit(payload);
 }
@@ -120,7 +140,9 @@ export function resolveRxNorm(drugName: string): Promise<ResolvedCode | null> {
         // name in coding[0].display.
         if (!hit.display || hit.display === hit.code || /^\d+$/.test(hit.display)) {
           try {
-            const detail: any = await invokeProxy("rxnormDetail", { rxcui: hit.code });
+            const detail = (await invokeProxy("rxnormDetail", {
+              rxcui: hit.code,
+            })) as RxNormDetailPayload | undefined;
             const properName = String(detail?.properties?.name ?? "").trim();
             if (properName) hit.display = properName;
           } catch (e) {
@@ -179,7 +201,7 @@ export async function resolveChv(text: string): Promise<ResolvedCode | null> {
   const term = (text ?? "").trim();
   if (!term) return null;
   try {
-    const payload: any = await invokeProxy("chv", { string: term });
+    const payload = await invokeProxy("chv", { string: term });
     return topUmlsHit(payload);
   } catch (e) {
     console.warn("[umls] chv resolve failed:", term, e);
@@ -196,10 +218,10 @@ export async function resolveAndValidateSnomed(text: string): Promise<{
   const term = (text ?? "").trim();
   if (!term) return null;
   try {
-    const payload: any = await invokeProxy("resolveAndValidate", {
+    const payload = (await invokeProxy("resolveAndValidate", {
       string: term,
       sab: "SNOMEDCT_US",
-    });
+    })) as ResolveAndValidatePayload | undefined;
     return {
       code: payload?.resolvedCode ?? null,
       display: payload?.resolvedName ?? null,
@@ -216,11 +238,11 @@ export async function crosswalkSnomedToIcd10(snomed: string): Promise<ResolvedCo
   const code = (snomed ?? "").trim();
   if (!code) return null;
   try {
-    const payload: any = await invokeProxy("crosswalk", {
+    const payload = (await invokeProxy("crosswalk", {
       fromSab: "SNOMEDCT_US",
       fromCode: code,
       toSab: "ICD10CM",
-    });
+    })) as CrosswalkPayload | undefined;
     const match = payload?.result ?? payload?.matches?.[0] ?? null;
     if (!match?.code) return null;
     return { code: String(match.code), display: String(match.name ?? match.code) };

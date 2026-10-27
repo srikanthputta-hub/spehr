@@ -19,11 +19,7 @@ export type CodeableConcept = {
   text: string;
 };
 
-export function toCodeableConcept(
-  system: string,
-  code: string,
-  display: string,
-): CodeableConcept {
+export function toCodeableConcept(system: string, code: string, display: string): CodeableConcept {
   return {
     coding: [
       {
@@ -59,9 +55,7 @@ export function buildPatientResource(p: {
     name: p.name
       ? [{ use: "official", given: given ? [given] : [], family: family || given || "" }]
       : undefined,
-    managingOrganization: p.facility
-      ? { display: p.facility }
-      : undefined,
+    managingOrganization: p.facility ? { display: p.facility } : undefined,
   };
 }
 
@@ -109,11 +103,8 @@ export function buildObservation(
     code: cc,
     subject: { reference: `Patient/${mrn}` },
     valueQuantity:
-      typeof opts.value === "number"
-        ? { value: opts.value, unit: opts.unit }
-        : undefined,
-    valueString:
-      typeof opts.value === "string" ? opts.value : undefined,
+      typeof opts.value === "number" ? { value: opts.value, unit: opts.unit } : undefined,
+    valueString: typeof opts.value === "string" ? opts.value : undefined,
   };
 }
 
@@ -173,13 +164,15 @@ function urn(resource: any): string {
 /* ------------------------------------------------------------------ */
 
 export function slugify(input: string): string {
-  return (input ?? "")
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60) || "unknown";
+  return (
+    (input ?? "")
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60) || "unknown"
+  );
 }
 
 /**
@@ -224,22 +217,13 @@ export function distillClinicalText(raw: string | null | undefined): string {
  * manual order, missing required field, etc.) it is logged and skipped
  * so the rest of the bundle still ships. Bug-4 safety net.
  */
-function safeMap<T>(
-  items: T[],
-  build: (item: T) => any,
-  kind: string,
-  mrn: string,
-): any[] {
+function safeMap<T>(items: T[], build: (item: T) => any, kind: string, mrn: string): any[] {
   const out: any[] = [];
   for (const item of items) {
     try {
       out.push(build(item));
     } catch (e) {
-      console.warn(
-        `[fhir-bundle] skipping malformed ${kind} for ${mrn}:`,
-        item,
-        e,
-      );
+      console.warn(`[fhir-bundle] skipping malformed ${kind} for ${mrn}:`, item, e);
     }
   }
   return out;
@@ -256,15 +240,18 @@ export const stableIds = {
   // produce IDs > 64 chars — HAPI rejects them with HAPI-0521.
   lab: (testName: string, mrn: string, loincCode?: string | null) => {
     if (loincCode) {
-      const code = String(loincCode).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 40);
+      const code = String(loincCode)
+        .replace(/[^A-Za-z0-9\-\.]/g, "")
+        .slice(0, 40);
       if (code) return `lab-${code}-${mrn}`;
     }
-    const slug = (testName ?? "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-      .substring(0, 40) || "unknown";
+    const slug =
+      (testName ?? "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .substring(0, 40) || "unknown";
     return `lab-${slug}-${mrn}`;
   },
   medRequest: (drug: string, mrn: string) => `medreq-${slugify(drug)}-${mrn}`,
@@ -276,12 +263,13 @@ export const stableIds = {
   // "discharge", "pmh-gerd", "pmh-htn", "pmh-1", "phx-1". Free text
   // belongs in Condition.code.text / Condition.note[].text.
   condition: (type: string, mrn: string) => {
-    const safe = (type ?? "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-      .substring(0, 30) || "unknown";
+    const safe =
+      (type ?? "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .substring(0, 30) || "unknown";
     return `cond-${safe}-${mrn}`;
   },
   carePlan: (mrn: string) => `careplan-${mrn}`,
@@ -316,7 +304,9 @@ export type RadiologyOrderRow = {
 
 export function radiologyStableId(r: RadiologyOrderRow, mrn: string): string {
   const seed = r.snomed_code
-    ? String(r.snomed_code).replace(/[^A-Za-z0-9\-\.]/g, "").slice(0, 20)
+    ? String(r.snomed_code)
+        .replace(/[^A-Za-z0-9\-\.]/g, "")
+        .slice(0, 20)
     : slugify(r.exam_type ?? r.id ?? "exam");
   return `svcreq-rad-${seed || "exam"}-${mrn}`;
 }
@@ -331,15 +321,17 @@ export function buildRadiologyServiceRequest(mrn: string, r: RadiologyOrderRow) 
     intent: "order",
     category: [
       {
-        coding: [
-          { system: "http://snomed.info/sct", code: "363679005", display: "Imaging" },
-        ],
+        coding: [{ system: "http://snomed.info/sct", code: "363679005", display: "Imaging" }],
       },
     ],
     code: r.snomed_code
       ? {
           coding: [
-            { system: "http://snomed.info/sct", code: r.snomed_code, display: r.snomed_display ?? r.exam_type },
+            {
+              system: "http://snomed.info/sct",
+              code: r.snomed_code,
+              display: r.snomed_display ?? r.exam_type,
+            },
           ],
           text: r.exam_type ?? r.snomed_display ?? "Imaging exam",
         }
@@ -381,9 +373,11 @@ function withSpehrSource<T extends Record<string, any>>(resource: T): T {
 }
 
 function fhirSafeId(input: string): string {
-  return String(input ?? "")
-    .replace(/[^A-Za-z0-9\-\.]/g, "-")
-    .slice(0, 64) || "unknown";
+  return (
+    String(input ?? "")
+      .replace(/[^A-Za-z0-9\-\.]/g, "-")
+      .slice(0, 64) || "unknown"
+  );
 }
 
 export type InvoiceRow = {
@@ -402,8 +396,7 @@ export type InvoiceRow = {
 };
 
 export function buildInvoiceResource(row: InvoiceRow) {
-  const status =
-    (row.status ?? "").toLowerCase() === "balanced" ? "balanced" : "issued";
+  const status = (row.status ?? "").toLowerCase() === "balanced" ? "balanced" : "issued";
   const currency = row.currency ?? "USD";
   const subtotal = Number(row.subtotal ?? 0);
   const total = Number(row.total ?? subtotal);
@@ -421,10 +414,7 @@ export function buildInvoiceResource(row: InvoiceRow) {
     issuer: row.facility_name ? { display: row.facility_name } : undefined,
     totalNet: { value: subtotal, currency },
     totalGross: { value: total, currency },
-    paymentTerms:
-      status === "balanced" && row.paid_at
-        ? `Paid ${row.paid_at}`
-        : undefined,
+    paymentTerms: status === "balanced" && row.paid_at ? `Paid ${row.paid_at}` : undefined,
   });
 }
 
@@ -443,27 +433,20 @@ export type ChargeItemRow = {
   service_date?: string | null;
 };
 
-export function buildChargeItemResource(
-  row: ChargeItemRow,
-  invoiceNo?: string | null,
-) {
+export function buildChargeItemResource(row: ChargeItemRow, invoiceNo?: string | null) {
   const currency = row.currency ?? "USD";
   const quantity = Number(row.quantity ?? 1);
   const unitPrice = Number(row.unit_price ?? 0);
   const amount = Number(row.amount ?? unitPrice * quantity);
   const codeSystem =
-    row.code_system && row.code_system !== "internal"
-      ? row.code_system
-      : "urn:spehr:charge-code";
+    row.code_system && row.code_system !== "internal" ? row.code_system : "urn:spehr:charge-code";
   return withSpehrSource({
     resourceType: "ChargeItem",
     id: fhirSafeId(`charge-${row.id}`),
     identifier: [{ system: "urn:spehr:charge-uuid", value: row.id }],
     status: "billable",
     code: {
-      coding: [
-        { system: codeSystem, code: row.charge_code, display: row.description },
-      ],
+      coding: [{ system: codeSystem, code: row.charge_code, display: row.description }],
       text: row.description,
     },
     subject: { reference: `Patient/${row.mrn}` },
@@ -538,16 +521,12 @@ export function buildRealAppointmentResource(row: AppointmentRow) {
     comment: row.comment ?? undefined,
     start: row.start_time,
     end: row.end_time,
-    serviceType: row.service_type
-      ? [{ text: row.service_type }]
-      : undefined,
+    serviceType: row.service_type ? [{ text: row.service_type }] : undefined,
     participant:
       participants.length > 0
         ? participants
         : [{ status: "needs-action", actor: { display: "Unknown" } }],
-    ...(row.facility_name
-      ? { location: [{ display: row.facility_name }] }
-      : {}),
+    ...(row.facility_name ? { location: [{ display: row.facility_name }] } : {}),
   });
 }
 
@@ -590,9 +569,7 @@ export function buildPatientBundle(opts: {
     id: `composition-${opts.mrn}`,
     status: "final",
     type: {
-      coding: [
-        { system: "http://loinc.org", code: "11488-4", display: "Consult note" },
-      ],
+      coding: [{ system: "http://loinc.org", code: "11488-4", display: "Consult note" }],
       text: opts.title ?? "S.P.E.H.R Admission Summary",
     },
     subject: { reference: `Patient/${opts.mrn}` },
@@ -623,7 +600,14 @@ export function buildPatientBundle(opts: {
     ],
   };
 
-  const allResources = [composition, patient, ...conditions, ...observations, ...meds, ...allergies];
+  const allResources = [
+    composition,
+    patient,
+    ...conditions,
+    ...observations,
+    ...meds,
+    ...allergies,
+  ];
   const entries: FhirEntry[] = allResources.map((r) => ({
     fullUrl: urn(r),
     resource: r,
@@ -705,7 +689,6 @@ export type EncounterPatient = {
   primary_care_physician?: string | null;
 };
 
-
 export type EncounterLab = {
   id?: string;
   test_type?: string | null;
@@ -754,10 +737,7 @@ export type EncounterCondition = {
 };
 
 function fullPatient(p: EncounterPatient) {
-  const name =
-    p.name ??
-    [p.first_name, p.last_name].filter(Boolean).join(" ") ??
-    null;
+  const name = p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ") ?? null;
   const [given, ...rest] = (name ?? "").split(" ");
   const family = rest.join(" ") || given || "";
   return {
@@ -765,10 +745,9 @@ function fullPatient(p: EncounterPatient) {
     id: p.mrn,
     identifier: [{ system: "urn:spehr:mrn", value: p.mrn }],
     name: name ? [{ use: "official", given: given ? [given] : [], family }] : undefined,
-    gender:
-      (p.gender ?? p.biological_sex ?? "").toLowerCase().startsWith("m")
-        ? "male"
-        : (p.gender ?? p.biological_sex ?? "").toLowerCase().startsWith("f")
+    gender: (p.gender ?? p.biological_sex ?? "").toLowerCase().startsWith("m")
+      ? "male"
+      : (p.gender ?? p.biological_sex ?? "").toLowerCase().startsWith("f")
         ? "female"
         : "unknown",
     birthDate: p.dob ?? undefined,
@@ -786,9 +765,7 @@ function buildEncounterResource(p: EncounterPatient) {
   return {
     resourceType: "Encounter",
     id: `enc-${p.mrn}`,
-    identifier: [
-      { system: "urn:spehr:encounter", value: `enc-${p.mrn}` },
-    ],
+    identifier: [{ system: "urn:spehr:encounter", value: `enc-${p.mrn}` }],
     status,
     // spehr's admissions are inpatient ward stays (Cardiology, Neurology,
     // etc. -- there is no "Emergency Department" among this hospital's
@@ -804,11 +781,15 @@ function buildEncounterResource(p: EncounterPatient) {
       start: p.admission_time ?? undefined,
       end: p.discharge_time ?? undefined,
     },
-    reasonCode: p.chief_complaint
-      ? [{ text: p.chief_complaint }]
-      : undefined,
+    reasonCode: p.chief_complaint ? [{ text: p.chief_complaint }] : undefined,
     location: p.room
-      ? [{ location: { display: p.assigned_department ? `${p.room} (${p.assigned_department})` : p.room } }]
+      ? [
+          {
+            location: {
+              display: p.assigned_department ? `${p.room} (${p.assigned_department})` : p.room,
+            },
+          },
+        ]
       : undefined,
     participant: p.primary_care_physician
       ? [
@@ -863,16 +844,23 @@ function vitalsObservations(p: EncounterPatient) {
       subject: ref,
       encounter: enc,
       effectiveDateTime: p.admission_time ?? undefined,
-      ...("value" in value
-        ? { valueQuantity: value }
-        : { valueString: value.valueString }),
+      ...("value" in value ? { valueQuantity: value } : { valueString: value.valueString }),
     });
   };
-  if (typeof p.hr === "number") push("8867-4", { code: "8867-4", display: "Heart rate" }, { value: p.hr, unit: "/min" });
-  if (typeof p.rr === "number") push("9279-1", { code: "9279-1", display: "Respiratory rate" }, { value: p.rr, unit: "/min" });
-  if (typeof p.spo2 === "number") push("59408-5", { code: "59408-5", display: "Oxygen saturation" }, { value: p.spo2, unit: "%" });
-  if (typeof p.temp === "number") push("8310-5", { code: "8310-5", display: "Body temperature" }, { value: p.temp, unit: "Cel" });
-  if (p.bp) push("85354-9", { code: "85354-9", display: "Blood pressure panel" }, { valueString: p.bp });
+  if (typeof p.hr === "number")
+    push("8867-4", { code: "8867-4", display: "Heart rate" }, { value: p.hr, unit: "/min" });
+  if (typeof p.rr === "number")
+    push("9279-1", { code: "9279-1", display: "Respiratory rate" }, { value: p.rr, unit: "/min" });
+  if (typeof p.spo2 === "number")
+    push(
+      "59408-5",
+      { code: "59408-5", display: "Oxygen saturation" },
+      { value: p.spo2, unit: "%" },
+    );
+  if (typeof p.temp === "number")
+    push("8310-5", { code: "8310-5", display: "Body temperature" }, { value: p.temp, unit: "Cel" });
+  if (p.bp)
+    push("85354-9", { code: "85354-9", display: "Blood pressure panel" }, { valueString: p.bp });
   return out;
 }
 
@@ -880,21 +868,24 @@ function vitalsObservations(p: EncounterPatient) {
 // (`lab-{loinc}-{mrn}`) and a proper code.coding even when the upstream
 // row didn't carry a loinc_code column.
 const LAB_LOINC_BY_NAME: Record<string, string> = {
-  "hemoglobin": "718-7",
-  "hgb": "718-7",
-  "wbc": "6690-2",
+  hemoglobin: "718-7",
+  hgb: "718-7",
+  wbc: "6690-2",
   "white blood cell count": "6690-2",
-  "glucose": "2345-7",
-  "creatinine": "2160-0",
+  glucose: "2345-7",
+  creatinine: "2160-0",
   "troponin t": "89579-7",
   "troponin t hs": "89579-7",
   "high sensitivity troponin t": "89579-7",
   "creatine kinase": "2157-6",
-  "ck": "2157-6",
+  ck: "2157-6",
 };
 function loincForLabName(name: string | null | undefined): string | null {
   if (!name) return null;
-  const n = name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const n = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
   if (LAB_LOINC_BY_NAME[n]) return LAB_LOINC_BY_NAME[n];
   for (const k of Object.keys(LAB_LOINC_BY_NAME)) {
     if (n.includes(k)) return LAB_LOINC_BY_NAME[k];
@@ -924,9 +915,7 @@ function labObservation(mrn: string, l: EncounterLab) {
     resourceType: "Observation",
     id,
     status:
-      (l.status ?? "").toLowerCase() === "resulted" || l.result_value
-        ? "final"
-        : "registered",
+      (l.status ?? "").toLowerCase() === "resulted" || l.result_value ? "final" : "registered",
     category: [
       {
         coding: [
@@ -950,8 +939,8 @@ function labObservation(mrn: string, l: EncounterLab) {
     ...(Number.isFinite(numeric)
       ? { valueQuantity: { value: numeric } }
       : l.result_value
-      ? { valueString: l.result_value }
-      : {}),
+        ? { valueString: l.result_value }
+        : {}),
   };
 }
 
@@ -1032,7 +1021,10 @@ function medRequest(mrn: string, m: EncounterMed) {
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/enc-${mrn}` },
     authoredOn: m.created_at ?? undefined,
-    requester: m.ordering_physician || m.ordered_by ? { display: m.ordering_physician ?? m.ordered_by ?? "" } : undefined,
+    requester:
+      m.ordering_physician || m.ordered_by
+        ? { display: m.ordering_physician ?? m.ordered_by ?? "" }
+        : undefined,
     dosageInstruction: m.route
       ? [{ route: { text: m.route }, text: `${m.dose ?? ""} ${m.route}`.trim() }]
       : undefined,
@@ -1061,9 +1053,10 @@ function medAdministration(mrn: string, m: EncounterMed) {
     subject: { reference: `Patient/${mrn}` },
     context: { reference: `Encounter/enc-${mrn}` },
     effectiveDateTime: m.administered_at ?? undefined,
-    performer: m.ordering_physician || m.ordered_by
-      ? [{ actor: { display: m.ordering_physician ?? m.ordered_by ?? "" } }]
-      : undefined,
+    performer:
+      m.ordering_physician || m.ordered_by
+        ? [{ actor: { display: m.ordering_physician ?? m.ordered_by ?? "" } }]
+        : undefined,
   };
 }
 
@@ -1121,9 +1114,7 @@ function followUpAppointment(p: EncounterPatient) {
     status: "proposed",
     description: "Post-discharge follow-up / recall",
     start: start.toISOString(),
-    participant: [
-      { actor: { reference: `Patient/${p.mrn}` }, status: "needs-action" },
-    ],
+    participant: [{ actor: { reference: `Patient/${p.mrn}` }, status: "needs-action" }],
   };
 }
 
@@ -1134,10 +1125,7 @@ function followUpAppointment(p: EncounterPatient) {
  * `confirmed` Condition so the discharge diagnosis is preserved alongside
  * — not in place of — the admitting provisional diagnosis.
  */
-function encounterConditions(
-  p: EncounterPatient,
-  coded: EncounterCondition[] = [],
-): any[] {
+function encounterConditions(p: EncounterPatient, coded: EncounterCondition[] = []): any[] {
   const out: any[] = [];
   const subject = { reference: `Patient/${p.mrn}` };
   const encounter = { reference: `Encounter/enc-${p.mrn}` };
@@ -1169,9 +1157,7 @@ function encounterConditions(
     ],
   });
   // Find the best AUTO API-coded condition for the working diagnosis (HPI).
-  const primaryCoded = coded.find(
-    (c) => c.snomed_code || c.icd10_code,
-  );
+  const primaryCoded = coded.find((c) => c.snomed_code || c.icd10_code);
   if (p.chief_complaint) {
     const codingArr: Array<{ system: string; code: string; display: string }> = [];
     // Fix #3: distill the verbatim chief-complaint free text into a
@@ -1197,10 +1183,7 @@ function encounterConditions(
       clinicalStatus: clinicalActive,
       verificationStatus: verif("provisional"),
       category,
-      code:
-        codingArr.length > 0
-          ? { coding: codingArr, text: hpiText }
-          : { text: hpiText },
+      code: codingArr.length > 0 ? { coding: codingArr, text: hpiText } : { text: hpiText },
       subject,
       encounter,
       recordedDate: p.admission_time ?? undefined,
@@ -1240,10 +1223,7 @@ function encounterConditions(
       clinicalStatus: clinicalActive,
       verificationStatus: verif("confirmed"),
       category,
-      code:
-        codingArr.length > 0
-          ? { coding: codingArr, text: dxText }
-          : { text: dxText },
+      code: codingArr.length > 0 ? { coding: codingArr, text: dxText } : { text: dxText },
       subject,
       encounter,
       recordedDate: p.discharge_time ?? undefined,
@@ -1268,14 +1248,11 @@ export function buildEncounterBundle(opts: {
   // HAPI-0534 "Transaction bundle contains multiple resources with ID"
   // when a patient has both an ordered (registered) and resulted (final)
   // observation for the same test (e.g. creatinine, hemoglobin).
-  const labTime = (l: EncounterLab) =>
-    new Date(l.collected_at ?? l.created_at ?? 0).getTime() || 0;
+  const labTime = (l: EncounterLab) => new Date(l.collected_at ?? l.created_at ?? 0).getTime() || 0;
   const labsByTest = new Map<string, EncounterLab>();
   for (const l of opts.labs ?? []) {
     if (!isPlausibleLab(l)) {
-      console.warn(
-        `[fhir-bundle] dropping implausible lab for ${patient.mrn}: ${l.test_type}`,
-      );
+      console.warn(`[fhir-bundle] dropping implausible lab for ${patient.mrn}: ${l.test_type}`);
       continue;
     }
     const slug = slugify(l.test_type ?? l.id ?? "unknown");
@@ -1287,8 +1264,7 @@ export function buildEncounterBundle(opts: {
     const prevHasResult = !!prev.result_value;
     const curHasResult = !!l.result_value;
     if (curHasResult && !prevHasResult) labsByTest.set(slug, l);
-    else if (curHasResult === prevHasResult && labTime(l) > labTime(prev))
-      labsByTest.set(slug, l);
+    else if (curHasResult === prevHasResult && labTime(l) > labTime(prev)) labsByTest.set(slug, l);
   }
   const labs = safeMap(
     Array.from(labsByTest.values()),
@@ -1349,8 +1325,7 @@ export function buildEncounterBundle(opts: {
   // legacy `summary-{MRN}` id with LOINC 34133-9 so admission-time
   // pushes remain backwards compatible with the rest of the pipeline.
   const isDischarged =
-    (patient.status ?? "").toLowerCase() === "discharged" ||
-    !!patient.discharge_time;
+    (patient.status ?? "").toLowerCase() === "discharged" || !!patient.discharge_time;
   const compositionId = isDischarged
     ? `composition-${patient.mrn}-discharge`
     : stableIds.composition(patient.mrn);
@@ -1376,13 +1351,27 @@ export function buildEncounterBundle(opts: {
     title: compositionTitle,
     section: [
       { title: "Encounter", entry: [{ reference: `Encounter/enc-${patient.mrn}` }] },
-      { title: "Diagnoses", entry: conditions.map((c: any) => ({ reference: `Condition/${c.id}` })) },
+      {
+        title: "Diagnoses",
+        entry: conditions.map((c: any) => ({ reference: `Condition/${c.id}` })),
+      },
       { title: "Vital Signs", entry: vitals.map((o) => ({ reference: `Observation/${o.id}` })) },
       { title: "Laboratory", entry: labs.map((o) => ({ reference: `Observation/${o.id}` })) },
-      { title: "Medication Orders", entry: medReqs.map((m) => ({ reference: `MedicationRequest/${m.id}` })) },
-      { title: "Medication Administrations", entry: medAdms.map((m) => ({ reference: `MedicationAdministration/${m.id}` })) },
-      { title: "Clinical Notes", entry: docs.map((d) => ({ reference: `DocumentReference/${d.id}` })) },
-      ...(carePlan ? [{ title: "Care Plan", entry: [{ reference: `CarePlan/${carePlan.id}` }] }] : []),
+      {
+        title: "Medication Orders",
+        entry: medReqs.map((m) => ({ reference: `MedicationRequest/${m.id}` })),
+      },
+      {
+        title: "Medication Administrations",
+        entry: medAdms.map((m) => ({ reference: `MedicationAdministration/${m.id}` })),
+      },
+      {
+        title: "Clinical Notes",
+        entry: docs.map((d) => ({ reference: `DocumentReference/${d.id}` })),
+      },
+      ...(carePlan
+        ? [{ title: "Care Plan", entry: [{ reference: `CarePlan/${carePlan.id}` }] }]
+        : []),
       ...(appt ? [{ title: "Follow-up", entry: [{ reference: `Appointment/${appt.id}` }] }] : []),
     ],
   };
@@ -1444,17 +1433,12 @@ export function buildEncounterBundle(opts: {
 
 function getResourceTimestamp(resource: any): number {
   if (!resource) return 0;
-  if (resource.effectiveDateTime)
-    return new Date(resource.effectiveDateTime).getTime() || 0;
-  if (resource.authoredOn)
-    return new Date(resource.authoredOn).getTime() || 0;
-  if (resource.period?.end)
-    return new Date(resource.period.end).getTime() || 0;
-  if (resource.period?.start)
-    return new Date(resource.period.start).getTime() || 0;
+  if (resource.effectiveDateTime) return new Date(resource.effectiveDateTime).getTime() || 0;
+  if (resource.authoredOn) return new Date(resource.authoredOn).getTime() || 0;
+  if (resource.period?.end) return new Date(resource.period.end).getTime() || 0;
+  if (resource.period?.start) return new Date(resource.period.start).getTime() || 0;
   if (resource.date) return new Date(resource.date).getTime() || 0;
-  if (resource.meta?.lastUpdated)
-    return new Date(resource.meta.lastUpdated).getTime() || 0;
+  if (resource.meta?.lastUpdated) return new Date(resource.meta.lastUpdated).getTime() || 0;
   return 0;
 }
 
@@ -1477,9 +1461,7 @@ export type FhirQuality = {
 
 export function assessBundleQuality(bundle: any): FhirQuality {
   const entries: any[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
-  const conditions = entries
-    .map((e) => e?.resource)
-    .filter((r) => r?.resourceType === "Condition");
+  const conditions = entries.map((e) => e?.resource).filter((r) => r?.resourceType === "Condition");
   const meds = entries
     .map((e) => e?.resource)
     .filter(
@@ -1493,20 +1475,16 @@ export function assessBundleQuality(bundle: any): FhirQuality {
       (r) =>
         r?.resourceType === "Observation" &&
         Array.isArray(r.category) &&
-        r.category.some((c: any) =>
-          c?.coding?.some((cc: any) => cc?.code === "laboratory"),
-        ),
+        r.category.some((c: any) => c?.coding?.some((cc: any) => cc?.code === "laboratory")),
     );
   const primary = conditions[0];
-  const primaryHasCode =
-    !!primary?.code?.coding?.length;
-  const medsCoded = meds.filter(
-    (m) => !!m?.medicationCodeableConcept?.coding?.length,
-  ).length;
+  const primaryHasCode = !!primary?.code?.coding?.length;
+  const medsCoded = meds.filter((m) => !!m?.medicationCodeableConcept?.coding?.length).length;
   const labsCoded = labs.filter((l) => !!l?.code?.coding?.length).length;
   const missing: string[] = [];
   if (conditions.length > 0 && !primaryHasCode) missing.push("primary diagnosis SNOMED/ICD-10");
-  if (meds.length > 0 && medsCoded < meds.length) missing.push(`${meds.length - medsCoded} med RxNorm`);
+  if (meds.length > 0 && medsCoded < meds.length)
+    missing.push(`${meds.length - medsCoded} med RxNorm`);
   return {
     ok: missing.length === 0,
     missing,
@@ -1544,12 +1522,8 @@ export function splitEncounterBundle(bundle: any): {
   composition: any | null;
 } {
   const entries: any[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
-  const compEntry = entries.find(
-    (e) => e?.resource?.resourceType === "Composition",
-  );
-  const rest = entries.filter(
-    (e) => e?.resource?.resourceType !== "Composition",
-  );
+  const compEntry = entries.find((e) => e?.resource?.resourceType === "Composition");
+  const rest = entries.filter((e) => e?.resource?.resourceType !== "Composition");
   return {
     primary: { ...bundle, entry: rest },
     composition: compEntry
@@ -1601,7 +1575,11 @@ function inferAllergyCategory(
   if (c.startsWith("biol")) return "biologic";
   // Heuristic on substance name when category is missing.
   const s = (substance ?? "").toLowerCase();
-  if (/(penicillin|sulfa|codeine|morphine|cefazolin|aspirin|nsaid|ibuprofen|acetaminophen|amoxicillin)/.test(s))
+  if (
+    /(penicillin|sulfa|codeine|morphine|cefazolin|aspirin|nsaid|ibuprofen|acetaminophen|amoxicillin)/.test(
+      s,
+    )
+  )
     return "medication";
   if (/(peanut|nut|shellfish|egg|milk|soy|wheat|gluten)/.test(s)) return "food";
   if (/(latex|iodine|contrast|pollen|bee|dust|mold)/.test(s)) return "environment";
@@ -1716,10 +1694,7 @@ export async function buildEncounterBundleAsync(opts: {
             ],
           },
         ],
-        code:
-          cc.coding.length > 0
-            ? { coding: cc.coding, text: item }
-            : { text: item },
+        code: cc.coding.length > 0 ? { coding: cc.coding, text: item } : { text: item },
         subject: { reference: `Patient/${mrn}` },
         recordedDate: opts.patient.admission_time ?? undefined,
       });
@@ -1782,10 +1757,7 @@ export async function buildEncounterBundleAsync(opts: {
         if (r.valueQuantity && r.valueQuantity.value !== undefined) {
           const haveSystem = !!r.valueQuantity.system;
           if (!haveSystem) {
-            const fallback =
-              typeof r.valueQuantity.unit === "string"
-                ? r.valueQuantity.unit
-                : null;
+            const fallback = typeof r.valueQuantity.unit === "string" ? r.valueQuantity.unit : null;
             const unit = await resolveLabUcumUnit(text, fallback);
             if (unit) {
               r.valueQuantity = {
@@ -1860,8 +1832,7 @@ export async function buildEncounterBundleAsync(opts: {
               : category === "biologic"
                 ? ["biologic"]
                 : undefined,
-      criticality:
-        (a.severity ?? "").toLowerCase() === "severe" ? "high" : "low",
+      criticality: (a.severity ?? "").toLowerCase() === "severe" ? "high" : "low",
       code:
         substanceCC.coding.length > 0
           ? { coding: substanceCC.coding, text: a.substance }
@@ -1881,18 +1852,14 @@ export async function buildEncounterBundleAsync(opts: {
   }
 
   /* ---- 7. Composition: ground discharge sections in ACTUAL resources */
-  const composition = entries.find(
-    (e) => e.resource?.resourceType === "Composition",
-  )?.resource;
+  const composition = entries.find((e) => e.resource?.resourceType === "Composition")?.resource;
   if (composition) {
     const labRes = entries
       .map((e) => e.resource)
       .filter(
         (r) =>
           r?.resourceType === "Observation" &&
-          r.category?.some((c: any) =>
-            c?.coding?.some((cc: any) => cc?.code === "laboratory"),
-          ),
+          r.category?.some((c: any) => c?.coding?.some((cc: any) => cc?.code === "laboratory")),
       );
     const medReqRes = entries
       .map((e) => e.resource)
@@ -1917,8 +1884,7 @@ export async function buildEncounterBundleAsync(opts: {
       ? medReqRes
           .map((m: any) => {
             const name = m.medicationCodeableConcept?.text ?? "Medication";
-            const route =
-              m.dosageInstruction?.[0]?.route?.text ?? "";
+            const route = m.dosageInstruction?.[0]?.route?.text ?? "";
             return `<p>${escapeHtml(name)}${route ? " — " + escapeHtml(route) : ""}</p>`;
           })
           .join("")
@@ -1940,9 +1906,7 @@ export async function buildEncounterBundleAsync(opts: {
           .join("")
       : "<p>No known allergies recorded for this encounter.</p>";
 
-    const sections: any[] = Array.isArray(composition.section)
-      ? composition.section
-      : [];
+    const sections: any[] = Array.isArray(composition.section) ? composition.section : [];
     const setSectionText = (title: string, html: string) => {
       const sec = sections.find((s) => s.title === title);
       const text = {
@@ -1959,9 +1923,7 @@ export async function buildEncounterBundleAsync(opts: {
   }
 
   /* ---- 8. CarePlan: regenerate description grounded in actuals only */
-  const carePlan = entries.find(
-    (e) => e.resource?.resourceType === "CarePlan",
-  )?.resource;
+  const carePlan = entries.find((e) => e.resource?.resourceType === "CarePlan")?.resource;
   if (carePlan) {
     const medNames = entries
       .map((e) => e.resource)
@@ -1973,9 +1935,7 @@ export async function buildEncounterBundleAsync(opts: {
       .filter(
         (r) =>
           r?.resourceType === "Observation" &&
-          r.category?.some((c: any) =>
-            c?.coding?.some((cc: any) => cc?.code === "laboratory"),
-          ),
+          r.category?.some((c: any) => c?.coding?.some((cc: any) => cc?.code === "laboratory")),
       )
       .map((o) => o.code?.text)
       .filter(Boolean) as string[];
@@ -2066,10 +2026,7 @@ async function crosswalk(
   }
 }
 
-async function enrichCoding(
-  cc: any,
-  targetsBySab: Record<string, string[]>,
-): Promise<void> {
+async function enrichCoding(cc: any, targetsBySab: Record<string, string[]>): Promise<void> {
   if (!cc || !Array.isArray(cc.coding) || cc.coding.length !== 1) return;
   const only = cc.coding[0];
   const sab = SYS_TO_SAB[only?.system];

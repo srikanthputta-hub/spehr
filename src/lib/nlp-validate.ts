@@ -40,7 +40,7 @@ async function loadValueSets(): Promise<Partial<Record<StreamKey, VsInfo>>> {
       if (row?.oid) {
         byName.set(value_set_name, {
           oid: row.oid,
-          vocabulary: row.vocabulary,
+          vocabulary: row.vocabulary ?? "",
           type: row.type,
         });
       }
@@ -78,7 +78,7 @@ async function validateOne(
       body: JSON.stringify({ code, system, valueSetOid: oid }),
     });
     if (!r.ok) return { valid: true, errored: true };
-    const j: any = await r.json();
+    const j = (await r.json()) as { ok?: boolean; valid?: boolean; reason?: string } | undefined;
     if (j?.ok === false) return { valid: true, errored: true };
     const out = { valid: Boolean(j?.valid), reason: j?.reason };
     runCache.set(key, out);
@@ -126,9 +126,11 @@ export async function validateStreamCodes(
         stage: "nlp-validate",
         level: "error",
         message: `Value set $validate-code proxy unavailable for stream ${streamKey}`,
-        meta: { stream: streamKey, value_set_oid: info.oid, code_count: unique.length } as any,
-      } as any);
-    } catch { /* non-fatal */ }
+        meta: { stream: streamKey, value_set_oid: info.oid, code_count: unique.length },
+      });
+    } catch {
+      /* non-fatal */
+    }
     return { perCode, gateStatus: "unavailable" };
   }
 

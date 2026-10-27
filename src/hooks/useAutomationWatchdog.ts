@@ -99,9 +99,7 @@ async function runWatchdogCycle() {
     recent_orders: recentMeds ?? 0,
     stuck_orders: stuckMeds?.length ?? 0,
   };
-  const pharmacyStalled =
-    automationOn &&
-    ((recentMeds ?? 0) === 0 || (stuckMeds?.length ?? 0) > 0);
+  const pharmacyStalled = automationOn && ((recentMeds ?? 0) === 0 || (stuckMeds?.length ?? 0) > 0);
 
   // ---- Lab ----
   const { count: recentLabs } = await supabase
@@ -118,9 +116,7 @@ async function runWatchdogCycle() {
     recent_orders: recentLabs ?? 0,
     stuck_orders: stuckLabs?.length ?? 0,
   };
-  const labStalled =
-    automationOn &&
-    ((recentLabs ?? 0) === 0 || (stuckLabs?.length ?? 0) > 0);
+  const labStalled = automationOn && ((recentLabs ?? 0) === 0 || (stuckLabs?.length ?? 0) > 0);
 
   // ---- Heal ----
   if (admissionsStalled) {
@@ -243,12 +239,15 @@ const TAB_ID = Math.random().toString(36).slice(2);
  */
 export async function claimLease(engine: string, minIntervalMs: number): Promise<boolean> {
   try {
-    const { data, error } = await supabase.rpc("claim_automation_lease" as any, {
-      _engine: engine,
-      _holder: TAB_ID,
-      _lease_ms: LEADER_LEASE_MS,
-      _min_interval_ms: minIntervalMs,
-    } as any);
+    const { data, error } = await supabase.rpc(
+      "claim_automation_lease" as any,
+      {
+        _engine: engine,
+        _holder: TAB_ID,
+        _lease_ms: LEADER_LEASE_MS,
+        _min_interval_ms: minIntervalMs,
+      } as any,
+    );
     if (error) {
       console.warn(`[watchdog] claim_automation_lease failed (${engine})`, error);
       return false;
@@ -272,9 +271,7 @@ export function useAutomationWatchdog() {
     ran.current = true;
     const tick = async () => {
       if (!(await claimLease("automation_watchdog", WATCHDOG_INTERVAL_MS))) return;
-      runWatchdogCycle().catch((e) =>
-        console.warn("[watchdog] cycle failed", e),
-      );
+      runWatchdogCycle().catch((e) => console.warn("[watchdog] cycle failed", e));
     };
     // Stagger the first tick by 8s so other boot-time queries settle.
     const boot = setTimeout(tick, 8_000);
@@ -320,7 +317,9 @@ export function useLatestWatchdogLog(): WatchdogLogRow | null {
         () =>
           supabase
             .from("automation_watchdog_logs")
-            .select("id, checker_timestamp, global_control_status, issues_detected, actions_taken, healed_engines")
+            .select(
+              "id, checker_timestamp, global_control_status, issues_detected, actions_taken, healed_engines",
+            )
             .order("checker_timestamp", { ascending: false })
             .limit(1),
         { data: [], error: null } as any,

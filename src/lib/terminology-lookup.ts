@@ -22,8 +22,10 @@ export const DEFAULT_CATEGORY: Record<string, string> = {
 };
 
 const DEFAULT_USAGE: Record<string, (display: string) => string> = {
-  "ICD-10": (d) => `ICD-10-CM diagnosis code used for problem list, encounter coding, and claims (${d}).`,
-  "SNOMED CT": (d) => `SNOMED CT clinical concept used for structured documentation and decision support (${d}).`,
+  "ICD-10": (d) =>
+    `ICD-10-CM diagnosis code used for problem list, encounter coding, and claims (${d}).`,
+  "SNOMED CT": (d) =>
+    `SNOMED CT clinical concept used for structured documentation and decision support (${d}).`,
   LOINC: (d) => `LOINC observation code used by the Lab Board / lab catalog for ${d}.`,
   RxNorm: (d) => `RxNorm clinical drug used by the Pharmacy / medication catalog for ${d}.`,
   VSAC: (d) => `VSAC value set member used for cohort definitions and quality measures (${d}).`,
@@ -34,7 +36,7 @@ export function defaultUsage(system: string, display: string): string {
   return fn ? fn(display) : `${system} concept: ${display}`;
 }
 
-async function safeJson(url: string, init?: RequestInit): Promise<any | null> {
+async function safeJson(url: string, init?: RequestInit): Promise<unknown | null> {
   try {
     const r = await fetch(url, init);
     if (!r.ok) return null;
@@ -51,9 +53,9 @@ async function lookupIcd10(code: string): Promise<LookupResult | null> {
     `https://clinicaltables.nlm.nih.gov/api/icd10cm/v3/search?sf=code&terms=${q}&maxList=5`,
   );
   if (!j || !Array.isArray(j) || !Array.isArray(j[3])) return null;
-  const match = (j[3] as string[][]).find(
-    (row) => row[0]?.toUpperCase() === code.trim().toUpperCase(),
-  ) ?? j[3][0];
+  const match =
+    (j[3] as string[][]).find((row) => row[0]?.toUpperCase() === code.trim().toUpperCase()) ??
+    j[3][0];
   if (!match) return null;
   const display = match[1] ?? code;
   return {
@@ -70,8 +72,7 @@ async function lookupLoinc(code: string): Promise<LookupResult | null> {
     `https://clinicaltables.nlm.nih.gov/api/loinc_items/v3/search?terms=${q}&df=LOINC_NUM,LONG_COMMON_NAME,CLASS&maxList=5`,
   );
   if (!j || !Array.isArray(j) || !Array.isArray(j[3])) return null;
-  const match =
-    (j[3] as string[][]).find((row) => row[0] === code.trim()) ?? j[3][0];
+  const match = (j[3] as string[][]).find((row) => row[0] === code.trim()) ?? j[3][0];
   if (!match) return null;
   const display = match[1] ?? code;
   const klass = match[2] ?? "Laboratory";
@@ -84,9 +85,9 @@ async function lookupLoinc(code: string): Promise<LookupResult | null> {
 
 /** RxNorm RxCUI lookup via RxNav. */
 async function lookupRxNorm(code: string): Promise<LookupResult | null> {
-  const j = await safeJson(
+  const j = (await safeJson(
     `https://rxnav.nlm.nih.gov/REST/rxcui/${encodeURIComponent(code.trim())}/properties.json`,
-  );
+  )) as { properties?: { name?: string; tty?: string } } | null;
   const display: string | undefined = j?.properties?.name;
   if (!display) return null;
   const tty: string | undefined = j?.properties?.tty;
@@ -104,8 +105,7 @@ async function lookupSnomed(code: string): Promise<LookupResult | null> {
     `https://clinicaltables.nlm.nih.gov/api/snomedct_problems/v3/search?terms=${q}&maxList=5`,
   );
   if (!j || !Array.isArray(j) || !Array.isArray(j[3])) return null;
-  const match =
-    (j[3] as string[][]).find((row) => row[0] === code.trim()) ?? j[3][0];
+  const match = (j[3] as string[][]).find((row) => row[0] === code.trim()) ?? j[3][0];
   if (!match) return null;
   const display = match[1] ?? code;
   return {

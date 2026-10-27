@@ -52,8 +52,14 @@ function AncillaryHub() {
           .select("id", { count: "exact", head: true })
           .eq("facility_name", facility)
           .in("status", [
-            "Ordered", "Pending", "Pending Verification", "ORDERED", "PENDING",
-            "PENDING_PHARMACY", "PENDING_VERIFICATION", "HELD_SAFETY_REVIEW",
+            "Ordered",
+            "Pending",
+            "Pending Verification",
+            "ORDERED",
+            "PENDING",
+            "PENDING_PHARMACY",
+            "PENDING_VERIFICATION",
+            "HELD_SAFETY_REVIEW",
           ]),
         supabase
           .from("medication_orders")
@@ -64,7 +70,15 @@ function AncillaryHub() {
           .from("lab_orders")
           .select("id", { count: "exact", head: true })
           .eq("facility_name", facility)
-          .in("status", ["Ordered", "ORDERED", "Pending", "PENDING", "Pending Collection", "Processing", "PROCESSING"]),
+          .in("status", [
+            "Ordered",
+            "ORDERED",
+            "Pending",
+            "PENDING",
+            "Pending Collection",
+            "Processing",
+            "PROCESSING",
+          ]),
         supabase
           .from("lab_orders")
           .select("id", { count: "exact", head: true })
@@ -117,9 +131,21 @@ function AncillaryHub() {
         module="ANC"
         context={`${facility} · Ancillary Services Hub`}
         stats={[
-          { label: "Rx Pending", value: counts.pharmacyPending, tone: counts.pharmacyPending > 0 ? "warn" : "good" },
-          { label: "Lab Pending", value: counts.labPending, tone: counts.labPending > 0 ? "warn" : "good" },
-          { label: "Rad Pending", value: counts.radPending, tone: counts.radPending > 0 ? "warn" : "good" },
+          {
+            label: "Rx Pending",
+            value: counts.pharmacyPending,
+            tone: counts.pharmacyPending > 0 ? "warn" : "good",
+          },
+          {
+            label: "Lab Pending",
+            value: counts.labPending,
+            tone: counts.labPending > 0 ? "warn" : "good",
+          },
+          {
+            label: "Rad Pending",
+            value: counts.radPending,
+            tone: counts.radPending > 0 ? "warn" : "good",
+          },
           { label: "Mode", value: "Unified" },
         ]}
       />
@@ -241,7 +267,9 @@ function TileCard({
       </div>
 
       <div className="mt-3">
-        <span className={`inline-flex items-center rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${a.badge}`}>
+        <span
+          className={`inline-flex items-center rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${a.badge}`}
+        >
           Open Workspace
         </span>
       </div>

@@ -10,7 +10,7 @@ export const Route = createFileRoute("/api/public/hooks/auto-doc")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        let body: any = null;
+        let body: { mrn?: string } | null = null;
         try {
           body = await request.json();
         } catch {
@@ -28,10 +28,10 @@ export const Route = createFileRoute("/api/public/hooks/auto-doc")({
             headers: { "Content-Type": "application/json" },
           });
         } catch (e) {
-          return new Response(
-            JSON.stringify({ error: (e as Error).message }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ error: (e as Error).message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
         }
       },
     },

@@ -47,18 +47,15 @@ export const Route = createFileRoute("/chart/$mrn")({
 
 function buildFallbackPatient(mrn: string, db: any, allergies: string[] | null): Patient {
   const name =
-    db?.name ||
-    [db?.first_name, db?.last_name].filter(Boolean).join(" ") ||
-    `Patient ${mrn}`;
+    db?.name || [db?.first_name, db?.last_name].filter(Boolean).join(" ") || `Patient ${mrn}`;
   const bp =
     db?.bp ||
-    (db?.bp_systolic && db?.bp_diastolic
-      ? `${db.bp_systolic}/${db.bp_diastolic}`
-      : "120/80");
-  const code: CodeStatus =
-    (["Full Code", "DNR", "DNI", "Comfort"] as CodeStatus[]).includes(db?.code_status)
-      ? (db.code_status as CodeStatus)
-      : "Full Code";
+    (db?.bp_systolic && db?.bp_diastolic ? `${db.bp_systolic}/${db.bp_diastolic}` : "120/80");
+  const code: CodeStatus = (["Full Code", "DNR", "DNI", "Comfort"] as CodeStatus[]).includes(
+    db?.code_status,
+  )
+    ? (db.code_status as CodeStatus)
+    : "Full Code";
   const hr = db?.hr ?? 80;
   const temp = Number(db?.temp ?? 98.6);
   const o2 = db?.spo2 ?? 98;
@@ -144,7 +141,12 @@ function ChartPage() {
       .channel(`role_perms_${activeRole}_${facility}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "role_permissions", filter: `target_role=eq.${activeRole}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "role_permissions",
+          filter: `target_role=eq.${activeRole}`,
+        },
         (payload: any) => {
           const row = payload.new ?? payload.old;
           if (!row?.feature_key) return;
@@ -184,11 +186,7 @@ function ChartPage() {
     }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
-        .from("patients")
-        .select("*")
-        .eq("mrn", mrn)
-        .maybeSingle();
+      const { data } = await supabase.from("patients").select("*").eq("mrn", mrn).maybeSingle();
       if (!cancelled) {
         setDbPatient(data);
         setLookupDone(true);
@@ -241,14 +239,23 @@ function ChartPage() {
           const draft = data.find((n: any) => n.status === "Draft");
           if (draft) {
             setDraftId(draft.id);
-            setNoteText(draft.note_text === "(SBAR handoff — see structured fields)" ? "" : (draft.note_text || ""));
+            setNoteText(
+              draft.note_text === "(SBAR handoff — see structured fields)"
+                ? ""
+                : draft.note_text || "",
+            );
             setSbar({
               s: draft.sbar_situation || "",
               b: draft.sbar_background || "",
               a: draft.sbar_assessment || "",
               r: draft.sbar_recommendation || "",
             });
-            if (draft.sbar_situation || draft.sbar_background || draft.sbar_assessment || draft.sbar_recommendation) {
+            if (
+              draft.sbar_situation ||
+              draft.sbar_background ||
+              draft.sbar_assessment ||
+              draft.sbar_recommendation
+            ) {
               setSbarOpen(true);
             }
           }
@@ -279,10 +286,7 @@ function ChartPage() {
 
   useEffect(() => {
     (async () => {
-      await supabase
-        .from("patients")
-        .update({ unread_labs_alert: false })
-        .eq("mrn", mrn);
+      await supabase.from("patients").update({ unread_labs_alert: false }).eq("mrn", mrn);
     })();
   }, [mrn]);
 
@@ -294,9 +298,7 @@ function ChartPage() {
     (async () => {
       const { data } = await supabase
         .from("medication_orders")
-        .select(
-          "id, medication_name, drug_name, dose, route, frequency, status, created_at",
-        )
+        .select("id, medication_name, drug_name, dose, route, frequency, status, created_at")
         .eq("patient_mrn", mrn)
         .not("status", "in", "(Administered,REJECTED,REJECTED_SAFETY_ALERT)")
         .order("created_at", { ascending: false })
@@ -351,7 +353,12 @@ function ChartPage() {
       .channel(`radiology-orders-${mrn}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "radiology_orders", filter: `patient_mrn=eq.${mrn}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "radiology_orders",
+          filter: `patient_mrn=eq.${mrn}`,
+        },
         load,
       )
       .subscribe();
@@ -365,10 +372,7 @@ function ChartPage() {
   useEffect(() => {
     if (activeTab !== "labs") return;
     (async () => {
-      await supabase
-        .from("patients")
-        .update({ unread_labs_alert: false })
-        .eq("mrn", mrn);
+      await supabase.from("patients").update({ unread_labs_alert: false }).eq("mrn", mrn);
     })();
   }, [activeTab, mrn]);
 
@@ -376,8 +380,7 @@ function ChartPage() {
   // Administered rows and REJECTED / REJECTED_SAFETY_ALERT). If the DB
   // has none, render an honest empty state — showing a fake drug on a
   // patient chart is unacceptable.
-  const medsList: MedOrder[] =
-    liveMeds ?? (patient.meds.length > 0 ? patient.meds : []);
+  const medsList: MedOrder[] = liveMeds ?? (patient.meds.length > 0 ? patient.meds : []);
 
   if (!ready) {
     return (
@@ -413,10 +416,7 @@ function ChartPage() {
         .eq("mrn", patient.mrn)
         .maybeSingle();
       const next = Math.max(0, ((cur as any)?.meds_due_count ?? 1) - 1);
-      await supabase
-        .from("patients")
-        .update({ meds_due_count: next })
-        .eq("mrn", patient.mrn);
+      await supabase.from("patients").update({ meds_due_count: next }).eq("mrn", patient.mrn);
 
       setGiven((g) => ({
         ...g,
@@ -527,7 +527,9 @@ function ChartPage() {
       setShiftNotes((prev) => [signed, ...prev.filter((n) => n.id !== signed.id)]);
       setEsignOpen(false);
       setPin("");
-      toast.success("Document locked and permanently stamped to electronic medical legal registry.");
+      toast.success(
+        "Document locked and permanently stamped to electronic medical legal registry.",
+      );
     } catch (e: any) {
       toast.error("Failed to E-Sign note", { description: e?.message });
     } finally {
@@ -538,19 +540,27 @@ function ChartPage() {
   const handleOrderLab = async () => {
     setOrderingLab(true);
     try {
-      const { data: inserted, error } = await supabase.from("lab_orders").insert({
-        patient_mrn: patient.mrn,
-        patient_name: patient.name,
-        requested_by: nurse.name,
-        facility_name: facility,
-        test_type: labTest,
-        clinical_condition: patient.diagnosis,
-        status: "Pending Collection",
-        source: "nurse-chart",
-      }).select("id").single();
+      const { data: inserted, error } = await supabase
+        .from("lab_orders")
+        .insert({
+          patient_mrn: patient.mrn,
+          patient_name: patient.name,
+          requested_by: nurse.name,
+          facility_name: facility,
+          test_type: labTest,
+          clinical_condition: patient.diagnosis,
+          status: "Pending Collection",
+          source: "nurse-chart",
+        })
+        .select("id")
+        .single();
       if (error) throw error;
       if (inserted?.id) {
-        autoCodeLab(labTest, { resourceId: inserted.id, mrn: patient.mrn, resolver: "nurse-chart" });
+        autoCodeLab(labTest, {
+          resourceId: inserted.id,
+          mrn: patient.mrn,
+          resolver: "nurse-chart",
+        });
       }
       toast.success(`Lab order routed to ${facility} lab queue.`, {
         description: `${labTest} · ${patient.name}`,
@@ -581,9 +591,7 @@ function ChartPage() {
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-base font-semibold tracking-tight truncate">
-                  {patient.name}
-                </h1>
+                <h1 className="text-base font-semibold tracking-tight truncate">{patient.name}</h1>
                 <StatusBadge status={codeBadgeStatus[patient.code]} label={patient.code} />
                 <InfoHint text="Code status: Full Code = attempt full resuscitation; DNR = Do Not Resuscitate (no CPR); DNI = Do Not Intubate (no advanced airway) — DNR and DNI are separate orders; Comfort = comfort-measures / palliative only." />
               </div>
@@ -596,18 +604,20 @@ function ChartPage() {
 
           <div className="flex items-center gap-2 ml-auto">
             <div className="hidden md:flex flex-col items-end text-[11px] leading-tight">
-              <span className="text-white/55 uppercase tracking-[0.18em] text-[9px]">Signed In</span>
+              <span className="text-white/55 uppercase tracking-[0.18em] text-[9px]">
+                Signed In
+              </span>
               <span className="text-white font-medium">RN: {nurse.name.replace(/, RN$/, "")}</span>
-              <span className="text-white/60">{nurse.facility} — {nurse.ward}</span>
+              <span className="text-white/60">
+                {nurse.facility} — {nurse.ward}
+              </span>
             </div>
             <div className="inline-flex items-center gap-2 rounded-md bg-red-500/15 ring-1 ring-red-400/40 px-3 h-9 text-xs">
               <AlertOctagon className="h-4 w-4 text-red-300" />
               <span className="font-semibold text-red-200 uppercase tracking-wider text-[10px]">
                 Allergies
               </span>
-              <span className="font-medium text-red-100">
-                {patient.allergies.join(", ")}
-              </span>
+              <span className="font-medium text-red-100">{patient.allergies.join(", ")}</span>
             </div>
           </div>
         </div>
@@ -643,9 +653,13 @@ function ChartPage() {
               <span aria-hidden>🧪</span>
               Lab Reports
               {completedLabs.length > 0 && (
-                <span className={`ml-1 inline-flex items-center justify-center rounded-full px-1.5 h-4 text-[10px] font-bold tabular-nums ${
-                  activeTab === "labs" ? "bg-white/20 text-white" : "bg-[var(--teal-soft)] text-[var(--teal)]"
-                }`}>
+                <span
+                  className={`ml-1 inline-flex items-center justify-center rounded-full px-1.5 h-4 text-[10px] font-bold tabular-nums ${
+                    activeTab === "labs"
+                      ? "bg-white/20 text-white"
+                      : "bg-[var(--teal-soft)] text-[var(--teal)]"
+                  }`}
+                >
                   {completedLabs.length}
                 </span>
               )}
@@ -662,9 +676,13 @@ function ChartPage() {
               <Scan className="h-3.5 w-3.5" />
               Radiology
               {radStudies.length > 0 && (
-                <span className={`ml-1 inline-flex items-center justify-center rounded-full px-1.5 h-4 text-[10px] font-bold tabular-nums ${
-                  activeTab === "radiology" ? "bg-white/20 text-white" : "bg-cyan-100 text-cyan-700"
-                }`}>
+                <span
+                  className={`ml-1 inline-flex items-center justify-center rounded-full px-1.5 h-4 text-[10px] font-bold tabular-nums ${
+                    activeTab === "radiology"
+                      ? "bg-white/20 text-white"
+                      : "bg-cyan-100 text-cyan-700"
+                  }`}
+                >
                   {radStudies.length}
                 </span>
               )}
@@ -676,445 +694,455 @@ function ChartPage() {
           ) : activeTab === "radiology" ? (
             <RadiologyPanel studies={radStudies} />
           ) : (
+            <>
+              {/* Live Vitals */}
+              <section className="rounded-xl border border-border bg-card overflow-hidden">
+                <SectionHeader
+                  icon={Activity}
+                  title="Live Vitals"
+                  subtitle="Streaming · last 7 readings"
+                />
+                <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border border-t border-border">
+                  <VitalCard
+                    icon={HeartPulse}
+                    label="Heart Rate"
+                    unit="bpm"
+                    value={patient.hr}
+                    trend={patient.hrTrend}
+                    alert={hrOutOfRange(patient.hr)}
+                  />
+                  <VitalCard
+                    icon={Droplet}
+                    label="Blood Pressure"
+                    unit="mmHg"
+                    value={patient.bp}
+                    trend={patient.bpTrend}
+                    alert={bpOutOfRange(patient.bp)}
+                  />
+                  <VitalCard
+                    icon={Thermometer}
+                    label="Temp"
+                    unit="°F"
+                    value={patient.temp}
+                    trend={patient.tempTrend}
+                    alert={tempOutOfRange(patient.temp)}
+                  />
+                  <VitalCard
+                    icon={Wind}
+                    label="SpO₂"
+                    unit="%"
+                    value={patient.o2}
+                    trend={patient.o2Trend}
+                    alert={o2OutOfRange(patient.o2)}
+                  />
+                </div>
+              </section>
 
-          <>
-          {/* Live Vitals */}
-          <section className="rounded-xl border border-border bg-card overflow-hidden">
-            <SectionHeader icon={Activity} title="Live Vitals" subtitle="Streaming · last 7 readings" />
-            <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border border-t border-border">
-              <VitalCard
-                icon={HeartPulse}
-                label="Heart Rate"
-                unit="bpm"
-                value={patient.hr}
-                trend={patient.hrTrend}
-                alert={hrOutOfRange(patient.hr)}
-              />
-              <VitalCard
-                icon={Droplet}
-                label="Blood Pressure"
-                unit="mmHg"
-                value={patient.bp}
-                trend={patient.bpTrend}
-                alert={bpOutOfRange(patient.bp)}
-              />
-              <VitalCard
-                icon={Thermometer}
-                label="Temp"
-                unit="°F"
-                value={patient.temp}
-                trend={patient.tempTrend}
-                alert={tempOutOfRange(patient.temp)}
-              />
-              <VitalCard
-                icon={Wind}
-                label="SpO₂"
-                unit="%"
-                value={patient.o2}
-                trend={patient.o2Trend}
-                alert={o2OutOfRange(patient.o2)}
-              />
-            </div>
-          </section>
+              {/* Admitting Note */}
+              <section className="rounded-xl border border-border bg-card overflow-hidden">
+                <SectionHeader
+                  icon={ClipboardList}
+                  title="Admitting H&P — AI Summary"
+                  subtitle="Generated from Dr. R. Patel's full note"
+                  right={
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[var(--teal)] uppercase tracking-wider">
+                      <Sparkles className="h-3 w-3" />
+                      AI
+                    </span>
+                  }
+                />
+                <div className="p-5 space-y-3 text-sm leading-relaxed text-foreground/90">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Chief Complaint:</span>
+                    {patient.diagnosis}
+                  </div>
+                  <p>{patient.admitNote}</p>
+                  <div className="text-[11px] text-muted-foreground pt-2 border-t border-border">
+                    Source: Admission H&P · Reviewed 06:42 · Tap to view full note
+                  </div>
+                </div>
+              </section>
 
-          {/* Admitting Note */}
-          <section className="rounded-xl border border-border bg-card overflow-hidden">
-            <SectionHeader
-              icon={ClipboardList}
-              title="Admitting H&P — AI Summary"
-              subtitle="Generated from Dr. R. Patel's full note"
-              right={
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[var(--teal)] uppercase tracking-wider">
-                  <Sparkles className="h-3 w-3" />
-                  AI
-                </span>
-              }
-            />
-            <div className="p-5 space-y-3 text-sm leading-relaxed text-foreground/90">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">Chief Complaint:</span>
-                {patient.diagnosis}
-              </div>
-              <p>{patient.admitNote}</p>
-              <div className="text-[11px] text-muted-foreground pt-2 border-t border-border">
-                Source: Admission H&P · Reviewed 06:42 · Tap to view full note
-              </div>
-            </div>
-          </section>
-
-          {/* Lab Order */}
-          {can("btn_order_labs") && (
-          <section className="rounded-xl border border-border bg-card overflow-hidden">
-            <SectionHeader
-              icon={ClipboardList}
-              title="🧪 Order Laboratory Evaluation"
-              subtitle={`Routes to ${facility} lab queue`}
-            />
-            <div className="p-5 flex flex-wrap items-end gap-3">
-              <label className="flex-1 min-w-[220px]">
-                <span className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                  Test Type
-                </span>
-                <select
-                  value={labTest}
-                  onChange={(e) => setLabTest(e.target.value)}
-                  className="w-full h-10 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 cursor-pointer"
-                >
-                  <option>CBC Pack</option>
-                  <option>Metabolic Panel CMP</option>
-                  <option>Arterial Blood Gas</option>
-                  <option>Cardiac Troponin</option>
-                  <option>Serum Lactate</option>
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={handleOrderLab}
-                disabled={orderingLab}
-                className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 disabled:opacity-60 disabled:cursor-not-allowed text-white px-4 h-10 text-xs font-semibold transition shadow-sm"
-              >
-                {orderingLab ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <span aria-hidden>🧪</span>
-                )}
-                {orderingLab ? "Submitting…" : "Submit Lab Request"}
-              </button>
-            </div>
-          </section>
-          )}
-
-          {/* Provider Notes (physician/attending documentation) */}
-          <section className="rounded-xl border border-border bg-card overflow-hidden">
-            <SectionHeader
-              icon={FileSignature}
-              title="🩺 Provider Notes"
-              subtitle={`${providerNotes.length} note${providerNotes.length === 1 ? "" : "s"} on file`}
-            />
-            <div className="p-5 space-y-3">
-              {providerNotes.length === 0 ? (
-                <EmptyState description="No physician or attending notes have been documented for this patient yet." />
-              ) : (
-                <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                  {providerNotes.map((n) => (
-                    <li
-                      key={n.id}
-                      className="rounded-lg border border-border bg-secondary/30 p-3"
-                    >
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                        <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                          <User className="h-3 w-3" />
-                          {n.author_name}
-                          {n.author_role ? ` · ${n.author_role}` : ""}
-                        </span>
-                        <span className="inline-flex items-center gap-2">
-                          {n.note_type && (
-                            <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground">
-                              {n.note_type}
-                            </span>
-                          )}
-                          <span className="inline-flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {new Date(n.signed_at || n.created_at).toLocaleString()}
-                          </span>
-                        </span>
-                      </div>
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
-                        {n.content}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-
-          {/* Shift Handoff & Clinical Documentation */}
-          <section className="rounded-xl border border-border bg-card overflow-hidden">
-            <SectionHeader
-              icon={FileSignature}
-              title="📋 Shift Handoff & Clinical Documentation"
-              subtitle={`${shiftNotes.length} note${shiftNotes.length === 1 ? "" : "s"} on file`}
-            />
-
-            {/* Timeline */}
-            <div className="p-5 space-y-3">
-              {shiftNotes.length === 0 ? (
-                <EmptyState description="No shift notes recorded yet. Be the first to document this shift." />
-              ) : (
-                <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                  {shiftNotes.map((n) => (
-                    <li
-                      key={n.id}
-                      className="rounded-lg border border-border bg-secondary/30 p-3"
-                    >
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                        <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                          <User className="h-3 w-3 text-[var(--teal)]" />
-                          {n.author_nurse || nurse.name}
-                        </span>
-                        <span className="inline-flex items-center gap-1 tabular-nums">
-                          <Clock className="h-3 w-3" />
-                          {n.created_at
-                            ? new Date(n.created_at).toLocaleString([], {
-                                month: "short",
-                                day: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
-                            : "—"}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
-                        {n.note_text}
-                      </p>
-                      {(n.sbar_situation ||
-                        n.sbar_background ||
-                        n.sbar_assessment ||
-                        n.sbar_recommendation) && (
-                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                          {n.sbar_situation && (
-                            <SbarPill label="S" text={n.sbar_situation} />
-                          )}
-                          {n.sbar_background && (
-                            <SbarPill label="B" text={n.sbar_background} />
-                          )}
-                          {n.sbar_assessment && (
-                            <SbarPill label="A" text={n.sbar_assessment} />
-                          )}
-                          {n.sbar_recommendation && (
-                            <SbarPill label="R" text={n.sbar_recommendation} />
-                          )}
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* New entry form */}
-            <div className="border-t border-border bg-secondary/20 p-5 space-y-3">
-              <label className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
-                {isLocked ? "Finalized Documentation" : "New Entry"}
-              </label>
-              {isLocked && (
-                <div className="rounded-lg border border-warning/40 bg-warning-soft px-3 py-2.5 text-xs font-medium text-warning flex items-start gap-2">
-                  <span aria-hidden>🔒</span>
-                  <span>
-                    This medical record has been officially finalized and E-Signed. It is locked against future edits to preserve regulatory compliance.
-                    {lockedNote?.esigned_at && (
-                      <span className="block mt-0.5 text-[10px] font-normal text-warning/80">
-                        Signed by {lockedNote.author_nurse} · {new Date(lockedNote.esigned_at).toLocaleString()}
+              {/* Lab Order */}
+              {can("btn_order_labs") && (
+                <section className="rounded-xl border border-border bg-card overflow-hidden">
+                  <SectionHeader
+                    icon={ClipboardList}
+                    title="🧪 Order Laboratory Evaluation"
+                    subtitle={`Routes to ${facility} lab queue`}
+                  />
+                  <div className="p-5 flex flex-wrap items-end gap-3">
+                    <label className="flex-1 min-w-[220px]">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                        Test Type
                       </span>
-                    )}
-                  </span>
-                </div>
-              )}
-              {!isLocked && draftSavedAt && (
-                <div className="rounded-lg border border-success/40 bg-success-soft px-3 py-2 text-xs font-medium text-success flex items-center gap-2">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Draft Saved Successfully · {draftSavedAt}
-                </div>
-              )}
-              <textarea
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                disabled={isLocked}
-                placeholder="General Nursing Shift Notes..."
-                rows={4}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 resize-y disabled:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground"
-              />
-
-              <button
-                type="button"
-                onClick={() => setSbarOpen((v) => !v)}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--teal)] hover:underline"
-              >
-                {sbarOpen ? (
-                  <ChevronUp className="h-3.5 w-3.5" />
-                ) : (
-                  <ChevronDown className="h-3.5 w-3.5" />
-                )}
-                SBAR Handoff (optional)
-              </button>
-
-              {sbarOpen && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-border bg-background p-3">
-                  <SbarInput
-                    label="Situation"
-                    value={sbar.s}
-                    onChange={(v) => setSbar((p) => ({ ...p, s: v }))}
-                    disabled={isLocked}
-                  />
-                  <SbarInput
-                    label="Background"
-                    value={sbar.b}
-                    onChange={(v) => setSbar((p) => ({ ...p, b: v }))}
-                    disabled={isLocked}
-                  />
-                  <SbarInput
-                    label="Assessment"
-                    value={sbar.a}
-                    onChange={(v) => setSbar((p) => ({ ...p, a: v }))}
-                    disabled={isLocked}
-                  />
-                  <SbarInput
-                    label="Recommendation"
-                    value={sbar.r}
-                    onChange={(v) => setSbar((p) => ({ ...p, r: v }))}
-                    disabled={isLocked}
-                  />
-                </div>
-              )}
-
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
-                <span className="text-[11px] text-muted-foreground">
-                  Signing as <span className="font-medium text-foreground">{nurse.name}</span> · {nurse.facility} — {nurse.ward}
-                </span>
-                {!isLocked && (
-                  <div className="flex items-center gap-2">
+                      <select
+                        value={labTest}
+                        onChange={(e) => setLabTest(e.target.value)}
+                        className="w-full h-10 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 cursor-pointer"
+                      >
+                        <option>CBC Pack</option>
+                        <option>Metabolic Panel CMP</option>
+                        <option>Arterial Blood Gas</option>
+                        <option>Cardiac Troponin</option>
+                        <option>Serum Lactate</option>
+                      </select>
+                    </label>
                     <button
                       type="button"
-                      onClick={handleSaveDraft}
-                      disabled={savingNote}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed px-4 h-9 text-xs font-semibold transition"
+                      onClick={handleOrderLab}
+                      disabled={orderingLab}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 disabled:opacity-60 disabled:cursor-not-allowed text-white px-4 h-10 text-xs font-semibold transition shadow-sm"
                     >
-                      {savingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span aria-hidden>💾</span>}
-                      Save As Draft
+                      {orderingLab ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <span aria-hidden>🧪</span>
+                      )}
+                      {orderingLab ? "Submitting…" : "Submit Lab Request"}
                     </button>
-                    <InfoHint text="Draft = reversible. Saves the note to the chart in an editable state — you can revise or delete it later. Not medicolegally binding." />
-                    {can("btn_esign_note") && (
-                      <>
-                      <button
-                        type="button"
-                        onClick={openEsignModal}
-                        className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
-                      >
-                        <span aria-hidden>✍️</span>
-                        E-Sign & Lock Note
-                      </button>
-                      <InfoHint text="Legally-binding, irreversible: stamps the note to the permanent medical record with your credentials and locks it from all future edits. Cannot be undone." />
-                      </>
+                  </div>
+                </section>
+              )}
+
+              {/* Provider Notes (physician/attending documentation) */}
+              <section className="rounded-xl border border-border bg-card overflow-hidden">
+                <SectionHeader
+                  icon={FileSignature}
+                  title="🩺 Provider Notes"
+                  subtitle={`${providerNotes.length} note${providerNotes.length === 1 ? "" : "s"} on file`}
+                />
+                <div className="p-5 space-y-3">
+                  {providerNotes.length === 0 ? (
+                    <EmptyState description="No physician or attending notes have been documented for this patient yet." />
+                  ) : (
+                    <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                      {providerNotes.map((n) => (
+                        <li
+                          key={n.id}
+                          className="rounded-lg border border-border bg-secondary/30 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                            <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                              <User className="h-3 w-3" />
+                              {n.author_name}
+                              {n.author_role ? ` · ${n.author_role}` : ""}
+                            </span>
+                            <span className="inline-flex items-center gap-2">
+                              {n.note_type && (
+                                <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground">
+                                  {n.note_type}
+                                </span>
+                              )}
+                              <span className="inline-flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {new Date(n.signed_at || n.created_at).toLocaleString()}
+                              </span>
+                            </span>
+                          </div>
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+                            {n.content}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </section>
+
+              {/* Shift Handoff & Clinical Documentation */}
+              <section className="rounded-xl border border-border bg-card overflow-hidden">
+                <SectionHeader
+                  icon={FileSignature}
+                  title="📋 Shift Handoff & Clinical Documentation"
+                  subtitle={`${shiftNotes.length} note${shiftNotes.length === 1 ? "" : "s"} on file`}
+                />
+
+                {/* Timeline */}
+                <div className="p-5 space-y-3">
+                  {shiftNotes.length === 0 ? (
+                    <EmptyState description="No shift notes recorded yet. Be the first to document this shift." />
+                  ) : (
+                    <ul className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                      {shiftNotes.map((n) => (
+                        <li
+                          key={n.id}
+                          className="rounded-lg border border-border bg-secondary/30 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                            <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                              <User className="h-3 w-3 text-[var(--teal)]" />
+                              {n.author_nurse || nurse.name}
+                            </span>
+                            <span className="inline-flex items-center gap-1 tabular-nums">
+                              <Clock className="h-3 w-3" />
+                              {n.created_at
+                                ? new Date(n.created_at).toLocaleString([], {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })
+                                : "—"}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
+                            {n.note_text}
+                          </p>
+                          {(n.sbar_situation ||
+                            n.sbar_background ||
+                            n.sbar_assessment ||
+                            n.sbar_recommendation) && (
+                            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                              {n.sbar_situation && <SbarPill label="S" text={n.sbar_situation} />}
+                              {n.sbar_background && <SbarPill label="B" text={n.sbar_background} />}
+                              {n.sbar_assessment && <SbarPill label="A" text={n.sbar_assessment} />}
+                              {n.sbar_recommendation && (
+                                <SbarPill label="R" text={n.sbar_recommendation} />
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* New entry form */}
+                <div className="border-t border-border bg-secondary/20 p-5 space-y-3">
+                  <label className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+                    {isLocked ? "Finalized Documentation" : "New Entry"}
+                  </label>
+                  {isLocked && (
+                    <div className="rounded-lg border border-warning/40 bg-warning-soft px-3 py-2.5 text-xs font-medium text-warning flex items-start gap-2">
+                      <span aria-hidden>🔒</span>
+                      <span>
+                        This medical record has been officially finalized and E-Signed. It is locked
+                        against future edits to preserve regulatory compliance.
+                        {lockedNote?.esigned_at && (
+                          <span className="block mt-0.5 text-[10px] font-normal text-warning/80">
+                            Signed by {lockedNote.author_nurse} ·{" "}
+                            {new Date(lockedNote.esigned_at).toLocaleString()}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  {!isLocked && draftSavedAt && (
+                    <div className="rounded-lg border border-success/40 bg-success-soft px-3 py-2 text-xs font-medium text-success flex items-center gap-2">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Draft Saved Successfully · {draftSavedAt}
+                    </div>
+                  )}
+                  <textarea
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    disabled={isLocked}
+                    placeholder="General Nursing Shift Notes..."
+                    rows={4}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 resize-y disabled:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setSbarOpen((v) => !v)}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--teal)] hover:underline"
+                  >
+                    {sbarOpen ? (
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    )}
+                    SBAR Handoff (optional)
+                  </button>
+
+                  {sbarOpen && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-border bg-background p-3">
+                      <SbarInput
+                        label="Situation"
+                        value={sbar.s}
+                        onChange={(v) => setSbar((p) => ({ ...p, s: v }))}
+                        disabled={isLocked}
+                      />
+                      <SbarInput
+                        label="Background"
+                        value={sbar.b}
+                        onChange={(v) => setSbar((p) => ({ ...p, b: v }))}
+                        disabled={isLocked}
+                      />
+                      <SbarInput
+                        label="Assessment"
+                        value={sbar.a}
+                        onChange={(v) => setSbar((p) => ({ ...p, a: v }))}
+                        disabled={isLocked}
+                      />
+                      <SbarInput
+                        label="Recommendation"
+                        value={sbar.r}
+                        onChange={(v) => setSbar((p) => ({ ...p, r: v }))}
+                        disabled={isLocked}
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+                    <span className="text-[11px] text-muted-foreground">
+                      Signing as <span className="font-medium text-foreground">{nurse.name}</span> ·{" "}
+                      {nurse.facility} — {nurse.ward}
+                    </span>
+                    {!isLocked && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveDraft}
+                          disabled={savingNote}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed px-4 h-9 text-xs font-semibold transition"
+                        >
+                          {savingNote ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <span aria-hidden>💾</span>
+                          )}
+                          Save As Draft
+                        </button>
+                        <InfoHint text="Draft = reversible. Saves the note to the chart in an editable state — you can revise or delete it later. Not medicolegally binding." />
+                        {can("btn_esign_note") && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={openEsignModal}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
+                            >
+                              <span aria-hidden>✍️</span>
+                              E-Sign & Lock Note
+                            </button>
+                            <InfoHint text="Legally-binding, irreversible: stamps the note to the permanent medical record with your credentials and locks it from all future edits. Cannot be undone." />
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
-            </div>
-          </section>
+                </div>
+              </section>
 
-          {esignOpen && (
-            <div
-              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
-              onClick={() => !esigning && setEsignOpen(false)}
-            >
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className={`w-full max-w-md rounded-2xl bg-card border border-border shadow-2xl overflow-hidden ${shake ? "animate-[shake_0.4s_ease-in-out]" : ""}`}
-                style={{
-                  animation: shake ? "shake 0.4s ease-in-out" : undefined,
-                }}
-              >
-                <div className="px-6 pt-5 pb-4 border-b border-border bg-gradient-to-br from-[var(--navy)]/5 to-transparent">
-                  <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
-                    <span aria-hidden>🔐</span> Electronic Signature Verification
-                  </h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Signing clinician:{" "}
-                    <span className="font-medium text-foreground">{nurse.name}</span> ·{" "}
-                    {nurse.facility} — {nurse.ward}
-                  </p>
-                </div>
-                <div className="px-6 py-5 space-y-3">
-                  <label className="block">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Enter Clinical Signature PIN
-                    </span>
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      maxLength={4}
-                      autoFocus
-                      value={pin}
-                      onChange={(e) => {
-                        setPin(e.target.value.replace(/\D/g, "").slice(0, 4));
-                        setPinError(false);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && pin.length === 4 && !esigning) handleEsignConfirm();
-                      }}
-                      placeholder="••••"
-                      className={`mt-1.5 w-full text-center tracking-[0.6em] text-2xl font-semibold rounded-lg border bg-background px-3 h-14 focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 ${
-                        pinError ? "border-critical ring-2 ring-critical/30" : "border-border"
-                      }`}
-                    />
-                  </label>
-                  {pinError && (
-                    <p className="text-xs font-medium text-critical">
-                      ❌ Invalid Signature PIN. Authorization denied.
-                    </p>
-                  )}
-                  <p className="text-[10px] text-muted-foreground">
-                    Your PIN cryptographically binds this note to your clinical credentials in the EMR legal registry.
-                  </p>
-                </div>
-                <div className="px-6 py-4 border-t border-border bg-secondary/30 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEsignOpen(false)}
-                    disabled={esigning}
-                    className="rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 px-4 h-9 text-xs font-semibold transition"
+              {esignOpen && (
+                <div
+                  className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+                  onClick={() => !esigning && setEsignOpen(false)}
+                >
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className={`w-full max-w-md rounded-2xl bg-card border border-border shadow-2xl overflow-hidden ${shake ? "animate-[shake_0.4s_ease-in-out]" : ""}`}
+                    style={{
+                      animation: shake ? "shake 0.4s ease-in-out" : undefined,
+                    }}
                   >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEsignConfirm}
-                    disabled={esigning || pin.length !== 4}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 disabled:opacity-60 disabled:cursor-not-allowed text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
-                  >
-                    {esigning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span aria-hidden>🔏</span>}
-                    Verify & Lock
-                  </button>
+                    <div className="px-6 pt-5 pb-4 border-b border-border bg-gradient-to-br from-[var(--navy)]/5 to-transparent">
+                      <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                        <span aria-hidden>🔐</span> Electronic Signature Verification
+                      </h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Signing clinician:{" "}
+                        <span className="font-medium text-foreground">{nurse.name}</span> ·{" "}
+                        {nurse.facility} — {nurse.ward}
+                      </p>
+                    </div>
+                    <div className="px-6 py-5 space-y-3">
+                      <label className="block">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Enter Clinical Signature PIN
+                        </span>
+                        <input
+                          type="password"
+                          inputMode="numeric"
+                          maxLength={4}
+                          autoFocus
+                          value={pin}
+                          onChange={(e) => {
+                            setPin(e.target.value.replace(/\D/g, "").slice(0, 4));
+                            setPinError(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && pin.length === 4 && !esigning)
+                              handleEsignConfirm();
+                          }}
+                          placeholder="••••"
+                          className={`mt-1.5 w-full text-center tracking-[0.6em] text-2xl font-semibold rounded-lg border bg-background px-3 h-14 focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/40 ${
+                            pinError ? "border-critical ring-2 ring-critical/30" : "border-border"
+                          }`}
+                        />
+                      </label>
+                      {pinError && (
+                        <p className="text-xs font-medium text-critical">
+                          ❌ Invalid Signature PIN. Authorization denied.
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground">
+                        Your PIN cryptographically binds this note to your clinical credentials in
+                        the EMR legal registry.
+                      </p>
+                    </div>
+                    <div className="px-6 py-4 border-t border-border bg-secondary/30 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEsignOpen(false)}
+                        disabled={esigning}
+                        className="rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 px-4 h-9 text-xs font-semibold transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleEsignConfirm}
+                        disabled={esigning || pin.length !== 4}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-[var(--navy)] hover:bg-[var(--navy)]/90 disabled:opacity-60 disabled:cursor-not-allowed text-white px-4 h-9 text-xs font-semibold transition shadow-sm"
+                      >
+                        {esigning ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <span aria-hidden>🔏</span>
+                        )}
+                        Verify & Lock
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
-          </>
+              )}
+            </>
           )}
         </div>
 
         {/* RIGHT — MAR */}
         <div className="lg:col-span-2">
           <div className="space-y-4 sticky top-[88px]">
-          <section className="rounded-xl border border-border bg-card overflow-hidden">
-            <SectionHeader
-              icon={Pill}
-              title="MAR — Due Now"
-              subtitle={`${medsList.length} active order${medsList.length === 1 ? "" : "s"}`}
-              right={
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--teal-soft)] text-[var(--teal)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
-                  Live
-                </span>
-              }
-            />
-            {medsList.length === 0 ? (
-              <EmptyState description="No active medications on file for this patient." />
-            ) : (
-              <ul className="divide-y divide-border">
-                {medsList.map((m) => (
-                  <MedRow
-                    key={m.id}
-                    med={m}
-                    givenAt={given[m.id]}
-                    busy={administering === m.id}
-                    onAdminister={() => handleAdminister(m)}
-                  />
-                ))}
-              </ul>
-            )}
-          </section>
+            <section className="rounded-xl border border-border bg-card overflow-hidden">
+              <SectionHeader
+                icon={Pill}
+                title="MAR — Due Now"
+                subtitle={`${medsList.length} active order${medsList.length === 1 ? "" : "s"}`}
+                right={
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--teal-soft)] text-[var(--teal)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
+                    Live
+                  </span>
+                }
+              />
+              {medsList.length === 0 ? (
+                <EmptyState description="No active medications on file for this patient." />
+              ) : (
+                <ul className="divide-y divide-border">
+                  {medsList.map((m) => (
+                    <MedRow
+                      key={m.id}
+                      med={m}
+                      givenAt={given[m.id]}
+                      busy={administering === m.id}
+                      onAdminister={() => handleAdminister(m)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
         </div>
       </div>
@@ -1138,9 +1166,7 @@ function SectionHeader({
       <div className="flex items-center gap-2 min-w-0">
         <Icon className="h-4 w-4 text-[var(--teal)] shrink-0" />
         <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
-        {subtitle && (
-          <span className="text-xs text-muted-foreground truncate">· {subtitle}</span>
-        )}
+        {subtitle && <span className="text-xs text-muted-foreground truncate">· {subtitle}</span>}
       </div>
       {right}
     </div>
@@ -1155,9 +1181,7 @@ function Sparkline({ data, alert }: { data: number[]; alert: boolean }) {
   const w = 80;
   const h = 24;
   const step = data.length > 1 ? w / (data.length - 1) : 0;
-  const points = data
-    .map((v, i) => `${i * step},${h - ((v - min) / range) * h}`)
-    .join(" ");
+  const points = data.map((v, i) => `${i * step},${h - ((v - min) / range) * h}`).join(" ");
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-20 h-6" preserveAspectRatio="none">
       <polyline
@@ -1211,9 +1235,7 @@ function VitalCard({
       </div>
       <div className="mt-2 flex items-center justify-between">
         <Sparkline data={trend} alert={alert} />
-        <TrendIcon
-          className={`h-3.5 w-3.5 ${alert ? "text-critical" : "text-muted-foreground"}`}
-        />
+        <TrendIcon className={`h-3.5 w-3.5 ${alert ? "text-critical" : "text-muted-foreground"}`} />
       </div>
     </div>
   );
@@ -1237,16 +1259,13 @@ function MedRow({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-2">
-          <div className="font-semibold text-sm text-foreground truncate">
-            {med.name}
-          </div>
+          <div className="font-semibold text-sm text-foreground truncate">{med.name}</div>
           <div className="text-[11px] text-muted-foreground tabular-nums shrink-0">
             Due {med.due}
           </div>
         </div>
         <div className="text-xs text-muted-foreground mt-0.5">
-          <span className="text-foreground font-medium">{med.dose}</span> ·{" "}
-          {med.route} · {med.freq}
+          <span className="text-foreground font-medium">{med.dose}</span> · {med.route} · {med.freq}
         </div>
         {med.notes && (
           <div className="text-[11px] text-warning mt-1 inline-flex items-center gap-1">
@@ -1256,7 +1275,11 @@ function MedRow({
         )}
         <div className="mt-3">
           {givenAt ? (
-            <StatusBadge status="success" icon={<CheckCircle2 className="h-3.5 w-3.5" />} label={`Given · ${givenAt}`} />
+            <StatusBadge
+              status="success"
+              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+              label={`Given · ${givenAt}`}
+            />
           ) : (
             <button
               onClick={onAdminister}
@@ -1355,9 +1378,7 @@ function LabReportCard({ report }: { report: any }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <FlaskConical className="h-4 w-4 text-[var(--teal)]" />
-            <h4 className="text-sm font-bold tracking-tight text-foreground">
-              {report.test_type}
-            </h4>
+            <h4 className="text-sm font-bold tracking-tight text-foreground">{report.test_type}</h4>
             <StatusBadge status="success" label="Completed" />
           </div>
           <div className="mt-1 text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5">
@@ -1366,16 +1387,16 @@ function LabReportCard({ report }: { report: any }) {
             </span>
             <span className="inline-flex items-center gap-1">
               <FileSignature className="h-3 w-3" /> Processed by:{" "}
-              <span className="font-medium text-foreground">{report.requested_by || "Lab Tech"}</span>
+              <span className="font-medium text-foreground">
+                {report.requested_by || "Lab Tech"}
+              </span>
             </span>
           </div>
         </div>
       </header>
       <div className="p-4">
         {metrics.length === 0 ? (
-          <div className="text-xs text-muted-foreground italic">
-            Report data unavailable.
-          </div>
+          <div className="text-xs text-muted-foreground italic">Report data unavailable.</div>
         ) : (
           <table className="w-full text-xs">
             <thead>
@@ -1453,10 +1474,20 @@ function RadiologyPanel({ studies }: { studies: any[] }) {
 function RadiologyStudyCard({ study }: { study: any }) {
   const ordered = study.ordered_at || study.created_at;
   const orderedTs = ordered
-    ? new Date(ordered).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    ? new Date(ordered).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     : "—";
   const resultedTs = study.resulted_at
-    ? new Date(study.resulted_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    ? new Date(study.resulted_at).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     : null;
   const status = String(study.status ?? "ordered").toLowerCase();
   const isResulted = status === "resulted";
@@ -1478,7 +1509,11 @@ function RadiologyStudyCard({ study }: { study: any }) {
             <span className="inline-flex items-center gap-1">
               <Clock className="h-3 w-3" /> Ordered: {orderedTs}
             </span>
-            {study.body_part && <span>Body site: <span className="font-medium text-foreground">{study.body_part}</span></span>}
+            {study.body_part && (
+              <span>
+                Body site: <span className="font-medium text-foreground">{study.body_part}</span>
+              </span>
+            )}
             {study.requested_by && (
               <span className="inline-flex items-center gap-1">
                 <FileSignature className="h-3 w-3" /> By {study.requested_by}
@@ -1508,13 +1543,17 @@ function RadiologyStudyCard({ study }: { study: any }) {
         )}
         {study.clinical_indication && (
           <div className="text-xs">
-            <span className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Indication:</span>{" "}
+            <span className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">
+              Indication:
+            </span>{" "}
             <span className="text-foreground">{study.clinical_indication}</span>
           </div>
         )}
         {study.impression && (
           <div className="text-xs">
-            <span className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">Impression:</span>{" "}
+            <span className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">
+              Impression:
+            </span>{" "}
             <span className="text-foreground">{study.impression}</span>
           </div>
         )}

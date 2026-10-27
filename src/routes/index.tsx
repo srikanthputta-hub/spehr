@@ -1,13 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import {
-  ShieldCheck,
-  Activity,
-  Lock,
-  ArrowRight,
-  ArrowLeft,
-  Stethoscope,
-} from "lucide-react";
+import { ShieldCheck, Activity, Lock, ArrowRight, ArrowLeft, Stethoscope } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -15,7 +8,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FACILITIES, useFacility, STAFF_BY_FACILITY, type StaffRole } from "@/lib/facility-context";
+import {
+  FACILITIES,
+  useFacility,
+  STAFF_BY_FACILITY,
+  type StaffRole,
+  type Facility,
+} from "@/lib/facility-context";
 import spehrLogo from "@/assets/spehr-logo.png";
 
 export const Route = createFileRoute("/")({
@@ -45,7 +44,11 @@ const ROLES: { value: RoleRoute; label: string; abbrev: StaffRole | "EHR" }[] = 
   { value: "/admissions-board", label: "Admissions / Reception", abbrev: "Reception" },
   { value: "/nursing-board", label: "Registered Nurse", abbrev: "RN" },
   { value: "/physician-board", label: "Attending Physician", abbrev: "MD" },
-  { value: "/ancillary-services", label: "Clinical Ancillary Services", abbrev: "Ancillary" as unknown as StaffRole },
+  {
+    value: "/ancillary-services",
+    label: "Clinical Ancillary Services",
+    abbrev: "Ancillary" as unknown as StaffRole,
+  },
   { value: "/admin-dashboard", label: "Clinical Site Manager", abbrev: "Admin" },
   { value: "/finance-board", label: "Corporate Finance & Accounts", abbrev: "Finance" },
   { value: "/system-admin", label: "Command Center · System Administration", abbrev: "EHR" },
@@ -100,9 +103,7 @@ function LoginScreen() {
         <div className="flex items-center gap-3">
           <img src={spehrLogo} alt="S Group Private Network" className="h-10 w-auto" />
           <div className="leading-tight">
-            <div className="text-[10px] uppercase tracking-[0.28em] text-slate-400">
-              S Group
-            </div>
+            <div className="text-[10px] uppercase tracking-[0.28em] text-slate-400">S Group</div>
             <div className="text-sm font-semibold">Private Network</div>
           </div>
         </div>
@@ -120,11 +121,17 @@ function LoginScreen() {
         </div>
       </header>
 
-      <section className={`relative px-6 sm:px-10 py-10 mx-auto ${view === "hub" ? "max-w-lg" : "max-w-md"}`}>
+      <section
+        className={`relative px-6 sm:px-10 py-10 mx-auto ${view === "hub" ? "max-w-lg" : "max-w-md"}`}
+      >
         {view === "hub" && (
           <div className="text-center">
             <div className="flex justify-center mb-8">
-              <img src={spehrLogo} alt="S Group Private Network" className="h-40 w-auto scale-125" />
+              <img
+                src={spehrLogo}
+                alt="S Group Private Network"
+                className="h-40 w-auto scale-125"
+              />
             </div>
             <h1 className="text-3xl font-bold tracking-tight">S.P.E.H.R</h1>
             <p className="mt-2 text-sm text-slate-400">
@@ -142,14 +149,17 @@ function LoginScreen() {
                 </span>
                 <span className="flex-1">
                   <span className="block text-sm font-semibold">Clinical Workspace</span>
-                  <span className="block text-[11px] text-slate-400">Role Gateway · Admissions, Nursing, Physician, Pharmacy…</span>
+                  <span className="block text-[11px] text-slate-400">
+                    Role Gateway · Admissions, Nursing, Physician, Pharmacy…
+                  </span>
                 </span>
                 <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-[#5cbdb9] transition" />
               </button>
             </div>
 
             <p className="mt-8 text-[11px] text-slate-600 text-center max-w-sm mx-auto">
-              Disclaimer: All patient data displayed in this system is 100% fabricated for simulation purposes and contains no real Protected Health Information (PHI).
+              Disclaimer: All patient data displayed in this system is 100% fabricated for
+              simulation purposes and contains no real Protected Health Information (PHI).
             </p>
           </div>
         )}
@@ -180,9 +190,7 @@ function LoginScreen() {
                       className="focus:bg-[#2d8a9e]/20 focus:text-slate-50"
                     >
                       <span className="font-medium">{r.label}</span>
-                      <span className="ml-2 text-[11px] text-[#5cbdb9]">
-                        {r.abbrev}
-                      </span>
+                      <span className="ml-2 text-[11px] text-[#5cbdb9]">{r.abbrev}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -196,7 +204,7 @@ function LoginScreen() {
                 </label>
                 <select
                   value={facility}
-                  onChange={(e) => setFacility(e.target.value as any)}
+                  onChange={(e) => setFacility(e.target.value as Facility)}
                   className="w-full h-10 rounded-md bg-[#0a1220] border border-white/10 text-slate-100 text-sm px-2 outline-none hover:border-[#5cbdb9]/40 focus:border-[#5cbdb9]/60 cursor-pointer"
                 >
                   {FACILITIES.map((f) => (

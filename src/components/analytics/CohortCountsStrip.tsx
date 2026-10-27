@@ -56,17 +56,13 @@ function PatientList({
             className="flex items-center justify-between gap-3 px-2.5 py-2 text-xs hover:bg-rose-50 rounded-sm"
           >
             <span className="flex flex-col leading-tight min-w-0">
-              <span className="font-medium text-slate-900 truncate">
-                {patientLabel(p)}
-              </span>
+              <span className="font-medium text-slate-900 truncate">{patientLabel(p)}</span>
               <span className="text-[10px] uppercase tracking-wider text-slate-500 tabular-nums">
                 MRN {p.mrn}
                 {p.room ? ` · Room ${p.room}` : ""}
               </span>
             </span>
-            <span className="text-[10px] text-rose-700 font-semibold shrink-0">
-              Open chart →
-            </span>
+            <span className="text-[10px] text-rose-700 font-semibold shrink-0">Open chart →</span>
           </Link>
         </li>
       ))}
@@ -131,10 +127,7 @@ export default function CohortCountsStrip({
   }
 
   return (
-    <section
-      className={`flex ${className}`}
-      aria-label="Currently admitted high-acuity patients"
-    >
+    <section className={`flex ${className}`} aria-label="Currently admitted high-acuity patients">
       <Popover>
         <PopoverTrigger asChild>
           <button

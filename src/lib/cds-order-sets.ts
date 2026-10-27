@@ -29,7 +29,7 @@ export const ORDER_SETS: Record<string, OrderSet> = {
       "Repeat vitals every 30 min",
     ],
   },
-  "acs": {
+  acs: {
     id: "acs",
     label: "🔴 ACS Protocol — immediate workup suggested",
     severity: "red",

@@ -147,13 +147,14 @@ function fhirId(prefix: string, value: string) {
  * and PUT requests upsert instead of duplicating on the FHIR server.
  */
 function stableId(prefix: string, ...parts: Array<string | null | undefined>) {
-  const joined = parts
-    .filter((p): p is string => !!p && typeof p === "string")
-    .join("|")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 50) || "x";
+  const joined =
+    parts
+      .filter((p): p is string => !!p && typeof p === "string")
+      .join("|")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 50) || "x";
   return `${prefix}-${joined}`.slice(0, 64);
 }
 
@@ -188,10 +189,14 @@ function codeStatusToCoding(status?: string | null) {
   if (!status) return null;
   const s = status.toLowerCase();
   // SNOMED code-status concepts
-  if (s.includes("full")) return { system: SNOMED, code: "304253006", display: "Not for resuscitation (situation)" };
-  if (s.includes("dnr")) return { system: SNOMED, code: "304253006", display: "DNR — Not for resuscitation" };
-  if (s.includes("dni")) return { system: SNOMED, code: "304251008", display: "DNI — Not for intubation" };
-  if (s.includes("comfort")) return { system: SNOMED, code: "133918004", display: "Comfort measures only" };
+  if (s.includes("full"))
+    return { system: SNOMED, code: "304253006", display: "Not for resuscitation (situation)" };
+  if (s.includes("dnr"))
+    return { system: SNOMED, code: "304253006", display: "DNR — Not for resuscitation" };
+  if (s.includes("dni"))
+    return { system: SNOMED, code: "304251008", display: "DNI — Not for intubation" };
+  if (s.includes("comfort"))
+    return { system: SNOMED, code: "133918004", display: "Comfort measures only" };
   return { system: SNOMED, code: "304253006", display: status };
 }
 
@@ -202,9 +207,7 @@ function buildPatient(p: AdmissionPatient, id: string) {
   const res: AnyRecord = {
     resourceType: "Patient",
     id,
-    identifier: [
-      { use: "official", system: "urn:spehr:mrn", value: p.mrn },
-    ],
+    identifier: [{ use: "official", system: "urn:spehr:mrn", value: p.mrn }],
     active: true,
     name: [{ use: "official", given: name.given, family: name.family || name.given[0] || "" }],
     gender: normalizeGender(p),
@@ -254,12 +257,20 @@ function buildRelatedPersonEmergencyContact(p: AdmissionPatient, patientId: stri
     patient: { reference: urn(patientId) },
     relationship: [
       {
-        coding: [{ system: HL7.V3_ROLE_CODE, code: "ECON", display: p.emergency_contact_relationship ?? "Emergency contact" }],
+        coding: [
+          {
+            system: HL7.V3_ROLE_CODE,
+            code: "ECON",
+            display: p.emergency_contact_relationship ?? "Emergency contact",
+          },
+        ],
         text: p.emergency_contact_relationship ?? "Emergency contact",
       },
     ],
     name: [{ text: p.emergency_contact_name }],
-    telecom: p.emergency_contact_phone ? [{ system: "phone", value: p.emergency_contact_phone }] : undefined,
+    telecom: p.emergency_contact_phone
+      ? [{ system: "phone", value: p.emergency_contact_phone }]
+      : undefined,
   };
 }
 
@@ -319,7 +330,13 @@ function buildEncounter(p: AdmissionPatient, patientId: string, id: string) {
     reasonCode: p.chief_complaint ? [{ text: p.chief_complaint }] : undefined,
     serviceProvider: p.facility_name ? { display: p.facility_name } : undefined,
     location: p.room
-      ? [{ location: { display: p.assigned_department ? `${p.room} (${p.assigned_department})` : p.room } }]
+      ? [
+          {
+            location: {
+              display: p.assigned_department ? `${p.room} (${p.assigned_department})` : p.room,
+            },
+          },
+        ]
       : undefined,
     participant: p.primary_care_physician
       ? [
@@ -342,7 +359,12 @@ function buildEncounter(p: AdmissionPatient, patientId: string, id: string) {
   };
 }
 
-function buildHpiCondition(p: AdmissionPatient, patientId: string, encounterId: string, id: string) {
+function buildHpiCondition(
+  p: AdmissionPatient,
+  patientId: string,
+  encounterId: string,
+  id: string,
+) {
   if (!p.chief_complaint) return null;
   const hpiBits = [
     p.hpi_onset && `Onset: ${p.hpi_onset}`,
@@ -361,15 +383,21 @@ function buildHpiCondition(p: AdmissionPatient, patientId: string, encounterId: 
     clinicalStatus: { coding: [{ system: HL7.CONDITION_CLINICAL, code: "active" }] },
     verificationStatus: { coding: [{ system: HL7.CONDITION_VERIFICATION, code: "provisional" }] },
     category: [
-      { coding: [{ system: HL7.CONDITION_CATEGORY, code: "encounter-diagnosis", display: "Encounter Diagnosis" }] },
+      {
+        coding: [
+          {
+            system: HL7.CONDITION_CATEGORY,
+            code: "encounter-diagnosis",
+            display: "Encounter Diagnosis",
+          },
+        ],
+      },
     ],
     code: { text: p.chief_complaint },
     subject: { reference: urn(patientId) },
     encounter: { reference: urn(encounterId) },
     onsetString: p.hpi_onset ?? undefined,
-    severity: typeof p.hpi_severity === "number"
-      ? { text: `${p.hpi_severity}/10` }
-      : undefined,
+    severity: typeof p.hpi_severity === "number" ? { text: `${p.hpi_severity}/10` } : undefined,
     bodySite: p.hpi_location ? [{ text: p.hpi_location }] : undefined,
     note: hpiBits ? [{ text: hpiBits }] : undefined,
     recordedDate: p.admission_time ?? new Date().toISOString(),
@@ -377,27 +405,46 @@ function buildHpiCondition(p: AdmissionPatient, patientId: string, encounterId: 
 }
 
 function buildPmhConditions(p: AdmissionPatient, patientId: string) {
-  type PmhItem = { text: string; kind: "problem-list-item" | "encounter-diagnosis"; status: "active" | "resolved"; note?: string };
+  type PmhItem = {
+    text: string;
+    kind: "problem-list-item" | "encounter-diagnosis";
+    status: "active" | "resolved";
+    note?: string;
+  };
   const items: PmhItem[] = [
-    ...splitList(p.past_medical_history).map((t): PmhItem => ({ text: t, kind: "problem-list-item", status: "active" })),
-    ...splitList(p.past_surgical_history).map((t): PmhItem => ({ text: t, kind: "problem-list-item", status: "resolved", note: "Past surgical" })),
-    ...splitList(p.past_hospitalizations).map((t): PmhItem => ({ text: t, kind: "encounter-diagnosis", status: "resolved", note: "Prior hospitalization" })),
+    ...splitList(p.past_medical_history).map((t): PmhItem => ({
+      text: t,
+      kind: "problem-list-item",
+      status: "active",
+    })),
+    ...splitList(p.past_surgical_history).map((t): PmhItem => ({
+      text: t,
+      kind: "problem-list-item",
+      status: "resolved",
+      note: "Past surgical",
+    })),
+    ...splitList(p.past_hospitalizations).map((t): PmhItem => ({
+      text: t,
+      kind: "encounter-diagnosis",
+      status: "resolved",
+      note: "Prior hospitalization",
+    })),
   ];
   return items.map((item) => {
     const cid = stableId("cond", p.mrn, item.kind, item.text);
-    return ({
-    id: cid,
-    resource: {
-      resourceType: "Condition",
+    return {
       id: cid,
-      clinicalStatus: { coding: [{ system: HL7.CONDITION_CLINICAL, code: item.status }] },
-      verificationStatus: { coding: [{ system: HL7.CONDITION_VERIFICATION, code: "confirmed" }] },
-      category: [{ coding: [{ system: HL7.CONDITION_CATEGORY, code: item.kind }] }],
-      code: { text: item.text },
-      subject: { reference: urn(patientId) },
-      note: item.note ? [{ text: item.note }] : undefined,
-    } as AnyRecord,
-  });
+      resource: {
+        resourceType: "Condition",
+        id: cid,
+        clinicalStatus: { coding: [{ system: HL7.CONDITION_CLINICAL, code: item.status }] },
+        verificationStatus: { coding: [{ system: HL7.CONDITION_VERIFICATION, code: "confirmed" }] },
+        category: [{ coding: [{ system: HL7.CONDITION_CATEGORY, code: item.kind }] }],
+        code: { text: item.text },
+        subject: { reference: urn(patientId) },
+        note: item.note ? [{ text: item.note }] : undefined,
+      } as AnyRecord,
+    };
   });
 }
 
@@ -406,22 +453,22 @@ function buildAllergies(p: AdmissionPatient, patientId: string) {
   const env = splitList(p.environmental_allergies);
   const make = (text: string, category: "medication" | "environment") => {
     const aid = stableId("allergy", p.mrn, category, text);
-    return ({
-    id: aid,
-    resource: {
-      resourceType: "AllergyIntolerance",
+    return {
       id: aid,
-      clinicalStatus: { coding: [{ system: HL7.ALLERGY_CLINICAL, code: "active" }] },
-      type: "allergy",
-      category: [category],
-      criticality: "high",
-      code: { text: text.replace(/\s*\(.*?\)\s*$/, "") }, // strip parenthetical reaction
-      patient: { reference: urn(patientId) },
-      reaction: /\(.*?\)/.test(text)
-        ? [{ manifestation: [{ text: (text.match(/\((.*?)\)/) ?? [, ""])[1]! }] }]
-        : undefined,
-    } as AnyRecord,
-  });
+      resource: {
+        resourceType: "AllergyIntolerance",
+        id: aid,
+        clinicalStatus: { coding: [{ system: HL7.ALLERGY_CLINICAL, code: "active" }] },
+        type: "allergy",
+        category: [category],
+        criticality: "high",
+        code: { text: text.replace(/\s*\(.*?\)\s*$/, "") }, // strip parenthetical reaction
+        patient: { reference: urn(patientId) },
+        reaction: /\(.*?\)/.test(text)
+          ? [{ manifestation: [{ text: (text.match(/\((.*?)\)/) ?? [, ""])[1]! }] }]
+          : undefined,
+      } as AnyRecord,
+    };
   };
   return [...drug.map((d) => make(d, "medication")), ...env.map((e) => make(e, "environment"))];
 }
@@ -429,18 +476,18 @@ function buildAllergies(p: AdmissionPatient, patientId: string) {
 function buildMedicationStatements(p: AdmissionPatient, patientId: string) {
   return splitList(p.current_medications).map((med) => {
     const mid = stableId("medstmt", p.mrn, med);
-    return ({
-    id: mid,
-    resource: {
-      resourceType: "MedicationStatement",
+    return {
       id: mid,
-      status: "active",
-      medicationCodeableConcept: { text: med },
-      subject: { reference: urn(patientId) },
-      effectiveDateTime: p.admission_time ?? undefined,
-      dosage: [{ text: med }],
-    } as AnyRecord,
-  });
+      resource: {
+        resourceType: "MedicationStatement",
+        id: mid,
+        status: "active",
+        medicationCodeableConcept: { text: med },
+        subject: { reference: urn(patientId) },
+        effectiveDateTime: p.admission_time ?? undefined,
+        dosage: [{ text: med }],
+      } as AnyRecord,
+    };
   });
 }
 
@@ -492,9 +539,17 @@ export function buildAdmissionTransactionBundle(p: AdmissionPatient) {
 
   const patient = buildPatient(p, patientId);
   const encounter = buildEncounter(p, patientId, encounterId);
-  const relatedPerson = buildRelatedPersonEmergencyContact(p, patientId, stableId("relp", patientId, "econ"));
+  const relatedPerson = buildRelatedPersonEmergencyContact(
+    p,
+    patientId,
+    stableId("relp", patientId, "econ"),
+  );
   const coverage = buildCoverage(p, patientId, stableId("coverage", patientId));
-  const consent = buildCodeStatusConsent(p, patientId, stableId("consent", patientId, "codestatus"));
+  const consent = buildCodeStatusConsent(
+    p,
+    patientId,
+    stableId("consent", patientId, "codestatus"),
+  );
   const hpi = buildHpiCondition(p, patientId, encounterId, stableId("cond", patientId, "hpi"));
   const pmh = buildPmhConditions(p, patientId);
   const allergies = buildAllergies(p, patientId);
@@ -519,7 +574,12 @@ export function buildAdmissionTransactionBundle(p: AdmissionPatient) {
 
 /* ----------------------------- Discharge ----------------------------- */
 
-function buildLabObservation(p: AdmissionPatient, patientId: string, encounterId: string, l: DischargeLab) {
+function buildLabObservation(
+  p: AdmissionPatient,
+  patientId: string,
+  encounterId: string,
+  l: DischargeLab,
+) {
   const id = stableId("obs", p.mrn, l.loinc, l.test_name ?? l.test_type);
   const numeric = l.result_value ? Number((l.result_value.match(/-?\d+(\.\d+)?/) ?? [])[0]) : NaN;
   const interpretation = l.flag
@@ -528,7 +588,11 @@ function buildLabObservation(p: AdmissionPatient, patientId: string, encounterId
           coding: [
             {
               system: "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
-              code: l.flag.toUpperCase().startsWith("H") ? "H" : l.flag.toUpperCase().startsWith("L") ? "L" : "A",
+              code: l.flag.toUpperCase().startsWith("H")
+                ? "H"
+                : l.flag.toUpperCase().startsWith("L")
+                  ? "L"
+                  : "A",
               display: l.flag,
             },
           ],
@@ -542,15 +606,21 @@ function buildLabObservation(p: AdmissionPatient, patientId: string, encounterId
       resourceType: "Observation",
       id,
       status: "final",
-      category: [{ coding: [{ system: HL7.OBS_CATEGORY, code: "laboratory", display: "Laboratory" }] }],
+      category: [
+        { coding: [{ system: HL7.OBS_CATEGORY, code: "laboratory", display: "Laboratory" }] },
+      ],
       code: {
-        coding: l.loinc ? [{ system: LOINC, code: l.loinc, display: l.test_name ?? l.test_type ?? "Lab" }] : undefined,
+        coding: l.loinc
+          ? [{ system: LOINC, code: l.loinc, display: l.test_name ?? l.test_type ?? "Lab" }]
+          : undefined,
         text: l.test_name ?? l.test_type ?? "Lab",
       },
       subject: { reference: urn(patientId) },
       encounter: { reference: urn(encounterId) },
       effectiveDateTime: l.collected_at ?? p.admission_time ?? undefined,
-      performer: l.performing_lab ? [{ display: l.performing_lab }] : [{ display: "SPEHR Central Laboratory" }],
+      performer: l.performing_lab
+        ? [{ display: l.performing_lab }]
+        : [{ display: "SPEHR Central Laboratory" }],
       ...(Number.isFinite(numeric)
         ? { valueQuantity: { value: numeric, unit: l.unit ?? undefined } }
         : l.result_value
@@ -573,7 +643,11 @@ const VITAL_LOINC: Record<VitalKey, { code: string; display: string; unit: strin
   hr: { code: "8867-4", display: "Heart rate", unit: "/min" },
   bp_systolic: { code: "8480-6", display: "Systolic blood pressure", unit: "mm[Hg]" },
   bp_diastolic: { code: "8462-4", display: "Diastolic blood pressure", unit: "mm[Hg]" },
-  spo2: { code: "59408-5", display: "Oxygen saturation in Arterial blood by Pulse oximetry", unit: "%" },
+  spo2: {
+    code: "59408-5",
+    display: "Oxygen saturation in Arterial blood by Pulse oximetry",
+    unit: "%",
+  },
   temp_c: { code: "8310-5", display: "Body temperature", unit: "Cel" },
   rr: { code: "9279-1", display: "Respiratory rate", unit: "/min" },
 };
@@ -584,7 +658,12 @@ const VITAL_LOINC: Record<VitalKey, { code: string; display: string; unit: strin
  * (rather than a single panel Observation) to match how buildLabObservation
  * already models individual lab results.
  */
-function buildVitalSignObservations(p: AdmissionPatient, patientId: string, encounterId: string, v: DischargeVitals) {
+function buildVitalSignObservations(
+  p: AdmissionPatient,
+  patientId: string,
+  encounterId: string,
+  v: DischargeVitals,
+) {
   const effective = v.recorded_at ?? p.discharge_time ?? p.admission_time ?? undefined;
   return (Object.keys(VITAL_LOINC) as Array<keyof typeof VITAL_LOINC>)
     .map((key) => {
@@ -605,11 +684,19 @@ function buildVitalSignObservations(p: AdmissionPatient, patientId: string, enco
               coding: [{ system: HL7.OBS_CATEGORY, code: "vital-signs", display: "Vital Signs" }],
             },
           ],
-          code: { coding: [{ system: LOINC, code: meta.code, display: meta.display }], text: meta.display },
+          code: {
+            coding: [{ system: LOINC, code: meta.code, display: meta.display }],
+            text: meta.display,
+          },
           subject: { reference: urn(patientId) },
           encounter: { reference: urn(encounterId) },
           effectiveDateTime: effective,
-          valueQuantity: { value, unit: meta.unit, system: "http://unitsofmeasure.org", code: meta.unit },
+          valueQuantity: {
+            value,
+            unit: meta.unit,
+            system: "http://unitsofmeasure.org",
+            code: meta.unit,
+          },
         } as AnyRecord,
       };
     })
@@ -656,11 +743,16 @@ function buildDischargeMedRequest(patientId: string, encounterId: string, m: Dis
  */
 function buildFollowUpAppointment(
   patientId: string,
-  appt: { id: string; start: string; end: string; practitioner?: string; facility?: string; description?: string },
+  appt: {
+    id: string;
+    start: string;
+    end: string;
+    practitioner?: string;
+    facility?: string;
+    description?: string;
+  },
 ) {
-  const participant: AnyRecord[] = [
-    { actor: { reference: urn(patientId) }, status: "accepted" },
-  ];
+  const participant: AnyRecord[] = [{ actor: { reference: urn(patientId) }, status: "accepted" }];
   if (appt.practitioner) {
     participant.push({ actor: { display: appt.practitioner }, status: "accepted" });
   }
@@ -746,7 +838,9 @@ function composeHospitalCourse(
     parts.push(`Treated during admission with ${medPhrases.join("; ")}.`);
   }
   if (labs.length > 0) {
-    const labNames = Array.from(new Set(labs.map((l) => l.test_name ?? l.test_type ?? "lab").filter(Boolean)));
+    const labNames = Array.from(
+      new Set(labs.map((l) => l.test_name ?? l.test_type ?? "lab").filter(Boolean)),
+    );
     parts.push(`Diagnostic workup: ${labNames.join(", ")}.`);
   }
   parts.push("Patient clinically stable at discharge with appropriate follow-up planned.");
@@ -799,8 +893,12 @@ export function buildDischargeTransactionBundle(opts: {
     ? buildFollowUpAppointment(patientId, opts.followUpAppointment)
     : null;
 
-  const labEntriesAll = (opts.labs ?? []).map((l) => buildLabObservation(p, patientId, encounterId, l));
-  const medEntriesAll = (opts.dischargeMeds ?? []).map((m) => buildDischargeMedRequest(patientId, encounterId, m));
+  const labEntriesAll = (opts.labs ?? []).map((l) =>
+    buildLabObservation(p, patientId, encounterId, l),
+  );
+  const medEntriesAll = (opts.dischargeMeds ?? []).map((m) =>
+    buildDischargeMedRequest(patientId, encounterId, m),
+  );
   // Dedupe by stable resource id: lab_orders + lab_results can each carry
   // the same test (e.g. "WBC") for one encounter, and multiple medication
   // orders for the same drug also collide. Keep the first occurrence so
@@ -817,7 +915,9 @@ export function buildDischargeTransactionBundle(opts: {
   };
   const labEntries = dedupeById(labEntriesAll);
   const medEntries = dedupeById(medEntriesAll);
-  const vitalEntries = opts.vitals ? buildVitalSignObservations(p, patientId, encounterId, opts.vitals) : [];
+  const vitalEntries = opts.vitals
+    ? buildVitalSignObservations(p, patientId, encounterId, opts.vitals)
+    : [];
 
   const exam = opts.physicalExam ?? {};
   const examText = [
@@ -867,13 +967,21 @@ export function buildDischargeTransactionBundle(opts: {
     event: [
       {
         period: { start: p.admission_time ?? undefined, end: p.discharge_time ?? undefined },
-        code: opts.admittingDiagnosis || opts.dischargeDiagnosis
-          ? [{ text: `Admitting: ${opts.admittingDiagnosis ?? "—"}; Discharge: ${opts.dischargeDiagnosis ?? p.diagnosis ?? "—"}` }]
-          : undefined,
+        code:
+          opts.admittingDiagnosis || opts.dischargeDiagnosis
+            ? [
+                {
+                  text: `Admitting: ${opts.admittingDiagnosis ?? "—"}; Discharge: ${opts.dischargeDiagnosis ?? p.diagnosis ?? "—"}`,
+                },
+              ]
+            : undefined,
       },
     ],
     section: [
-      narrativeSection("Chief Complaint & History of Present Illness", hpiText || p.chief_complaint || ""),
+      narrativeSection(
+        "Chief Complaint & History of Present Illness",
+        hpiText || p.chief_complaint || "",
+      ),
       narrativeSection("Past Medical History & Allergies", pmhText),
       narrativeSection("Physical Examination on Admission", examText),
       narrativeSection(
@@ -881,16 +989,17 @@ export function buildDischargeTransactionBundle(opts: {
         vitalEntries.length === 0
           ? "No vital signs recorded at discharge."
           : `Last recorded ${opts.vitals?.recorded_at ?? "at discharge"}:\n` +
-            [
-              opts.vitals?.hr != null && `• Heart rate: ${opts.vitals.hr} /min`,
-              opts.vitals?.bp_systolic != null && opts.vitals?.bp_diastolic != null &&
-                `• Blood pressure: ${opts.vitals.bp_systolic}/${opts.vitals.bp_diastolic} mmHg`,
-              opts.vitals?.spo2 != null && `• SpO2: ${opts.vitals.spo2}%`,
-              opts.vitals?.temp_c != null && `• Temperature: ${opts.vitals.temp_c}°C`,
-              opts.vitals?.rr != null && `• Respiratory rate: ${opts.vitals.rr} /min`,
-            ]
-              .filter(Boolean)
-              .join("\n"),
+              [
+                opts.vitals?.hr != null && `• Heart rate: ${opts.vitals.hr} /min`,
+                opts.vitals?.bp_systolic != null &&
+                  opts.vitals?.bp_diastolic != null &&
+                  `• Blood pressure: ${opts.vitals.bp_systolic}/${opts.vitals.bp_diastolic} mmHg`,
+                opts.vitals?.spo2 != null && `• SpO2: ${opts.vitals.spo2}%`,
+                opts.vitals?.temp_c != null && `• Temperature: ${opts.vitals.temp_c}°C`,
+                opts.vitals?.rr != null && `• Respiratory rate: ${opts.vitals.rr} /min`,
+              ]
+                .filter(Boolean)
+                .join("\n"),
         vitalEntries.map((v) => ({ reference: urn(v.id) })),
       ),
       narrativeSection(
@@ -909,15 +1018,15 @@ export function buildDischargeTransactionBundle(opts: {
         labEntries.length === 0
           ? "No laboratory observations recorded for this encounter."
           : `${labEntries.length} laboratory observation(s) performed by SPEHR Central Laboratory:\n` +
-            (opts.labs ?? [])
-              .map((l) => {
-                const name = l.test_name ?? l.test_type ?? "Observation";
-                const code = l.loinc ? ` [LOINC ${l.loinc}]` : "";
-                const val = l.result_value ?? "Pending";
-                const flag = l.flag ? ` (${l.flag})` : "";
-                return `• ${name}${code}: ${val}${flag}`;
-              })
-              .join("\n"),
+              (opts.labs ?? [])
+                .map((l) => {
+                  const name = l.test_name ?? l.test_type ?? "Observation";
+                  const code = l.loinc ? ` [LOINC ${l.loinc}]` : "";
+                  const val = l.result_value ?? "Pending";
+                  const flag = l.flag ? ` (${l.flag})` : "";
+                  return `• ${name}${code}: ${val}${flag}`;
+                })
+                .join("\n"),
         labEntries.map((l) => ({ reference: urn(l.id) })),
       ),
       narrativeSection(
@@ -925,17 +1034,22 @@ export function buildDischargeTransactionBundle(opts: {
         medEntries.length === 0
           ? "No discharge medications prescribed for this encounter."
           : `${medEntries.length} medication(s) prescribed on discharge:\n` +
-            (opts.dischargeMeds ?? [])
-              .map((m) => {
-                const name = m.drug ?? "Medication";
-                const code = m.rxnorm ? ` [RxNorm ${m.rxnorm}]` : "";
-                const detail = [m.dose, m.route, m.frequency].filter(Boolean).join(" ");
-                return `• ${name}${code}${detail ? ` — ${detail}` : ""}`;
-              })
-              .join("\n"),
+              (opts.dischargeMeds ?? [])
+                .map((m) => {
+                  const name = m.drug ?? "Medication";
+                  const code = m.rxnorm ? ` [RxNorm ${m.rxnorm}]` : "";
+                  const detail = [m.dose, m.route, m.frequency].filter(Boolean).join(" ");
+                  return `• ${name}${code}${detail ? ` — ${detail}` : ""}`;
+                })
+                .join("\n"),
         medEntries.map((m) => ({ reference: urn(m.id) })),
       ),
-      narrativeSection("Diet & Activity", [opts.diet && `Diet: ${opts.diet}`, opts.activity && `Activity: ${opts.activity}`].filter(Boolean).join(" ")),
+      narrativeSection(
+        "Diet & Activity",
+        [opts.diet && `Diet: ${opts.diet}`, opts.activity && `Activity: ${opts.activity}`]
+          .filter(Boolean)
+          .join(" "),
+      ),
       narrativeSection(
         "Follow-Up Care",
         opts.followUp ??
@@ -944,8 +1058,15 @@ export function buildDischargeTransactionBundle(opts: {
             : "Follow up with PCP within 2 days."),
         followUpAppt ? [{ reference: urn(followUpAppt.id as string) }] : [],
       ),
-      narrativeSection("Return Precautions", opts.returnPrecautions ?? "Return immediately for worsening symptoms, chest pain, shortness of breath, fever > 101.5°F, or new neurological deficits."),
-      narrativeSection("Patient Education", opts.patientEducation ?? "Educated on diagnosis, medication adherence, and follow-up plan."),
+      narrativeSection(
+        "Return Precautions",
+        opts.returnPrecautions ??
+          "Return immediately for worsening symptoms, chest pain, shortness of breath, fever > 101.5°F, or new neurological deficits.",
+      ),
+      narrativeSection(
+        "Patient Education",
+        opts.patientEducation ?? "Educated on diagnosis, medication adherence, and follow-up plan.",
+      ),
       narrativeSection("Condition at Discharge", opts.conditionAtDischarge ?? "Stable, improved."),
     ].filter(Boolean) as AnyRecord[],
   };
@@ -960,5 +1081,11 @@ export function buildDischargeTransactionBundle(opts: {
     ...(followUpAppt ? [entryFor(urn(followUpAppt.id as string), followUpAppt)] : []),
   ];
 
-  return { bundle: wrapTransaction(entries), compositionId, patientId, encounterId, followUpAppointmentId: followUpAppt?.id as string | undefined };
+  return {
+    bundle: wrapTransaction(entries),
+    compositionId,
+    patientId,
+    encounterId,
+    followUpAppointmentId: followUpAppt?.id as string | undefined,
+  };
 }

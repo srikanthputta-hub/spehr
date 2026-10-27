@@ -70,12 +70,15 @@ const TAB_ID = Math.random().toString(36).slice(2);
  */
 export async function claimLease(): Promise<boolean> {
   try {
-    const { data, error } = await supabase.rpc("claim_automation_lease" as any, {
-      _engine: "auto_terminologist",
-      _holder: TAB_ID,
-      _lease_ms: LEADER_LEASE_MS,
-      _min_interval_ms: RUN_INTERVAL_MS,
-    } as any);
+    const { data, error } = await supabase.rpc(
+      "claim_automation_lease" as any,
+      {
+        _engine: "auto_terminologist",
+        _holder: TAB_ID,
+        _lease_ms: LEADER_LEASE_MS,
+        _min_interval_ms: RUN_INTERVAL_MS,
+      } as any,
+    );
     if (error) {
       console.warn("[auto-term] claim_automation_lease failed", error);
       return false;
@@ -96,11 +99,14 @@ export async function claimLease(): Promise<boolean> {
  */
 export async function heartbeatLease(): Promise<void> {
   try {
-    const { error } = await supabase.rpc("heartbeat_automation_lease" as any, {
-      _engine: "auto_terminologist",
-      _holder: TAB_ID,
-      _lease_ms: LEADER_LEASE_MS,
-    } as any);
+    const { error } = await supabase.rpc(
+      "heartbeat_automation_lease" as any,
+      {
+        _engine: "auto_terminologist",
+        _holder: TAB_ID,
+        _lease_ms: LEADER_LEASE_MS,
+      } as any,
+    );
     if (error) console.warn("[auto-term] heartbeat_automation_lease failed", error);
   } catch (e) {
     console.warn("[auto-term] heartbeat_automation_lease threw", e);
@@ -121,20 +127,49 @@ export function releaseLeaseBestEffort(): void {
     // A bare `void supabase.rpc(...)` never fires the request at all. Chain
     // a no-op `.then()` so it executes, without awaiting it here — React
     // cleanup functions can't be async and this must stay fire-and-forget.
-    supabase.rpc("heartbeat_automation_lease" as any, {
-      _engine: "auto_terminologist",
-      _holder: TAB_ID,
-      _lease_ms: -1000,
-    } as any).then(() => {}, () => {});
+    supabase
+      .rpc(
+        "heartbeat_automation_lease" as any,
+        {
+          _engine: "auto_terminologist",
+          _holder: TAB_ID,
+          _lease_ms: -1000,
+        } as any,
+      )
+      .then(
+        () => {},
+        () => {},
+      );
   } catch {
     /* best-effort only — cleanup must not depend on this */
   }
 }
 
 const STOP_TAIL = new Set([
-  "since", "for", "and", "or", "with", "of", "to", "the", "a", "an",
-  "on", "in", "at", "by", "from", "productive", "started", "started.",
-  "began", "ongoing", "worsening", "improving", "about", "over",
+  "since",
+  "for",
+  "and",
+  "or",
+  "with",
+  "of",
+  "to",
+  "the",
+  "a",
+  "an",
+  "on",
+  "in",
+  "at",
+  "by",
+  "from",
+  "productive",
+  "started",
+  "started.",
+  "began",
+  "ongoing",
+  "worsening",
+  "improving",
+  "about",
+  "over",
 ]);
 
 function titleCase(s: string): string {
@@ -143,10 +178,16 @@ function titleCase(s: string): string {
 
 function cleanComplaintName(raw: string): string {
   // Strip trailing SNOMED semantic tags like "(finding)", "(disorder)", "(procedure)"
-  let cleaned = raw.replace(/\s*\((finding|disorder|procedure|situation|observable entity|body structure|qualifier value|event|substance|product)\)\s*$/i, "");
+  let cleaned = raw.replace(
+    /\s*\((finding|disorder|procedure|situation|observable entity|body structure|qualifier value|event|substance|product)\)\s*$/i,
+    "",
+  );
   // Strip trailing ", unspecified" / ", NOS" / "not otherwise specified"
   cleaned = cleaned.replace(/,\s*(unspecified|not otherwise specified|nos)\.?\s*$/i, "");
-  let words = cleaned.replace(/[^a-zA-Z0-9\s\/-]/g, " ").split(/\s+/).filter(Boolean);
+  const words = cleaned
+    .replace(/[^a-zA-Z0-9\s\/-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
   // Trim trailing stop / preposition / conjunction fragments
   while (words.length > 1 && STOP_TAIL.has(words[words.length - 1].toLowerCase())) {
     words.pop();
@@ -216,23 +257,23 @@ async function logToBus(
 const CROSSWALK_SAB: Record<string, string> = {
   "SNOMED CT": "SNOMEDCT_US",
   "ICD-10": "ICD10CM",
-  "RxNorm": "RXNORM",
-  "LOINC": "LNC",
-  "CPT": "CPT",
+  RxNorm: "RXNORM",
+  LOINC: "LNC",
+  CPT: "CPT",
 };
 
 const CROSSWALK_TARGET: Record<string, string> = {
   "SNOMED CT": "ICD-10-CM",
   "ICD-10": "SNOMED CT",
-  "RxNorm": "SNOMED CT",
-  "LOINC": "CPT",
+  RxNorm: "SNOMED CT",
+  LOINC: "CPT",
 };
 
 // Target-label → SAB (target labels use ICD-10-CM, not ICD-10)
 const TARGET_SAB: Record<string, string> = {
   "SNOMED CT": "SNOMEDCT_US",
   "ICD-10-CM": "ICD10CM",
-  "CPT": "CPT",
+  CPT: "CPT",
 };
 
 async function runCrosswalkSanityCheck(opts: {
@@ -258,7 +299,10 @@ async function runCrosswalkSanityCheck(opts: {
         });
         if (error) continue;
         const hit = (data as any)?.result ?? (data as any)?.matches?.[0] ?? null;
-        if (hit && (hit.code || (Array.isArray((data as any)?.matches) && (data as any).matches.length > 0))) {
+        if (
+          hit &&
+          (hit.code || (Array.isArray((data as any)?.matches) && (data as any).matches.length > 0))
+        ) {
           matches += 1;
         }
       } catch {
@@ -266,9 +310,10 @@ async function runCrosswalkSanityCheck(opts: {
       }
     }
 
-    const msg = matches > 0
-      ? `Cross-mapped ${sample.length} code(s) from '${opts.valueSetName}' (${opts.dominantVocab} → ${targetVocab}) during drafting — ${matches} equivalence(s) found.`
-      : `Cross-mapped ${sample.length} code(s) from '${opts.valueSetName}' (${opts.dominantVocab} → ${targetVocab}) during drafting — no equivalences found in UMLS.`;
+    const msg =
+      matches > 0
+        ? `Cross-mapped ${sample.length} code(s) from '${opts.valueSetName}' (${opts.dominantVocab} → ${targetVocab}) during drafting — ${matches} equivalence(s) found.`
+        : `Cross-mapped ${sample.length} code(s) from '${opts.valueSetName}' (${opts.dominantVocab} → ${targetVocab}) during drafting — no equivalences found in UMLS.`;
     await logToBus("crossmap", "cross-mapped", msg, opts.valueSetId);
   } catch (e) {
     console.warn("[auto-term] crosswalk sanity-check failed", e);
@@ -283,7 +328,10 @@ function clinicalApplicationFor(theme: string): string {
 }
 
 function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 /* ------------------------------------------------------------------ */
@@ -343,7 +391,7 @@ async function safeUpsertValueSet(payload: ValueSetPayload): Promise<SafeUpsertO
         .eq("vocabulary", payload.vocabulary);
       const threshold = Math.ceil(incomingCodes.size * 0.5);
       let bestOverlap = 0;
-      for (const row of ((candidates ?? []) as any[])) {
+      for (const row of (candidates ?? []) as any[]) {
         const rowCodes: any[] = Array.isArray(row?.codes) ? row.codes : [];
         let overlap = 0;
         for (const c of rowCodes) {
@@ -389,9 +437,15 @@ async function safeUpsertValueSet(payload: ValueSetPayload): Promise<SafeUpsertO
   const matchedByOverlap = !existing && !!overlapMatch;
   const existingRow = (existing ?? overlapMatch) as any;
   const existingStatus: string = String(existingRow.status ?? "draft");
-  const existingCodes: Array<{ code?: string; display?: string; vocabulary?: string; system?: string }> =
-    Array.isArray(existingRow.codes) ? existingRow.codes : [];
-  const existingHistory: any[] = Array.isArray(existingRow.change_history) ? existingRow.change_history : [];
+  const existingCodes: Array<{
+    code?: string;
+    display?: string;
+    vocabulary?: string;
+    system?: string;
+  }> = Array.isArray(existingRow.codes) ? existingRow.codes : [];
+  const existingHistory: any[] = Array.isArray(existingRow.change_history)
+    ? existingRow.change_history
+    : [];
 
   // Annotate the change entry when we merged via code-overlap rather than
   // an exact name match, so reviewers can see why the request was folded
@@ -472,11 +526,21 @@ function runQualityGate(
   requestVocab: string | null | undefined,
 ): { ok: boolean; notes: string; empty: boolean } {
   if (!Array.isArray(seedCodes) || seedCodes.length === 0) {
-    return { ok: false, empty: true, notes: "No seed codes supplied — no scan match available yet" };
+    return {
+      ok: false,
+      empty: true,
+      notes: "No seed codes supplied — no scan match available yet",
+    };
   }
   const problems: string[] = [];
   const seen = new Set<string>();
-  let missingDisp = 0, missingCode = 0, missingVocab = 0, badVocab = 0, badDisp = 0, dupCount = 0, badShape = 0;
+  let missingDisp = 0,
+    missingCode = 0,
+    missingVocab = 0,
+    badVocab = 0,
+    badDisp = 0,
+    dupCount = 0,
+    badShape = 0;
   for (const raw of seedCodes) {
     const code = String(raw?.code ?? "").trim();
     const disp = String(raw?.display ?? "").trim();
@@ -494,12 +558,19 @@ function runQualityGate(
   }
   const total = seedCodes.length;
   if (missingCode) problems.push(`${missingCode} of ${total} seed codes missing a code`);
-  if (missingDisp) problems.push(`${missingDisp} of ${total} seed codes are missing a display name`);
+  if (missingDisp)
+    problems.push(`${missingDisp} of ${total} seed codes are missing a display name`);
   if (missingVocab) problems.push(`${missingVocab} of ${total} seed codes missing a vocabulary`);
-  if (badVocab) problems.push(`${badVocab} seed code(s) use an unsupported vocabulary (must be SNOMED CT, ICD-10, RxNorm, or LOINC)`);
+  if (badVocab)
+    problems.push(
+      `${badVocab} seed code(s) use an unsupported vocabulary (must be SNOMED CT, ICD-10, RxNorm, or LOINC)`,
+    );
   if (badDisp) problems.push(`${badDisp} seed code display(s) are too short or non-descriptive`);
   if (dupCount) problems.push(`${dupCount} duplicate code value(s) within the request`);
-  if (badShape) problems.push(`${badShape} seed code(s) don't match the shape expected for their declared vocabulary`);
+  if (badShape)
+    problems.push(
+      `${badShape} seed code(s) don't match the shape expected for their declared vocabulary`,
+    );
   if (problems.length === 0) return { ok: true, empty: false, notes: "" };
   return { ok: false, empty: false, notes: `Rejected by quality gate: ${problems.join("; ")}` };
 }
@@ -523,7 +594,8 @@ const requestLogTracker = new Map<string, { loggedAt: number; notes: string }>()
 /* ------------------------------------------------------------------ */
 
 function pickSabForRequest(vocabHint: string | null | undefined): {
-  sab: string; vocabLabel: SeedCode["vocabulary"];
+  sab: string;
+  vocabLabel: SeedCode["vocabulary"];
 } {
   const v = String(vocabHint ?? "").toLowerCase();
   if (v.includes("icd")) return { sab: "ICD10CM", vocabLabel: "ICD-10" };
@@ -547,7 +619,16 @@ async function tryUmlsSuggestion(req: any): Promise<boolean> {
 
   try {
     const { data, error } = await supabase.functions.invoke("umls-proxy", {
-      body: { action: "search", params: { string: requestedName, sabs: sab, pageSize: 15, searchType: "words", returnIdType: "sourceUi" } },
+      body: {
+        action: "search",
+        params: {
+          string: requestedName,
+          sabs: sab,
+          pageSize: 15,
+          searchType: "words",
+          returnIdType: "sourceUi",
+        },
+      },
     });
     if (error) return false;
     const results: any[] = data?.result?.results ?? [];
@@ -628,8 +709,12 @@ async function processPendingTerminologyRequests(): Promise<{
         const nowIso = new Date().toISOString();
         if (!targetId) {
           gated += 1;
-          await supabase.from("terminology_requests" as any)
-            .update({ quality_gate_notes: "Deprecation request missing target_value_set_id", updated_at: nowIso } as any)
+          await supabase
+            .from("terminology_requests" as any)
+            .update({
+              quality_gate_notes: "Deprecation request missing target_value_set_id",
+              updated_at: nowIso,
+            } as any)
             .eq("id", req.id);
           await logActivity({
             action: "gated",
@@ -645,7 +730,8 @@ async function processPendingTerminologyRequests(): Promise<{
           .maybeSingle();
         if (targetErr || !target) {
           gated += 1;
-          await supabase.from("terminology_requests" as any)
+          await supabase
+            .from("terminology_requests" as any)
             .update({ quality_gate_notes: "Target value set not found", updated_at: nowIso } as any)
             .eq("id", req.id);
           await logActivity({
@@ -660,12 +746,14 @@ async function processPendingTerminologyRequests(): Promise<{
         const tName = String(tRow.name ?? "");
         if (tStatus === "draft") {
           rejected += 1;
-          await supabase.from("terminology_requests" as any)
+          await supabase
+            .from("terminology_requests" as any)
             .update({
               status: "rejected",
               resolved_at: nowIso,
               updated_at: nowIso,
-              quality_gate_notes: "Target is a draft — delete drafts directly instead of deprecating.",
+              quality_gate_notes:
+                "Target is a draft — delete drafts directly instead of deprecating.",
             } as any)
             .eq("id", req.id);
           await logActivity({
@@ -681,7 +769,8 @@ async function processPendingTerminologyRequests(): Promise<{
           const entry = {
             at: nowIso,
             actor: "Auto Terminologist",
-            change: `Deprecation suggested — requested by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+            change:
+              `Deprecation suggested — requested by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
           };
           await supabase
             .from("custom_value_sets")
@@ -691,7 +780,8 @@ async function processPendingTerminologyRequests(): Promise<{
               updated_at: nowIso,
             } as any)
             .eq("id", tRow.id);
-          await supabase.from("terminology_requests" as any)
+          await supabase
+            .from("terminology_requests" as any)
             .update({
               status: "drafted",
               value_set_id: tRow.id,
@@ -702,7 +792,8 @@ async function processPendingTerminologyRequests(): Promise<{
             .eq("id", req.id);
           await logActivity({
             action: "deprecation-suggested",
-            message: `${timeLabel} — Deprecation suggested for '${tName}' (was ${tStatus}) — requested by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+            message:
+              `${timeLabel} — Deprecation suggested for '${tName}' (was ${tStatus}) — requested by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
             theme: tName,
             value_set_id: tRow.id ?? null,
           });
@@ -716,7 +807,8 @@ async function processPendingTerminologyRequests(): Promise<{
           continue;
         }
         // Any other status (e.g. already deprecation-suggested / retired) — no-op
-        await supabase.from("terminology_requests" as any)
+        await supabase
+          .from("terminology_requests" as any)
           .update({
             status: "rejected",
             resolved_at: nowIso,
@@ -740,12 +832,13 @@ async function processPendingTerminologyRequests(): Promise<{
         continue;
       }
 
-      const seedCodes: SeedCode[] = Array.isArray(req.seed_codes) ? (req.seed_codes as any[])
-        .map((s) => ({
-          code: String(s?.code ?? "").trim(),
-          display: String(s?.display ?? "").trim(),
-          vocabulary: String(s?.vocabulary ?? req.vocabulary ?? "").trim(),
-        })) : [];
+      const seedCodes: SeedCode[] = Array.isArray(req.seed_codes)
+        ? (req.seed_codes as any[]).map((s) => ({
+            code: String(s?.code ?? "").trim(),
+            display: String(s?.display ?? "").trim(),
+            vocabulary: String(s?.vocabulary ?? req.vocabulary ?? "").trim(),
+          }))
+        : [];
 
       const gate = runQualityGate(seedCodes, req.vocabulary);
 
@@ -794,7 +887,8 @@ async function processPendingTerminologyRequests(): Promise<{
         vocabulary: dominantVocab,
         type: "extensional",
         codes,
-        description: `Drafted in response to a terminology request from ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
+        description:
+          `Drafted in response to a terminology request from ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
         clinical_application,
         fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
         oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
@@ -808,8 +902,7 @@ async function processPendingTerminologyRequests(): Promise<{
       const valueSetId = outcome.id;
 
       // Reflect outcome on the request row.
-      const nextRequestStatus =
-        outcome.mode === "merged" ? "extended" : "drafted";
+      const nextRequestStatus = outcome.mode === "merged" ? "extended" : "drafted";
       await supabase
         .from("terminology_requests" as any)
         .update({
@@ -826,16 +919,13 @@ async function processPendingTerminologyRequests(): Promise<{
         `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — drafted as new value set (status: draft — awaiting human review). ${req.justification ?? ""}`.trim();
       if (outcome.mode === "merged") {
         activityAction = "extended";
-        activityMessage =
-          `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} — merged ${outcome.addedCount} new code(s) into the existing value set instead of re-drafting it.`;
+        activityMessage = `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} — merged ${outcome.addedCount} new code(s) into the existing value set instead of re-drafting it.`;
       } else if (outcome.mode === "noop") {
         activityAction = "extended";
-        activityMessage =
-          `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} and every requested code was already present — no changes made.`;
+        activityMessage = `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} and every requested code was already present — no changes made.`;
       } else if (outcome.mode === "replaced-draft") {
         activityAction = "drafted";
-        activityMessage =
-          `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — merged ${outcome.addedCount} new code(s) into existing draft value set.`;
+        activityMessage = `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — merged ${outcome.addedCount} new code(s) into existing draft value set.`;
       }
 
       await logActivity({
@@ -1075,13 +1165,17 @@ export function useAutoTerminologist() {
       // (same "advance before running" anti-drift guarantee as the old
       // pre-cycle heartbeat insert). This log insert is just the audit-trail
       // row, not part of the gating logic anymore.
-      await supabase.from("auto_terminologist_log" as any).insert({
-        message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Cycle started.`,
-        action: "heartbeat",
-      } as any).then(() => {}, () => {});
-      runAutoTerminologistCycle().catch((e) =>
-        console.warn("[auto-term] cycle failed", e),
-      );
+      await supabase
+        .from("auto_terminologist_log" as any)
+        .insert({
+          message: `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — Cycle started.`,
+          action: "heartbeat",
+        } as any)
+        .then(
+          () => {},
+          () => {},
+        );
+      runAutoTerminologistCycle().catch((e) => console.warn("[auto-term] cycle failed", e));
     };
     // Stagger first run by 25s so it doesn't race other boot tasks.
     const boot = setTimeout(tick, 25_000);

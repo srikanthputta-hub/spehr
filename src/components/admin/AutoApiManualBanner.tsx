@@ -12,10 +12,9 @@ export function AutoApiManualBanner() {
           AUTO API · Manual Mode
         </div>
         <div className="text-amber-800 mt-0.5">
-          UMLS live query, NLP confidence gate, 400 ms FHIR sync, and RxNorm
-          drug-safety checks are paused. Semantic Autocomplete in CPOE and
-          plain-English translations in MySpehr are also disabled until AUTO
-          API is re-enabled.
+          UMLS live query, NLP confidence gate, 400 ms FHIR sync, and RxNorm drug-safety checks are
+          paused. Semantic Autocomplete in CPOE and plain-English translations in MySpehr are also
+          disabled until AUTO API is re-enabled.
         </div>
       </div>
     </div>

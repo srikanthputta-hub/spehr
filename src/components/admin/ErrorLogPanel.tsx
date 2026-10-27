@@ -38,8 +38,7 @@ async function fetchErrors(tab: TabId): Promise<ErrorRow[]> {
       mrn: r.mrn,
       stage: r.event_type,
       message:
-        (r.payload && (r.payload.message || r.payload.error)) ||
-        JSON.stringify(r.payload ?? {}),
+        (r.payload && (r.payload.message || r.payload.error)) || JSON.stringify(r.payload ?? {}),
     }));
   }
   const stages =
@@ -102,9 +101,7 @@ export function ErrorLogPanel() {
               text="Shows only error-level events from the four autonomous engines (Auto Doc, Auto Admin, Auto IT, Auto API) — informational and warning-level activity is filtered out so real failures aren't buried."
             />
           </div>
-          <div className="text-[11px] text-slate-500">
-            50 most recent · refreshes every 60s
-          </div>
+          <div className="text-[11px] text-slate-500">50 most recent · refreshes every 60s</div>
         </div>
       </div>
       <div className="flex items-center gap-1 border-b border-slate-200 bg-slate-50/60 px-3 pt-2">

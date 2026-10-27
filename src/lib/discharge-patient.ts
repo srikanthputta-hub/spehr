@@ -44,13 +44,15 @@ export async function dischargePatientViaWorker({
   if (trimmed.length > 0) {
     body.discharge_summary_override = trimmed;
   }
-  const { data, error } = await supabase.functions.invoke("ghost-discharge-worker", {
+  const { data, error } = await supabase.functions.invoke<{
+    results?: DischargePatientResult[];
+  }>("ghost-discharge-worker", {
     body,
   });
   if (error) {
     return { ok: false, mrn, reason: error.message };
   }
-  const first = Array.isArray((data as any)?.results) ? (data as any).results[0] : null;
+  const first = Array.isArray(data?.results) ? data.results[0] : null;
   if (!first) return { ok: false, mrn, reason: "worker_returned_no_result" };
-  return first as DischargePatientResult;
+  return first;
 }

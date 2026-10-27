@@ -19,15 +19,10 @@ const MEDDRA_SYSTEM = "http://terminology.hl7.org/CodeSystem/meddra";
 const UCUM_SYSTEM = "http://unitsofmeasure.org";
 
 /** Build a Condition coding[] (ICD-10 + SNOMED) for any clinical text. */
-export async function buildConditionCoding(
-  clinicalText: string,
-): Promise<CodeableConcept> {
+export async function buildConditionCoding(clinicalText: string): Promise<CodeableConcept> {
   const text = (clinicalText ?? "").trim();
   if (!text) return { coding: [], text: "" };
-  const [icd10, snomed] = await Promise.all([
-    resolveIcd10(text),
-    resolveSnomed(text),
-  ]);
+  const [icd10, snomed] = await Promise.all([resolveIcd10(text), resolveSnomed(text)]);
   const coding: CodeableConcept["coding"] = [];
   if (icd10) {
     coding.push({
@@ -50,8 +45,7 @@ export async function buildConditionCoding(
   return { coding, text };
 }
 
-const DOSE_UNIT_RX =
-  /\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|g|ml|l|units?|u|meq|iu|%|tabs?|caps?)\b/gi;
+const DOSE_UNIT_RX = /\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|g|ml|l|units?|u|meq|iu|%|tabs?|caps?)\b/gi;
 const ROUTE_RX =
   /\b(?:po|iv|im|sc|sq|bid|tid|qid|qhs|q\d+h|prn|stat|oral|tab|cap|inj|infusion|pill|sublingual|sl|topical|nebulised|nebulized)\b/gi;
 
@@ -74,9 +68,7 @@ export function stripDoseRoute(raw: string): string {
 }
 
 /** Build a medication coding[] (RxNorm) for a free-text drug string. */
-export async function buildMedicationCoding(
-  drugName: string,
-): Promise<CodeableConcept> {
+export async function buildMedicationCoding(drugName: string): Promise<CodeableConcept> {
   const text = (drugName ?? "").trim();
   if (!text) return { coding: [], text: "" };
   const lookup = stripDoseRoute(text) || text;
@@ -116,9 +108,7 @@ export async function buildAllergySubstanceCoding(
 }
 
 /** Reaction manifestation coding[]: MedDRA Preferred Term. */
-export async function buildReactionCoding(
-  reactionText: string,
-): Promise<CodeableConcept> {
+export async function buildReactionCoding(reactionText: string): Promise<CodeableConcept> {
   const text = (reactionText ?? "").trim();
   if (!text) return { coding: [], text: "" };
   const md = await resolveMeddra(text);
@@ -134,12 +124,9 @@ export async function buildReactionCoding(
  * (e.g. "10.2 g/dL"). Returns null when no plausible unit can be found —
  * the caller then omits valueQuantity.system / .code, but never invents one.
  */
-const UNIT_FROM_RESULT_RX =
-  /(-?\d+(?:\.\d+)?)\s*([A-Za-zµ%][A-Za-z0-9µ%./^*\-]{0,15})/;
+const UNIT_FROM_RESULT_RX = /(-?\d+(?:\.\d+)?)\s*([A-Za-zµ%][A-Za-z0-9µ%./^*\-]{0,15})/;
 
-export function extractUnitFromResultValue(
-  resultValue: string | null | undefined,
-): string | null {
+export function extractUnitFromResultValue(resultValue: string | null | undefined): string | null {
   if (!resultValue) return null;
   const m = String(resultValue).match(UNIT_FROM_RESULT_RX);
   if (!m) return null;

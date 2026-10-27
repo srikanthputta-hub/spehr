@@ -28,9 +28,7 @@ export interface UseTerminologySearchResult {
   clear: () => void;
 }
 
-export function useTerminologySearch(
-  opts: UseTerminologySearchOpts,
-): UseTerminologySearchResult {
+export function useTerminologySearch(opts: UseTerminologySearchOpts): UseTerminologySearchResult {
   const { sabs, debounceMs = 300, pageSize = 10, minChars = 2 } = opts;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<TerminologyHit[]>([]);
@@ -55,9 +53,9 @@ export function useTerminologySearch(
       try {
         const hits = await searchTerminology({ query: term, sabs, pageSize });
         if (id === reqIdRef.current) setResults(hits);
-      } catch (e: any) {
+      } catch (e) {
         if (id === reqIdRef.current) {
-          setError(e?.message ?? "Terminology server unavailable");
+          setError(e instanceof Error ? e.message : "Terminology server unavailable");
           setResults([]);
         }
       } finally {

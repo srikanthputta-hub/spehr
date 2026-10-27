@@ -14,46 +14,138 @@ type Row = {
 };
 
 const SYSTEM_COLOR: Record<Row["system"], string> = {
-  "SNOMED":  "border-sky-200 bg-sky-50 text-sky-700",
-  "ICD-10":  "border-violet-200 bg-violet-50 text-violet-700",
-  "CPT":     "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
-  "LOINC":   "border-emerald-200 bg-emerald-50 text-emerald-700",
-  "RxNorm":  "border-orange-200 bg-orange-50 text-orange-700",
+  SNOMED: "border-sky-200 bg-sky-50 text-sky-700",
+  "ICD-10": "border-violet-200 bg-violet-50 text-violet-700",
+  CPT: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+  LOINC: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  RxNorm: "border-orange-200 bg-orange-50 text-orange-700",
 };
 
 async function loadRows(): Promise<Row[]> {
   const rows: Row[] = [];
 
   const [conds, meds, labOrders, labResults, vitals, procedures] = await Promise.all([
-    supabase.from("conditions").select("mrn, icd10_code, snomed_code, display_text, source_section, updated_at").order("updated_at", { ascending: false }).limit(400),
-    supabase.from("medication_orders").select("patient_mrn, rxnorm_code, drug_name, updated_at").order("updated_at", { ascending: false }).limit(400),
-    supabase.from("lab_orders").select("patient_mrn, loinc_code, test_type, updated_at").order("updated_at", { ascending: false }).limit(200),
-    supabase.from("lab_results" as any).select("patient_mrn, loinc_code, loinc_display, test_name, updated_at").order("updated_at", { ascending: false }).limit(400).then(r => r, () => ({ data: [] as any[] })),
-    supabase.from("vitals" as any).select("patient_mrn, loinc_map, updated_at").order("updated_at", { ascending: false }).limit(200).then(r => r, () => ({ data: [] as any[] })),
-    supabase.from("procedures" as any).select("patient_mrn, cpt_code, display, updated_at").order("updated_at", { ascending: false }).limit(200).then(r => r, () => ({ data: [] as any[] })),
+    supabase
+      .from("conditions")
+      .select("mrn, icd10_code, snomed_code, display_text, source_section, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(400),
+    supabase
+      .from("medication_orders")
+      .select("patient_mrn, rxnorm_code, drug_name, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(400),
+    supabase
+      .from("lab_orders")
+      .select("patient_mrn, loinc_code, test_type, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(200),
+    supabase
+      .from("lab_results" as any)
+      .select("patient_mrn, loinc_code, loinc_display, test_name, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(400)
+      .then(
+        (r) => r,
+        () => ({ data: [] as any[] }),
+      ),
+    supabase
+      .from("vitals" as any)
+      .select("patient_mrn, loinc_map, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(200)
+      .then(
+        (r) => r,
+        () => ({ data: [] as any[] }),
+      ),
+    supabase
+      .from("procedures" as any)
+      .select("patient_mrn, cpt_code, display, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(200)
+      .then(
+        (r) => r,
+        () => ({ data: [] as any[] }),
+      ),
   ]);
 
   for (const c of (conds.data ?? []) as any[]) {
-    if (c.snomed_code) rows.push({ mrn: c.mrn, system: "SNOMED", code: String(c.snomed_code), display: c.display_text ?? "", source: c.source_section ?? "condition", at: c.updated_at });
-    if (c.icd10_code) rows.push({ mrn: c.mrn, system: "ICD-10", code: String(c.icd10_code), display: c.display_text ?? "", source: c.source_section ?? "condition", at: c.updated_at });
+    if (c.snomed_code)
+      rows.push({
+        mrn: c.mrn,
+        system: "SNOMED",
+        code: String(c.snomed_code),
+        display: c.display_text ?? "",
+        source: c.source_section ?? "condition",
+        at: c.updated_at,
+      });
+    if (c.icd10_code)
+      rows.push({
+        mrn: c.mrn,
+        system: "ICD-10",
+        code: String(c.icd10_code),
+        display: c.display_text ?? "",
+        source: c.source_section ?? "condition",
+        at: c.updated_at,
+      });
   }
   for (const m of (meds.data ?? []) as any[]) {
-    if (m.rxnorm_code) rows.push({ mrn: m.patient_mrn, system: "RxNorm", code: String(m.rxnorm_code), display: m.drug_name ?? "", source: "medication", at: m.updated_at });
+    if (m.rxnorm_code)
+      rows.push({
+        mrn: m.patient_mrn,
+        system: "RxNorm",
+        code: String(m.rxnorm_code),
+        display: m.drug_name ?? "",
+        source: "medication",
+        at: m.updated_at,
+      });
   }
   for (const l of (labOrders.data ?? []) as any[]) {
-    if (l.loinc_code) rows.push({ mrn: l.patient_mrn, system: "LOINC", code: String(l.loinc_code), display: l.test_type ?? "", source: "lab_order", at: l.updated_at });
+    if (l.loinc_code)
+      rows.push({
+        mrn: l.patient_mrn,
+        system: "LOINC",
+        code: String(l.loinc_code),
+        display: l.test_type ?? "",
+        source: "lab_order",
+        at: l.updated_at,
+      });
   }
   for (const l of ((labResults as any).data ?? []) as any[]) {
-    if (l.loinc_code) rows.push({ mrn: l.patient_mrn, system: "LOINC", code: String(l.loinc_code), display: l.loinc_display ?? l.test_name ?? "", source: "lab_result", at: l.updated_at });
+    if (l.loinc_code)
+      rows.push({
+        mrn: l.patient_mrn,
+        system: "LOINC",
+        code: String(l.loinc_code),
+        display: l.loinc_display ?? l.test_name ?? "",
+        source: "lab_result",
+        at: l.updated_at,
+      });
   }
   for (const v of ((vitals as any).data ?? []) as any[]) {
     const map = v.loinc_map && typeof v.loinc_map === "object" ? v.loinc_map : {};
     for (const [field, code] of Object.entries(map)) {
-      if (code) rows.push({ mrn: v.patient_mrn, system: "LOINC", code: String(code), display: field, source: "vitals", at: v.updated_at });
+      if (code)
+        rows.push({
+          mrn: v.patient_mrn,
+          system: "LOINC",
+          code: String(code),
+          display: field,
+          source: "vitals",
+          at: v.updated_at,
+        });
     }
   }
   for (const p of ((procedures as any).data ?? []) as any[]) {
-    if (p.cpt_code) rows.push({ mrn: p.patient_mrn, system: "CPT", code: String(p.cpt_code), display: p.display ?? "", source: "procedure", at: p.updated_at });
+    if (p.cpt_code)
+      rows.push({
+        mrn: p.patient_mrn,
+        system: "CPT",
+        code: String(p.cpt_code),
+        display: p.display ?? "",
+        source: "procedure",
+        at: p.updated_at,
+      });
   }
 
   return rows.sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
@@ -81,13 +173,16 @@ export default function LiveTerminologyMatrixPanel() {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return rows.slice(0, 400);
-    return rows.filter((r) =>
-      r.mrn.toLowerCase().includes(needle) ||
-      r.code.toLowerCase().includes(needle) ||
-      r.display.toLowerCase().includes(needle) ||
-      r.system.toLowerCase().includes(needle) ||
-      r.source.toLowerCase().includes(needle)
-    ).slice(0, 400);
+    return rows
+      .filter(
+        (r) =>
+          r.mrn.toLowerCase().includes(needle) ||
+          r.code.toLowerCase().includes(needle) ||
+          r.display.toLowerCase().includes(needle) ||
+          r.system.toLowerCase().includes(needle) ||
+          r.source.toLowerCase().includes(needle),
+      )
+      .slice(0, 400);
   }, [rows, q]);
 
   const counts = useMemo(() => {
@@ -104,8 +199,8 @@ export default function LiveTerminologyMatrixPanel() {
             <Activity className="h-4 w-4 text-indigo-600" /> Live Terminology Matrix
           </h2>
           <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-            Real-time view of every SNOMED · ICD-10 · CPT · LOINC · RxNorm code
-            currently bound to patient data across S.P.E.H.R. Refreshes every 15s.
+            Real-time view of every SNOMED · ICD-10 · CPT · LOINC · RxNorm code currently bound to
+            patient data across S.P.E.H.R. Refreshes every 15s.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={refresh}>
@@ -114,8 +209,11 @@ export default function LiveTerminologyMatrixPanel() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {(["SNOMED","ICD-10","CPT","LOINC","RxNorm"] as const).map((s) => (
-          <span key={s} className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${SYSTEM_COLOR[s]}`}>
+        {(["SNOMED", "ICD-10", "CPT", "LOINC", "RxNorm"] as const).map((s) => (
+          <span
+            key={s}
+            className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${SYSTEM_COLOR[s]}`}
+          >
             {s} · {counts[s] ?? 0}
           </span>
         ))}
@@ -143,21 +241,39 @@ export default function LiveTerminologyMatrixPanel() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">Loading…</td></tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">No coded rows yet.</td></tr>
-              ) : filtered.map((r, i) => (
-                <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="px-3 py-2 font-mono text-[11px] text-slate-700">{r.mrn}</td>
-                  <td className="px-3 py-2">
-                    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold ${SYSTEM_COLOR[r.system]}`}>{r.system}</span>
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                    Loading…
                   </td>
-                  <td className="px-3 py-2 font-mono text-[11px] text-slate-900">{r.code}</td>
-                  <td className="px-3 py-2 text-slate-700 truncate max-w-xs">{r.display}</td>
-                  <td className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-500">{r.source}</td>
-                  <td className="px-3 py-2 text-[10px] text-slate-500">{r.at ? new Date(r.at).toLocaleTimeString() : ""}</td>
                 </tr>
-              ))}
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                    No coded rows yet.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((r, i) => (
+                  <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="px-3 py-2 font-mono text-[11px] text-slate-700">{r.mrn}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold ${SYSTEM_COLOR[r.system]}`}
+                      >
+                        {r.system}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[11px] text-slate-900">{r.code}</td>
+                    <td className="px-3 py-2 text-slate-700 truncate max-w-xs">{r.display}</td>
+                    <td className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-500">
+                      {r.source}
+                    </td>
+                    <td className="px-3 py-2 text-[10px] text-slate-500">
+                      {r.at ? new Date(r.at).toLocaleTimeString() : ""}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

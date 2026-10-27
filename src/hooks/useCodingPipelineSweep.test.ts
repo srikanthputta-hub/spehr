@@ -17,9 +17,8 @@ vi.mock("@/hooks/useAutomationEnabled", () => ({
   useAutomationEnabled: vi.fn(),
 }));
 
-const { claimLease, heartbeatLease, releaseLeaseBestEffort } = await import(
-  "./useCodingPipelineSweep"
-);
+const { claimLease, heartbeatLease, releaseLeaseBestEffort } =
+  await import("./useCodingPipelineSweep");
 
 describe("claimLease", () => {
   beforeEach(() => {
@@ -34,7 +33,7 @@ describe("claimLease", () => {
     expect(result).toBe(true);
     expect(rpcMock).toHaveBeenCalledWith(
       "claim_automation_lease",
-      expect.objectContaining({ _engine: "coding_pipeline_sweep" })
+      expect.objectContaining({ _engine: "coding_pipeline_sweep" }),
     );
   });
 
@@ -73,7 +72,7 @@ describe("heartbeatLease", () => {
     await expect(heartbeatLease()).resolves.toBeUndefined();
     expect(rpcMock).toHaveBeenCalledWith(
       "heartbeat_automation_lease",
-      expect.objectContaining({ _engine: "coding_pipeline_sweep" })
+      expect.objectContaining({ _engine: "coding_pipeline_sweep" }),
     );
   });
 
@@ -97,7 +96,7 @@ describe("releaseLeaseBestEffort", () => {
     expect(rpcMock).toHaveBeenCalledTimes(1);
     expect(rpcMock).toHaveBeenCalledWith(
       "heartbeat_automation_lease",
-      expect.objectContaining({ _engine: "coding_pipeline_sweep", _lease_ms: -1000 })
+      expect.objectContaining({ _engine: "coding_pipeline_sweep", _lease_ms: -1000 }),
     );
   });
 

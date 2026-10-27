@@ -2,15 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Activity, Users, LogOut as LogOutIcon, Search } from "lucide-react";
 import { PopulationHealth } from "@/components/admin/PopulationHealth";
 import { fetchWithTimeout } from "@/lib/async-timeout";
@@ -60,11 +52,7 @@ function fmtTs(ts: string | null) {
 }
 
 function fullName(p: Patient) {
-  return (
-    p.name ||
-    [p.first_name, p.last_name].filter(Boolean).join(" ") ||
-    "Unknown"
-  );
+  return p.name || [p.first_name, p.last_name].filter(Boolean).join(" ") || "Unknown";
 }
 
 export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {}) {
@@ -77,14 +65,16 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
 
   const load = async () => {
     const { data, error } = await fetchWithTimeout(
-      () =>
-        supabase
+      async () => {
+        const res = await supabase
           .from("patients")
           .select(
             "id, mrn, name, first_name, last_name, status, facility_name, chief_complaint, admission_time",
           )
-          .order("admission_time", { ascending: false }),
-      { data: [], error: null } as any,
+          .order("admission_time", { ascending: false });
+        return { data: res.data, error: res.error };
+      },
+      { data: [], error: null },
     );
     if (error) setError(error.message);
     else setPatients((data as Patient[]) ?? []);
@@ -150,7 +140,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
     return rows;
   }, [patients, searchTerm]);
 
-  const Wrapper: any = embedded ? "div" : "main";
+  const Wrapper = embedded ? "div" : "main";
   return (
     <Wrapper className={embedded ? "bg-slate-50" : "min-h-screen bg-slate-50"}>
       {!embedded && (
@@ -167,7 +157,10 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
           <h1 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
             📊 Network Operations Overview
           </h1>
-          <Link to="/nursing-board" className="text-xs text-slate-500 hover:text-slate-900 underline-offset-2 hover:underline">
+          <Link
+            to="/nursing-board"
+            className="text-xs text-slate-500 hover:text-slate-900 underline-offset-2 hover:underline"
+          >
             ← Back to Floor Board
           </Link>
         </div>
@@ -207,9 +200,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
               <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                 Facility Load
               </div>
-              <div className="text-sm font-semibold text-slate-900">
-                Active Census by Facility
-              </div>
+              <div className="text-sm font-semibold text-slate-900">Active Census by Facility</div>
             </div>
             <div className="text-[11px] text-slate-500 font-mono">
               {loading ? "loading…" : `${totals.admitted} active`}
@@ -240,7 +231,9 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
                     boxShadow: "0 4px 12px rgba(15,23,42,0.08)",
                   }}
                   labelFormatter={(_, payload) =>
-                    payload && payload[0] ? (payload[0].payload as any).full : ""
+                    payload && payload[0]
+                      ? ((payload[0].payload as { full?: string }).full ?? "")
+                      : ""
                   }
                   formatter={(v: number) => [v, "Active"]}
                 />
@@ -334,8 +327,8 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
                           p.status === "Admitted"
                             ? "success"
                             : p.status === "Discharged"
-                            ? "neutral"
-                            : "warning"
+                              ? "neutral"
+                              : "warning"
                         }
                         label={p.status ?? "Unknown"}
                       />
@@ -381,9 +374,7 @@ function KpiCard({
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>
         </div>
-        <div className={`grid place-items-center h-8 w-8 rounded-md ${tones[tone]}`}>
-          {icon}
-        </div>
+        <div className={`grid place-items-center h-8 w-8 rounded-md ${tones[tone]}`}>{icon}</div>
       </div>
       <div className="mt-3 font-mono text-3xl font-semibold text-slate-900 tabular-nums">
         {value.toLocaleString()}
@@ -391,4 +382,3 @@ function KpiCard({
     </div>
   );
 }
-

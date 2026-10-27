@@ -14,7 +14,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ShieldAlert, Stethoscope, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
+import {
+  loadPublishedValueSetsForConsumer,
+  type PublishedValueSetHit,
+} from "@/lib/value-set-registry";
 
 type CodeEntry = {
   code: string;
@@ -46,10 +49,16 @@ function useDismissable(mrn: string, kind: string) {
   return { dismissed, dismiss };
 }
 
-function useValueSets(): { specialist: ValueSet | null; isolation: ValueSet | null; inpatient: ValueSet | null } {
-  const [vs, setVs] = useState<{ specialist: ValueSet | null; isolation: ValueSet | null; inpatient: ValueSet | null }>(
-    { specialist: null, isolation: null, inpatient: null },
-  );
+function useValueSets(): {
+  specialist: ValueSet | null;
+  isolation: ValueSet | null;
+  inpatient: ValueSet | null;
+} {
+  const [vs, setVs] = useState<{
+    specialist: ValueSet | null;
+    isolation: ValueSet | null;
+    inpatient: ValueSet | null;
+  }>({ specialist: null, isolation: null, inpatient: null });
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -58,7 +67,7 @@ function useValueSets(): { specialist: ValueSet | null; isolation: ValueSet | nu
         loadPublishedValueSetsForConsumer({ consumer: "Auto Admin — Isolation/Status Flags" }),
       ]);
       if (cancelled) return;
-      const pick = (hits: any[], name: string): ValueSet | null => {
+      const pick = (hits: PublishedValueSetHit[], name: string): ValueSet | null => {
         const h = hits.find((x) => x.value_set_name === name);
         if (!h?.row?.codes) return null;
         return { name, codes: h.row.codes as CodeEntry[] };
@@ -89,10 +98,10 @@ export default function ClinicalTriggersBanner({ mrn }: { mrn: string }) {
         supabase.from("procedures").select("snomed_code, cpt_code").eq("mrn", mrn),
       ]);
       if (cancelled) return;
-      setDxCodes(new Set(((conds ?? []) as any[]).map((c) => String(c.snomed_code ?? "")).filter(Boolean)));
+      setDxCodes(new Set((conds ?? []).map((c) => String(c.snomed_code ?? "")).filter(Boolean)));
       setProcCodes(
         new Set(
-          ((procs ?? []) as any[])
+          (procs ?? [])
             .flatMap((p) => [p.snomed_code, p.cpt_code])
             .filter(Boolean)
             .map(String),
@@ -131,12 +140,16 @@ export default function ClinicalTriggersBanner({ mrn }: { mrn: string }) {
           <div className="flex-1">
             {consultHits.map((c) => (
               <div key={c.code}>
-                Consider <strong>{c.recommended_specialty ?? "specialist"}</strong> consult — {c.display} is a
-                specialist-consult trigger diagnosis.
+                Consider <strong>{c.recommended_specialty ?? "specialist"}</strong> consult —{" "}
+                {c.display} is a specialist-consult trigger diagnosis.
               </div>
             ))}
           </div>
-          <button onClick={consult.dismiss} className="text-sky-700 hover:text-sky-900" aria-label="Dismiss">
+          <button
+            onClick={consult.dismiss}
+            className="text-sky-700 hover:text-sky-900"
+            aria-label="Dismiss"
+          >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -154,7 +167,11 @@ export default function ClinicalTriggersBanner({ mrn }: { mrn: string }) {
               </div>
             ))}
           </div>
-          <button onClick={iso.dismiss} className="text-amber-700 hover:text-amber-900" aria-label="Dismiss">
+          <button
+            onClick={iso.dismiss}
+            className="text-amber-700 hover:text-amber-900"
+            aria-label="Dismiss"
+          >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -165,12 +182,16 @@ export default function ClinicalTriggersBanner({ mrn }: { mrn: string }) {
           <div className="flex-1">
             {inpatientHits.map((c) => (
               <div key={c.code}>
-                Recommend <strong>inpatient status</strong> (not observation) — {c.display} is on the
-                Inpatient-Only Procedures starter list.
+                Recommend <strong>inpatient status</strong> (not observation) — {c.display} is on
+                the Inpatient-Only Procedures starter list.
               </div>
             ))}
           </div>
-          <button onClick={inp.dismiss} className="text-indigo-700 hover:text-indigo-900" aria-label="Dismiss">
+          <button
+            onClick={inp.dismiss}
+            className="text-indigo-700 hover:text-indigo-900"
+            aria-label="Dismiss"
+          >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>

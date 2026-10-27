@@ -14,14 +14,14 @@
  */
 
 const AGENT_CAPABILITIES = {
-  coder: ['code-generation', 'refactoring', 'debugging', 'implementation'],
-  tester: ['unit-testing', 'integration-testing', 'coverage', 'test-generation'],
-  reviewer: ['code-review', 'security-audit', 'quality-check', 'best-practices'],
-  researcher: ['web-search', 'documentation', 'analysis', 'summarization'],
-  architect: ['system-design', 'architecture', 'patterns', 'scalability'],
-  'backend-dev': ['api', 'database', 'server', 'authentication'],
-  'frontend-dev': ['ui', 'react', 'css', 'components'],
-  devops: ['ci-cd', 'docker', 'deployment', 'infrastructure'],
+  coder: ["code-generation", "refactoring", "debugging", "implementation"],
+  tester: ["unit-testing", "integration-testing", "coverage", "test-generation"],
+  reviewer: ["code-review", "security-audit", "quality-check", "best-practices"],
+  researcher: ["web-search", "documentation", "analysis", "summarization"],
+  architect: ["system-design", "architecture", "patterns", "scalability"],
+  "backend-dev": ["api", "database", "server", "authentication"],
+  "frontend-dev": ["ui", "react", "css", "components"],
+  devops: ["ci-cd", "docker", "deployment", "infrastructure"],
 };
 
 // Each entry is an array of tokens. Tokens are alternation-friendly:
@@ -29,23 +29,32 @@ const AGENT_CAPABILITIES = {
 //   - single tokens are wrapped with \b … \b word boundaries at match time
 const TASK_PATTERNS = [
   // Code patterns
-  { tokens: ['implement', 'create', 'build', 'add', 'write code', 'refactor', 'debug'], agent: 'coder' },
-  { tokens: ['test', 'tests', 'spec', 'coverage', 'unit test', 'integration test'], agent: 'tester' },
-  { tokens: ['review', 'audit', 'check', 'validate', 'security'], agent: 'reviewer' },
-  { tokens: ['research', 'find', 'search', 'documentation', 'explore'], agent: 'researcher' },
-  { tokens: ['design', 'architect', 'architecture', 'structure', 'plan'], agent: 'architect' },
+  {
+    tokens: ["implement", "create", "build", "add", "write code", "refactor", "debug"],
+    agent: "coder",
+  },
+  {
+    tokens: ["test", "tests", "spec", "coverage", "unit test", "integration test"],
+    agent: "tester",
+  },
+  { tokens: ["review", "audit", "check", "validate", "security"], agent: "reviewer" },
+  { tokens: ["research", "find", "search", "documentation", "explore"], agent: "researcher" },
+  { tokens: ["design", "architect", "architecture", "structure", "plan"], agent: "architect" },
 
   // Domain patterns
-  { tokens: ['api', 'endpoint', 'server', 'backend', 'database'], agent: 'backend-dev' },
-  { tokens: ['ui', 'frontend', 'component', 'react', 'css', 'style'], agent: 'frontend-dev' },
+  { tokens: ["api", "endpoint", "server", "backend", "database"], agent: "backend-dev" },
+  { tokens: ["ui", "frontend", "component", "react", "css", "style"], agent: "frontend-dev" },
   // 'cd' / 'ci' are kept but require word boundaries via \b — they will not
   // match inside "decision" or "specific". 'cd' as a literal command in a
   // task description ("set up cd pipeline") still matches.
-  { tokens: ['deploy', 'docker', 'ci', 'cd', 'ci/cd', 'pipeline', 'infrastructure', 'devops'], agent: 'devops' },
+  {
+    tokens: ["deploy", "docker", "ci", "cd", "ci/cd", "pipeline", "infrastructure", "devops"],
+    agent: "devops",
+  },
 ];
 
 function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Build an anchored alternation regex from a token list.
@@ -60,7 +69,7 @@ function buildPattern(tokens) {
     }
     return `\\b${escaped}\\b`;
   });
-  return new RegExp(`(?:${alternatives.join('|')})`, 'i');
+  return new RegExp(`(?:${alternatives.join("|")})`, "i");
 }
 
 const COMPILED_PATTERNS = TASK_PATTERNS.map((entry) => ({
@@ -70,7 +79,7 @@ const COMPILED_PATTERNS = TASK_PATTERNS.map((entry) => ({
 }));
 
 function routeTask(task) {
-  const taskLower = String(task ?? '').toLowerCase();
+  const taskLower = String(task ?? "").toLowerCase();
 
   for (const entry of COMPILED_PATTERNS) {
     if (entry.regex.test(taskLower)) {
@@ -78,27 +87,27 @@ function routeTask(task) {
         agent: entry.agent,
         // Heuristic prior, not a learned probability — see file header.
         confidence: 0.6,
-        reason: `Matched keyword(s) from: ${entry.tokens.join('|')}`,
+        reason: `Matched keyword(s) from: ${entry.tokens.join("|")}`,
       };
     }
   }
 
   return {
-    agent: 'coder',
+    agent: "coder",
     confidence: 0.3,
-    reason: 'Default routing - no specific keyword matched',
+    reason: "Default routing - no specific keyword matched",
   };
 }
 
 // CLI
 if (require.main === module) {
-  const task = process.argv.slice(2).join(' ');
+  const task = process.argv.slice(2).join(" ");
   if (task) {
     const result = routeTask(task);
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log('Usage: router.js <task description>');
-    console.log('\nAvailable agents:', Object.keys(AGENT_CAPABILITIES).join(', '));
+    console.log("Usage: router.js <task description>");
+    console.log("\nAvailable agents:", Object.keys(AGENT_CAPABILITIES).join(", "));
   }
 }
 

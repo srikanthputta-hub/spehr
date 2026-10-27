@@ -62,13 +62,16 @@ export function SemanticAutocomplete({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ searchTerm: term, vocabulary }),
         });
-        const j = await r.json();
+        const j = (await r.json()) as {
+          error?: string;
+          result?: { results?: Array<{ ui?: string; name?: string; rootSource?: string }> };
+        };
         if (lastQuery.current !== term) return;
         if (!r.ok) {
           setErr(j?.error ?? "UMLS unavailable");
           setItems([]);
         } else {
-          const results = (j?.result?.results ?? []) as any[];
+          const results = j?.result?.results ?? [];
           setItems(
             results
               .filter((x) => x?.ui && x.ui !== "NONE")
@@ -81,8 +84,8 @@ export function SemanticAutocomplete({
           );
         }
         setOpen(true);
-      } catch (e: any) {
-        setErr(String(e?.message ?? e));
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : String(e));
         setItems([]);
       } finally {
         setLoading(false);
@@ -112,9 +115,7 @@ export function SemanticAutocomplete({
       )}
       {autoApi && open && (items.length > 0 || err) && (
         <div className="absolute z-30 mt-1 w-full max-h-64 overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
-          {err && (
-            <div className="px-3 py-2 text-[11px] text-rose-600">{err}</div>
-          )}
+          {err && <div className="px-3 py-2 text-[11px] text-rose-600">{err}</div>}
           {items.map((s) => (
             <button
               key={s.source + s.code}

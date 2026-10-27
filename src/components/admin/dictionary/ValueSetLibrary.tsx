@@ -1,14 +1,45 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Upload, Loader2, FileJson, Copy, Play, Save, Check, Trash2, CloudUpload } from "lucide-react";
+import {
+  Plus,
+  Download,
+  Upload,
+  Loader2,
+  FileJson,
+  Copy,
+  Play,
+  Save,
+  Check,
+  Trash2,
+  CloudUpload,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ExpandCard } from "@/components/admin/dictionary/FhirOpCards";
 import { InfoHint } from "@/components/ui/info-hint";
@@ -73,7 +104,9 @@ export function ValueSetLibrary() {
   } | null>(null);
   const [vsacName, setVsacName] = useState("");
   const [vsacImporting, setVsacImporting] = useState(false);
-  const [log, setLog] = useState<Array<{ id: string; created_at: string; actor: string; message: string }>>([]);
+  const [log, setLog] = useState<
+    Array<{ id: string; created_at: string; actor: string; message: string }>
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,11 +124,19 @@ export function ValueSetLibrary() {
       .channel("terminology-activity-library")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "terminology_activity_log", filter: "feature=eq.library" },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "terminology_activity_log",
+          filter: "feature=eq.library",
+        },
         (payload) => setLog((l) => [payload.new as any, ...l].slice(0, 50)),
       )
       .subscribe();
-    return () => { cancelled = true; supabase.removeChannel(ch); };
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(ch);
+    };
   }, []);
 
   const logActivity = (action: string, message: string, ref_id?: string | null) => {
@@ -125,7 +166,10 @@ export function ValueSetLibrary() {
       .channel("value-sets-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "custom_value_sets" }, load)
       .subscribe();
-    return () => { alive = false; supabase.removeChannel(ch); };
+    return () => {
+      alive = false;
+      supabase.removeChannel(ch);
+    };
   }, []);
 
   const refreshRows = async () => {
@@ -153,7 +197,11 @@ export function ValueSetLibrary() {
         return;
       }
       toast.success(`Published "${row.name}" to FHIR server`);
-      logActivity("published_to_fhir", `"${row.name}" pushed to FHIR server at ${result?.url ?? "upstream"}`, row.id);
+      logActivity(
+        "published_to_fhir",
+        `"${row.name}" pushed to FHIR server at ${result?.url ?? "upstream"}`,
+        row.id,
+      );
       await refreshRows();
     } catch (e: any) {
       toast.error(`FHIR publish failed: ${e?.message ?? e}`);
@@ -222,7 +270,11 @@ export function ValueSetLibrary() {
       }
       const dominantVocab = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
       const s = slug(name);
-      const codes = vsacResult.codes.map(c => ({ code: c.code, display: c.display, system: c.vocabulary }));
+      const codes = vsacResult.codes.map((c) => ({
+        code: c.code,
+        display: c.display,
+        system: c.vocabulary,
+      }));
       const now = new Date().toISOString();
       const { error } = await supabase.from("custom_value_sets").insert({
         name,
@@ -234,14 +286,19 @@ export function ValueSetLibrary() {
         status: "draft",
         description: "Imported from VSAC",
         fhir_url: `http://spehr.live/fhir/ValueSet/${s}`,
-        change_history: [{ at: now, actor: "S.P.E.H.R. Terminology Services", change: "Imported from VSAC" }],
+        change_history: [
+          { at: now, actor: "S.P.E.H.R. Terminology Services", change: "Imported from VSAC" },
+        ],
       } as any);
       if (error) {
         setVsacError(error.message);
         return;
       }
       toast.success(`Imported "${name}" (${codes.length} codes) as draft`);
-      logActivity("imported_from_vsac", `Imported "${name}" from VSAC (${codes.length} codes) — OID ${vsacResult.oid}`);
+      logActivity(
+        "imported_from_vsac",
+        `Imported "${name}" from VSAC (${codes.length} codes) — OID ${vsacResult.oid}`,
+      );
       setVsacOpen(false);
       setVsacOid("");
       setVsacResult(null);
@@ -256,10 +313,11 @@ export function ValueSetLibrary() {
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
     if (!q) return rows;
-    return rows.filter(r =>
-      r.name.toLowerCase().includes(q) ||
-      (r.oid ?? "").toLowerCase().includes(q) ||
-      (r.vocabulary ?? "").toLowerCase().includes(q),
+    return rows.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        (r.oid ?? "").toLowerCase().includes(q) ||
+        (r.vocabulary ?? "").toLowerCase().includes(q),
     );
   }, [rows, query]);
 
@@ -277,25 +335,34 @@ export function ValueSetLibrary() {
       .update({
         status: next,
         ...extra,
-        change_history: [...history, {
-          at: new Date().toISOString(),
-          actor: "S.P.E.H.R. Terminology Services",
-          change: `Status: ${row.status} → ${next}`,
-        }],
+        change_history: [
+          ...history,
+          {
+            at: new Date().toISOString(),
+            actor: "S.P.E.H.R. Terminology Services",
+            change: `Status: ${row.status} → ${next}`,
+          },
+        ],
         updated_at: new Date().toISOString(),
       } as any)
       .eq("id", row.id);
     if (error) return toast.error(error.message);
     toast.success(successMsg);
     const actionKey =
-      next === "review" ? "submitted_review"
-      : next === "published" ? "published"
-      : next === "draft" ? "returned_to_draft"
-      : next === "deprecated" ? "deprecated"
-      : `status_${next}`;
+      next === "review"
+        ? "submitted_review"
+        : next === "published"
+          ? "published"
+          : next === "draft"
+            ? "returned_to_draft"
+            : next === "deprecated"
+              ? "deprecated"
+              : `status_${next}`;
     logActivity(actionKey, `"${row.name}" ${row.status} → ${next}`, row.id);
-    setRows(rs => rs.map(r => r.id === row.id ? { ...r, status: next, ...(extra as any) } : r));
-    setSelected(s => s && s.id === row.id ? { ...s, status: next, ...(extra as any) } : s);
+    setRows((rs) =>
+      rs.map((r) => (r.id === row.id ? { ...r, status: next, ...(extra as any) } : r)),
+    );
+    setSelected((s) => (s && s.id === row.id ? { ...s, status: next, ...(extra as any) } : s));
   };
 
   const handleDelete = async (row: ValueSet) => {
@@ -303,8 +370,8 @@ export function ValueSetLibrary() {
     if (error) return toast.error(error.message);
     toast.success(`Deleted "${row.name}"`);
     logActivity("deleted", `Deleted "${row.name}"`, row.id);
-    setRows(rs => rs.filter(r => r.id !== row.id));
-    setSelected(s => s && s.id === row.id ? null : s);
+    setRows((rs) => rs.filter((r) => r.id !== row.id));
+    setSelected((s) => (s && s.id === row.id ? null : s));
   };
 
   return (
@@ -321,10 +388,26 @@ export function ValueSetLibrary() {
             </h3>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => window.dispatchEvent(new CustomEvent("spehr:switch-tab", { detail: { tab: "authoring" } }))}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("spehr:switch-tab", { detail: { tab: "authoring" } }),
+                )
+              }
+            >
               <Plus className="h-3.5 w-3.5" /> New Value Set
             </Button>
-            <Button size="sm" variant="outline" onClick={() => { setVsacOpen(true); setVsacError(null); setVsacResult(null); }}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setVsacOpen(true);
+                setVsacError(null);
+                setVsacResult(null);
+              }}
+            >
               <Upload className="h-3.5 w-3.5" /> Import from VSAC
             </Button>
             <Button size="sm" variant="outline" onClick={() => exportBundle(rows)}>
@@ -355,43 +438,66 @@ export function ValueSetLibrary() {
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
               {loading && (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-500">
-                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Loading value sets…
-                </td></tr>
+                <tr>
+                  <td colSpan={8} className="px-3 py-6 text-center text-slate-500">
+                    <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Loading value sets…
+                  </td>
+                </tr>
               )}
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-500">No value sets match.</td></tr>
+                <tr>
+                  <td colSpan={8} className="px-3 py-6 text-center text-slate-500">
+                    No value sets match.
+                  </td>
+                </tr>
               )}
-              {filtered.map(r => (
-                <tr key={r.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelected(r)}>
+              {filtered.map((r) => (
+                <tr
+                  key={r.id}
+                  className="hover:bg-slate-50 cursor-pointer"
+                  onClick={() => setSelected(r)}
+                >
                   <td className="px-3 py-2 font-semibold text-slate-900">{r.name}</td>
                   <td className="px-3 py-2 font-mono text-[10px] text-slate-600">{r.oid ?? "—"}</td>
                   <td className="px-3 py-2 text-slate-700">{r.vocabulary ?? "—"}</td>
                   <td className="px-3 py-2">
-                    <span className={`inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize ${TYPE_STYLES[r.type] ?? ""}`}>
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize ${TYPE_STYLES[r.type] ?? ""}`}
+                    >
                       {r.type}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-right font-mono">{Array.isArray(r.codes) ? r.codes.length : 0}</td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    {Array.isArray(r.codes) ? r.codes.length : 0}
+                  </td>
                   <td className="px-3 py-2">
                     <StatusBadge
                       row={r}
-                      onSubmit={() => transitionStatus(r, "review",
-                        `Submit "${r.name}" for review?`, "Submitted for review")}
+                      onSubmit={() =>
+                        transitionStatus(
+                          r,
+                          "review",
+                          `Submit "${r.name}" for review?`,
+                          "Submitted for review",
+                        )
+                      }
                       onOpenPublish={() => setPublishTarget(r)}
                       onOpenDeprecate={() => setDeprecateTarget(r)}
                     />
                   </td>
-                  <td className="px-3 py-2 text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
+                  <td className="px-3 py-2 text-slate-500">
+                    {new Date(r.updated_at).toLocaleDateString()}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     <div className="inline-flex items-center gap-1">
-                      {r.status === "published" && (
-                        r.fhir_published_at ? (
+                      {r.status === "published" &&
+                        (r.fhir_published_at ? (
                           <span
                             title={`On FHIR server since ${new Date(r.fhir_published_at).toLocaleString()}`}
                             className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
                           >
-                            <Check className="h-3 w-3" /> On FHIR · {new Date(r.fhir_published_at).toLocaleDateString()}
+                            <Check className="h-3 w-3" /> On FHIR ·{" "}
+                            {new Date(r.fhir_published_at).toLocaleDateString()}
                           </span>
                         ) : (
                           <span
@@ -400,25 +506,44 @@ export function ValueSetLibrary() {
                           >
                             Not on FHIR
                           </span>
-                        )
-                      )}
+                        ))}
                       {r.status === "published" && (
                         <Button
                           size="sm"
                           variant="ghost"
                           disabled={fhirPublishing === r.id}
                           title="Publish to FHIR server"
-                          onClick={(e) => { e.stopPropagation(); void publishToFhirServer(r); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void publishToFhirServer(r);
+                          }}
                         >
-                          {fhirPublishing === r.id
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <CloudUpload className="h-3.5 w-3.5" />}
+                          {fhirPublishing === r.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <CloudUpload className="h-3.5 w-3.5" />
+                          )}
                         </Button>
                       )}
-                      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelected(r); }}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelected(r);
+                        }}
+                      >
                         Open
                       </Button>
-                      <Button size="sm" variant="ghost" className="text-rose-600 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); setDeleteTarget(r); }}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteTarget(r);
+                        }}
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -438,7 +563,9 @@ export function ValueSetLibrary() {
           <ul className="font-mono text-slate-700 space-y-0.5 max-h-40 overflow-y-auto">
             {log.map((e) => (
               <li key={e.id}>
-                <span className="text-slate-400">{new Date(e.created_at).toLocaleTimeString()}</span>
+                <span className="text-slate-400">
+                  {new Date(e.created_at).toLocaleTimeString()}
+                </span>
                 {" · "}
                 <span className="text-slate-500">{e.actor}</span>
                 {" · "}
@@ -452,11 +579,13 @@ export function ValueSetLibrary() {
       <ValueSetDrawer
         vs={selected}
         onClose={() => setSelected(null)}
-        onSubmitForReview={(r) => transitionStatus(r, "review",
-          `Submit "${r.name}" for review?`, "Submitted for review")}
+        onSubmitForReview={(r) =>
+          transitionStatus(r, "review", `Submit "${r.name}" for review?`, "Submitted for review")
+        }
         onApprove={(r) => setPublishTarget(r)}
-        onRequestChanges={(r) => transitionStatus(r, "draft",
-          `Send "${r.name}" back to draft?`, "Returned to draft")}
+        onRequestChanges={(r) =>
+          transitionStatus(r, "draft", `Send "${r.name}" back to draft?`, "Returned to draft")
+        }
         onDeprecate={(r) => setDeprecateTarget(r)}
       />
 
@@ -465,26 +594,35 @@ export function ValueSetLibrary() {
           <DialogHeader>
             <DialogTitle>Approve & Publish</DialogTitle>
             <DialogDescription>
-              This will publish <span className="font-semibold">{publishTarget?.name}</span> and make it available for clinical use. Confirm?
+              This will publish <span className="font-semibold">{publishTarget?.name}</span> and
+              make it available for clinical use. Confirm?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
               {...stewardGate("dictionary.steward_approve", async () => {
-                const t = publishTarget; if (!t) return;
+                const t = publishTarget;
+                if (!t) return;
                 setPublishTarget(null);
                 await transitionStatus(t, "draft", null, "Returned to draft for changes");
               })}
-            >Request Changes</Button>
+            >
+              Request Changes
+            </Button>
             <Button
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
               {...stewardGate("dictionary.steward_approve", async () => {
-                const t = publishTarget; if (!t) return;
+                const t = publishTarget;
+                if (!t) return;
                 setPublishTarget(null);
-                await transitionStatus(t, "published", null, "Published successfully", { published_at: new Date().toISOString() });
+                await transitionStatus(t, "published", null, "Published successfully", {
+                  published_at: new Date().toISOString(),
+                });
               })}
-            >Approve & Publish</Button>
+            >
+              Approve & Publish
+            </Button>
           </DialogFooter>
           {!stewardAllowed && (
             <div className="text-[10px] text-amber-700 mt-1">{DISABLED_MESSAGE}</div>
@@ -497,16 +635,25 @@ export function ValueSetLibrary() {
           <DialogHeader>
             <DialogTitle>Deprecate this value set?</DialogTitle>
             <DialogDescription>
-              <span className="font-semibold">{deprecateTarget?.name}</span> will be marked inactive in the registry. Existing references remain but new bindings are discouraged.
+              <span className="font-semibold">{deprecateTarget?.name}</span> will be marked inactive
+              in the registry. Existing references remain but new bindings are discouraged.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDeprecateTarget(null)}>Cancel</Button>
-            <Button className="bg-rose-600 hover:bg-rose-700 text-white" onClick={async () => {
-              const t = deprecateTarget; if (!t) return;
-              setDeprecateTarget(null);
-              await transitionStatus(t, "deprecated", null, "Deprecated");
-            }}>Confirm Deprecate</Button>
+            <Button variant="outline" onClick={() => setDeprecateTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+              onClick={async () => {
+                const t = deprecateTarget;
+                if (!t) return;
+                setDeprecateTarget(null);
+                await transitionStatus(t, "deprecated", null, "Deprecated");
+              }}
+            >
+              Confirm Deprecate
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -516,26 +663,44 @@ export function ValueSetLibrary() {
           <DialogHeader>
             <DialogTitle>Delete value set?</DialogTitle>
             <DialogDescription>
-              <span className="font-semibold">{deleteTarget?.name}</span> will be permanently removed. This cannot be undone.
+              <span className="font-semibold">{deleteTarget?.name}</span> will be permanently
+              removed. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button className="bg-rose-600 hover:bg-rose-700 text-white" onClick={async () => {
-              const t = deleteTarget; if (!t) return;
-              setDeleteTarget(null);
-              await handleDelete(t);
-            }}>Delete</Button>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+              onClick={async () => {
+                const t = deleteTarget;
+                if (!t) return;
+                setDeleteTarget(null);
+                await handleDelete(t);
+              }}
+            >
+              Delete
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={vsacOpen} onOpenChange={(o) => { if (!o) { setVsacOpen(false); setVsacError(null); } }}>
+      <Dialog
+        open={vsacOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            setVsacOpen(false);
+            setVsacError(null);
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Import Value Set from VSAC</DialogTitle>
             <DialogDescription>
-              Fetch a published value set from the NLM Value Set Authority Center by OID and import it as a draft.
+              Fetch a published value set from the NLM Value Set Authority Center by OID and import
+              it as a draft.
             </DialogDescription>
           </DialogHeader>
 
@@ -551,7 +716,11 @@ export function ValueSetLibrary() {
                 />
               </div>
               <Button onClick={handleVsacFetch} disabled={vsacLoading || !vsacOid.trim()}>
-                {vsacLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                {vsacLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
                 Fetch from VSAC
               </Button>
             </div>
@@ -565,20 +734,32 @@ export function ValueSetLibrary() {
             {vsacResult && (
               <div className="space-y-2">
                 <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                  <div><span className="font-semibold">Name:</span> {vsacResult.name ?? "—"}</div>
-                  <div><span className="font-semibold">Title:</span> {vsacResult.title ?? "—"}</div>
-                  <div><span className="font-semibold">Total codes:</span> {vsacResult.total}</div>
-                  <div><span className="font-semibold">Type:</span> <span className="capitalize">{vsacResult.type}</span></div>
+                  <div>
+                    <span className="font-semibold">Name:</span> {vsacResult.name ?? "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Title:</span> {vsacResult.title ?? "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Total codes:</span> {vsacResult.total}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Type:</span>{" "}
+                    <span className="capitalize">{vsacResult.type}</span>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Value Set Name (editable)</label>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Value Set Name (editable)
+                  </label>
                   <Input value={vsacName} onChange={(e) => setVsacName(e.target.value)} />
                 </div>
 
                 <div>
                   <div className="text-xs font-semibold text-slate-700 mb-1">
-                    Preview (first {Math.min(30, vsacResult.codes.length)} of {vsacResult.codes.length})
+                    Preview (first {Math.min(30, vsacResult.codes.length)} of{" "}
+                    {vsacResult.codes.length})
                   </div>
                   <div className="max-h-64 overflow-auto rounded border border-slate-200">
                     <table className="w-full text-xs">
@@ -606,13 +787,19 @@ export function ValueSetLibrary() {
           </div>
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setVsacOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setVsacOpen(false)}>
+              Cancel
+            </Button>
             <Button
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
               onClick={handleVsacImport}
               disabled={!vsacResult || vsacImporting || !vsacName.trim()}
             >
-              {vsacImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              {vsacImporting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
               Import as Draft
             </Button>
           </DialogFooter>
@@ -624,7 +811,8 @@ export function ValueSetLibrary() {
           ⚡ FHIR Operation · ValueSet/$expand
         </summary>
         <p className="text-[11px] text-slate-600 mt-1 mb-3">
-          Expand a value set from the library to its explicit list of concepts as a FHIR ValueSet expansion.
+          Expand a value set from the library to its explicit list of concepts as a FHIR ValueSet
+          expansion.
         </p>
         <ExpandCard />
       </details>
@@ -633,7 +821,10 @@ export function ValueSetLibrary() {
 }
 
 function StatusBadge({
-  row, onSubmit, onOpenPublish, onOpenDeprecate,
+  row,
+  onSubmit,
+  onOpenPublish,
+  onOpenDeprecate,
 }: {
   row: ValueSet;
   onSubmit: () => void;
@@ -643,27 +834,42 @@ function StatusBadge({
   const cls = `inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize cursor-pointer ${STATUS_STYLES[row.status] ?? ""}`;
   if (row.status === "draft") {
     return (
-      <button className={`${cls} hover:ring-2 hover:ring-slate-300`}
-        onClick={(e) => { e.stopPropagation(); onSubmit(); }}
-        title="Submit for review">
+      <button
+        className={`${cls} hover:ring-2 hover:ring-slate-300`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSubmit();
+        }}
+        title="Submit for review"
+      >
         draft ▸
       </button>
     );
   }
   if (row.status === "review") {
     return (
-      <button className={`${cls} hover:ring-2 hover:ring-amber-300`}
-        onClick={(e) => { e.stopPropagation(); onOpenPublish(); }}
-        title="Approve & publish or request changes">
+      <button
+        className={`${cls} hover:ring-2 hover:ring-amber-300`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenPublish();
+        }}
+        title="Approve & publish or request changes"
+      >
         In Review ▸
       </button>
     );
   }
   if (row.status === "published") {
     return (
-      <button className={`${cls} hover:ring-2 hover:ring-rose-300`}
-        onClick={(e) => { e.stopPropagation(); onOpenDeprecate(); }}
-        title="Deprecate this value set">
+      <button
+        className={`${cls} hover:ring-2 hover:ring-rose-300`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenDeprecate();
+        }}
+        title="Deprecate this value set"
+      >
         published ▸
       </button>
     );
@@ -675,13 +881,13 @@ function exportBundle(rows: ValueSet[]) {
   const bundle = {
     resourceType: "Bundle",
     type: "collection",
-    entry: rows.map(r => ({ resource: toFhirValueSet(r) })),
+    entry: rows.map((r) => ({ resource: toFhirValueSet(r) })),
   };
   const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/fhir+json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `spehr-value-sets-${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `spehr-value-sets-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
   toast.success(`Exported ${rows.length} value sets`);
@@ -703,17 +909,21 @@ function toFhirValueSet(vs: ValueSet) {
   };
   if (vs.type === "intensional" && vs.intensional_rule?.rootConcept) {
     base.compose = {
-      include: [{
-        system: systemUri,
-        filter: [{ property: "concept", op: "is-a", value: vs.intensional_rule.rootConcept }],
-      }],
+      include: [
+        {
+          system: systemUri,
+          filter: [{ property: "concept", op: "is-a", value: vs.intensional_rule.rootConcept }],
+        },
+      ],
     };
   } else {
     base.compose = {
-      include: [{
-        system: systemUri,
-        concept: (vs.codes ?? []).map((c: any) => ({ code: c.code, display: c.display })),
-      }],
+      include: [
+        {
+          system: systemUri,
+          concept: (vs.codes ?? []).map((c: any) => ({ code: c.code, display: c.display })),
+        },
+      ],
     };
   }
   return base;
@@ -730,11 +940,19 @@ function sysUri(v: string): string {
 }
 
 function slug(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 function ValueSetDrawer({
-  vs, onClose, onSubmitForReview, onApprove, onRequestChanges, onDeprecate,
+  vs,
+  onClose,
+  onSubmitForReview,
+  onApprove,
+  onRequestChanges,
+  onDeprecate,
 }: {
   vs: ValueSet | null;
   onClose: () => void;
@@ -748,7 +966,9 @@ function ValueSetDrawer({
   const [copied, setCopied] = useState(false);
 
   // "Member Of" — value sets of type=grouping that include this VS as a member.
-  const [memberOf, setMemberOf] = useState<Array<{ id: string; name: string; oid: string | null; status: string }>>([]);
+  const [memberOf, setMemberOf] = useState<
+    Array<{ id: string; name: string; oid: string | null; status: string }>
+  >([]);
   const [memberOfLoading, setMemberOfLoading] = useState(false);
 
   // --- Editable Rule state (intensional) -----------------------------------
@@ -797,15 +1017,28 @@ function ValueSetDrawer({
         .select("id, name, oid, status, grouping_members")
         .eq("type", "grouping");
       if (cancelled) return;
-      if (error) { setMemberOf([]); setMemberOfLoading(false); return; }
-      const matches = (data ?? []).filter((r: any) => {
-        const members = Array.isArray(r.grouping_members) ? r.grouping_members : [];
-        return members.some((m: any) => m?.valueSetId === vs.id);
-      }).map((r: any) => ({ id: r.id, name: r.name, oid: r.oid ?? null, status: r.status ?? "draft" }));
+      if (error) {
+        setMemberOf([]);
+        setMemberOfLoading(false);
+        return;
+      }
+      const matches = (data ?? [])
+        .filter((r: any) => {
+          const members = Array.isArray(r.grouping_members) ? r.grouping_members : [];
+          return members.some((m: any) => m?.valueSetId === vs.id);
+        })
+        .map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          oid: r.oid ?? null,
+          status: r.status ?? "draft",
+        }));
       setMemberOf(matches);
       setMemberOfLoading(false);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [vs?.id]);
 
   if (!vs) return null;
@@ -814,7 +1047,9 @@ function ValueSetDrawer({
   const autoFhirUrl = `http://spehr.live/fhir/ValueSet/${slugName}`;
   const fhir = toFhirValueSet({ ...vs, fhir_url: vs.fhir_url ?? autoFhirUrl });
   const fhirJson = JSON.stringify(fhir, null, 2);
-  const changeHistory: any[] = Array.isArray((vs as any).change_history) ? (vs as any).change_history : [];
+  const changeHistory: any[] = Array.isArray((vs as any).change_history)
+    ? (vs as any).change_history
+    : [];
 
   const runExpand = async () => {
     setExpanding(true);
@@ -827,12 +1062,17 @@ function ValueSetDrawer({
       if (error) throw error;
       const codes = Array.isArray((row as any)?.codes) ? (row as any).codes : [];
       const sysFor = (v: string) =>
-        v === "ICD-10-CM" ? "http://hl7.org/fhir/sid/icd-10-cm"
-        : v === "SNOMED CT" ? "http://snomed.info/sct"
-        : v === "LOINC" ? "http://loinc.org"
-        : v === "RxNorm" ? "http://www.nlm.nih.gov/research/umls/rxnorm"
-        : v === "CPT" ? "http://www.ama-assn.org/go/cpt"
-        : "unknown";
+        v === "ICD-10-CM"
+          ? "http://hl7.org/fhir/sid/icd-10-cm"
+          : v === "SNOMED CT"
+            ? "http://snomed.info/sct"
+            : v === "LOINC"
+              ? "http://loinc.org"
+              : v === "RxNorm"
+                ? "http://www.nlm.nih.gov/research/umls/rxnorm"
+                : v === "CPT"
+                  ? "http://www.ama-assn.org/go/cpt"
+                  : "unknown";
       const expanded = {
         resourceType: "ValueSet",
         status: (row as any)?.status ?? "unknown",
@@ -850,7 +1090,9 @@ function ValueSetDrawer({
       toast.success(`Expanded to ${codes.length} concepts`);
     } catch (e: any) {
       toast.error(`$expand failed: ${e.message}`);
-    } finally { setExpanding(false); }
+    } finally {
+      setExpanding(false);
+    }
   };
 
   const previewRule = async () => {
@@ -858,13 +1100,19 @@ function ValueSetDrawer({
     setExpanding(true);
     try {
       const { data } = await supabase.functions.invoke("umls-proxy", {
-        body: { action: "search", params: { string: ruleRootName || ruleRoot, sabs: "SNOMEDCT_US", pageSize: 50 } },
+        body: {
+          action: "search",
+          params: { string: ruleRootName || ruleRoot, sabs: "SNOMEDCT_US", pageSize: 50 },
+        },
       });
       const total = data?.result?.recCount ?? data?.result?.results?.length ?? 0;
       setPreviewCount(total);
       toast.success(`Rule expands to ${total} concepts in SNOMED CT`);
-    } catch (e: any) { toast.error(e.message); }
-    finally { setExpanding(false); }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setExpanding(false);
+    }
   };
 
   const saveRule = async () => {
@@ -873,7 +1121,10 @@ function ValueSetDrawer({
       rootConcept: ruleRoot,
       rootDisplay: ruleRootName,
       include: ruleInclude,
-      exclude: ruleExclude.split(",").map(s => s.trim()).filter(Boolean),
+      exclude: ruleExclude
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
       activeOnly: ruleActiveOnly,
     };
     const { error } = await supabase
@@ -887,11 +1138,14 @@ function ValueSetDrawer({
 
   const saveMetadata = async () => {
     setSavingMeta(true);
-    const history = [...changeHistory, {
-      at: new Date().toISOString(),
-      actor: "S.P.E.H.R. Terminology Services",
-      change: `Metadata updated (binding=${metaBinding}, version=${metaVersion})`,
-    }];
+    const history = [
+      ...changeHistory,
+      {
+        at: new Date().toISOString(),
+        actor: "S.P.E.H.R. Terminology Services",
+        change: `Metadata updated (binding=${metaBinding}, version=${metaVersion})`,
+      },
+    ];
     const { error } = await supabase
       .from("custom_value_sets")
       .update({
@@ -919,7 +1173,9 @@ function ValueSetDrawer({
     const blob = new Blob([fhirJson], { type: "application/fhir+json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `${slugName}.json`; a.click();
+    a.href = url;
+    a.download = `${slugName}.json`;
+    a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -933,35 +1189,54 @@ function ValueSetDrawer({
               <button
                 className={`text-[10px] px-2 py-0.5 rounded border font-semibold hover:ring-2 hover:ring-slate-300 ${STATUS_STYLES[vs.status]}`}
                 onClick={() => onSubmitForReview(vs)}
-                title="Submit for review">
+                title="Submit for review"
+              >
                 draft ▸ submit
               </button>
             ) : vs.status === "review" ? (
               <span className="inline-flex items-center gap-1">
-                <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${STATUS_STYLES[vs.status]}`}>In Review</span>
-                <button className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                  onClick={() => onApprove(vs)}>Approve & Publish</button>
-                <button className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700"
-                  onClick={() => onRequestChanges(vs)}>Request Changes</button>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${STATUS_STYLES[vs.status]}`}
+                >
+                  In Review
+                </span>
+                <button
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                  onClick={() => onApprove(vs)}
+                >
+                  Approve & Publish
+                </button>
+                <button
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700"
+                  onClick={() => onRequestChanges(vs)}
+                >
+                  Request Changes
+                </button>
               </span>
             ) : vs.status === "published" ? (
               <button
                 className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize cursor-pointer hover:ring-2 hover:ring-rose-300 ${STATUS_STYLES[vs.status]}`}
                 onClick={() => onDeprecate(vs)}
-                title="Deprecate this value set">
+                title="Deprecate this value set"
+              >
                 published ▸
               </button>
             ) : (
-              <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${STATUS_STYLES[vs.status] ?? ""}`}>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${STATUS_STYLES[vs.status] ?? ""}`}
+              >
                 {vs.status}
               </span>
             )}
-            <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize ${TYPE_STYLES[vs.type] ?? ""}`}>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize ${TYPE_STYLES[vs.type] ?? ""}`}
+            >
               {vs.type}
             </span>
           </SheetTitle>
           <SheetDescription className="font-mono text-[10px]">
-            OID {vs.oid} · v{vs.version ?? "1.0.0"} · updated {new Date(vs.updated_at).toLocaleString()}
+            OID {vs.oid} · v{vs.version ?? "1.0.0"} · updated{" "}
+            {new Date(vs.updated_at).toLocaleString()}
           </SheetDescription>
         </SheetHeader>
 
@@ -969,7 +1244,9 @@ function ValueSetDrawer({
           <TabsList className="grid grid-cols-5 w-full">
             <TabsTrigger value="members">Concept Members</TabsTrigger>
             <TabsTrigger value="memberOf">Member Of</TabsTrigger>
-            <TabsTrigger value="rule" disabled={vs.type !== "intensional"}>Rule Editor</TabsTrigger>
+            <TabsTrigger value="rule" disabled={vs.type !== "intensional"}>
+              Rule Editor
+            </TabsTrigger>
             <TabsTrigger value="meta">Metadata</TabsTrigger>
             <TabsTrigger value="fhir">FHIR Preview</TabsTrigger>
           </TabsList>
@@ -977,7 +1254,8 @@ function ValueSetDrawer({
           <TabsContent value="members" className="mt-3 space-y-2">
             {vs.type === "intensional" && (
               <div className="rounded border border-violet-200 bg-violet-50 px-3 py-2 text-[11px] text-violet-900">
-                Rule-generated — expands dynamically. Use <strong>$expand</strong> below to materialize the current expansion.
+                Rule-generated — expands dynamically. Use <strong>$expand</strong> below to
+                materialize the current expansion.
               </div>
             )}
             <table className="w-full text-[11px] border border-slate-200">
@@ -995,7 +1273,9 @@ function ValueSetDrawer({
                     <td className="px-2 py-1.5 font-mono">{c.code}</td>
                     <td className="px-2 py-1.5">{c.display}</td>
                     <td className="px-2 py-1.5 text-slate-600">{c.vocabulary ?? vs.vocabulary}</td>
-                    <td className="px-2 py-1.5"><span className="text-emerald-700">● active</span></td>
+                    <td className="px-2 py-1.5">
+                      <span className="text-emerald-700">● active</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1004,8 +1284,8 @@ function ValueSetDrawer({
 
           <TabsContent value="memberOf" className="mt-3 space-y-2 text-xs">
             <div className="text-[11px] text-slate-600">
-              Grouping value sets that embed <span className="font-semibold">{vs.name}</span> as a member.
-              Editing or retiring this value set will affect them.
+              Grouping value sets that embed <span className="font-semibold">{vs.name}</span> as a
+              member. Editing or retiring this value set will affect them.
             </div>
             {memberOfLoading ? (
               <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
@@ -1021,9 +1301,13 @@ function ValueSetDrawer({
                   <li key={m.id} className="px-3 py-2 flex items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-semibold text-slate-900 truncate">{m.name}</div>
-                      <div className="font-mono text-[10px] text-slate-500 truncate">{m.oid ?? "—"}</div>
+                      <div className="font-mono text-[10px] text-slate-500 truncate">
+                        {m.oid ?? "—"}
+                      </div>
                     </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize ${STATUS_STYLES[m.status] ?? ""}`}>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize ${STATUS_STYLES[m.status] ?? ""}`}
+                    >
                       {m.status}
                     </span>
                   </li>
@@ -1035,18 +1319,34 @@ function ValueSetDrawer({
           <TabsContent value="rule" className="mt-3 space-y-3 text-xs">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Root Concept Code</div>
-                <Input value={ruleRoot} onChange={(e) => setRuleRoot(e.target.value)} className="h-8 text-xs font-mono" placeholder="e.g. 22298006" />
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
+                  Root Concept Code
+                </div>
+                <Input
+                  value={ruleRoot}
+                  onChange={(e) => setRuleRoot(e.target.value)}
+                  className="h-8 text-xs font-mono"
+                  placeholder="e.g. 22298006"
+                />
               </div>
               <div>
-                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Root Concept Name</div>
-                <Input value={ruleRootName} onChange={(e) => setRuleRootName(e.target.value)} className="h-8 text-xs" placeholder="e.g. Myocardial infarction" />
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
+                  Root Concept Name
+                </div>
+                <Input
+                  value={ruleRootName}
+                  onChange={(e) => setRuleRootName(e.target.value)}
+                  className="h-8 text-xs"
+                  placeholder="e.g. Myocardial infarction"
+                />
               </div>
             </div>
             <div>
               <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Include</div>
               <Select value={ruleInclude} onValueChange={(v) => setRuleInclude(v as any)}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="descendants">All descendants</SelectItem>
                   <SelectItem value="children">Direct children only</SelectItem>
@@ -1054,8 +1354,15 @@ function ValueSetDrawer({
               </Select>
             </div>
             <div>
-              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Exclude concepts (comma-separated codes)</div>
-              <Input value={ruleExclude} onChange={(e) => setRuleExclude(e.target.value)} className="h-8 text-xs font-mono" placeholder="e.g. 123456, 789012" />
+              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
+                Exclude concepts (comma-separated codes)
+              </div>
+              <Input
+                value={ruleExclude}
+                onChange={(e) => setRuleExclude(e.target.value)}
+                className="h-8 text-xs font-mono"
+                placeholder="e.g. 123456, 789012"
+              />
             </div>
             <label className="flex items-center gap-2 text-[11px] text-slate-700">
               <Checkbox checked={ruleActiveOnly} onCheckedChange={(v) => setRuleActiveOnly(!!v)} />
@@ -1063,33 +1370,62 @@ function ValueSetDrawer({
             </label>
             <div className="flex items-center gap-2 pt-1">
               <Button size="sm" variant="outline" onClick={previewRule} disabled={expanding}>
-                {expanding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Preview Expansion
+                {expanding ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" />
+                )}{" "}
+                Preview Expansion
               </Button>
-              <Button size="sm" className="bg-[#0c2340] hover:bg-[#0c2340]/90" onClick={saveRule} disabled={savingRule}>
-                {savingRule ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save Rule
+              <Button
+                size="sm"
+                className="bg-[#0c2340] hover:bg-[#0c2340]/90"
+                onClick={saveRule}
+                disabled={savingRule}
+              >
+                {savingRule ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}{" "}
+                Save Rule
               </Button>
             </div>
             {previewCount !== null && (
               <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-900">
-                This rule currently expands to <strong>{previewCount}</strong> concepts in SNOMED CT.
+                This rule currently expands to <strong>{previewCount}</strong> concepts in SNOMED
+                CT.
               </div>
             )}
           </TabsContent>
 
           <TabsContent value="meta" className="mt-3 space-y-3 text-xs">
             <div>
-              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Purpose / Use Case</div>
-              <Textarea value={metaPurpose} onChange={(e) => setMetaPurpose(e.target.value)} className="text-xs" rows={3} />
+              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
+                Purpose / Use Case
+              </div>
+              <Textarea
+                value={metaPurpose}
+                onChange={(e) => setMetaPurpose(e.target.value)}
+                className="text-xs"
+                rows={3}
+              />
             </div>
             <div>
-              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">FHIR Value Set URL (auto)</div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
+                FHIR Value Set URL (auto)
+              </div>
               <Input value={autoFhirUrl} readOnly className="h-8 text-xs font-mono bg-slate-50" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">HL7 Binding Strength</div>
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
+                  HL7 Binding Strength
+                </div>
                 <Select value={metaBinding} onValueChange={setMetaBinding}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="required">Required</SelectItem>
                     <SelectItem value="preferred">Preferred</SelectItem>
@@ -1099,9 +1435,13 @@ function ValueSetDrawer({
                 </Select>
               </div>
               <div>
-                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Clinical Application</div>
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
+                  Clinical Application
+                </div>
                 <Select value={metaApp || "CDS"} onValueChange={setMetaApp}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="CDS">CDS</SelectItem>
                     <SelectItem value="Quality Measure">Quality Measure</SelectItem>
@@ -1114,29 +1454,59 @@ function ValueSetDrawer({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Steward</div>
-                <Input value="S.P.E.H.R. Terminology Services" readOnly className="h-8 text-xs bg-slate-50" />
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
+                  Steward
+                </div>
+                <Input
+                  value="S.P.E.H.R. Terminology Services"
+                  readOnly
+                  className="h-8 text-xs bg-slate-50"
+                />
               </div>
               <div>
-                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">Version</div>
-                <Input value={metaVersion} onChange={(e) => setMetaVersion(e.target.value)} className="h-8 text-xs font-mono" />
+                <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
+                  Version
+                </div>
+                <Input
+                  value={metaVersion}
+                  onChange={(e) => setMetaVersion(e.target.value)}
+                  className="h-8 text-xs font-mono"
+                />
               </div>
             </div>
-            <Button size="sm" className="bg-[#0c2340] hover:bg-[#0c2340]/90" onClick={saveMetadata} disabled={savingMeta}>
-              {savingMeta ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save Metadata
+            <Button
+              size="sm"
+              className="bg-[#0c2340] hover:bg-[#0c2340]/90"
+              onClick={saveMetadata}
+              disabled={savingMeta}
+            >
+              {savingMeta ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}{" "}
+              Save Metadata
             </Button>
             <div>
-              <div className="text-[10px] uppercase font-semibold text-slate-500 mt-3 mb-1">Change History</div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 mt-3 mb-1">
+                Change History
+              </div>
               {changeHistory.length === 0 ? (
                 <div className="text-[11px] text-slate-500 italic">No changes recorded yet.</div>
               ) : (
                 <ul className="space-y-1 text-[11px] text-slate-700 max-h-40 overflow-y-auto">
-                  {changeHistory.slice().reverse().map((h: any, i: number) => (
-                    <li key={i} className="border-l-2 border-slate-200 pl-2">
-                      <span className="font-mono text-[10px] text-slate-500">{new Date(h.at).toLocaleString()}</span> — {h.change}
-                      {h.actor && <span className="text-slate-500"> · {h.actor}</span>}
-                    </li>
-                  ))}
+                  {changeHistory
+                    .slice()
+                    .reverse()
+                    .map((h: any, i: number) => (
+                      <li key={i} className="border-l-2 border-slate-200 pl-2">
+                        <span className="font-mono text-[10px] text-slate-500">
+                          {new Date(h.at).toLocaleString()}
+                        </span>{" "}
+                        — {h.change}
+                        {h.actor && <span className="text-slate-500"> · {h.actor}</span>}
+                      </li>
+                    ))}
                 </ul>
               )}
             </div>
@@ -1145,7 +1515,11 @@ function ValueSetDrawer({
           <TabsContent value="fhir" className="mt-3 space-y-2">
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" onClick={copyJson}>
-                {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
                 {copied ? "Copied!" : "Copy JSON"}
               </Button>
               <Button size="sm" variant="outline" onClick={downloadJson}>
@@ -1160,10 +1534,14 @@ function ValueSetDrawer({
             </pre>
             {expansion && (
               <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-[11px]">
-                <div className="font-semibold mb-1">$expand returned {expansion.expansion?.total ?? 0} concepts</div>
+                <div className="font-semibold mb-1">
+                  $expand returned {expansion.expansion?.total ?? 0} concepts
+                </div>
                 <div className="space-y-1 max-h-40 overflow-y-auto">
                   {(expansion.expansion?.contains ?? []).slice(0, 30).map((c: any, i: number) => (
-                    <div key={i} className="font-mono">{c.code} · {c.display}</div>
+                    <div key={i} className="font-mono">
+                      {c.code} · {c.display}
+                    </div>
                   ))}
                 </div>
               </div>

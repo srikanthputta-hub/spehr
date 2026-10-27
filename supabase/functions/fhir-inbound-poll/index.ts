@@ -37,17 +37,47 @@ const MAX_PAGES = 20;
 // Adding Radiology/Billing later = just append another row here.
 type PollTarget = {
   resourceType: string;
-  tag: string;      // full `_tag` filter (system|code)
+  tag: string; // full `_tag` filter (system|code)
   stateKey: string; // cursor row key in fhir_sync_state
-  label: string;    // result-object key in the JSON response
+  label: string; // result-object key in the JSON response
 };
 const POLL_TARGETS: PollTarget[] = [
-  { resourceType: "Appointment",    tag: "urn:spehr:source|myspehr",         stateKey: "appointment_last_polled_at",       label: "appointment" },
-  { resourceType: "PaymentNotice",  tag: "urn:spehr:source|myspehr",         stateKey: "paymentnotice_last_polled_at",     label: "paymentNotice" },
-  { resourceType: "PaymentNotice",  tag: "urn:spehr:source|billing-pophealth", stateKey: "billing_paymentnotice_last_polled_at", label: "billingPaymentNotice" },
-  { resourceType: "Observation",    tag: "urn:spehr:source|labs-pharm-rad",  stateKey: "labs_observation_last_polled_at",  label: "labObservation" },
-  { resourceType: "Medication",     tag: "urn:spehr:source|labs-pharm-rad",  stateKey: "medication_formulary_last_polled_at", label: "medicationFormulary" },
-  { resourceType: "DiagnosticReport", tag: "urn:spehr:source|labs-pharm-rad", stateKey: "radiology_report_last_polled_at", label: "radiologyReport" },
+  {
+    resourceType: "Appointment",
+    tag: "urn:spehr:source|myspehr",
+    stateKey: "appointment_last_polled_at",
+    label: "appointment",
+  },
+  {
+    resourceType: "PaymentNotice",
+    tag: "urn:spehr:source|myspehr",
+    stateKey: "paymentnotice_last_polled_at",
+    label: "paymentNotice",
+  },
+  {
+    resourceType: "PaymentNotice",
+    tag: "urn:spehr:source|billing-pophealth",
+    stateKey: "billing_paymentnotice_last_polled_at",
+    label: "billingPaymentNotice",
+  },
+  {
+    resourceType: "Observation",
+    tag: "urn:spehr:source|labs-pharm-rad",
+    stateKey: "labs_observation_last_polled_at",
+    label: "labObservation",
+  },
+  {
+    resourceType: "Medication",
+    tag: "urn:spehr:source|labs-pharm-rad",
+    stateKey: "medication_formulary_last_polled_at",
+    label: "medicationFormulary",
+  },
+  {
+    resourceType: "DiagnosticReport",
+    tag: "urn:spehr:source|labs-pharm-rad",
+    stateKey: "radiology_report_last_polled_at",
+    label: "radiologyReport",
+  },
 ];
 
 const corsHeaders = {
@@ -82,11 +112,7 @@ function toIso(ts: string): string {
 }
 
 async function readState(admin: any, key: string): Promise<string> {
-  const { data } = await admin
-    .from("fhir_sync_state")
-    .select("value")
-    .eq("key", key)
-    .maybeSingle();
+  const { data } = await admin.from("fhir_sync_state").select("value").eq("key", key).maybeSingle();
   const ts = data?.value?.ts;
   if (typeof ts === "string" && ts.length) return toIso(ts);
   // conservative fallback if bootstrap row missing
@@ -124,7 +150,10 @@ function isoMax(a: string, b: string | null | undefined): string {
 }
 
 // Parse "Acetaminophen 500 MG Oral Tablet" → name "Acetaminophen", strength "500 MG".
-function parseDisplay(display: string | null | undefined): { drugName: string | null; strength: string | null } {
+function parseDisplay(display: string | null | undefined): {
+  drugName: string | null;
+  strength: string | null;
+} {
   if (!display) return { drugName: null, strength: null };
   const m = display.match(/^(.*?)\s+(\d+(?:\.\d+)?\s*(?:MG|MCG|G|ML|UNIT|%)(?:\/\d+\s*ML)?)/i);
   if (m) return { drugName: m[1].trim(), strength: m[2].trim() };
@@ -140,9 +169,15 @@ function extBool(resource: any, url: string): boolean | null {
   return typeof hit?.valueBoolean === "boolean" ? hit.valueBoolean : null;
 }
 
-async function upsertMedicationResource(admin: any, resource: any): Promise<{ ok: boolean; reason?: string }> {
+async function upsertMedicationResource(
+  admin: any,
+  resource: any,
+): Promise<{ ok: boolean; reason?: string }> {
   const coding = resource?.code?.coding ?? [];
-  const rxHit = coding.find((c: any) => typeof c?.system === "string" && c.system.toLowerCase().includes("rxnorm")) ?? coding[0];
+  const rxHit =
+    coding.find(
+      (c: any) => typeof c?.system === "string" && c.system.toLowerCase().includes("rxnorm"),
+    ) ?? coding[0];
   const rxnorm = rxHit?.code ? String(rxHit.code) : null;
   if (!rxnorm) return { ok: false, reason: "missing_rxnorm" };
   const fullDisplay = resource?.code?.text ?? rxHit?.display ?? null;
@@ -205,7 +240,9 @@ async function pollType(admin: any, target: PollTarget) {
           source: "poll",
           resourceType: "Medication",
           fhirId: resource?.id ?? null,
-          outcome: res.ok ? { ok: true, action: "upserted" } : { ok: false, reason: res.reason ?? "unknown" },
+          outcome: res.ok
+            ? { ok: true, action: "upserted" }
+            : { ok: false, reason: res.reason ?? "unknown" },
         });
       } else {
         const { outcome, resourceType: rt, fhirId } = await ingestFhirResource(admin, resource);

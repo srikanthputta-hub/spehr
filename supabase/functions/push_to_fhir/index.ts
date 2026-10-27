@@ -32,14 +32,18 @@ serve(async (req) => {
       headers: {
         "Content-Type": "application/fhir+json",
         Accept: "application/fhir+json",
-        "Authorization": `Bearer ${FHIR_BEARER_TOKEN}`,
+        Authorization: `Bearer ${FHIR_BEARER_TOKEN}`,
       },
       body: JSON.stringify(fhirBundle),
     });
 
     const text = await response.text();
     let responseBody: unknown = text;
-    try { responseBody = JSON.parse(text); } catch { /* keep text */ }
+    try {
+      responseBody = JSON.parse(text);
+    } catch {
+      /* keep text */
+    }
 
     if (!response.ok) {
       return new Response(
@@ -47,7 +51,10 @@ serve(async (req) => {
           success: false,
           status: response.status,
           statusText: response.statusText,
-          error: typeof responseBody === "string" ? responseBody : (responseBody as any)?.issue ?? responseBody,
+          error:
+            typeof responseBody === "string"
+              ? responseBody
+              : ((responseBody as any)?.issue ?? responseBody),
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 502 },
       );

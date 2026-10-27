@@ -2,6 +2,35 @@ import { useEffect, useState } from "react";
 import { Loader2, Scan, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
+/** Minimal FHIR shapes for the fields this card reads off the live server. */
+interface FhirCodeableConcept {
+  text?: string;
+  coding?: Array<{ code?: string; display?: string }>;
+}
+interface FhirReference {
+  reference?: string;
+}
+interface FhirServiceRequest {
+  id?: string;
+  code?: FhirCodeableConcept;
+  authoredOn?: string;
+}
+interface FhirAttachment {
+  contentType?: string;
+  data?: string;
+  url?: string;
+}
+interface FhirDiagnosticReport {
+  id?: string;
+  basedOn?: FhirReference[];
+  issued?: string;
+  conclusion?: string;
+  presentedForm?: FhirAttachment[];
+}
+interface FhirBundle<T> {
+  entry?: Array<{ resource?: T }>;
+}
+
 /**
  * Radiology / Imaging card that reads live from the shared FHIR server
  * (Medblocks) via the fhir-proxy edge function. Shows:
@@ -18,8 +47,8 @@ import { supabase } from "@/integrations/supabase/client";
 export function RadiologyFhirCard({ mrn }: { mrn: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [orders, setOrders] = useState<any[]>([]);
-  const [reports, setReports] = useState<any[]>([]);
+  const [orders, setOrders] = useState<FhirServiceRequest[]>([]);
+  const [reports, setReports] = useState<FhirDiagnosticReport[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -29,7 +58,7 @@ export function RadiologyFhirCard({ mrn }: { mrn: string }) {
       setError(null);
       try {
         const [srRes, drRes] = await Promise.all([
-          supabase.functions.invoke("fhir-proxy", {
+          supabase.functions.invoke<FhirBundle<FhirServiceRequest>>("fhir-proxy", {
             body: {
               method: "GET",
               path: "/ServiceRequest",
@@ -40,7 +69,7 @@ export function RadiologyFhirCard({ mrn }: { mrn: string }) {
               },
             },
           }),
-          supabase.functions.invoke("fhir-proxy", {
+          supabase.functions.invoke<FhirBundle<FhirDiagnosticReport>>("fhir-proxy", {
             body: {
               method: "GET",
               path: "/DiagnosticReport",
@@ -53,12 +82,17 @@ export function RadiologyFhirCard({ mrn }: { mrn: string }) {
           }),
         ]);
         if (cancelled) return;
-        const srEntries = ((srRes.data as any)?.entry ?? []).map((e: any) => e.resource);
-        const drEntries = ((drRes.data as any)?.entry ?? []).map((e: any) => e.resource);
+        const srEntries = (srRes.data?.entry ?? [])
+          .map((e) => e.resource)
+          .filter((r): r is FhirServiceRequest => !!r);
+        const drEntries = (drRes.data?.entry ?? [])
+          .map((e) => e.resource)
+          .filter((r): r is FhirDiagnosticReport => !!r);
         setOrders(srEntries);
         setReports(drEntries);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? "Failed to query imaging network");
+      } catch (e) {
+        if (!cancelled)
+          setError(e instanceof Error ? e.message : "Failed to query imaging network");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -68,7 +102,7 @@ export function RadiologyFhirCard({ mrn }: { mrn: string }) {
     };
   }, [mrn]);
 
-  const reportForOrder = (srId: string): any | null => {
+  const reportForOrder = (srId: string): FhirDiagnosticReport | null => {
     for (const r of reports) {
       const based = r?.basedOn ?? [];
       for (const b of based) {
@@ -94,7 +128,9 @@ export function RadiologyFhirCard({ mrn }: { mrn: string }) {
         <div className="flex items-center gap-2">
           <Scan className="h-4 w-4 text-cyan-700" />
           <div>
-            <div className="text-sm font-semibold text-slate-900">Radiology / Imaging (Live FHIR)</div>
+            <div className="text-sm font-semibold text-slate-900">
+              Radiology / Imaging (Live FHIR)
+            </div>
             <div className="text-[10px] text-slate-500">
               ServiceRequest + DiagnosticReport · sourced from shared imaging network
             </div>
@@ -147,8 +183,8 @@ function FhirStudyRow({
   onToggle,
 }: {
   examName: string;
-  serviceRequest: any;
-  report: any | null;
+  serviceRequest: FhirServiceRequest;
+  report: FhirDiagnosticReport | null;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -171,7 +207,7 @@ function FhirStudyRow({
     : null;
 
   // presentedForm[0] = base64 text/plain full report; [1] = image/jpeg url.
-  const forms: any[] = Array.isArray(report?.presentedForm) ? report.presentedForm : [];
+  const forms: FhirAttachment[] = Array.isArray(report?.presentedForm) ? report.presentedForm : [];
   const textForm = forms.find((f) => (f?.contentType ?? "").toLowerCase().startsWith("text/"));
   const imageForm = forms.find((f) => (f?.contentType ?? "").toLowerCase().startsWith("image/"));
 

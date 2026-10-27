@@ -48,17 +48,13 @@ interface RadRow {
   created_at: string | null;
 }
 
-const PENDING_SET = new Set([
-  "ordered", "pending",
-]);
-const REPORTED_SET = new Set([
-  "reported", "completed",
-]);
+const PENDING_SET = new Set(["ordered", "pending"]);
+const REPORTED_SET = new Set(["reported", "completed"]);
 
 function RadiologyBoard() {
   const { facility } = useFacility();
   const radiologist = useActiveStaff("Rad");
-  const { can, gate } = useRolePermissions("Rad" as any);
+  const { can, gate } = useRolePermissions("Rad");
   const automationEnabled = useAutomationEnabled();
   const [orders, setOrders] = useState<RadRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,16 +67,18 @@ function RadiologyBoard() {
   const load = async () => {
     if (initialLoadRef.current) setLoading(true);
     const { data } = await fetchWithTimeout(
-      () =>
-        supabase
+      async () => {
+        const res = await supabase
           .from("radiology_orders")
           .select(
             "id, patient_mrn, patient_name, facility_name, requested_by, exam_type, modality, body_part, clinical_indication, snomed_code, snomed_display, status, impression, report_text, ordered_at, resulted_at, created_at",
           )
           .eq("facility_name", facility)
           .order("created_at", { ascending: false })
-          .limit(300),
-      { data: [], error: null } as any,
+          .limit(300);
+        return { data: res.data, error: res.error };
+      },
+      { data: [], error: null },
     );
     setOrders((data as RadRow[]) ?? []);
     setLoading(false);
@@ -99,11 +97,7 @@ function RadiologyBoard() {
     };
     const channel = supabase
       .channel(`rad-board-${facility}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "radiology_orders" },
-        schedule,
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "radiology_orders" }, schedule)
       .subscribe();
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -168,8 +162,10 @@ function RadiologyBoard() {
         return rest;
       });
       await load();
-    } catch (e: any) {
-      toast.error("Failed to submit report", { description: e?.message });
+    } catch (e) {
+      toast.error("Failed to submit report", {
+        description: e instanceof Error ? e.message : undefined,
+      });
     } finally {
       setSubmitting(null);
     }
@@ -202,8 +198,8 @@ function RadiologyBoard() {
       />
       {!automationEnabled && (
         <div className="mx-6 mt-3 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-          <span className="font-bold uppercase tracking-wider">Verification Mode</span>
-          {" "}— AI engines are OFF. Studies must be finalized manually by the radiologist below.
+          <span className="font-bold uppercase tracking-wider">Verification Mode</span> — AI engines
+          are OFF. Studies must be finalized manually by the radiologist below.
         </div>
       )}
       <section className="max-w-[1400px] mx-auto px-6 py-8 space-y-8">
@@ -220,7 +216,9 @@ function RadiologyBoard() {
                 <TableSkeleton rows={4} columns={3} />
               </div>
             ) : pending.length === 0 ? (
-              <EmptyState description={`Queue clear — no pending imaging orders for ${facility}.`} />
+              <EmptyState
+                description={`Queue clear — no pending imaging orders for ${facility}.`}
+              />
             ) : (
               <ul className="divide-y divide-slate-200">
                 {pending.map((o) => {
@@ -344,14 +342,30 @@ function RadiologyBoard() {
               <table className="w-full text-xs">
                 <thead className="bg-[#0c2340] text-slate-100 sticky top-0 z-10">
                   <tr>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Timestamp</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Patient</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">MRN</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Exam</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Modality</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Body Site</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Status</th>
-                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">Radiologist</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Timestamp
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Patient
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      MRN
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Exam
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Modality
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Body Site
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Status
+                    </th>
+                    <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+                      Radiologist
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -384,7 +398,9 @@ function RadiologyBoard() {
                                 })
                               : "Just now"}
                           </td>
-                          <td className="px-3 py-2 font-medium text-slate-900">{o.patient_name ?? "Unknown"}</td>
+                          <td className="px-3 py-2 font-medium text-slate-900">
+                            {o.patient_name ?? "Unknown"}
+                          </td>
                           <td className="px-3 py-2 font-mono text-slate-600">{o.patient_mrn}</td>
                           <td className="px-3 py-2 text-slate-800">
                             <div className="font-medium">{o.exam_type}</div>

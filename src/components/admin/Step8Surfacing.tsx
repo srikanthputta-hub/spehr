@@ -1,13 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  Activity,
-  ChevronRight,
-  Database,
-  Layers,
-  ShieldAlert,
-  Sparkles,
-} from "lucide-react";
+import { Activity, ChevronRight, Database, Layers, ShieldAlert, Sparkles } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 
 /* ------------------------------------------------------------------ */
@@ -160,8 +153,8 @@ export function UmlsResolutionTrail() {
       </div>
       {rows.length === 0 ? (
         <p className="text-xs text-slate-500 px-1 py-3">
-          No resolver activity yet. New orders, conditions, and labs append here
-          as the resolver runs.
+          No resolver activity yet. New orders, conditions, and labs append here as the resolver
+          runs.
         </p>
       ) : (
         <div className="divide-y divide-slate-100">
@@ -178,16 +171,16 @@ export function UmlsResolutionTrail() {
                   {new Date(r.created_at).toLocaleTimeString("en-GB", { hour12: false })}
                 </div>
                 <div className="col-span-1">
-                  <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase ${tone}`}>
+                  <span
+                    className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase ${tone}`}
+                  >
                     {r.action}
                   </span>
                 </div>
                 <div className="col-span-1 font-mono text-[10px] text-slate-600">
                   {r.vocabulary}
                 </div>
-                <div className="col-span-4 truncate text-slate-800">
-                  "{r.input_text}"
-                </div>
+                <div className="col-span-4 truncate text-slate-800">"{r.input_text}"</div>
                 <div className="col-span-3 truncate">
                   {r.resolved_code ? (
                     <span className="font-mono text-[10px] text-slate-900">
@@ -256,11 +249,7 @@ export function CdsOverridesFeed() {
     load();
     const ch = supabase
       .channel("cds_overrides_feed")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "cds_overrides" },
-        load,
-      )
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "cds_overrides" }, load)
       .subscribe();
     return () => {
       cancelled = true;
@@ -272,7 +261,8 @@ export function CdsOverridesFeed() {
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 text-orange-600" /> CDS Hook Decisions · Overrides &amp; Rejections
+          <ShieldAlert className="h-4 w-4 text-orange-600" /> CDS Hook Decisions · Overrides &amp;
+          Rejections
           <InfoHint
             className="ml-1.5"
             text="Historical record of every Safety Alert decision, manual or SLA auto-resolved, including the computed risk score, the auto-decision threshold, and the full rationale behind each Override or Reject."
@@ -284,8 +274,8 @@ export function CdsOverridesFeed() {
       </div>
       {rows.length === 0 ? (
         <p className="text-xs text-slate-500 px-1 py-3">
-          No CDS overrides recorded yet. When a clinician proceeds past a
-          drug↔allergy or drug↔condition warning, the override is logged here.
+          No CDS overrides recorded yet. When a clinician proceeds past a drug↔allergy or
+          drug↔condition warning, the override is logged here.
         </p>
       ) : (
         <div className="scroll-feed divide-y divide-slate-100">
@@ -293,7 +283,10 @@ export function CdsOverridesFeed() {
             const isOpen = expandedId === r.id;
             const vsMatch = String(r.reason ?? "").match(/·\s*Value Sets:\s*([^\[]+?)(?:\s*\[|$)/);
             const valueSetNames = vsMatch
-              ? vsMatch[1]!.split(",").map((s) => s.trim()).filter(Boolean)
+              ? vsMatch[1]!
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
               : [];
             const decisionTone =
               r.decision === "Rejected"
@@ -315,9 +308,7 @@ export function CdsOverridesFeed() {
                     />
                     {new Date(r.created_at).toLocaleString("en-GB", { hour12: false })}
                   </div>
-                  <div className="col-span-1 font-mono text-[10px] text-slate-700">
-                    {r.mrn}
-                  </div>
+                  <div className="col-span-1 font-mono text-[10px] text-slate-700">{r.mrn}</div>
                   <div className="col-span-1 truncate text-[10px] text-slate-800 font-semibold">
                     {r.patient_name ?? "—"}
                   </div>
@@ -336,9 +327,7 @@ export function CdsOverridesFeed() {
                   <div className="col-span-1 truncate text-slate-800">
                     {r.drug_name ?? "—"} {r.condition_name ? `× ${r.condition_name}` : ""}
                   </div>
-                  <div className="col-span-2 truncate text-slate-600 italic">
-                    "{r.reason}"
-                  </div>
+                  <div className="col-span-2 truncate text-slate-600 italic">"{r.reason}"</div>
                   <div className="col-span-1 text-right text-[10px] text-slate-500 truncate">
                     {r.physician_name ?? "—"}
                   </div>
@@ -354,7 +343,11 @@ export function CdsOverridesFeed() {
                       <DetailField label="Decision" value={r.decision ?? "—"} />
                       <DetailField
                         label="Risk Score"
-                        value={r.risk_score != null ? `${r.risk_score}/100 (${r.risk_score >= 70 ? "≥70 → auto-Reject band" : "<70 → auto-Override band"})` : "—"}
+                        value={
+                          r.risk_score != null
+                            ? `${r.risk_score}/100 (${r.risk_score >= 70 ? "≥70 → auto-Reject band" : "<70 → auto-Override band"})`
+                            : "—"
+                        }
                         mono
                         info="Composite risk score computed from drug-disease severity × condition-match confidence. ≥70 → the Safety Engine auto-Rejects the order; <70 → auto-Overrides (logs the alert but lets the order proceed)."
                       />
@@ -367,11 +360,7 @@ export function CdsOverridesFeed() {
                         mono
                       />
                       <DetailField label="Physician" value={r.physician_name ?? "—"} />
-                      <DetailField
-                        label="Physician ID"
-                        value={r.physician_id ?? "—"}
-                        mono
-                      />
+                      <DetailField label="Physician ID" value={r.physician_id ?? "—"} mono />
                       <div className="col-span-2">
                         <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 inline-flex items-center gap-1">
                           Triggered by Value Set{valueSetNames.length === 1 ? "" : "s"}
@@ -479,11 +468,7 @@ export function AutoApiEventsFeed() {
     load();
     const ch = supabase
       .channel("auto_api_events_feed")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "auto_api_events" },
-        load,
-      )
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "auto_api_events" }, load)
       .subscribe();
     return () => {
       cancelled = true;
@@ -518,9 +503,7 @@ export function AutoApiEventsFeed() {
               <div className="col-span-2 font-mono text-[10px] text-slate-600">
                 {r.actor ?? "—"}
               </div>
-              <div className="col-span-2 font-mono text-[10px] text-slate-600">
-                {r.mrn ?? "—"}
-              </div>
+              <div className="col-span-2 font-mono text-[10px] text-slate-600">{r.mrn ?? "—"}</div>
               <div className="col-span-2 truncate text-[10px] text-slate-500">
                 {r.facility_name ?? "—"}
               </div>

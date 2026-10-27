@@ -32,7 +32,9 @@ export function PopulationHealth() {
   const suggest = useServerFn(getCodedKeywordSuggestions);
   const [codeSystem, setCodeSystem] = useState<CodeSystem>("SNOMED");
   const [keyword, setKeyword] = useState("");
-  const [suggestions, setSuggestions] = useState<Array<{ code: string; display: string; count: number }>>([]);
+  const [suggestions, setSuggestions] = useState<
+    Array<{ code: string; display: string; count: number }>
+  >([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const suggestTimer = useRef<number | null>(null);
@@ -44,7 +46,9 @@ export function PopulationHealth() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [valueSetId, setValueSetId] = useState<string>("");
-  const [valueSets, setValueSets] = useState<Array<{ id: string; name: string; codes_count: number }>>([]);
+  const [valueSets, setValueSets] = useState<
+    Array<{ id: string; name: string; codes_count: number }>
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +67,9 @@ export function PopulationHealth() {
         })),
       );
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -99,11 +105,14 @@ export function PopulationHealth() {
     try {
       const useRange = Boolean(fromDate || toDate);
       const since = useRange
-        ? (fromDate ? new Date(fromDate + "T00:00:00.000Z").toISOString() : undefined)
-        : (windowHours > 0 ? new Date(Date.now() - windowHours * 3600_000).toISOString() : undefined);
-      const until = useRange && toDate
-        ? new Date(toDate + "T23:59:59.999Z").toISOString()
-        : undefined;
+        ? fromDate
+          ? new Date(fromDate + "T00:00:00.000Z").toISOString()
+          : undefined
+        : windowHours > 0
+          ? new Date(Date.now() - windowHours * 3600_000).toISOString()
+          : undefined;
+      const until =
+        useRange && toDate ? new Date(toDate + "T23:59:59.999Z").toISOString() : undefined;
       const r = await run({
         data: {
           code_system: keyword.trim() ? codeSystem : undefined,
@@ -122,7 +131,15 @@ export function PopulationHealth() {
 
   const exportCsv = () => {
     if (!result?.rows) return;
-    const headers = ["mrn", "name", "age", "gender", "facility_name", "chief_complaint", "admission_time"];
+    const headers = [
+      "mrn",
+      "name",
+      "age",
+      "gender",
+      "facility_name",
+      "chief_complaint",
+      "admission_time",
+    ];
     const rows = [headers.join(",")];
     for (const r of result.rows) {
       rows.push(headers.map((h) => JSON.stringify(r[h] ?? "")).join(","));
@@ -155,7 +172,9 @@ export function PopulationHealth() {
       <div className="p-5 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-3">
           <label className="text-[11px]">
-            <span className="font-semibold uppercase tracking-wider text-slate-500">Code System</span>
+            <span className="font-semibold uppercase tracking-wider text-slate-500">
+              Code System
+            </span>
             <select
               value={codeSystem}
               onChange={(e) => {
@@ -166,7 +185,9 @@ export function PopulationHealth() {
               className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm"
             >
               {CODE_SYSTEMS.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
               ))}
             </select>
           </label>
@@ -182,10 +203,13 @@ export function PopulationHealth() {
                 onFocus={() => suggestions.length > 0 && setSuggestOpen(true)}
                 onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
                 placeholder={
-                  codeSystem === "SNOMED" ? "e.g. chest pain, sepsis"
-                  : codeSystem === "ICD10" ? "e.g. pneumonia"
-                  : codeSystem === "LOINC" ? "e.g. lactate, troponin"
-                  : "e.g. aspirin, metformin"
+                  codeSystem === "SNOMED"
+                    ? "e.g. chest pain, sepsis"
+                    : codeSystem === "ICD10"
+                      ? "e.g. pneumonia"
+                      : codeSystem === "LOINC"
+                        ? "e.g. lactate, troponin"
+                        : "e.g. aspirin, metformin"
                 }
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
               />
@@ -238,7 +262,9 @@ export function PopulationHealth() {
           </select>
         </label>
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Facilities</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+            Facilities
+          </div>
           <div className="flex flex-wrap gap-2">
             {FACILITIES.map((f) => (
               <button
@@ -253,7 +279,9 @@ export function PopulationHealth() {
           </div>
         </div>
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Time window</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+            Time window
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             {WINDOWS.map((w) => (
               <button
@@ -291,7 +319,10 @@ export function PopulationHealth() {
             {(fromDate || toDate) && (
               <button
                 type="button"
-                onClick={() => { setFromDate(""); setToDate(""); }}
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                }}
                 className="text-[11px] px-2 py-1 rounded border border-slate-300 bg-white text-slate-600"
               >
                 Clear
@@ -306,7 +337,11 @@ export function PopulationHealth() {
             onClick={submit}
             className="inline-flex items-center gap-2 rounded-md bg-[#0c2340] px-4 py-2 text-sm text-white disabled:opacity-60"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Activity className="h-4 w-4" />
+            )}
             Run Cohort Query
           </button>
           {result && (
@@ -323,12 +358,23 @@ export function PopulationHealth() {
         {result && (
           <div className="border-t border-slate-100 pt-3 space-y-2">
             <div className="flex gap-6 text-[12px]">
-              <div><span className="text-slate-500">Cohort size:</span> <span className="font-mono font-bold text-slate-900">{result.total}</span></div>
-              <div><span className="text-slate-500">Avg age:</span> <span className="font-mono">{result.avg_age}</span></div>
-              <div><span className="text-slate-500">Gender:</span>{" "}
-                {Object.entries(result.gender_distribution as Record<string, number>).map(([g, n]) => (
-                  <span key={g} className="font-mono mr-2">{g}={n}</span>
-                ))}
+              <div>
+                <span className="text-slate-500">Cohort size:</span>{" "}
+                <span className="font-mono font-bold text-slate-900">{result.total}</span>
+              </div>
+              <div>
+                <span className="text-slate-500">Avg age:</span>{" "}
+                <span className="font-mono">{result.avg_age}</span>
+              </div>
+              <div>
+                <span className="text-slate-500">Gender:</span>{" "}
+                {Object.entries(result.gender_distribution as Record<string, number>).map(
+                  ([g, n]) => (
+                    <span key={g} className="font-mono mr-2">
+                      {g}={n}
+                    </span>
+                  ),
+                )}
               </div>
             </div>
             {(result.top_loinc?.length > 0 || result.top_snomed?.length > 0) && (

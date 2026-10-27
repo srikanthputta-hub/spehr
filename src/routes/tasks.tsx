@@ -56,7 +56,7 @@ function TasksPage() {
       setLoading(false);
       return;
     }
-    const mrns = (facPatients ?? []).map((p: any) => p.mrn).filter(Boolean);
+    const mrns = (facPatients ?? []).map((p) => p.mrn).filter(Boolean);
     if (mrns.length === 0) {
       setTasks([]);
       setLoading(false);
@@ -97,7 +97,8 @@ function TasksPage() {
     if (error) return toast.error("Administration failed");
     if (!data || data.length === 0) {
       toast.error("Order already updated", {
-        description: "Someone else (or the automation sweep) already acted on this order. Refresh to see its current state.",
+        description:
+          "Someone else (or the automation sweep) already acted on this order. Refresh to see its current state.",
       });
       load();
       return;

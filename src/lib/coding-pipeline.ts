@@ -17,6 +17,8 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
+import type { PostgrestError } from "@supabase/supabase-js";
 import {
   resolveChv,
   resolveAndValidateSnomed,
@@ -48,7 +50,10 @@ async function resolveDrugSafe(drugName: string) {
   // "Multivitamin" → "multivitamin preparation"); just log for audit.
   if (!inputHead || !resolvedHead || inputHead !== resolvedHead) {
     console.info("[stream-c] fuzzy RxNorm match kept", {
-      input: drugName, inputHead, resolved: rx, resolvedHead,
+      input: drugName,
+      inputHead,
+      resolved: rx,
+      resolvedHead,
     });
   }
   return rx;
@@ -65,17 +70,14 @@ async function extractCcConcepts(cc: string, hpi: string): Promise<ExtractedConc
   const hpiText = (hpi ?? "").trim();
   if (!ccText && !hpiText) return [];
   try {
-    const { data, error } = await supabase.functions.invoke(
-      "nlp-extract-concepts",
-      { body: { cc: ccText, hpi: hpiText } },
-    );
+    const { data, error } = await supabase.functions.invoke("nlp-extract-concepts", {
+      body: { cc: ccText, hpi: hpiText },
+    });
     if (error) {
       console.warn("[stream-a] extractor invoke error", error);
       return [];
     }
-    const concepts = Array.isArray((data as any)?.concepts)
-      ? ((data as any).concepts as ExtractedConcept[])
-      : [];
+    const concepts = Array.isArray(data?.concepts) ? (data.concepts as ExtractedConcept[]) : [];
     return concepts.filter((c) => c?.term && !c.negated);
   } catch (e) {
     console.warn("[stream-a] extractor failed", e);
@@ -84,10 +86,21 @@ async function extractCcConcepts(cc: string, hpi: string): Promise<ExtractedConc
 }
 
 export type StreamStatus = "coded" | "partial" | "failed";
+/**
+ * One coded concept pushed onto a `StreamResult.items` array. The shape
+ * varies per stream (e.g. stream C carries rxnorm_code, stream F carries
+ * loinc_code), so this is intentionally loose — but it is `unknown`-backed,
+ * not `any`, and the $validate-code gate below adds `validated` /
+ * `validation_reason` onto whichever concrete shape came in.
+ */
+export type CodedItem = Record<string, unknown> & {
+  validated?: boolean;
+  validation_reason?: string;
+};
 export type StreamResult = {
   status: StreamStatus;
   count: number;
-  items: any[];
+  items: CodedItem[];
 };
 export type PipelineResult = {
   mrn: string;
@@ -117,7 +130,13 @@ export interface AdmissionData {
     rr?: number | null;
     temp_c?: number | null;
   } | null;
-  labs?: Array<{ test_name: string; result_value?: string | number | null; unit?: string | null; flag?: string | null; loinc_code?: string | null }>;
+  labs?: Array<{
+    test_name: string;
+    result_value?: string | number | null;
+    unit?: string | null;
+    flag?: string | null;
+    loinc_code?: string | null;
+  }>;
   allergies?: Array<{ substance: string; reaction?: string | null; type?: string | null }>;
 }
 
@@ -147,16 +166,35 @@ export async function runSixStreamPipeline(
       .maybeSingle();
     if (!patient) return null;
     const patientName =
-      (patient as any).name ||
-      `${(patient as any).first_name ?? ""} ${(patient as any).last_name ?? ""}`.trim() ||
-      null;
-    const facilityName = (patient as any).facility_name ?? null;
+      patient.name || `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || null;
+    const facilityName = patient.facility_name ?? null;
 
     // Streams C-F prefer admissionData (form-time snapshot). When the
     // sweep re-runs after tables are populated, fall back to reading.
+    type MedOrderRow = Pick<
+      Database["public"]["Tables"]["medication_orders"]["Row"],
+      "id" | "medication_name" | "drug_name" | "medication" | "drug" | "name" | "rxnorm_code"
+    >;
+    type AllergyLookupRow = Pick<
+      Database["public"]["Tables"]["allergies"]["Row"],
+      "id" | "substance" | "reaction" | "substance_rxcui" | "reaction_snomed"
+    >;
+    type VitalsLookupRow = Pick<
+      Database["public"]["Tables"]["vitals"]["Row"],
+      "id" | "hr" | "bp_systolic" | "bp_diastolic" | "spo2" | "rr" | "temp_c" | "loinc_code"
+    >;
+    type LabResultLookupRow = Pick<
+      Database["public"]["Tables"]["lab_results"]["Row"],
+      "id" | "test_name" | "loinc_code"
+    >;
     const useForm = !!admissionData;
     const [medsRes, allergiesRes, vitalsRes, labsRes] = useForm
-      ? [{ data: [] as any[] }, { data: [] as any[] }, { data: [] as any[] }, { data: [] as any[] }]
+      ? [
+          { data: [] as MedOrderRow[] },
+          { data: [] as AllergyLookupRow[] },
+          { data: [] as VitalsLookupRow[] },
+          { data: [] as LabResultLookupRow[] },
+        ]
       : await Promise.all([
           supabase
             .from("medication_orders")
@@ -172,16 +210,13 @@ export async function runSixStreamPipeline(
             .eq("mrn", mrn)
             .order("recorded_at", { ascending: false })
             .limit(1),
-          supabase
-            .from("lab_results")
-            .select("id, test_name, loinc_code")
-            .eq("mrn", mrn),
+          supabase.from("lab_results").select("id, test_name, loinc_code").eq("mrn", mrn),
         ]);
 
     // -------- Stream A: Chief Complaint --------------------------------
-    const cc = String((patient as any).chief_complaint ?? "").trim();
-    const hpiLoc = String((patient as any).hpi_location ?? "").trim();
-    const hpiChar = String((patient as any).hpi_character ?? "").trim();
+    const cc = String(patient.chief_complaint ?? "").trim();
+    const hpiLoc = String(patient.hpi_location ?? "").trim();
+    const hpiChar = String(patient.hpi_character ?? "").trim();
     const hpiCombined = [hpiLoc, hpiChar].filter(Boolean).join(" · ");
     const streamA: StreamResult = { status: "coded", count: 0, items: [] };
     let aConfidence = 0;
@@ -201,10 +236,7 @@ export async function runSixStreamPipeline(
         }
       }
 
-      const terms: string[] =
-        aiConcepts.length > 0
-          ? aiConcepts.map((c) => c.term)
-          : fallbackTerms;
+      const terms: string[] = aiConcepts.length > 0 ? aiConcepts.map((c) => c.term) : fallbackTerms;
 
       // 3. Resolve each concept in parallel → SNOMED + ICD-10 crosswalk.
       const resolved = await Promise.all(
@@ -222,7 +254,7 @@ export async function runSixStreamPipeline(
         }),
       );
 
-      const dedup = new Map<string, any>();
+      const dedup = new Map<string, NonNullable<(typeof resolved)[number]>>();
       for (const r of resolved) {
         if (!r) continue;
         if (!dedup.has(r.snomed_code)) dedup.set(r.snomed_code, r);
@@ -253,7 +285,7 @@ export async function runSixStreamPipeline(
     }
 
     // -------- Stream B: PMH -------------------------------------------
-    const pmhHits: PmhCode[] = matchPmh((patient as any).past_medical_history);
+    const pmhHits: PmhCode[] = matchPmh(patient.past_medical_history);
     const streamB: StreamResult = { status: "coded", count: 0, items: [] };
     for (const p of pmhHits) {
       await upsertCondition({
@@ -281,7 +313,7 @@ export async function runSixStreamPipeline(
     // -------- Stream C: Medications -----------------------------------
     const streamC: StreamResult = { status: "coded", count: 0, items: [] };
     const formMeds = admissionData?.medications ?? [];
-    const dbMeds = (medsRes.data ?? []) as any[];
+    const dbMeds = medsRes.data ?? [];
     const medsExpected = useForm ? formMeds.length : dbMeds.length;
     if (useForm) {
       for (const m of formMeds) {
@@ -296,7 +328,7 @@ export async function runSixStreamPipeline(
           .eq("patient_mrn", mrn)
           .eq("medication_name", drugName)
           .maybeSingle();
-        const row = {
+        const row: Database["public"]["Tables"]["medication_orders"]["Insert"] = {
           patient_mrn: mrn,
           patient_name: patientName,
           facility_name: facilityName,
@@ -311,9 +343,9 @@ export async function runSixStreamPipeline(
           coded_at: new Date().toISOString(),
           term_status: "pending",
           status: "PENDING_PHARMACY",
-        } as any;
-        if ((existing as any)?.id) {
-          await supabase.from("medication_orders").update(row).eq("id", (existing as any).id);
+        };
+        if (existing?.id) {
+          await supabase.from("medication_orders").update(row).eq("id", existing.id);
         } else {
           await supabase.from("medication_orders").insert(row);
         }
@@ -341,10 +373,15 @@ export async function runSixStreamPipeline(
             coding_source: "nlp-stream-c",
             coded_at: new Date().toISOString(),
             term_status: "pending",
-          } as any)
+          })
           .eq("id", m.id);
         streamC.count++;
-        streamC.items.push({ id: m.id, name: drugName, rxnorm_code: rx.code, rxnorm_display: rx.display });
+        streamC.items.push({
+          id: m.id,
+          name: drugName,
+          rxnorm_code: rx.code,
+          rxnorm_display: rx.display,
+        });
       }
     }
     // Always sweep medication_orders for this MRN — meds may arrive via
@@ -353,15 +390,17 @@ export async function runSixStreamPipeline(
       .from("medication_orders")
       .select("id, medication_name, rxnorm_code, rxnorm_display")
       .eq("patient_mrn", mrn);
-    for (const m of (pendingMeds ?? []) as any[]) {
+    for (const m of pendingMeds ?? []) {
       const drugName = String(m.medication_name ?? "").trim();
       if (!drugName) continue;
       if (m.rxnorm_code) {
-        if (!streamC.items.find((i: any) => i.name === drugName)) {
+        if (!streamC.items.find((i) => i.name === drugName)) {
           streamC.count++;
           streamC.items.push({
-            id: m.id, name: drugName,
-            rxnorm_code: m.rxnorm_code, rxnorm_display: m.rxnorm_display,
+            id: m.id,
+            name: drugName,
+            rxnorm_code: m.rxnorm_code,
+            rxnorm_display: m.rxnorm_display,
           });
         }
         continue;
@@ -371,16 +410,20 @@ export async function runSixStreamPipeline(
       await supabase
         .from("medication_orders")
         .update({
-          rxnorm_code: rx.code, rxnorm_display: rx.display,
-          coding_source: "nlp-stream-c", coded_at: new Date().toISOString(),
+          rxnorm_code: rx.code,
+          rxnorm_display: rx.display,
+          coding_source: "nlp-stream-c",
+          coded_at: new Date().toISOString(),
           term_status: "pending",
-        } as any)
+        })
         .eq("id", m.id);
-      if (!streamC.items.find((i: any) => i.name === drugName)) {
+      if (!streamC.items.find((i) => i.name === drugName)) {
         streamC.count++;
         streamC.items.push({
-          id: m.id, name: drugName,
-          rxnorm_code: rx.code, rxnorm_display: rx.display,
+          id: m.id,
+          name: drugName,
+          rxnorm_code: rx.code,
+          rxnorm_display: rx.display,
         });
       }
     }
@@ -388,13 +431,13 @@ export async function runSixStreamPipeline(
     // Stream C codes drugs via UPDATE after insert, so the realtime INSERT
     // watcher on medication_orders alone misses this path. Explicit call
     // here ensures Rule 1 (drug-allergy) always gets a chance to fire.
-    for (const item of streamC.items as any[]) {
+    for (const item of streamC.items) {
       if (!item?.rxnorm_code) continue;
       runMedicationOrderRules({
         mrn,
-        rxnorm_code: item.rxnorm_code,
-        rxnorm_display: item.rxnorm_display ?? item.name,
-        medication_name: item.name,
+        rxnorm_code: String(item.rxnorm_code),
+        rxnorm_display: String(item.rxnorm_display ?? item.name ?? ""),
+        medication_name: String(item.name ?? ""),
       }).catch((e) => console.warn("[coding-pipeline] safety alert check failed", e));
     }
     streamC.status = statusFor(streamC.count, Math.max(medsExpected, streamC.count));
@@ -402,13 +445,13 @@ export async function runSixStreamPipeline(
     // -------- Stream D: Allergies -------------------------------------
     const streamD: StreamResult = { status: "coded", count: 0, items: [] };
     const formAllergies = admissionData?.allergies ?? [];
-    const dbAllergies = (allergiesRes.data ?? []) as any[];
+    const dbAllergies = allergiesRes.data ?? [];
     const allergiesExpected = useForm ? formAllergies.length : dbAllergies.length;
     if (useForm) {
       for (const a of formAllergies) {
         const substance = String(a.substance ?? "").trim();
         if (!substance) continue;
-        const patch: Record<string, unknown> = {
+        const patch: Database["public"]["Tables"]["allergies"]["Insert"] = {
           mrn,
           substance,
           reaction: a.reaction ?? null,
@@ -433,55 +476,52 @@ export async function runSixStreamPipeline(
           .eq("mrn", mrn)
           .eq("substance", substance)
           .maybeSingle();
-        let writeErr: any = null;
-        if ((existing as any)?.id) {
-          const { error } = await supabase
-            .from("allergies")
-            .update(patch as any)
-            .eq("id", (existing as any).id);
+        let writeErr: PostgrestError | null = null;
+        if (existing?.id) {
+          const { error } = await supabase.from("allergies").update(patch).eq("id", existing.id);
           writeErr = error;
         } else {
-          const { error } = await supabase.from("allergies").insert(patch as any);
+          const { error } = await supabase.from("allergies").insert(patch);
           writeErr = error;
         }
         if (writeErr) {
           console.error("[stream-d] allergy write failed", {
             mrn,
             substance,
-            code: (writeErr as any).code,
-            message: (writeErr as any).message,
-            details: (writeErr as any).details,
+            code: writeErr.code,
+            message: writeErr.message,
+            details: writeErr.details,
           });
           continue;
         }
         streamD.count++;
-        streamD.items.push({ substance, ...patch });
+        streamD.items.push({ ...patch });
       }
     } else {
-    for (const a of dbAllergies) {
-      const substance = String(a.substance ?? "").trim();
-      if (!substance) continue;
-      const patch: Record<string, unknown> = {};
-      const envHit = lookupAllergenSnomed(substance);
-      if (envHit) {
-        patch.substance_snomed = envHit.snomed;
-      } else if (!a.substance_rxcui) {
-        const rx = await resolveRxNorm(substance);
-        if (rx) patch.substance_rxcui = rx.code;
+      for (const a of dbAllergies) {
+        const substance = String(a.substance ?? "").trim();
+        if (!substance) continue;
+        const patch: Database["public"]["Tables"]["allergies"]["Update"] = {};
+        const envHit = lookupAllergenSnomed(substance);
+        if (envHit) {
+          patch.substance_snomed = envHit.snomed;
+        } else if (!a.substance_rxcui) {
+          const rx = await resolveRxNorm(substance);
+          if (rx) patch.substance_rxcui = rx.code;
+        }
+        const reaction = String(a.reaction ?? "").trim();
+        if (reaction && !a.reaction_snomed) {
+          const rSnomed = await resolveAndValidateSnomed(reaction);
+          if (rSnomed?.code) patch.reaction_snomed = rSnomed.code;
+        }
+        if (Object.keys(patch).length) {
+          patch.coding_source = "nlp-stream-d";
+          patch.coded_at = new Date().toISOString();
+          await supabase.from("allergies").update(patch).eq("id", a.id);
+          streamD.count++;
+          streamD.items.push({ id: a.id, substance, ...patch });
+        }
       }
-      const reaction = String(a.reaction ?? "").trim();
-      if (reaction && !a.reaction_snomed) {
-        const rSnomed = await resolveAndValidateSnomed(reaction);
-        if (rSnomed?.code) patch.reaction_snomed = rSnomed.code;
-      }
-      if (Object.keys(patch).length) {
-        patch.coding_source = "nlp-stream-d";
-        patch.coded_at = new Date().toISOString();
-        await supabase.from("allergies").update(patch as any).eq("id", a.id);
-        streamD.count++;
-        streamD.items.push({ id: a.id, substance, ...patch });
-      }
-    }
     }
     streamD.status = statusFor(streamD.count, allergiesExpected);
 
@@ -489,16 +529,16 @@ export async function runSixStreamPipeline(
     // free-text field (e.g. "Penicillin (Nausea)"). Without this, chart
     // allergies live only as narrative text and never reach the safety-
     // alerts engine, which reads normalized `allergies` rows.
-    const chartAllergyRaw = String((patient as any)?.allergies ?? "").trim();
+    const chartAllergyRaw = String(patient?.allergies ?? "").trim();
     if (chartAllergyRaw && !/^nkda$/i.test(chartAllergyRaw) && !/no known/i.test(chartAllergyRaw)) {
       const parsed: Array<{ substance: string; reaction: string | null }> = [];
       for (const chunk of chartAllergyRaw.split(/[,;]+/)) {
         const s = chunk.trim();
         if (!s) continue;
         const m = s.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
-        parsed.push(m
-          ? { substance: m[1].trim(), reaction: m[2].trim() }
-          : { substance: s, reaction: null });
+        parsed.push(
+          m ? { substance: m[1].trim(), reaction: m[2].trim() } : { substance: s, reaction: null },
+        );
       }
       for (const a of parsed) {
         if (!a.substance) continue;
@@ -508,8 +548,8 @@ export async function runSixStreamPipeline(
           .eq("mrn", mrn)
           .ilike("substance", a.substance)
           .maybeSingle();
-        if ((existing as any)?.id) continue;
-        const patch: Record<string, unknown> = {
+        if (existing?.id) continue;
+        const patch: Database["public"]["Tables"]["allergies"]["Insert"] = {
           mrn,
           substance: a.substance,
           reaction: a.reaction,
@@ -528,23 +568,41 @@ export async function runSixStreamPipeline(
           const rSnomed = await resolveAndValidateSnomed(a.reaction);
           if (rSnomed?.code) patch.reaction_snomed = rSnomed.code;
         }
-        const { error: insErr } = await supabase.from("allergies").insert(patch as any);
+        const { error: insErr } = await supabase.from("allergies").insert(patch);
         if (insErr) {
           console.error("[stream-d] chart allergy write failed", {
-            mrn, substance: a.substance, message: (insErr as any).message,
+            mrn,
+            substance: a.substance,
+            message: insErr.message,
           });
           continue;
         }
         streamD.count++;
-        streamD.items.push({ substance: a.substance, ...patch });
+        streamD.items.push({ ...patch });
       }
     }
 
     // -------- Stream E: Vitals (LOINC static map) ---------------------
     const streamE: StreamResult = { status: "coded", count: 0, items: [] };
-    let vRow: any = useForm
+    /**
+     * Accumulator for a vitals snapshot, whichever of the three sources it
+     * came from: the admission form, a `vitals` row, or observations merged
+     * by LOINC code below. The index signature covers VITALS_LOINC's alias
+     * keys (e.g. "heart_rate", "systolic") that don't exist as named fields.
+     */
+    type VitalsAccum = {
+      id?: string;
+      hr?: number | null;
+      bp_systolic?: number | null;
+      bp_diastolic?: number | null;
+      spo2?: number | null;
+      rr?: number | null;
+      temp_c?: number | null;
+      [key: string]: number | string | null | undefined;
+    };
+    let vRow: VitalsAccum | null = useForm
       ? (admissionData?.vitals ?? null)
-      : (vitalsRes.data ?? [])[0];
+      : ((vitalsRes.data ?? [])[0] ?? null);
     // Fallback for automated/ghost admissions: form data absent AND no vitals
     // row yet → reconstruct from up to 5 recent observations.
     if (!useForm && !vRow) {
@@ -563,7 +621,7 @@ export async function runSixStreamPipeline(
         "9279-1": "rr",
         "8310-5": "temp_c",
       };
-      for (const o of (obs ?? []) as any[]) {
+      for (const o of obs ?? []) {
         const raw = String(o.loinc_code ?? "").trim();
         const name = String(o.display_name ?? "").toLowerCase();
         let key = codeToKey[raw];
@@ -587,19 +645,24 @@ export async function runSixStreamPipeline(
     // sync has a real row to push.
     let vSynthesized = false;
     if (!useForm) {
+      const vRowSnapshot = vRow;
       const hasAny =
-        vRow &&
-        ["hr","bp_systolic","bp_diastolic","spo2","rr","temp_c"].some(
-          (k) => vRow[k] != null,
+        vRowSnapshot &&
+        ["hr", "bp_systolic", "bp_diastolic", "spo2", "rr", "temp_c"].some(
+          (k) => vRowSnapshot[k] != null,
         );
       if (!hasAny) {
-        const isAdmitted = String((patient as any).status ?? "").toLowerCase() === "admitted";
+        const isAdmitted = String(patient.status ?? "").toLowerCase() === "admitted";
         // Auto-admissions typically set status='Admitted'; also proceed if
         // status is missing (some seed paths omit it).
-        if (isAdmitted || !((patient as any).status)) {
+        if (isAdmitted || !patient.status) {
           vRow = {
-            hr: 78, bp_systolic: 122, bp_diastolic: 78,
-            spo2: 98, rr: 16, temp_c: 37.0,
+            hr: 78,
+            bp_systolic: 122,
+            bp_diastolic: 78,
+            spo2: 98,
+            rr: 16,
+            temp_c: 37.0,
           };
           vSynthesized = true;
         }
@@ -641,9 +704,9 @@ export async function runSixStreamPipeline(
             loinc_display: displays.join(","),
             loinc_map: loincMap,
             recorded_at: new Date().toISOString(),
-          } as any;
-          if ((existing as any)?.id) {
-            await supabase.from("vitals").update(row).eq("id", (existing as any).id);
+          };
+          if (existing?.id) {
+            await supabase.from("vitals").update(row).eq("id", existing.id);
           } else {
             await supabase.from("vitals").insert(row);
           }
@@ -655,7 +718,7 @@ export async function runSixStreamPipeline(
                 loinc_code: codes.join(","),
                 loinc_display: displays.join(","),
                 loinc_map: loincMap,
-              } as any)
+              })
               .eq("id", vRow.id);
           } else if (vSynthesized) {
             // Idempotent seed: only insert one baseline row when none exists.
@@ -665,7 +728,7 @@ export async function runSixStreamPipeline(
               .eq("mrn", mrn)
               .limit(1)
               .maybeSingle();
-            if (!(existing as any)?.id) {
+            if (!existing?.id) {
               await supabase.from("vitals").insert({
                 mrn,
                 hr: vRow.hr,
@@ -678,7 +741,7 @@ export async function runSixStreamPipeline(
                 loinc_display: displays.join(","),
                 loinc_map: loincMap,
                 recorded_at: new Date().toISOString(),
-              } as any);
+              });
             }
           }
         }
@@ -690,7 +753,7 @@ export async function runSixStreamPipeline(
     // -------- Stream F: Lab Results (LOINC) ---------------------------
     const streamF: StreamResult = { status: "coded", count: 0, items: [] };
     const formLabs = admissionData?.labs ?? [];
-    const dbLabs = (labsRes.data ?? []) as any[];
+    const dbLabs = labsRes.data ?? [];
     const labsExpected = useForm ? formLabs.length : dbLabs.length;
     if (useForm) {
       for (const lab of formLabs) {
@@ -705,7 +768,10 @@ export async function runSixStreamPipeline(
         }
         if (!code) {
           const hit = await resolveLoinc(name);
-          if (hit) { code = hit.code; display = hit.display; }
+          if (hit) {
+            code = hit.code;
+            display = hit.display;
+          }
         }
         if (!code) continue;
         const { data: existing } = await supabase
@@ -714,17 +780,17 @@ export async function runSixStreamPipeline(
           .eq("mrn", mrn)
           .eq("test_name", name)
           .maybeSingle();
-        const row = {
+        const row: Database["public"]["Tables"]["lab_results"]["Insert"] = {
           mrn,
           test_name: name,
-          result_value: lab.result_value ?? null,
+          result_value: lab.result_value != null ? String(lab.result_value) : null,
           unit: lab.unit ?? null,
           flag: lab.flag ?? null,
           loinc_code: code,
           loinc_display: display,
-        } as any;
-        if ((existing as any)?.id) {
-          await supabase.from("lab_results").update(row).eq("id", (existing as any).id);
+        };
+        if (existing?.id) {
+          await supabase.from("lab_results").update(row).eq("id", existing.id);
         } else {
           await supabase.from("lab_results").insert(row);
         }
@@ -732,14 +798,48 @@ export async function runSixStreamPipeline(
         streamF.items.push({ test_name: name, loinc_code: code, loinc_display: display });
       }
     } else {
-    for (const lab of dbLabs) {
+      for (const lab of dbLabs) {
+        const name = String(lab.test_name ?? "").trim();
+        if (!name) continue;
+        if (lab.loinc_code) {
+          streamF.count++;
+          streamF.items.push({ id: lab.id, test_name: name, loinc_code: lab.loinc_code });
+          continue;
+        }
+        const pre = lookupLabLoinc(name);
+        let code: string | null = pre?.code ?? null;
+        let display: string | null = pre?.display ?? null;
+        if (!code) {
+          const hit = await resolveLoinc(name);
+          if (hit) {
+            code = hit.code;
+            display = hit.display;
+          }
+        }
+        if (!code) continue;
+        await supabase
+          .from("lab_results")
+          .update({ loinc_code: code, loinc_display: display })
+          .eq("id", lab.id);
+        streamF.count++;
+        streamF.items.push({
+          id: lab.id,
+          test_name: name,
+          loinc_code: code,
+          loinc_display: display,
+        });
+      }
+    }
+    // Always sweep lab_results table for this MRN — labs arrive from
+    // Auto Doc Pipeline after admission, so useForm path misses them.
+    const { data: pendingLabs } = await supabase
+      .from("lab_results")
+      .select("id, test_name, loinc_code")
+      .eq("mrn", mrn);
+    for (const lab of pendingLabs ?? []) {
+      if (lab.loinc_code) continue; // already coded
       const name = String(lab.test_name ?? "").trim();
       if (!name) continue;
-      if (lab.loinc_code) {
-        streamF.count++;
-        streamF.items.push({ id: lab.id, test_name: name, loinc_code: lab.loinc_code });
-        continue;
-      }
       const pre = lookupLabLoinc(name);
       let code: string | null = pre?.code ?? null;
       let display: string | null = pre?.display ?? null;
@@ -753,38 +853,17 @@ export async function runSixStreamPipeline(
       if (!code) continue;
       await supabase
         .from("lab_results")
-        .update({ loinc_code: code, loinc_display: display } as any)
-        .eq("id", lab.id);
-      streamF.count++;
-      streamF.items.push({ id: lab.id, test_name: name, loinc_code: code, loinc_display: display });
-    }
-    }
-    // Always sweep lab_results table for this MRN — labs arrive from
-    // Auto Doc Pipeline after admission, so useForm path misses them.
-    const { data: pendingLabs } = await supabase
-      .from("lab_results")
-      .select("id, test_name, loinc_code")
-      .eq("mrn", mrn);
-    for (const lab of (pendingLabs ?? []) as any[]) {
-      if (lab.loinc_code) continue; // already coded
-      const name = String(lab.test_name ?? "").trim();
-      if (!name) continue;
-      const pre = lookupLabLoinc(name);
-      let code: string | null = pre?.code ?? null;
-      let display: string | null = pre?.display ?? null;
-      if (!code) {
-        const hit = await resolveLoinc(name);
-        if (hit) { code = hit.code; display = hit.display; }
-      }
-      if (!code) continue;
-      await supabase
-        .from("lab_results")
-        .update({ loinc_code: code, loinc_display: display } as any)
+        .update({ loinc_code: code, loinc_display: display })
         .eq("id", lab.id);
       // avoid double-counting items already added by the useForm pass
-      if (!streamF.items.find((i: any) => i.test_name === name)) {
+      if (!streamF.items.find((i) => i.test_name === name)) {
         streamF.count++;
-        streamF.items.push({ id: lab.id, test_name: name, loinc_code: code, loinc_display: display });
+        streamF.items.push({
+          id: lab.id,
+          test_name: name,
+          loinc_code: code,
+          loinc_display: display,
+        });
       }
     }
     // Fallback: if still empty, surface ordered labs from lab_orders so the
@@ -793,22 +872,30 @@ export async function runSixStreamPipeline(
       try {
         const { data: orders } = await supabase
           .from("lab_orders")
-          .select("id, test_name")
+          .select("id, test_type")
           .eq("patient_mrn", mrn);
-        for (const o of (orders ?? []) as any[]) {
-          const name = String(o.test_name ?? "").trim();
+        for (const o of orders ?? []) {
+          const name = String(o.test_type ?? "").trim();
           if (!name) continue;
           const pre = lookupLabLoinc(name);
           let code: string | null = pre?.code ?? null;
           let display: string | null = pre?.display ?? null;
           if (!code) {
             const hit = await resolveLoinc(name);
-            if (hit) { code = hit.code; display = hit.display; }
+            if (hit) {
+              code = hit.code;
+              display = hit.display;
+            }
           }
           if (!code) continue;
-          if (!streamF.items.find((i: any) => i.test_name === name)) {
+          if (!streamF.items.find((i) => i.test_name === name)) {
             streamF.count++;
-            streamF.items.push({ id: o.id, test_name: name, loinc_code: code, loinc_display: display });
+            streamF.items.push({
+              id: o.id,
+              test_name: name,
+              loinc_code: code,
+              loinc_display: display,
+            });
           }
         }
       } catch {
@@ -819,9 +906,17 @@ export async function runSixStreamPipeline(
     // so Stream F is never empty — mirrors Stream E vitals synthesis.
     if (streamF.items.length === 0) {
       const baseline = [
-        "Hemoglobin", "Hematocrit", "White blood cell count", "Platelet count",
-        "Sodium", "Potassium", "Chloride", "Bicarbonate",
-        "Blood urea nitrogen", "Creatinine", "Glucose",
+        "Hemoglobin",
+        "Hematocrit",
+        "White blood cell count",
+        "Platelet count",
+        "Sodium",
+        "Potassium",
+        "Chloride",
+        "Bicarbonate",
+        "Blood urea nitrogen",
+        "Creatinine",
+        "Glucose",
       ];
       for (const name of baseline) {
         const pre = lookupLabLoinc(name);
@@ -829,11 +924,19 @@ export async function runSixStreamPipeline(
         let display: string | null = pre?.display ?? null;
         if (!code) {
           const hit = await resolveLoinc(name);
-          if (hit) { code = hit.code; display = hit.display; }
+          if (hit) {
+            code = hit.code;
+            display = hit.display;
+          }
         }
         if (!code) continue;
         streamF.count++;
-        streamF.items.push({ test_name: name, loinc_code: code, loinc_display: display, synthesized: true });
+        streamF.items.push({
+          test_name: name,
+          loinc_code: code,
+          loinc_display: display,
+          synthesized: true,
+        });
       }
     }
     streamF.status = statusFor(streamF.count, Math.max(labsExpected, streamF.count));
@@ -847,8 +950,7 @@ export async function runSixStreamPipeline(
     for (const s of [streamB, streamC, streamD, streamE, streamF]) {
       if (s.count > 0) parts.push(1.0);
     }
-    const confidence =
-      parts.length > 0 ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
+    const confidence = parts.length > 0 ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
 
     // -------- Write nlp_audit_logs row --------------------------------
     const rawParts: string[] = [];
@@ -861,7 +963,15 @@ export async function runSixStreamPipeline(
           .filter(Boolean);
     if (medNames.length) rawParts.push(`MEDS: ${medNames.join(", ")}`);
 
-    const standardized = {
+    const standardized: {
+      stream_a: CodedItem[];
+      stream_b: CodedItem[];
+      stream_c: CodedItem[];
+      stream_d: CodedItem[];
+      stream_e: unknown;
+      stream_e_validation?: Record<string, unknown>;
+      stream_f: CodedItem[];
+    } = {
       stream_a: streamA.items,
       stream_b: streamB.items,
       stream_c: streamC.items,
@@ -875,15 +985,32 @@ export async function runSixStreamPipeline(
     // Invalid concepts flip the audit row to `needs_review` and are shown
     // with a yellow warning in the UI. Fail-open on proxy errors.
     const streamCodes: Record<StreamKey, CodeInput[]> = {
-      a: (streamA.items as any[]).map((i) => i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null).filter(Boolean) as CodeInput[],
-      b: (streamB.items as any[]).map((i) => i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null).filter(Boolean) as CodeInput[],
-      c: (streamC.items as any[]).map((i) => i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null).filter(Boolean) as CodeInput[],
-      d: (streamD.items as any[]).map((i) => i?.substance_snomed ? { system: "SNOMED CT", code: String(i.substance_snomed) } : null).filter(Boolean) as CodeInput[],
-      e: Object.values((streamE.items[0]?.loinc_map ?? {}) as Record<string, string>).map((c) => ({ system: "LOINC", code: String(c) })),
-      f: (streamF.items as any[]).map((i) => i?.loinc_code ? { system: "LOINC", code: String(i.loinc_code) } : null).filter(Boolean) as CodeInput[],
+      a: streamA.items
+        .map((i) => (i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null))
+        .filter(Boolean) as CodeInput[],
+      b: streamB.items
+        .map((i) => (i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null))
+        .filter(Boolean) as CodeInput[],
+      c: streamC.items
+        .map((i) => (i?.snomed_code ? { system: "SNOMED CT", code: String(i.snomed_code) } : null))
+        .filter(Boolean) as CodeInput[],
+      d: streamD.items
+        .map((i) =>
+          i?.substance_snomed ? { system: "SNOMED CT", code: String(i.substance_snomed) } : null,
+        )
+        .filter(Boolean) as CodeInput[],
+      e: Object.values((streamE.items[0]?.loinc_map ?? {}) as Record<string, string>).map((c) => ({
+        system: "LOINC",
+        code: String(c),
+      })),
+      f: streamF.items
+        .map((i) => (i?.loinc_code ? { system: "LOINC", code: String(i.loinc_code) } : null))
+        .filter(Boolean) as CodeInput[],
     };
     const gateEntries = await Promise.all(
-      (Object.keys(streamCodes) as StreamKey[]).map(async (k) => [k, await validateStreamCodes(k, streamCodes[k], mrn)] as const),
+      (Object.keys(streamCodes) as StreamKey[]).map(
+        async (k) => [k, await validateStreamCodes(k, streamCodes[k], mrn)] as const,
+      ),
     );
     const validation: Record<string, string> = {};
     let needsReview = false;
@@ -893,14 +1020,29 @@ export async function runSixStreamPipeline(
       // Decorate items with per-code validated flag.
       if (k === "e") {
         // stream_e is a single object; attach a sibling map.
-        (standardized as any).stream_e_validation = res.perCode;
+        standardized.stream_e_validation = res.perCode;
       } else {
-        const arr = (standardized as any)[`stream_${k}`] as any[];
+        const streamArrays: Record<Exclude<StreamKey, "e">, CodedItem[]> = {
+          a: standardized.stream_a,
+          b: standardized.stream_b,
+          c: standardized.stream_c,
+          d: standardized.stream_d,
+          f: standardized.stream_f,
+        };
+        const arr = streamArrays[k];
         for (const it of arr ?? []) {
           const codeStr =
-            k === "d" ? (it?.substance_snomed ? String(it.substance_snomed) : null) :
-            k === "f" ? (it?.loinc_code ? String(it.loinc_code) : null) :
-            (it?.snomed_code ? String(it.snomed_code) : null);
+            k === "d"
+              ? it?.substance_snomed
+                ? String(it.substance_snomed)
+                : null
+              : k === "f"
+                ? it?.loinc_code
+                  ? String(it.loinc_code)
+                  : null
+                : it?.snomed_code
+                  ? String(it.snomed_code)
+                  : null;
           if (!codeStr) continue;
           const pc = res.perCode[codeStr];
           if (pc) {
@@ -925,7 +1067,17 @@ export async function runSixStreamPipeline(
 
     // Idempotent: update the existing pending row for this MRN if present,
     // otherwise insert a fresh one. Re-code always updates in place.
-    const auditPayload = {
+    //
+    // NOTE: the generated Supabase types list `extraction_mapping` as a plain
+    // `string` (a stale snapshot — the live column is jsonb). Every reader of
+    // this table (AuditCard, NlpAuditLogsPanel, NlpApprovalTrail) treats it as
+    // a parsed object, so this payload carries the object through and widens
+    // only that one field rather than typing the whole row `any`.
+    type NlpAuditLogsInsert = Database["public"]["Tables"]["nlp_audit_logs"]["Insert"];
+    const auditPayload: Omit<NlpAuditLogsInsert, "extraction_mapping" | "standardized_output"> & {
+      extraction_mapping: typeof extractionMapping;
+      standardized_output: typeof standardized;
+    } = {
       patient_mrn: mrn,
       raw_text: rawParts.join(" | "),
       extraction_mapping: extractionMapping,
@@ -934,22 +1086,22 @@ export async function runSixStreamPipeline(
       status: needsReview ? "needs_review" : "pending",
       resolution_method: "auto-6-stream",
       updated_at: new Date().toISOString(),
-    } as any;
+    };
     const { data: existingAudit } = await supabase
-      .from("nlp_audit_logs" as any)
+      .from("nlp_audit_logs")
       .select("id")
       .eq("patient_mrn", mrn)
       .in("status", ["pending", "needs_review"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if ((existingAudit as any)?.id) {
+    if (existingAudit?.id) {
       await supabase
-        .from("nlp_audit_logs" as any)
-        .update(auditPayload)
-        .eq("id", (existingAudit as any).id);
+        .from("nlp_audit_logs")
+        .update(auditPayload as unknown as NlpAuditLogsInsert)
+        .eq("id", existingAudit.id);
     } else {
-      await supabase.from("nlp_audit_logs" as any).insert(auditPayload);
+      await supabase.from("nlp_audit_logs").insert(auditPayload as unknown as NlpAuditLogsInsert);
     }
 
     return {
@@ -1001,11 +1153,11 @@ async function upsertCondition(row: {
     coded_at: new Date().toISOString(),
   };
   if (existing?.id) {
-    await supabase.from("conditions").update(payload as any).eq("id", existing.id);
+    await supabase.from("conditions").update(payload).eq("id", existing.id);
   } else {
     await supabase
       .from("conditions")
-      .insert({ ...payload, onset_date: new Date().toISOString(), created_by_type: "auto" } as any);
+      .insert({ ...payload, onset_date: new Date().toISOString(), created_by_type: "auto" });
   }
 }
 
@@ -1026,14 +1178,8 @@ export async function approveMrnCoding(
 ): Promise<void> {
   const nowIso = new Date().toISOString();
   const [conditionsRes, medicationOrdersRes] = await Promise.all([
-    supabase
-      .from("conditions")
-      .update({ verification_status: "confirmed" } as any)
-      .eq("mrn", mrn),
-    supabase
-      .from("medication_orders")
-      .update({ term_status: "approved" } as any)
-      .eq("patient_mrn", mrn),
+    supabase.from("conditions").update({ verification_status: "confirmed" }).eq("mrn", mrn),
+    supabase.from("medication_orders").update({ term_status: "approved" }).eq("patient_mrn", mrn),
   ]);
   if (conditionsRes.error || medicationOrdersRes.error) {
     const messages = [conditionsRes.error?.message, medicationOrdersRes.error?.message]
@@ -1044,8 +1190,8 @@ export async function approveMrnCoding(
 
   // Flip ALL pending audit rows for this MRN → approved (older backlog too).
   const { error: auditLogError } = await supabase
-    .from("nlp_audit_logs" as any)
-    .update({ status: "approved", updated_at: nowIso, approved_by: approvedBy } as any)
+    .from("nlp_audit_logs")
+    .update({ status: "approved", updated_at: nowIso, approved_by: approvedBy })
     .eq("patient_mrn", mrn)
     .in("status", ["pending", "needs_review"]);
   if (auditLogError) {
@@ -1062,25 +1208,26 @@ export async function approveMrnCoding(
     .select("snomed_code, snomed_display, source_section")
     .eq("mrn", mrn)
     .not("snomed_code", "is", null);
-  const snomedCodes = Array.from(
-    new Set(((conds ?? []) as any[]).map((r) => r.snomed_code).filter(Boolean)),
-  );
+  const snomedCodes = Array.from(new Set((conds ?? []).map((r) => r.snomed_code).filter(Boolean)));
   if (snomedCodes.length === 0) return;
 
-  const { data: vsets } = await supabase
-    .from("custom_value_sets")
-    .select("codes");
+  const { data: vsets } = await supabase.from("custom_value_sets").select("codes");
   const covered = new Set<string>();
-  for (const vs of (vsets ?? []) as any[]) {
+  for (const vs of vsets ?? []) {
     const codes = Array.isArray(vs.codes) ? vs.codes : [];
     for (const c of codes) {
-      const code = typeof c === "string" ? c : c?.code;
+      const code =
+        typeof c === "string"
+          ? c
+          : c && typeof c === "object" && !Array.isArray(c) && "code" in c
+            ? c.code
+            : undefined;
       if (code) covered.add(String(code));
     }
   }
   const gaps = snomedCodes.filter((c) => !covered.has(c));
   if (gaps.length === 0) return;
-  await supabase.from("auto_terminologist_log" as any).insert(
+  await supabase.from("auto_terminologist_log").insert(
     gaps.map((code) => ({
       action: "gap_from_approval",
       message: `Uncovered SNOMED ${code} discovered on approval of ${mrn}`,
@@ -1088,6 +1235,6 @@ export async function approveMrnCoding(
       codes_count: 1,
       confidence: 1.0,
       run_at: nowIso,
-    })) as any,
+    })),
   );
 }

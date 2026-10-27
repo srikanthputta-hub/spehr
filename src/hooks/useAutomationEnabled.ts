@@ -44,16 +44,18 @@ let channelStarted = false;
 async function fetchFlag(): Promise<boolean> {
   const fallback = readStoredAutomation() ?? true;
   const { data, error } = await fetchWithTimeout(
-    () =>
-      supabase
+    async () => {
+      const res = await supabase
         .from("system_settings")
         .select("automation_enabled")
         .eq("id", 1)
-        .maybeSingle(),
-    { data: null, error: new Error("system_settings timeout") } as any,
+        .maybeSingle();
+      return { data: res.data, error: res.error as Error | null };
+    },
+    { data: null, error: new Error("system_settings timeout") },
   );
   if (error) return fallback;
-  const v = (data as any)?.automation_enabled;
+  const v = data?.automation_enabled;
   return v === false ? false : true;
 }
 
@@ -79,7 +81,9 @@ function ensureChannel() {
       "postgres_changes",
       { event: "*", schema: "public", table: "system_settings" },
       (payload) => {
-        const next = Boolean((payload.new as any)?.automation_enabled);
+        const next = Boolean(
+          (payload.new as { automation_enabled?: boolean } | null)?.automation_enabled,
+        );
         broadcast(next);
       },
     )
@@ -140,16 +144,18 @@ let apiChannelStarted = false;
 
 async function fetchApiFlag(): Promise<boolean> {
   const { data } = await fetchWithTimeout(
-    () =>
-      supabase
+    async () => {
+      const res = await supabase
         .from("system_settings")
         .select("auto_api_enabled")
         .eq("id", 1)
-        .maybeSingle(),
-    { data: null, error: null } as any,
+        .maybeSingle();
+      return { data: res.data, error: res.error };
+    },
+    { data: null, error: null },
   );
   // Default true if the column is missing (older deployments).
-  const v = (data as any)?.auto_api_enabled;
+  const v = data?.auto_api_enabled;
   return v === false ? false : true;
 }
 
@@ -162,7 +168,7 @@ function ensureApiChannel() {
       "postgres_changes",
       { event: "*", schema: "public", table: "system_settings" },
       (payload) => {
-        const v = (payload.new as any)?.auto_api_enabled;
+        const v = (payload.new as { auto_api_enabled?: boolean } | null)?.auto_api_enabled;
         const next = v === false ? false : true;
         cachedApi = next;
         apiListeners.forEach((cb) => cb(next));

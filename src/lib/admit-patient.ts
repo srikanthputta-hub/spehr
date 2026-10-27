@@ -1,9 +1,14 @@
 import { supabase } from "@/integrations/supabase/client";
-import { seedAdmission, claimBedForAdmission, releaseBedForAdmission } from "@/hooks/useAIAutomation";
+import {
+  seedAdmission,
+  claimBedForAdmission,
+  releaseBedForAdmission,
+} from "@/hooks/useAIAutomation";
 import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
 import type { CodeStatus } from "@/lib/patients";
 import { runSixStreamPipeline } from "@/lib/coding-pipeline";
+import type { Database } from "@/integrations/supabase/types";
 
 export interface AdmitInput {
   name: string;
@@ -20,7 +25,7 @@ export interface AdmitInput {
 export interface AdmitResult {
   ok: boolean;
   error?: string;
-  patient?: any;
+  patient?: Database["public"]["Tables"]["patients"]["Row"];
 }
 
 export function genMRN() {
@@ -61,14 +66,20 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   const familyHistoryText = it
     ? [it.familyConditions?.join(", "), it.familyNotes].filter(Boolean).join(" — ") || null
     : null;
-  const drugAllergiesText = it?.drugAllergies
-    ?.map((a) => [a.name?.trim(), a.reaction?.trim() ? `(${a.reaction.trim()})` : ""].filter(Boolean).join(" "))
-    .filter(Boolean)
-    .join("; ") || null;
-  const currentMedicationsText = it?.currentMeds
-    ?.map((m) => [m.name?.trim(), m.dose?.trim(), m.freq?.trim()].filter(Boolean).join(" "))
-    .filter(Boolean)
-    .join("; ") || null;
+  const drugAllergiesText =
+    it?.drugAllergies
+      ?.map((a) =>
+        [a.name?.trim(), a.reaction?.trim() ? `(${a.reaction.trim()})` : ""]
+          .filter(Boolean)
+          .join(" "),
+      )
+      .filter(Boolean)
+      .join("; ") || null;
+  const currentMedicationsText =
+    it?.currentMeds
+      ?.map((m) => [m.name?.trim(), m.dose?.trim(), m.freq?.trim()].filter(Boolean).join(" "))
+      .filter(Boolean)
+      .join("; ") || null;
 
   // Reserve-then-insert: atomically claim a bed BEFORE writing the
   // `patients` row. If the facility has 0 truly-Available beds (or we
@@ -171,13 +182,13 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
         mrn: data.mrn,
         first_name: data.first_name,
         last_name: data.last_name,
-        name: (data as any).name ?? null,
+        name: data.name ?? null,
         facility_name: data.facility_name,
-        chief_complaint: (data as any).chief_complaint ?? null,
+        chief_complaint: data.chief_complaint ?? null,
       },
       { manual: true },
     );
-  } catch (e: any) {
+  } catch (e) {
     console.warn("[admit] seedAdmission failed", e);
   }
 
@@ -188,7 +199,9 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   // Pass form-time snapshot so Streams C/D/E/F don't depend on empty tables.
   const it2 = input.intake;
   const tempC =
-    typeof payload.temp === "number" ? +(((payload.temp as number) - 32) * (5 / 9)).toFixed(1) : null;
+    typeof payload.temp === "number"
+      ? +(((payload.temp as number) - 32) * (5 / 9)).toFixed(1)
+      : null;
   const admissionData = {
     medications: (it2?.currentMeds ?? [])
       .map((m) => ({
@@ -225,9 +238,7 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   // Auto Admin → Auto Terminologist: request an HRRP tracked-conditions
   // value set the first time an admission runs through this codepath.
   // Dedupe by requested_name so it's only ever submitted once.
-  void requestHrrpValueSet().catch((e) =>
-    console.warn("[admit] HRRP request failed", e),
-  );
+  void requestHrrpValueSet().catch((e) => console.warn("[admit] HRRP request failed", e));
 
   return { ok: true, patient: data };
 }
@@ -236,13 +247,13 @@ const HRRP_REQUEST_NAME = "CMS Hospital Readmissions Reduction Program (HRRP) Co
 
 async function requestHrrpValueSet(): Promise<void> {
   const { data: existing } = await supabase
-    .from("terminology_requests" as any)
+    .from("terminology_requests")
     .select("id")
     .eq("requested_name", HRRP_REQUEST_NAME)
     .in("status", ["pending", "drafted", "published"])
     .limit(1);
-  if (existing && (existing as any[]).length > 0) return;
-  await supabase.from("terminology_requests" as any).insert({
+  if (existing && existing.length > 0) return;
+  await supabase.from("terminology_requests").insert({
     requesting_consumer: "Auto Admin",
     requested_name: HRRP_REQUEST_NAME,
     justification:
@@ -250,15 +261,22 @@ async function requestHrrpValueSet(): Promise<void> {
     vocabulary: "ICD-10",
     clinical_application: "Billing",
     priority: "high",
+    request_type: "create",
+    requested_at: new Date().toISOString(),
+    status: "pending",
     seed_codes: [
       { code: "I50.9", display: "Heart failure, unspecified", vocabulary: "ICD-10" },
-      { code: "J44.9", display: "Chronic obstructive pulmonary disease, unspecified", vocabulary: "ICD-10" },
+      {
+        code: "J44.9",
+        display: "Chronic obstructive pulmonary disease, unspecified",
+        vocabulary: "ICD-10",
+      },
       { code: "J18.9", display: "Pneumonia, unspecified organism", vocabulary: "ICD-10" },
       { code: "I21.9", display: "Acute myocardial infarction, unspecified", vocabulary: "ICD-10" },
       { code: "Z96.641", display: "Presence of right artificial hip joint", vocabulary: "ICD-10" },
       { code: "Z96.652", display: "Presence of left artificial knee joint", vocabulary: "ICD-10" },
     ],
-  } as any);
+  });
 }
 
 /**
@@ -273,19 +291,17 @@ export async function reconcileOrphanedBeds(facility: string): Promise<void> {
     .eq("facility_name", facility);
   if (!beds || beds.length === 0) return;
   const occupied = beds.filter(
-    (b: any) => b.current_patient_mrn && (b.status ?? "").toLowerCase().startsWith("occupied"),
+    (b) => b.current_patient_mrn && (b.status ?? "").toLowerCase().startsWith("occupied"),
   );
   if (occupied.length === 0) return;
-  const mrns = Array.from(new Set(occupied.map((b: any) => b.current_patient_mrn as string)));
+  const mrns = Array.from(new Set(occupied.map((b) => b.current_patient_mrn as string)));
   const { data: active } = await supabase.from("patients").select("mrn, status").in("mrn", mrns);
   const activeSet = new Set(
-    (active ?? [])
-      .filter((p: any) => (p.status ?? "").toLowerCase() === "admitted")
-      .map((p: any) => p.mrn),
+    (active ?? []).filter((p) => (p.status ?? "").toLowerCase() === "admitted").map((p) => p.mrn),
   );
   const orphanIds = occupied
-    .filter((b: any) => !activeSet.has(b.current_patient_mrn))
-    .map((b: any) => b.id);
+    .filter((b) => !activeSet.has(b.current_patient_mrn ?? ""))
+    .map((b) => b.id);
   if (orphanIds.length === 0) return;
   await supabase
     .from("bed_management")
@@ -293,6 +309,6 @@ export async function reconcileOrphanedBeds(facility: string): Promise<void> {
       status: "Available",
       current_patient_mrn: null,
       status_updated_at: new Date().toISOString(),
-    } as any)
+    })
     .in("id", orphanIds);
 }

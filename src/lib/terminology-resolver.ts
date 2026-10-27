@@ -17,14 +17,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export type Vocabulary =
-  | "SNOMEDCT_US"
-  | "ICD10CM"
-  | "ICD10PCS"
-  | "LNC"
-  | "RXNORM"
-  | "CPT"
-  | "MDR"
-  | "CHV";
+  "SNOMEDCT_US" | "ICD10CM" | "ICD10PCS" | "LNC" | "RXNORM" | "CPT" | "MDR" | "CHV";
 
 export interface ResolvedConcept {
   code: string;
@@ -47,8 +40,7 @@ export interface ResolveOptions {
 }
 
 const memo = new Map<string, ResolvedConcept | null>();
-const memoKey = (text: string, vocab: Vocabulary) =>
-  `${vocab}::${text.trim().toLowerCase()}`;
+const memoKey = (text: string, vocab: Vocabulary) => `${vocab}::${text.trim().toLowerCase()}`;
 
 const DEFAULT_MIN_CONFIDENCE = 0.55;
 const MAX_INPUT_LEN = 120;
@@ -84,10 +76,7 @@ interface ProxyEnvelope {
   [k: string]: unknown;
 }
 
-async function callProxy(
-  action: string,
-  params: Record<string, unknown>,
-): Promise<ProxyEnvelope> {
+async function callProxy(action: string, params: Record<string, unknown>): Promise<ProxyEnvelope> {
   const { data, error } = await supabase.functions.invoke("umls-proxy", {
     body: { action, params },
   });
@@ -175,34 +164,51 @@ export async function resolveConcept(
   try {
     if (vocabulary === "RXNORM") {
       const env = await callProxy("rxnorm", { drugName: text.trim() });
-      const rxcui: string | undefined =
-        (env as { idGroup?: { rxnormId?: string[] } })?.idGroup?.rxnormId?.[0];
+      const rxcui: string | undefined = (env as { idGroup?: { rxnormId?: string[] } })?.idGroup
+        ?.rxnormId?.[0];
       const elapsed = env.elapsed_ms ?? 0;
       const cacheHit = !!env.cached;
 
       if (!rxcui) {
         audit({
-          resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-          input_text: text, vocabulary,
-          resolved_code: null, resolved_display: null, umls_cui: null,
-          confidence: 0, action: "miss", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+          resource_type: opts.resourceType,
+          resource_id: opts.resourceId,
+          mrn: opts.mrn,
+          input_text: text,
+          vocabulary,
+          resolved_code: null,
+          resolved_display: null,
+          umls_cui: null,
+          confidence: 0,
+          action: "miss",
+          cache_hit: cacheHit,
+          elapsed_ms: elapsed,
+          resolver,
         });
         memo.set(key, null);
         return null;
       }
 
       const detail = await callProxy("rxnormDetail", { rxcui });
-      const props =
-        (detail as { properties?: { name?: string; tty?: string } }).properties ?? {};
+      const props = (detail as { properties?: { name?: string; tty?: string } }).properties ?? {};
       const display: string = props.name ?? text;
       const confidence = scoreMatch(text, display);
 
       if (confidence < minConfidence) {
         audit({
-          resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-          input_text: text, vocabulary,
-          resolved_code: rxcui, resolved_display: display, umls_cui: null,
-          confidence, action: "rejected", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+          resource_type: opts.resourceType,
+          resource_id: opts.resourceId,
+          mrn: opts.mrn,
+          input_text: text,
+          vocabulary,
+          resolved_code: rxcui,
+          resolved_display: display,
+          umls_cui: null,
+          confidence,
+          action: "rejected",
+          cache_hit: cacheHit,
+          elapsed_ms: elapsed,
+          resolver,
         });
         memo.set(key, null);
         return null;
@@ -219,10 +225,19 @@ export async function resolveConcept(
         elapsedMs: elapsed,
       };
       audit({
-        resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-        input_text: text, vocabulary,
-        resolved_code: rxcui, resolved_display: display, umls_cui: null,
-        confidence, action: "accepted", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+        resource_type: opts.resourceType,
+        resource_id: opts.resourceId,
+        mrn: opts.mrn,
+        input_text: text,
+        vocabulary,
+        resolved_code: rxcui,
+        resolved_display: display,
+        umls_cui: null,
+        confidence,
+        action: "accepted",
+        cache_hit: cacheHit,
+        elapsed_ms: elapsed,
+        resolver,
       });
       memo.set(key, concept);
       return concept;
@@ -239,10 +254,19 @@ export async function resolveConcept(
 
       if (valid.length === 0) {
         audit({
-          resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-          input_text: text, vocabulary,
-          resolved_code: null, resolved_display: null, umls_cui: null,
-          confidence: 0, action: "miss", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+          resource_type: opts.resourceType,
+          resource_id: opts.resourceId,
+          mrn: opts.mrn,
+          input_text: text,
+          vocabulary,
+          resolved_code: null,
+          resolved_display: null,
+          umls_cui: null,
+          confidence: 0,
+          action: "miss",
+          cache_hit: cacheHit,
+          elapsed_ms: elapsed,
+          resolver,
         });
         memo.set(key, null);
         return null;
@@ -256,10 +280,19 @@ export async function resolveConcept(
 
       if (confidence < minConfidence) {
         audit({
-          resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-          input_text: text, vocabulary,
-          resolved_code: best.r.ui ?? null, resolved_display: best.r.name ?? null, umls_cui: null,
-          confidence, action: "rejected", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+          resource_type: opts.resourceType,
+          resource_id: opts.resourceId,
+          mrn: opts.mrn,
+          input_text: text,
+          vocabulary,
+          resolved_code: best.r.ui ?? null,
+          resolved_display: best.r.name ?? null,
+          umls_cui: null,
+          confidence,
+          action: "rejected",
+          cache_hit: cacheHit,
+          elapsed_ms: elapsed,
+          resolver,
         });
         memo.set(key, null);
         return null;
@@ -276,10 +309,19 @@ export async function resolveConcept(
         elapsedMs: elapsed,
       };
       audit({
-        resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-        input_text: text, vocabulary,
-        resolved_code: concept.code, resolved_display: concept.display, umls_cui: null,
-        confidence, action: "accepted", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+        resource_type: opts.resourceType,
+        resource_id: opts.resourceId,
+        mrn: opts.mrn,
+        input_text: text,
+        vocabulary,
+        resolved_code: concept.code,
+        resolved_display: concept.display,
+        umls_cui: null,
+        confidence,
+        action: "accepted",
+        cache_hit: cacheHit,
+        elapsed_ms: elapsed,
+        resolver,
       });
       memo.set(key, concept);
       return concept;
@@ -301,10 +343,19 @@ export async function resolveConcept(
 
     if (valid.length === 0) {
       audit({
-        resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-        input_text: text, vocabulary,
-        resolved_code: null, resolved_display: null, umls_cui: null,
-        confidence: 0, action: "miss", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+        resource_type: opts.resourceType,
+        resource_id: opts.resourceId,
+        mrn: opts.mrn,
+        input_text: text,
+        vocabulary,
+        resolved_code: null,
+        resolved_display: null,
+        umls_cui: null,
+        confidence: 0,
+        action: "miss",
+        cache_hit: cacheHit,
+        elapsed_ms: elapsed,
+        resolver,
       });
       memo.set(key, null);
       return null;
@@ -318,10 +369,19 @@ export async function resolveConcept(
 
     if (confidence < minConfidence) {
       audit({
-        resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-        input_text: text, vocabulary,
-        resolved_code: best.r.ui ?? null, resolved_display: best.r.name ?? null, umls_cui: null,
-        confidence, action: "rejected", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+        resource_type: opts.resourceType,
+        resource_id: opts.resourceId,
+        mrn: opts.mrn,
+        input_text: text,
+        vocabulary,
+        resolved_code: best.r.ui ?? null,
+        resolved_display: best.r.name ?? null,
+        umls_cui: null,
+        confidence,
+        action: "rejected",
+        cache_hit: cacheHit,
+        elapsed_ms: elapsed,
+        resolver,
       });
       memo.set(key, null);
       return null;
@@ -338,19 +398,37 @@ export async function resolveConcept(
       elapsedMs: elapsed,
     };
     audit({
-      resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-      input_text: text, vocabulary,
-      resolved_code: concept.code, resolved_display: concept.display, umls_cui: null,
-      confidence, action: "accepted", cache_hit: cacheHit, elapsed_ms: elapsed, resolver,
+      resource_type: opts.resourceType,
+      resource_id: opts.resourceId,
+      mrn: opts.mrn,
+      input_text: text,
+      vocabulary,
+      resolved_code: concept.code,
+      resolved_display: concept.display,
+      umls_cui: null,
+      confidence,
+      action: "accepted",
+      cache_hit: cacheHit,
+      elapsed_ms: elapsed,
+      resolver,
     });
     memo.set(key, concept);
     return concept;
   } catch (err) {
     audit({
-      resource_type: opts.resourceType, resource_id: opts.resourceId, mrn: opts.mrn,
-      input_text: text, vocabulary,
-      resolved_code: null, resolved_display: null, umls_cui: null,
-      confidence: 0, action: "error", cache_hit: false, elapsed_ms: 0, resolver,
+      resource_type: opts.resourceType,
+      resource_id: opts.resourceId,
+      mrn: opts.mrn,
+      input_text: text,
+      vocabulary,
+      resolved_code: null,
+      resolved_display: null,
+      umls_cui: null,
+      confidence: 0,
+      action: "error",
+      cache_hit: false,
+      elapsed_ms: 0,
+      resolver,
     });
     console.warn("[terminology-resolver] failed", err);
     return null;
@@ -375,9 +453,7 @@ export async function resolveBatch(
   return out;
 }
 
-export async function enrichWithCui(
-  concept: ResolvedConcept,
-): Promise<ResolvedConcept> {
+export async function enrichWithCui(concept: ResolvedConcept): Promise<ResolvedConcept> {
   if (concept.umlsCui || concept.source !== "umls") return concept;
   try {
     const env = await callProxy("search", {

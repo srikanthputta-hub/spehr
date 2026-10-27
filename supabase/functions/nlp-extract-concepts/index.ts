@@ -12,15 +12,13 @@
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 // Gemini API (Google AI Studio). All AI features use GEMINI_API_KEY.
 const MODEL = "gemini-3.5-flash-lite";
-const GEMINI_URL =
-  `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 const SYSTEM_PROMPT = `You are a clinical NLP extractor. Read the patient's
 Chief Complaint and HPI and split it into atomic, codeable SNOMED CT
@@ -48,9 +46,7 @@ Deno.serve(async (req) => {
     const hpi = String(body?.hpi ?? "").trim();
     if (!cc && !hpi) return json({ concepts: [] });
 
-    const userMsg =
-      `Chief Complaint: ${cc || "(none)"}\n` +
-      `HPI: ${hpi || "(none)"}`;
+    const userMsg = `Chief Complaint: ${cc || "(none)"}\n` + `HPI: ${hpi || "(none)"}`;
 
     const gwRes = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
       method: "POST",
@@ -111,7 +107,11 @@ Deno.serve(async (req) => {
       // Attempt to salvage the first {...} block
       const m = String(raw).match(/\{[\s\S]*\}/);
       if (m) {
-        try { parsed = JSON.parse(m[0]); } catch { parsed = {}; }
+        try {
+          parsed = JSON.parse(m[0]);
+        } catch {
+          parsed = {};
+        }
       }
     }
 

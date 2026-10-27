@@ -32,12 +32,7 @@ export interface UseTerminologyResolutionResult {
 export function useTerminologyResolution(
   opts: UseTerminologyResolutionOptions,
 ): UseTerminologyResolutionResult {
-  const {
-    vocabulary,
-    debounceMs = 350,
-    enabled = true,
-    ...resolveOpts
-  } = opts;
+  const { vocabulary, debounceMs = 350, enabled = true, ...resolveOpts } = opts;
 
   const [query, setQuery] = useState("");
   const [concept, setConcept] = useState<ResolvedConcept | null>(null);

@@ -41,27 +41,24 @@ Deno.serve(async (req) => {
     const mrn = extractMrn(payload);
 
     if (!mrn) {
-      return new Response(
-        JSON.stringify({ ok: false, reason: "no_mrn", table: payload.table }),
-        { status: 200, headers: { ...corsHeaders, "content-type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ ok: false, reason: "no_mrn", table: payload.table }), {
+        status: 200,
+        headers: { ...corsHeaders, "content-type": "application/json" },
+      });
     }
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { data, error } = await admin
-      .from("fhir_export_view")
-      .select("*")
-      .eq("mrn", mrn);
+    const { data, error } = await admin.from("fhir_export_view").select("*").eq("mrn", mrn);
 
     if (error) {
       console.error("fhir_export_view query failed", { mrn, error });
-      return new Response(
-        JSON.stringify({ ok: false, error: error.message, mrn }),
-        { status: 500, headers: { ...corsHeaders, "content-type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ ok: false, error: error.message, mrn }), {
+        status: 500,
+        headers: { ...corsHeaders, "content-type": "application/json" },
+      });
     }
 
     console.log("fhir-sync resolved", {
@@ -77,9 +74,9 @@ Deno.serve(async (req) => {
     );
   } catch (err) {
     console.error("fhir-sync crashed", err);
-    return new Response(
-      JSON.stringify({ ok: false, error: (err as Error).message }),
-      { status: 500, headers: { ...corsHeaders, "content-type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ ok: false, error: (err as Error).message }), {
+      status: 500,
+      headers: { ...corsHeaders, "content-type": "application/json" },
+    });
   }
 });

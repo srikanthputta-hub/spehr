@@ -120,8 +120,8 @@ export function ValueSetBuilder() {
         <div className="text-left">
           <div className="text-sm font-bold text-slate-900">Custom Value Set Builder</div>
           <div className="text-[11px] text-slate-500">
-            Construct and publish custom groupings of SNOMED CT, ICD-10, LOINC,
-            or RxNorm codes — AUTO API UMLS-backed search.
+            Construct and publish custom groupings of SNOMED CT, ICD-10, LOINC, or RxNorm codes —
+            AUTO API UMLS-backed search.
           </div>
         </div>
         <ChevronDown
@@ -186,9 +186,7 @@ export function ValueSetBuilder() {
                     className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-violet-50 border-b border-slate-100 last:border-b-0"
                   >
                     <span className="truncate">{r.display}</span>
-                    <span className="font-mono text-[10px] text-slate-500 shrink-0">
-                      {r.code}
-                    </span>
+                    <span className="font-mono text-[10px] text-slate-500 shrink-0">{r.code}</span>
                   </button>
                 ))}
               </div>
@@ -257,10 +255,7 @@ export function ValueSetBuilder() {
               </div>
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {published.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between text-xs"
-                  >
+                  <div key={p.id} className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2 min-w-0">
                       <Plus className="h-3 w-3 text-violet-500" />
                       <span className="font-semibold truncate">{p.name}</span>
@@ -270,9 +265,7 @@ export function ValueSetBuilder() {
                     </div>
                     <span
                       className={`text-[10px] uppercase font-semibold ${
-                        p.status === "published"
-                          ? "text-emerald-600"
-                          : "text-slate-500"
+                        p.status === "published" ? "text-emerald-600" : "text-slate-500"
                       }`}
                     >
                       {p.status}

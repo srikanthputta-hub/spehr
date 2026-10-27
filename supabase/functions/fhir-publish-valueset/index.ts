@@ -45,11 +45,13 @@ function fhirHeaders(): Record<string, string> {
 }
 
 function slugify(s: string): string {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "valueset";
+  return (
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "valueset"
+  );
 }
 
 function pascalName(s: string): string {
@@ -107,7 +109,9 @@ function buildValueSetResource(row: VsRow, canonicalUrl: string) {
     resourceType: "ValueSet",
     id: slugify(row.oid ?? row.name),
     url: canonicalUrl,
-    identifier: row.oid ? [{ system: "urn:ietf:rfc:3986", value: `urn:oid:${row.oid}` }] : undefined,
+    identifier: row.oid
+      ? [{ system: "urn:ietf:rfc:3986", value: `urn:oid:${row.oid}` }]
+      : undefined,
     version: row.version ?? "1",
     name: pascalName(row.name),
     title: row.name,
@@ -119,7 +123,17 @@ function buildValueSetResource(row: VsRow, canonicalUrl: string) {
   };
 }
 
-async function publishOne(admin: any, row: VsRow): Promise<{ id: string; name: string; ok: boolean; url?: string; error?: string; status?: number }> {
+async function publishOne(
+  admin: any,
+  row: VsRow,
+): Promise<{
+  id: string;
+  name: string;
+  ok: boolean;
+  url?: string;
+  error?: string;
+  status?: number;
+}> {
   try {
     const slug = slugify(row.oid ?? row.name);
     const canonicalUrl = `${FHIR_SERVER_URL}/ValueSet/${slug}`;
@@ -131,7 +145,13 @@ async function publishOne(admin: any, row: VsRow): Promise<{ id: string; name: s
     });
     const text = await res.text();
     if (!res.ok) {
-      return { id: row.id, name: row.name, ok: false, status: res.status, error: text.slice(0, 400) };
+      return {
+        id: row.id,
+        name: row.name,
+        ok: false,
+        status: res.status,
+        error: text.slice(0, 400),
+      };
     }
     const now = new Date().toISOString();
     await admin
@@ -149,28 +169,38 @@ serve(async (req) => {
 
   try {
     if (!FHIR_SERVER_URL || !FHIR_BEARER_TOKEN) {
-      return json({ success: false, error: "FHIR_SERVER_URL or FHIR_BEARER_TOKEN not configured" }, 500);
+      return json(
+        { success: false, error: "FHIR_SERVER_URL or FHIR_BEARER_TOKEN not configured" },
+        500,
+      );
     }
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-    const body = await req.json().catch(() => ({} as any));
+    const body = await req.json().catch(() => ({}) as any);
 
     let rows: VsRow[] = [];
     if (body?.all_published) {
       const { data, error } = await admin
         .from("custom_value_sets")
-        .select("id, name, oid, vocabulary, type, codes, intensional_rule, status, description, version")
+        .select(
+          "id, name, oid, vocabulary, type, codes, intensional_rule, status, description, version",
+        )
         .eq("status", "published");
       if (error) return json({ success: false, error: error.message }, 500);
       rows = (data ?? []) as any[];
     } else {
       const ids: string[] = Array.isArray(body?.ids)
         ? body.ids
-        : (typeof body?.id === "string" ? [body.id] : []);
-      if (ids.length === 0) return json({ success: false, error: "id, ids, or all_published required" }, 400);
+        : typeof body?.id === "string"
+          ? [body.id]
+          : [];
+      if (ids.length === 0)
+        return json({ success: false, error: "id, ids, or all_published required" }, 400);
       const { data, error } = await admin
         .from("custom_value_sets")
-        .select("id, name, oid, vocabulary, type, codes, intensional_rule, status, description, version")
+        .select(
+          "id, name, oid, vocabulary, type, codes, intensional_rule, status, description, version",
+        )
         .in("id", ids);
       if (error) return json({ success: false, error: error.message }, 500);
       rows = (data ?? []) as any[];

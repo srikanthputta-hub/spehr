@@ -48,27 +48,27 @@ export const TARIFF = {
  * than oral, controlled substances pricier than common antibiotics.
  */
 const MED_PRICE_BY_RXNORM: Record<string, number> = {
-  "7052": 62,    // Morphine
-  "161": 18,     // Acetaminophen
-  "5640": 22,    // Ibuprofen
-  "243670": 14,  // Aspirin
-  "83367": 28,   // Atorvastatin
-  "866924": 24,  // Metoprolol
-  "6809": 26,    // Metformin
-  "11124": 32,   // Lisinopril
-  "10582": 34,   // Levothyroxine
-  "2670": 38,    // Codeine
-  "1191": 16,    // Aspirin (alt code)
+  "7052": 62, // Morphine
+  "161": 18, // Acetaminophen
+  "5640": 22, // Ibuprofen
+  "243670": 14, // Aspirin
+  "83367": 28, // Atorvastatin
+  "866924": 24, // Metoprolol
+  "6809": 26, // Metformin
+  "11124": 32, // Lisinopril
+  "10582": 34, // Levothyroxine
+  "2670": 38, // Codeine
+  "1191": 16, // Aspirin (alt code)
   "203150": 110, // Vancomycin IV
-  "18631": 88,   // Ceftriaxone IV
-  "7980": 64,    // Piperacillin
-  "3640": 26,    // Furosemide
-  "8163": 18,    // Omeprazole
-  "29046": 22,   // Albuterol
-  "8787": 14,    // Pantoprazole
-  "4815": 96,    // Heparin
-  "11289": 58,   // Apixaban
-  "9863": 12,    // Ondansetron
+  "18631": 88, // Ceftriaxone IV
+  "7980": 64, // Piperacillin
+  "3640": 26, // Furosemide
+  "8163": 18, // Omeprazole
+  "29046": 22, // Albuterol
+  "8787": 14, // Pantoprazole
+  "4815": 96, // Heparin
+  "11289": 58, // Apixaban
+  "9863": 12, // Ondansetron
 };
 const MED_DEFAULT = 38;
 
@@ -103,26 +103,26 @@ const MED_PRICE_BY_NAME: Array<[RegExp, number]> = [
  */
 const LAB_PRICE_BY_LOINC: Record<string, number> = {
   "10839-9": 145, // Troponin I
-  "2157-6": 78,   // Creatine Kinase
-  "6690-2": 48,   // WBC
-  "718-7": 38,    // Hemoglobin
-  "777-3": 42,    // Platelets
-  "2345-7": 28,   // Glucose
-  "2160-0": 32,   // Creatinine
-  "2951-2": 26,   // Sodium
-  "2823-3": 26,   // Potassium
-  "24323-8": 95,  // CMP panel
-  "58410-2": 75,  // CBC panel
-  "33747-0": 60,  // BMP panel
-  "1975-2": 82,   // Bilirubin total
-  "1742-6": 64,   // ALT
-  "1920-8": 64,   // AST
-  "2885-2": 72,   // Total protein
-  "3094-0": 38,   // BUN
-  "2093-3": 58,   // Cholesterol total
-  "2571-8": 52,   // Triglycerides
+  "2157-6": 78, // Creatine Kinase
+  "6690-2": 48, // WBC
+  "718-7": 38, // Hemoglobin
+  "777-3": 42, // Platelets
+  "2345-7": 28, // Glucose
+  "2160-0": 32, // Creatinine
+  "2951-2": 26, // Sodium
+  "2823-3": 26, // Potassium
+  "24323-8": 95, // CMP panel
+  "58410-2": 75, // CBC panel
+  "33747-0": 60, // BMP panel
+  "1975-2": 82, // Bilirubin total
+  "1742-6": 64, // ALT
+  "1920-8": 64, // AST
+  "2885-2": 72, // Total protein
+  "3094-0": 38, // BUN
+  "2093-3": 58, // Cholesterol total
+  "2571-8": 52, // Triglycerides
   "14647-2": 110, // BNP
-  "33914-3": 95,  // eGFR
+  "33914-3": 95, // eGFR
 };
 const LAB_DEFAULT = 95;
 
@@ -232,14 +232,16 @@ export function buildChargeItemResource(args: {
     factorOverride: 1,
     note: [{ text: `${c.category} charge` }],
     extension: c.reasonIcd10Code
-      ? [{
-          url: "urn:spehr:imaging-reason-icd10",
-          valueCoding: {
-            system: "http://hl7.org/fhir/sid/icd-10-cm",
-            code: c.reasonIcd10Code,
-            display: c.reasonIcd10Display ?? undefined,
+      ? [
+          {
+            url: "urn:spehr:imaging-reason-icd10",
+            valueCoding: {
+              system: "http://hl7.org/fhir/sid/icd-10-cm",
+              code: c.reasonIcd10Code,
+              display: c.reasonIcd10Display ?? undefined,
+            },
           },
-        }]
+        ]
       : undefined,
   };
 }
@@ -271,9 +273,7 @@ export function buildInvoiceResource(args: {
   return {
     resourceType: "Invoice",
     id,
-    identifier: [
-      { system: "http://spehr.local/invoice", value: invoiceNo },
-    ],
+    identifier: [{ system: "http://spehr.local/invoice", value: invoiceNo }],
     status,
     subject: {
       reference: `Patient/${mrn}`,
@@ -329,9 +329,7 @@ export function buildPaymentNoticeResource(args: {
         },
       ],
     },
-    extension: [
-      { url: "http://spehr.local/mrn", valueString: mrn },
-    ],
+    extension: [{ url: "http://spehr.local/mrn", valueString: mrn }],
   };
 }
 
@@ -402,31 +400,47 @@ const IMAGING_CPT_BY_SNOMED: Record<
   // CT head w/o contrast
   "169069000": { cpt: "70450", description: "CT head without contrast", advanced: true },
   // CT abdomen/pelvis w/o contrast
-  "169071000": { cpt: "74176", description: "CT abdomen and pelvis without contrast", advanced: true },
+  "169071000": {
+    cpt: "74176",
+    description: "CT abdomen and pelvis without contrast",
+    advanced: true,
+  },
   // MRI brain w/o contrast
   "241601008": { cpt: "70551", description: "MRI brain without contrast", advanced: true },
   // MRI cervical spine w/o contrast
   "241645009": { cpt: "72141", description: "MRI cervical spine without contrast", advanced: true },
   // Abdominal ultrasound
-  "45036003":  { cpt: "76700", description: "Ultrasound, abdomen, complete", advanced: false },
+  "45036003": { cpt: "76700", description: "Ultrasound, abdomen, complete", advanced: false },
   // Knee X-ray 2-view
   "168807003": { cpt: "73560", description: "Knee X-ray, 2 views", advanced: false },
 };
 
-const IMAGING_CPT_BY_EXAM: Array<[RegExp, { cpt: string; description: string; advanced: boolean }]> = [
-  [/chest\s*x[- ]?ray/i,     { cpt: "71046", description: "Chest X-ray, 2 views", advanced: false }],
-  [/ct\s*chest/i,            { cpt: "71250", description: "CT chest without contrast", advanced: true }],
-  [/ct\s*head/i,             { cpt: "70450", description: "CT head without contrast", advanced: true }],
-  [/ct\s*abdomen|ct\s*abd/i, { cpt: "74176", description: "CT abdomen and pelvis without contrast", advanced: true }],
-  [/mri\s*brain/i,           { cpt: "70551", description: "MRI brain without contrast", advanced: true }],
-  [/mri.*(spine|cervical)/i, { cpt: "72141", description: "MRI cervical spine without contrast", advanced: true }],
-  [/(ultrasound|us).*(abd)/i,{ cpt: "76700", description: "Ultrasound, abdomen, complete", advanced: false }],
-  [/knee\s*x[- ]?ray/i,      { cpt: "73560", description: "Knee X-ray, 2 views", advanced: false }],
+const IMAGING_CPT_BY_EXAM: Array<
+  [RegExp, { cpt: string; description: string; advanced: boolean }]
+> = [
+  [/chest\s*x[- ]?ray/i, { cpt: "71046", description: "Chest X-ray, 2 views", advanced: false }],
+  [/ct\s*chest/i, { cpt: "71250", description: "CT chest without contrast", advanced: true }],
+  [/ct\s*head/i, { cpt: "70450", description: "CT head without contrast", advanced: true }],
+  [
+    /ct\s*abdomen|ct\s*abd/i,
+    { cpt: "74176", description: "CT abdomen and pelvis without contrast", advanced: true },
+  ],
+  [/mri\s*brain/i, { cpt: "70551", description: "MRI brain without contrast", advanced: true }],
+  [
+    /mri.*(spine|cervical)/i,
+    { cpt: "72141", description: "MRI cervical spine without contrast", advanced: true },
+  ],
+  [
+    /(ultrasound|us).*(abd)/i,
+    { cpt: "76700", description: "Ultrasound, abdomen, complete", advanced: false },
+  ],
+  [/knee\s*x[- ]?ray/i, { cpt: "73560", description: "Knee X-ray, 2 views", advanced: false }],
 ];
 
-function lookupImagingCpt(snomed?: string | null, examType?: string | null):
-  | { cpt: string; description: string; advanced: boolean }
-  | null {
+function lookupImagingCpt(
+  snomed?: string | null,
+  examType?: string | null,
+): { cpt: string; description: string; advanced: boolean } | null {
   const s = String(snomed ?? "").trim();
   if (s && IMAGING_CPT_BY_SNOMED[s]) return IMAGING_CPT_BY_SNOMED[s];
   const e = String(examType ?? "");
@@ -508,7 +522,7 @@ function applyChargeMaster(
  */
 export function matchBillingValueSets(
   icd10Codes: string[],
-  billingValueSets: Array<{ name: string; codes: any[] }>,
+  billingValueSets: Array<{ name: string; codes: Array<{ code?: string; display?: string }> }>,
 ): Array<{ icd10: string; display: string; valueSetName: string }> {
   const results: Array<{ icd10: string; display: string; valueSetName: string }> = [];
   const seen = new Set<string>();
@@ -542,37 +556,55 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
   const cm = input.chargeMaster;
 
   // Room & Board (LOS-driven)
-  out.push(applyChargeMaster({
-    code: "RB-101",
-    codeSystem: "internal",
-    description: `Inpatient Room & Board · General Ward (Room ${input.room ?? "—"})`,
-    category: "room",
-    quantity: los,
-    unitPrice: TARIFF.bed_per_day,
-    amount: los * TARIFF.bed_per_day,
-  }, cm, "room_board"));
+  out.push(
+    applyChargeMaster(
+      {
+        code: "RB-101",
+        codeSystem: "internal",
+        description: `Inpatient Room & Board · General Ward (Room ${input.room ?? "—"})`,
+        category: "room",
+        quantity: los,
+        unitPrice: TARIFF.bed_per_day,
+        amount: los * TARIFF.bed_per_day,
+      },
+      cm,
+      "room_board",
+    ),
+  );
 
   // Nursing
-  out.push(applyChargeMaster({
-    code: "NC-220",
-    codeSystem: "internal",
-    description: "Nursing Care · 24-hour bedside coverage",
-    category: "nursing",
-    quantity: los,
-    unitPrice: TARIFF.nursing_per_day,
-    amount: los * TARIFF.nursing_per_day,
-  }, cm, "nursing"));
+  out.push(
+    applyChargeMaster(
+      {
+        code: "NC-220",
+        codeSystem: "internal",
+        description: "Nursing Care · 24-hour bedside coverage",
+        category: "nursing",
+        quantity: los,
+        unitPrice: TARIFF.nursing_per_day,
+        amount: los * TARIFF.nursing_per_day,
+      },
+      cm,
+      "nursing",
+    ),
+  );
 
   // Consultant rounding (daily attending fee)
-  out.push(applyChargeMaster({
-    code: "MD-350",
-    codeSystem: "internal",
-    description: "Attending Physician · Daily Rounding & Charting",
-    category: "consultation",
-    quantity: los,
-    unitPrice: TARIFF.consultant_per_day,
-    amount: los * TARIFF.consultant_per_day,
-  }, cm, "physician_consult"));
+  out.push(
+    applyChargeMaster(
+      {
+        code: "MD-350",
+        codeSystem: "internal",
+        description: "Attending Physician · Daily Rounding & Charting",
+        category: "consultation",
+        quantity: los,
+        unitPrice: TARIFF.consultant_per_day,
+        amount: los * TARIFF.consultant_per_day,
+      },
+      cm,
+      "physician_consult",
+    ),
+  );
 
   // Medications — one ChargeItem per MedicationAdministration
   for (const m of input.meds) {
@@ -597,38 +629,48 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
     const labCat = labInternalCategory(l.loinc, l.name);
     // Prefer CPT/Revenue code from charge master; fall back to LOINC placeholder.
     const cmHit = pickChargeMaster(cm, labCat);
-    out.push(cmHit ? {
-      code: cmHit.code,
-      codeSystem: cmCodeSystem(cmHit.system),
-      description: `Laboratory · ${l.name ?? "Diagnostic"}`,
-      category: "lab",
-      quantity: 1,
-      unitPrice: unit,
-      amount: unit,
-      serviceDate: l.collected_at ?? undefined,
-    } : {
-      code: String(l.loinc ?? "LAB-000"),
-      codeSystem: "LOINC",
-      description: `Laboratory · ${l.name ?? "Diagnostic"}`,
-      category: "lab",
-      quantity: 1,
-      unitPrice: unit,
-      amount: unit,
-      serviceDate: l.collected_at ?? undefined,
-    });
+    out.push(
+      cmHit
+        ? {
+            code: cmHit.code,
+            codeSystem: cmCodeSystem(cmHit.system),
+            description: `Laboratory · ${l.name ?? "Diagnostic"}`,
+            category: "lab",
+            quantity: 1,
+            unitPrice: unit,
+            amount: unit,
+            serviceDate: l.collected_at ?? undefined,
+          }
+        : {
+            code: String(l.loinc ?? "LAB-000"),
+            codeSystem: "LOINC",
+            description: `Laboratory · ${l.name ?? "Diagnostic"}`,
+            category: "lab",
+            quantity: 1,
+            unitPrice: unit,
+            amount: unit,
+            serviceDate: l.collected_at ?? undefined,
+          },
+    );
   }
 
   // Pharmacy handling (only if meds present)
   if (input.meds.length > 0) {
-    out.push(applyChargeMaster({
-      code: "RX-601",
-      codeSystem: "internal",
-      description: "Pharmacy Dispensing & Handling Fee",
-      category: "admin",
-      quantity: 1,
-      unitPrice: TARIFF.pharmacy_handling,
-      amount: TARIFF.pharmacy_handling,
-    }, cm, "pharmacy_fee"));
+    out.push(
+      applyChargeMaster(
+        {
+          code: "RX-601",
+          codeSystem: "internal",
+          description: "Pharmacy Dispensing & Handling Fee",
+          category: "admin",
+          quantity: 1,
+          unitPrice: TARIFF.pharmacy_handling,
+          amount: TARIFF.pharmacy_handling,
+        },
+        cm,
+        "pharmacy_fee",
+      ),
+    );
   }
 
   // Imaging — one ChargeItem per radiology_orders row. Uses real CPT

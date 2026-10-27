@@ -12,7 +12,9 @@ export async function fetchWithTimeout<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      Promise.resolve().then(fetchFn).catch(() => fallback),
+      Promise.resolve()
+        .then(fetchFn)
+        .catch(() => fallback),
       new Promise<T>((resolve) => {
         timer = setTimeout(() => resolve(fallback), timeoutMs);
       }),

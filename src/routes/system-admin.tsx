@@ -4,7 +4,29 @@ import { useEffect, useMemo, useState, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ToggleRight, Users, Activity, Loader2, Zap, Pencil, Download, BarChart3, BookMarked, Plus, Search, Trash2, Sparkles, Grid3x3, Trash, ShieldAlert, AlertTriangle, Check, X, FileCheck2, ListChecks } from "lucide-react";
+import {
+  ToggleRight,
+  Users,
+  Activity,
+  Loader2,
+  Zap,
+  Pencil,
+  Download,
+  BarChart3,
+  BookMarked,
+  Plus,
+  Search,
+  Trash2,
+  Sparkles,
+  Grid3x3,
+  Trash,
+  ShieldAlert,
+  AlertTriangle,
+  Check,
+  X,
+  FileCheck2,
+  ListChecks,
+} from "lucide-react";
 import { FACILITIES, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
@@ -81,10 +103,7 @@ import { AutoApiCard } from "@/components/admin/AutoApiCard";
 // three metrics all duplicate counts already surfaced elsewhere in this tab
 // (TerminologyStatusStrip's value-set counts, CdsOverridesFeed below), so
 // there's no current subtab it adds enough value to justify rendering.
-import {
-  CdsOverridesFeed,
-  AutoApiEventsFeed,
-} from "@/components/admin/Step8Surfacing";
+import { CdsOverridesFeed, AutoApiEventsFeed } from "@/components/admin/Step8Surfacing";
 import NlpApprovalTrail from "@/components/admin/dictionary/NlpApprovalTrail";
 import { AutoApiStatusPill } from "@/components/admin/AutoApiStatusPill";
 import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
@@ -107,9 +126,21 @@ import NlpAuditLogsPanel from "@/components/admin/dictionary/NlpAuditLogsPanel";
 // CPT-from-procedures rows silently never appear. Fix that schema mismatch
 // and verify against live data before wiring this in as a replacement.
 import { AutoApiManualBanner } from "@/components/admin/AutoApiManualBanner";
-import { Wrench, ShieldCheck, Radar, ChevronDown as ChevronDownIcon, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  Wrench,
+  ShieldCheck,
+  Radar,
+  ChevronDown as ChevronDownIcon,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
 import { ErrorLogPanel } from "@/components/admin/ErrorLogPanel";
-import { AUTOMATION_STORAGE_KEY, getAutomationEnabled, setLocalAutomationEnabled, useAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import {
+  AUTOMATION_STORAGE_KEY,
+  getAutomationEnabled,
+  setLocalAutomationEnabled,
+  useAutomationEnabled,
+} from "@/hooks/useAutomationEnabled";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import { updateSystemSettings } from "@/lib/auto-api.functions";
 
@@ -123,9 +154,7 @@ function WatchdogStatusWidget() {
   const globalControl = latest?.global_control_status ?? (automationEnabled ? "ON" : "OFF");
   const [open, setOpen] = useState(false);
   const ts = latest ? new Date(latest.checker_timestamp) : null;
-  const ago = ts
-    ? Math.max(0, Math.round((Date.now() - ts.getTime()) / 1000))
-    : null;
+  const ago = ts ? Math.max(0, Math.round((Date.now() - ts.getTime()) / 1000)) : null;
   const agoLabel =
     ago === null
       ? "—"
@@ -158,9 +187,17 @@ function WatchdogStatusWidget() {
       accent: "indigo",
       children: [
         { key: "Vitals", label: "Vitals Simulation Loop", group: "Telemetry" },
-        { key: "Pharmacy Queue", label: "Pharmacy Order Cascade & Interaction Checks", group: "Pharmacy" },
+        {
+          key: "Pharmacy Queue",
+          label: "Pharmacy Order Cascade & Interaction Checks",
+          group: "Pharmacy",
+        },
         { key: "Lab Queue", label: "Lab Order → Result Cascade", group: "Laboratory" },
-        { key: "Clinical Alerts", label: "Clinical Alerts (Vitals Drop Warnings)", group: "Safety" },
+        {
+          key: "Clinical Alerts",
+          label: "Clinical Alerts (Vitals Drop Warnings)",
+          group: "Safety",
+        },
         { key: "Auto Doc", label: "Automated Discharge Summary Writer", group: "Composition" },
         { key: "CDS", label: "Clinical Decision Support Monitoring", group: "Reasoning" },
       ],
@@ -174,7 +211,11 @@ function WatchdogStatusWidget() {
         { key: "Admissions", label: "Ghost Admission Randomizer", group: "Patient Flow" },
         { key: "Discharge", label: "Auto Discharge Engine", group: "Patient Flow" },
         { key: "Beds", label: "Bed Management System", group: "Capacity" },
-        { key: "Revenue", label: "Automated Revenue Cycle (ChargeItems → Invoices)", group: "Finance" },
+        {
+          key: "Revenue",
+          label: "Automated Revenue Cycle (ChargeItems → Invoices)",
+          group: "Finance",
+        },
         { key: "Staffing", label: "Automated Staff Assignment", group: "Care Teams" },
       ],
     },
@@ -199,9 +240,21 @@ function WatchdogStatusWidget() {
       accent: "violet",
       children: [
         { key: "UMLS_LIVE_QUERY", label: "UMLS Live Query", group: "Terminology" },
-        { key: "NLP_PIPELINE", label: "NLP Pipeline (raw → mapping → standardised)", group: "Coding" },
-        { key: "PRE_PUSH_STANDARDISATION", label: "Pre-Push Code Standardisation", group: "Interop" },
-        { key: "DRUG_SAFETY_RXNORM", label: "Drug Safety · RxNorm × AllergyIntolerance", group: "Safety" },
+        {
+          key: "NLP_PIPELINE",
+          label: "NLP Pipeline (raw → mapping → standardised)",
+          group: "Coding",
+        },
+        {
+          key: "PRE_PUSH_STANDARDISATION",
+          label: "Pre-Push Code Standardisation",
+          group: "Interop",
+        },
+        {
+          key: "DRUG_SAFETY_RXNORM",
+          label: "Drug Safety · RxNorm × AllergyIntolerance",
+          group: "Safety",
+        },
         { key: "FHIR_SERVER_SYNC", label: "FHIR Server Sync (event-driven)", group: "Interop" },
         { key: "NLP_CONFIDENCE_GATE", label: "NLP Confidence Gate", group: "Governance" },
       ],
@@ -216,13 +269,29 @@ function WatchdogStatusWidget() {
   const accentClass = (a: string) => {
     switch (a) {
       case "indigo":
-        return { bg: "bg-indigo-50", text: "text-indigo-600", chip: "bg-indigo-100 text-indigo-700 border-indigo-200" };
+        return {
+          bg: "bg-indigo-50",
+          text: "text-indigo-600",
+          chip: "bg-indigo-100 text-indigo-700 border-indigo-200",
+        };
       case "emerald":
-        return { bg: "bg-emerald-50", text: "text-emerald-600", chip: "bg-emerald-100 text-emerald-700 border-emerald-200" };
+        return {
+          bg: "bg-emerald-50",
+          text: "text-emerald-600",
+          chip: "bg-emerald-100 text-emerald-700 border-emerald-200",
+        };
       case "violet":
-        return { bg: "bg-violet-50", text: "text-violet-600", chip: "bg-violet-100 text-violet-700 border-violet-200" };
+        return {
+          bg: "bg-violet-50",
+          text: "text-violet-600",
+          chip: "bg-violet-100 text-violet-700 border-violet-200",
+        };
       default:
-        return { bg: "bg-sky-50", text: "text-sky-600", chip: "bg-sky-100 text-sky-700 border-sky-200" };
+        return {
+          bg: "bg-sky-50",
+          text: "text-sky-600",
+          chip: "bg-sky-100 text-sky-700 border-sky-200",
+        };
     }
   };
 
@@ -251,14 +320,15 @@ function WatchdogStatusWidget() {
                 aria-expanded={open}
               >
                 {open ? "Hide" : "View"} Automations
-                <ChevronDownIcon className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+                <ChevronDownIcon
+                  className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`}
+                />
               </button>
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5">
-              Last Systematic Health Check: <span className="font-mono text-slate-700">{agoLabel}</span>
-              {ts && (
-                <span className="text-slate-400"> · {ts.toLocaleTimeString()}</span>
-              )}
+              Last Systematic Health Check:{" "}
+              <span className="font-mono text-slate-700">{agoLabel}</span>
+              {ts && <span className="text-slate-400"> · {ts.toLocaleTimeString()}</span>}
             </div>
           </div>
         </div>
@@ -268,9 +338,7 @@ function WatchdogStatusWidget() {
           </div>
           <div
             className={`text-xs font-bold ${
-              globalControl === "ON"
-                ? "text-emerald-700"
-                : "text-slate-500"
+              globalControl === "ON" ? "text-emerald-700" : "text-slate-500"
             }`}
           >
             {globalControl}
@@ -281,15 +349,11 @@ function WatchdogStatusWidget() {
         <div className="flex items-start gap-2 border-t border-amber-200 bg-amber-50 px-6 py-3 text-amber-900">
           <Wrench className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="text-xs">
-            <div className="font-bold">
-              🔧 System Auto-Healed: Restarted Stalled Core Engines
-            </div>
+            <div className="font-bold">🔧 System Auto-Healed: Restarted Stalled Core Engines</div>
             <div className="text-[11px] mt-0.5">
               Engines repaired:{" "}
-              <span className="font-semibold">
-                {latest!.healed_engines.join(", ")}
-              </span>
-              . {latest!.actions_taken}
+              <span className="font-semibold">{latest!.healed_engines.join(", ")}</span>.{" "}
+              {latest!.actions_taken}
             </div>
           </div>
         </div>
@@ -311,25 +375,25 @@ function WatchdogStatusWidget() {
                 >
                   <button
                     type="button"
-                    onClick={() =>
-                      setExpandedAgents((p) => ({ ...p, [agent.id]: !p[agent.id] }))
-                    }
+                    onClick={() => setExpandedAgents((p) => ({ ...p, [agent.id]: !p[agent.id] }))}
                     className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-slate-50"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className={`grid place-items-center h-8 w-8 rounded-md ${accent.bg} ${accent.text}`}>
+                      <div
+                        className={`grid place-items-center h-8 w-8 rounded-md ${accent.bg} ${accent.text}`}
+                      >
                         <Sparkles className="h-4 w-4" />
                       </div>
                       <div className="min-w-0 text-left">
                         <div className="text-xs font-bold text-slate-900 truncate">
                           {agent.name}
-                          <span className={`ml-2 align-middle inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${accent.chip}`}>
+                          <span
+                            className={`ml-2 align-middle inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${accent.chip}`}
+                          >
                             {agent.children.length} loops
                           </span>
                         </div>
-                        <div className="text-[10px] text-slate-500 truncate">
-                          {agent.tagline}
-                        </div>
+                        <div className="text-[10px] text-slate-500 truncate">{agent.tagline}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -340,7 +404,9 @@ function WatchdogStatusWidget() {
                       >
                         {agentHealed ? "Auto-Healed" : "Normal"}
                       </span>
-                      <ChevronDownIcon className={`h-3.5 w-3.5 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                      <ChevronDownIcon
+                        className={`h-3.5 w-3.5 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+                      />
                     </div>
                   </button>
                   {expanded && (
@@ -363,9 +429,7 @@ function WatchdogStatusWidget() {
                                 <div className="text-xs font-semibold text-slate-800 truncate">
                                   {a.label}
                                 </div>
-                                <div className="text-[10px] text-slate-500 truncate">
-                                  {a.group}
-                                </div>
+                                <div className="text-[10px] text-slate-500 truncate">{a.group}</div>
                               </div>
                             </div>
                             <span
@@ -385,8 +449,8 @@ function WatchdogStatusWidget() {
             })}
           </ul>
           <div className="mt-2 text-[10px] text-slate-500">
-            Refreshed every Systematic Health Check cycle. Check = engine
-            operating within normal parameters this cycle.
+            Refreshed every Systematic Health Check cycle. Check = engine operating within normal
+            parameters this cycle.
           </div>
         </div>
       )}
@@ -512,17 +576,10 @@ function RoleDefaultsSections({
               {feats.map((f) => {
                 const on = isOn(role, f.key);
                 return (
-                  <li
-                    key={f.key}
-                    className="flex items-center justify-between gap-4 px-5 py-3"
-                  >
+                  <li key={f.key} className="flex items-center justify-between gap-4 px-5 py-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">
-                        {f.name}
-                      </div>
-                      <div className="text-[11px] text-slate-500 font-mono">
-                        {f.key}
-                      </div>
+                      <div className="text-sm font-medium text-slate-900 truncate">{f.name}</div>
+                      <div className="text-[11px] text-slate-500 font-mono">{f.key}</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <span
@@ -569,12 +626,11 @@ function SystemAdminPage() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!active || !user) return;
-      const { data } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id);
+      const { data } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
       if (!active) return;
       const roles = (data ?? []).map((r: any) => r.role);
       setIsAdmin(roles.includes("it_admin"));
@@ -619,9 +675,12 @@ function SystemAdminPage() {
       } catch {
         /* ignore */
       }
-      supabase.functions.invoke("apply-grants", { body: { reason: "automation-write-failed" } }).catch(() => {});
+      supabase.functions
+        .invoke("apply-grants", { body: { reason: "automation-write-failed" } })
+        .catch(() => {});
       toast.warning("Automation switched locally", {
-        description: "Database write is blocked; using local fallback while permissions repair runs.",
+        description:
+          "Database write is blocked; using local fallback while permissions repair runs.",
       });
       return;
     }
@@ -638,7 +697,11 @@ function SystemAdminPage() {
 
   const dischargeAllPatients = async () => {
     if (discharging) return;
-    if (!window.confirm("Discharge ALL admitted patients across every facility? This will free all beds.")) {
+    if (
+      !window.confirm(
+        "Discharge ALL admitted patients across every facility? This will free all beds.",
+      )
+    ) {
       return;
     }
     setDischarging(true);
@@ -659,10 +722,17 @@ function SystemAdminPage() {
       for (let i = 0; i < mrns.length; i += CONCURRENCY) {
         const chunk = mrns.slice(i, i + CONCURRENCY);
         const results = await Promise.all(
-          chunk.map((mrn) => dischargePatientViaWorker({ mrn }).catch((e) => ({ ok: false, mrn, reason: String(e?.message ?? e) }))),
+          chunk.map((mrn) =>
+            dischargePatientViaWorker({ mrn }).catch((e) => ({
+              ok: false,
+              mrn,
+              reason: String(e?.message ?? e),
+            })),
+          ),
         );
         for (const r of results) {
-          if (r.ok) succeeded++; else failed++;
+          if (r.ok) succeeded++;
+          else failed++;
         }
       }
       toast.success("Bulk discharge complete", {
@@ -716,10 +786,9 @@ function SystemAdminPage() {
       toast.error("Could not update flag", { description: error.message });
       return;
     }
-    toast.success(
-      `Updated '${p.feature_name}' for ${p.target_role}`,
-      { description: `${next ? "Enabled" : "Disabled"} · ${selectedFacility}` },
-    );
+    toast.success(`Updated '${p.feature_name}' for ${p.target_role}`, {
+      description: `${next ? "Enabled" : "Disabled"} · ${selectedFacility}`,
+    });
   };
 
   const grouped = perms.reduce<Record<string, Perm[]>>((acc, p) => {
@@ -764,86 +833,84 @@ function SystemAdminPage() {
             <AutoApiStatusPill />
           </div>
         )}
+        {isAdmin && tab === "feature_controls" && <WatchdogStatusWidget />}
+        {isAdmin && tab === "feature_controls" && <ErrorLogPanel />}
         {isAdmin && tab === "feature_controls" && (
-        <WatchdogStatusWidget />
-        )}
-        {isAdmin && tab === "feature_controls" && (
-        <ErrorLogPanel />
-        )}
-        {isAdmin && tab === "feature_controls" && (
-        <div
-          className={`mb-6 rounded-xl border shadow-sm overflow-hidden ${
-            automation
-              ? "border-emerald-300 bg-gradient-to-r from-emerald-50 to-white"
-              : "border-slate-200 bg-white"
-          }`}
-        >
-          <div className="flex items-center justify-between gap-6 px-6 py-5">
-            <div className="flex items-center gap-4 min-w-0">
-              <div
-                className={`grid place-items-center h-12 w-12 rounded-lg ${
-                  automation ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-500"
-                }`}
-              >
-                <Zap className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  ⚙️ Global System Controls
-                </div>
-                <div className="text-base font-semibold text-slate-900 inline-flex items-center gap-1">
-                  Automate Hospital Network (AI Engines)
-                  <InfoHint text="Master switch across ALL 5 facilities simultaneously — not just the one currently selected. When OFF, every background engine halts: ghost admissions, auto-discharges, lab ordering & auto-results, medication cascades, vitals simulation. The system enters a fully manual state." />
-                </div>
-                <div className="text-xs text-slate-600 mt-0.5">
-                  Controls all background engines: ghost admissions, discharges, lab
-                  ordering/results, and medication cascades across every facility.
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="flex items-center gap-2">
-                <StatusBadge
-                  status={automation === null ? "neutral" : automation ? "success" : "warning"}
-                  label={automation === null ? "Loading…" : automation ? "Engines Active" : "Paused"}
-                />
-                <InfoHint text='"Paused" means every background automation loop is stopped: vitals stop jittering, beds stop freeing, invoices stop generating, ghost admissions stop firing. Existing data is preserved — nothing new is generated until this is flipped back to Engines Active.' />
-              </div>
-              <button
-                onClick={toggleAutomation}
-                disabled={automation === null || automationSaving}
-                className={`relative inline-flex h-7 w-14 items-center rounded-full border transition-colors disabled:opacity-50 cursor-pointer ${
-                  automation
-                    ? "bg-emerald-500 border-emerald-600"
-                    : "bg-slate-200 border-slate-300"
-                }`}
-                aria-pressed={!!automation}
-              >
-                <span
-                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-                    automation ? "translate-x-8" : "translate-x-1"
+          <div
+            className={`mb-6 rounded-xl border shadow-sm overflow-hidden ${
+              automation
+                ? "border-emerald-300 bg-gradient-to-r from-emerald-50 to-white"
+                : "border-slate-200 bg-white"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-6 px-6 py-5">
+              <div className="flex items-center gap-4 min-w-0">
+                <div
+                  className={`grid place-items-center h-12 w-12 rounded-lg ${
+                    automation ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-500"
                   }`}
-                />
-              </button>
-              <button
-                onClick={dischargeAllPatients}
-                disabled={discharging}
-                title="Discharge every admitted patient across all facilities and free all beds"
-                className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {discharging ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Discharging…
-                  </>
-                ) : (
-                  <>🏥 Discharge All Patients</>
-                )}
-              </button>
-              <InfoHint text="NETWORK-WIDE, not scoped to the currently selected facility: discharges every admitted patient across all 5 facilities, releases all occupied beds (into the Cleaning cycle), and triggers a FHIR Discharge Summary + invoice generation for each patient. Cannot be undone." />
+                >
+                  <Zap className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    ⚙️ Global System Controls
+                  </div>
+                  <div className="text-base font-semibold text-slate-900 inline-flex items-center gap-1">
+                    Automate Hospital Network (AI Engines)
+                    <InfoHint text="Master switch across ALL 5 facilities simultaneously — not just the one currently selected. When OFF, every background engine halts: ghost admissions, auto-discharges, lab ordering & auto-results, medication cascades, vitals simulation. The system enters a fully manual state." />
+                  </div>
+                  <div className="text-xs text-slate-600 mt-0.5">
+                    Controls all background engines: ghost admissions, discharges, lab
+                    ordering/results, and medication cascades across every facility.
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2">
+                  <StatusBadge
+                    status={automation === null ? "neutral" : automation ? "success" : "warning"}
+                    label={
+                      automation === null ? "Loading…" : automation ? "Engines Active" : "Paused"
+                    }
+                  />
+                  <InfoHint text='"Paused" means every background automation loop is stopped: vitals stop jittering, beds stop freeing, invoices stop generating, ghost admissions stop firing. Existing data is preserved — nothing new is generated until this is flipped back to Engines Active.' />
+                </div>
+                <button
+                  onClick={toggleAutomation}
+                  disabled={automation === null || automationSaving}
+                  className={`relative inline-flex h-7 w-14 items-center rounded-full border transition-colors disabled:opacity-50 cursor-pointer ${
+                    automation
+                      ? "bg-emerald-500 border-emerald-600"
+                      : "bg-slate-200 border-slate-300"
+                  }`}
+                  aria-pressed={!!automation}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                      automation ? "translate-x-8" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+                <button
+                  onClick={dischargeAllPatients}
+                  disabled={discharging}
+                  title="Discharge every admitted patient across all facilities and free all beds"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {discharging ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Discharging…
+                    </>
+                  ) : (
+                    <>🏥 Discharge All Patients</>
+                  )}
+                </button>
+                <InfoHint text="NETWORK-WIDE, not scoped to the currently selected facility: discharges every admitted patient across all 5 facilities, releases all occupied beds (into the Cleaning cycle), and triggers a FHIR Discharge Summary + invoice generation for each patient. Cannot be undone." />
+              </div>
             </div>
           </div>
-        </div>
         )}
 
         {tab === "feature_controls" && (
@@ -935,12 +1002,8 @@ function SystemAdminPage() {
           </div>
         )}
 
-        {tab === "users" && (
-          <UserDirectory />
-        )}
-        {tab === "audit" && (
-          <AuditLog />
-        )}
+        {tab === "users" && <UserDirectory />}
+        {tab === "audit" && <AuditLog />}
       </section>
       {tab === "analytics" && (
         <div className="max-w-6xl mx-auto px-6 pb-8">
@@ -969,16 +1032,66 @@ type StaffMember = {
 };
 
 const STAFF_DIRECTORY: StaffMember[] = [
-  { name: "Diane Whitaker", role: "System Administrator", facility: "Memorial Hospital", status: "Active" },
-  { name: "Marcus Lin, MD", role: "Attending Physician", facility: "Memorial Hospital", status: "Active" },
-  { name: "Sarah Jenkins, RN", role: "Registered Nurse", facility: "St. Jude Medical Center", status: "Active" },
-  { name: "Priya Raman, PharmD", role: "Clinical Pharmacist", facility: "City General Infirmary", status: "Active" },
-  { name: "Jordan Alvarez, CLT", role: "Clinical Lab Tech", facility: "Memorial Hospital", status: "Active" },
-  { name: "Evelyn Park, MD", role: "Attending Physician", facility: "Srik Health Clinic", status: "Suspended" },
-  { name: "Daniel Whitfield, CPA", role: "Corporate Finance & Accounts", facility: "County Health Pavilion", status: "Active" },
-  { name: "Hannah O'Connor, RN", role: "Registered Nurse", facility: "Memorial Hospital", status: "Active" },
-  { name: "Brian Yamamoto, MD", role: "Attending Physician", facility: "St. Jude Medical Center", status: "Active" },
-  { name: "Lena Kowalski, CLT", role: "Clinical Lab Tech", facility: "City General Infirmary", status: "Suspended" },
+  {
+    name: "Diane Whitaker",
+    role: "System Administrator",
+    facility: "Memorial Hospital",
+    status: "Active",
+  },
+  {
+    name: "Marcus Lin, MD",
+    role: "Attending Physician",
+    facility: "Memorial Hospital",
+    status: "Active",
+  },
+  {
+    name: "Sarah Jenkins, RN",
+    role: "Registered Nurse",
+    facility: "St. Jude Medical Center",
+    status: "Active",
+  },
+  {
+    name: "Priya Raman, PharmD",
+    role: "Clinical Pharmacist",
+    facility: "City General Infirmary",
+    status: "Active",
+  },
+  {
+    name: "Jordan Alvarez, CLT",
+    role: "Clinical Lab Tech",
+    facility: "Memorial Hospital",
+    status: "Active",
+  },
+  {
+    name: "Evelyn Park, MD",
+    role: "Attending Physician",
+    facility: "Srik Health Clinic",
+    status: "Suspended",
+  },
+  {
+    name: "Daniel Whitfield, CPA",
+    role: "Corporate Finance & Accounts",
+    facility: "County Health Pavilion",
+    status: "Active",
+  },
+  {
+    name: "Hannah O'Connor, RN",
+    role: "Registered Nurse",
+    facility: "Memorial Hospital",
+    status: "Active",
+  },
+  {
+    name: "Brian Yamamoto, MD",
+    role: "Attending Physician",
+    facility: "St. Jude Medical Center",
+    status: "Active",
+  },
+  {
+    name: "Lena Kowalski, CLT",
+    role: "Clinical Lab Tech",
+    facility: "City General Infirmary",
+    status: "Suspended",
+  },
 ];
 
 function UserDirectory() {
@@ -1018,11 +1131,21 @@ function UserDirectory() {
         <table className="w-full text-sm">
           <thead className="bg-slate-900 text-slate-100">
             <tr>
-              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Staff Name</th>
-              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Clinical Role</th>
-              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Primary Facility</th>
-              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Status</th>
-              <th className="text-right font-semibold uppercase tracking-wider text-[10px] px-5 py-3">Actions</th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
+                Staff Name
+              </th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
+                Clinical Role
+              </th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
+                Primary Facility
+              </th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
+                Status
+              </th>
+              <th className="text-right font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -1032,7 +1155,10 @@ function UserDirectory() {
                 <td className="px-5 py-3 text-slate-700">{s.role}</td>
                 <td className="px-5 py-3 text-slate-700">{s.facility}</td>
                 <td className="px-5 py-3">
-                  <StatusBadge status={s.status === "Active" ? "success" : "critical"} label={s.status} />
+                  <StatusBadge
+                    status={s.status === "Active" ? "success" : "critical"}
+                    label={s.status}
+                  />
                 </td>
                 <td className="px-5 py-3 text-right">
                   <button
@@ -1075,11 +1201,10 @@ function UserDirectory() {
                   <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                     Clinical Role
                   </Label>
-                  <Select
-                    value={draft.role}
-                    onValueChange={(v) => setDraft({ ...draft, role: v })}
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                  <Select value={draft.role} onValueChange={(v) => setDraft({ ...draft, role: v })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       {[
                         "Registered Nurse",
@@ -1089,7 +1214,9 @@ function UserDirectory() {
                         "System Administrator",
                         "Corporate Finance & Accounts",
                       ].map((r) => (
-                        <SelectItem key={r} value={r}>{r}</SelectItem>
+                        <SelectItem key={r} value={r}>
+                          {r}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1103,10 +1230,14 @@ function UserDirectory() {
                     value={draft.facility}
                     onValueChange={(v) => setDraft({ ...draft, facility: v })}
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       {FACILITIES.map((f) => (
-                        <SelectItem key={f} value={f}>{f}</SelectItem>
+                        <SelectItem key={f} value={f}>
+                          {f}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1148,7 +1279,9 @@ function UserDirectory() {
               </div>
 
               <DialogFooter>
-                <Button variant="outline" onClick={closeEdit}>Cancel</Button>
+                <Button variant="outline" onClick={closeEdit}>
+                  Cancel
+                </Button>
                 <Button onClick={saveEdit}>Save Changes</Button>
               </DialogFooter>
             </>
@@ -1177,59 +1310,125 @@ type NlpEnrichRule = {
   kw: RegExp;
   icd10: { code: string; display: string };
   snomed: { code: string; display: string };
-  labs?: Array<{ code: string; display: string }>;   // LOINC
-  meds?: Array<{ code: string; display: string }>;   // RxNorm
+  labs?: Array<{ code: string; display: string }>; // LOINC
+  meds?: Array<{ code: string; display: string }>; // RxNorm
 };
 const NLP_ENRICH: NlpEnrichRule[] = [
-  { kw: /chest pain|cp\b|stemi|nstemi|\bmi\b|angina/i,
-    icd10:  { code: "I20.9",  display: "Angina pectoris, unspecified" },
+  {
+    kw: /chest pain|cp\b|stemi|nstemi|\bmi\b|angina/i,
+    icd10: { code: "I20.9", display: "Angina pectoris, unspecified" },
     snomed: { code: "29857009", display: "Chest pain" },
-    labs:   [{ code: "10839-9", display: "Troponin I, cardiac" }, { code: "2157-6", display: "Creatine kinase MB" }, { code: "33747-0", display: "ECG 12-lead" }],
-    meds:   [{ code: "1191", display: "Aspirin 325 mg PO ×1" }, { code: "5640", display: "Nitroglycerin 0.4 mg SL prn" }] },
-  { kw: /short(ness)? of breath|sob\b|dyspnea/i,
-    icd10:  { code: "R06.02", display: "Shortness of breath" },
+    labs: [
+      { code: "10839-9", display: "Troponin I, cardiac" },
+      { code: "2157-6", display: "Creatine kinase MB" },
+      { code: "33747-0", display: "ECG 12-lead" },
+    ],
+    meds: [
+      { code: "1191", display: "Aspirin 325 mg PO ×1" },
+      { code: "5640", display: "Nitroglycerin 0.4 mg SL prn" },
+    ],
+  },
+  {
+    kw: /short(ness)? of breath|sob\b|dyspnea/i,
+    icd10: { code: "R06.02", display: "Shortness of breath" },
     snomed: { code: "267036007", display: "Dyspnea" },
-    labs:   [{ code: "33762-6", display: "NT-proBNP" }, { code: "2703-7", display: "Arterial blood gas" }, { code: "24627-2", display: "Chest X-ray" }] },
-  { kw: /pneumonia|pna\b|cough.*fever/i,
-    icd10:  { code: "J18.9",  display: "Pneumonia, unspecified organism" },
+    labs: [
+      { code: "33762-6", display: "NT-proBNP" },
+      { code: "2703-7", display: "Arterial blood gas" },
+      { code: "24627-2", display: "Chest X-ray" },
+    ],
+  },
+  {
+    kw: /pneumonia|pna\b|cough.*fever/i,
+    icd10: { code: "J18.9", display: "Pneumonia, unspecified organism" },
     snomed: { code: "233604007", display: "Pneumonia" },
-    labs:   [{ code: "57021-8", display: "CBC with differential" }, { code: "24627-2", display: "Chest X-ray" }, { code: "600-7", display: "Blood culture ×2" }],
-    meds:   [{ code: "723", display: "Ceftriaxone 1 g IV q24h" }, { code: "10395", display: "Azithromycin 500 mg IV daily" }] },
-  { kw: /abdominal|abd pain|stomach|belly/i,
-    icd10:  { code: "R10.9",  display: "Unspecified abdominal pain" },
+    labs: [
+      { code: "57021-8", display: "CBC with differential" },
+      { code: "24627-2", display: "Chest X-ray" },
+      { code: "600-7", display: "Blood culture ×2" },
+    ],
+    meds: [
+      { code: "723", display: "Ceftriaxone 1 g IV q24h" },
+      { code: "10395", display: "Azithromycin 500 mg IV daily" },
+    ],
+  },
+  {
+    kw: /abdominal|abd pain|stomach|belly/i,
+    icd10: { code: "R10.9", display: "Unspecified abdominal pain" },
     snomed: { code: "21522001", display: "Abdominal pain" },
-    labs:   [{ code: "24323-8", display: "Comprehensive metabolic panel" }, { code: "1742-6", display: "ALT (SGPT)" }, { code: "1920-8", display: "AST (SGOT)" }, { code: "2243-4", display: "Lipase" }] },
-  { kw: /fever|febrile|pyrexia/i,
-    icd10:  { code: "R50.9",  display: "Fever, unspecified" },
+    labs: [
+      { code: "24323-8", display: "Comprehensive metabolic panel" },
+      { code: "1742-6", display: "ALT (SGPT)" },
+      { code: "1920-8", display: "AST (SGOT)" },
+      { code: "2243-4", display: "Lipase" },
+    ],
+  },
+  {
+    kw: /fever|febrile|pyrexia/i,
+    icd10: { code: "R50.9", display: "Fever, unspecified" },
     snomed: { code: "386661006", display: "Fever" },
-    labs:   [{ code: "57021-8", display: "CBC with differential" }, { code: "600-7", display: "Blood culture ×2" }, { code: "5811-5", display: "Urinalysis" }],
-    meds:   [{ code: "161", display: "Acetaminophen 650 mg PO q6h prn fever" }] },
-  { kw: /stroke|cva|tia|weakness.*one[- ]sided|slurred speech|facial droop/i,
-    icd10:  { code: "I63.9",  display: "Cerebral infarction, unspecified" },
+    labs: [
+      { code: "57021-8", display: "CBC with differential" },
+      { code: "600-7", display: "Blood culture ×2" },
+      { code: "5811-5", display: "Urinalysis" },
+    ],
+    meds: [{ code: "161", display: "Acetaminophen 650 mg PO q6h prn fever" }],
+  },
+  {
+    kw: /stroke|cva|tia|weakness.*one[- ]sided|slurred speech|facial droop/i,
+    icd10: { code: "I63.9", display: "Cerebral infarction, unspecified" },
     snomed: { code: "230690007", display: "Cerebrovascular accident" },
-    labs:   [{ code: "2160-0", display: "Creatinine" }, { code: "5894-1", display: "PT/INR" }, { code: "24590-2", display: "CT head without contrast" }] },
-  { kw: /sepsis|septic|bacteremia/i,
-    icd10:  { code: "A41.9",  display: "Sepsis, unspecified organism" },
+    labs: [
+      { code: "2160-0", display: "Creatinine" },
+      { code: "5894-1", display: "PT/INR" },
+      { code: "24590-2", display: "CT head without contrast" },
+    ],
+  },
+  {
+    kw: /sepsis|septic|bacteremia/i,
+    icd10: { code: "A41.9", display: "Sepsis, unspecified organism" },
     snomed: { code: "91302008", display: "Sepsis" },
-    labs:   [{ code: "2524-7", display: "Lactic acid" }, { code: "57021-8", display: "CBC with differential" }, { code: "600-7", display: "Blood culture ×2" }],
-    meds:   [{ code: "11124", display: "Vancomycin 25 mg/kg IV ×1" }, { code: "203134", display: "Piperacillin-tazobactam 4.5 g IV q8h" }] },
-  { kw: /headache|migraine|h\/a\b/i,
-    icd10:  { code: "R51",    display: "Headache" },
+    labs: [
+      { code: "2524-7", display: "Lactic acid" },
+      { code: "57021-8", display: "CBC with differential" },
+      { code: "600-7", display: "Blood culture ×2" },
+    ],
+    meds: [
+      { code: "11124", display: "Vancomycin 25 mg/kg IV ×1" },
+      { code: "203134", display: "Piperacillin-tazobactam 4.5 g IV q8h" },
+    ],
+  },
+  {
+    kw: /headache|migraine|h\/a\b/i,
+    icd10: { code: "R51", display: "Headache" },
     snomed: { code: "25064002", display: "Headache" },
-    labs:   [{ code: "24590-2", display: "CT head without contrast" }] },
-  { kw: /back pain|lumbago|low back/i,
-    icd10:  { code: "M54.50", display: "Low back pain, unspecified" },
-    snomed: { code: "279039007", display: "Low back pain" } },
-  { kw: /uti|dysuria|urinary/i,
-    icd10:  { code: "N39.0",  display: "Urinary tract infection, site unspecified" },
+    labs: [{ code: "24590-2", display: "CT head without contrast" }],
+  },
+  {
+    kw: /back pain|lumbago|low back/i,
+    icd10: { code: "M54.50", display: "Low back pain, unspecified" },
+    snomed: { code: "279039007", display: "Low back pain" },
+  },
+  {
+    kw: /uti|dysuria|urinary/i,
+    icd10: { code: "N39.0", display: "Urinary tract infection, site unspecified" },
     snomed: { code: "68566005", display: "Urinary tract infectious disease" },
-    labs:   [{ code: "5811-5", display: "Urinalysis" }, { code: "630-4", display: "Urine culture" }],
-    meds:   [{ code: "10180", display: "Ceftriaxone 1 g IV ×1" }] },
-  { kw: /chf|heart failure|pulmonary edema/i,
-    icd10:  { code: "I50.9",  display: "Heart failure, unspecified" },
+    labs: [
+      { code: "5811-5", display: "Urinalysis" },
+      { code: "630-4", display: "Urine culture" },
+    ],
+    meds: [{ code: "10180", display: "Ceftriaxone 1 g IV ×1" }],
+  },
+  {
+    kw: /chf|heart failure|pulmonary edema/i,
+    icd10: { code: "I50.9", display: "Heart failure, unspecified" },
     snomed: { code: "84114007", display: "Heart failure" },
-    labs:   [{ code: "33762-6", display: "NT-proBNP" }, { code: "24627-2", display: "Chest X-ray" }],
-    meds:   [{ code: "4603", display: "Furosemide 40 mg IV ×1" }] },
+    labs: [
+      { code: "33762-6", display: "NT-proBNP" },
+      { code: "24627-2", display: "Chest X-ray" },
+    ],
+    meds: [{ code: "4603", display: "Furosemide 40 mg IV ×1" }],
+  },
 ];
 
 function enrichAuditResult<T extends ReturnType<typeof analyzeNarrative>>(
@@ -1242,14 +1441,15 @@ function enrichAuditResult<T extends ReturnType<typeof analyzeNarrative>>(
   const hit = NLP_ENRICH.find((r) => r.kw.test(narrative));
   if (!hit) return res;
 
-  const mk = (
-    system: string,
-    code: string,
-    display: string,
-    category: string | null,
-  ) => ({
-    code_system: system, code, display, category, description: null,
-    snippet: narrative.slice(0, 60), start: 0, end: display.length,
+  const mk = (system: string, code: string, display: string, category: string | null) => ({
+    code_system: system,
+    code,
+    display,
+    category,
+    description: null,
+    snippet: narrative.slice(0, 60),
+    start: 0,
+    end: display.length,
   });
 
   const icd = mk("ICD-10", hit.icd10.code, hit.icd10.display, "Chief Complaint");
@@ -1266,9 +1466,13 @@ function enrichAuditResult<T extends ReturnType<typeof analyzeNarrative>>(
     `Clinical finding: ${sno.display} (SNOMED ${sno.code})`,
   ];
   if (labs.length)
-    standardized.push(`Recommended labs: ${labs.map((l) => `${l.display} (LOINC ${l.code})`).join("; ")}`);
+    standardized.push(
+      `Recommended labs: ${labs.map((l) => `${l.display} (LOINC ${l.code})`).join("; ")}`,
+    );
   if (meds.length)
-    standardized.push(`Suggested orders: ${meds.map((m) => `${m.display} (RxNorm ${m.code})`).join("; ")}`);
+    standardized.push(
+      `Suggested orders: ${meds.map((m) => `${m.display} (RxNorm ${m.code})`).join("; ")}`,
+    );
 
   return {
     ...res,
@@ -1312,7 +1516,7 @@ function SafetyQueue({ facility }: { facility: string }) {
     }
     const { data, error } = await q;
     if (error) toast.error("Could not load safety alerts", { description: error.message });
-    setItems(((data ?? []) as DbSafetyAlert[]));
+    setItems((data ?? []) as DbSafetyAlert[]);
     // Real aggregate counts across all rows for this facility (not the
     // visible slice), so metric tiles stay accurate.
     const buildCount = (status: string) => {
@@ -1346,7 +1550,9 @@ function SafetyQueue({ facility }: { facility: string }) {
         () => refresh(),
       )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facility]);
 
@@ -1354,8 +1560,8 @@ function SafetyQueue({ facility }: { facility: string }) {
    * Score-based Auto-Resolver — every Pending Review alert is
    * auto-decided the moment its `auto_resolve_at` SLA expires
    * (45-second window). Decision is derived from risk_score:
-  *   risk_score >= SAFETY_AUTO_REJECT_THRESHOLD → auto-Reject (protect patient)
-  *   risk_score <  SAFETY_AUTO_REJECT_THRESHOLD → auto-Override (safe to proceed)
+   *   risk_score >= SAFETY_AUTO_REJECT_THRESHOLD → auto-Reject (protect patient)
+   *   risk_score <  SAFETY_AUTO_REJECT_THRESHOLD → auto-Override (safe to proceed)
    * Attribution follows the ordering physician on the linked
    * medication order, not "AI Safety Engine".
    * ---------------------------------------------------------------- */
@@ -1430,10 +1636,7 @@ function SafetyQueue({ facility }: { facility: string }) {
     const defaultRationale = `Risk score ${score}/100 (auto-decision threshold: >= ${SAFETY_AUTO_REJECT_THRESHOLD} = Reject, < ${SAFETY_AUTO_REJECT_THRESHOLD} = Override) — manually set to ${status} by clinician. ${buildSafetyRationale(c, status, "Pharmacist")}`;
     const rationale =
       status === "Overridden"
-        ? window.prompt(
-            "Override this alert — clinical rationale:",
-            defaultRationale,
-          )
+        ? window.prompt("Override this alert — clinical rationale:", defaultRationale)
         : defaultRationale;
     if (rationale === null) return;
     const { data: updated, error } = await supabase
@@ -1447,7 +1650,10 @@ function SafetyQueue({ facility }: { facility: string }) {
       .eq("id", c.id)
       .eq("status", "Pending Review")
       .select("id");
-    if (error) { toast.error("Update failed", { description: error.message }); return; }
+    if (error) {
+      toast.error("Update failed", { description: error.message });
+      return;
+    }
     if (!updated || updated.length === 0) {
       toast.info("Alert already resolved");
       refresh();
@@ -1491,7 +1697,8 @@ function SafetyQueue({ facility }: { facility: string }) {
       ) : pending.length === 0 ? (
         <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 p-8 text-center text-sm text-emerald-800">
           <FileCheck2 className="inline h-4 w-4 mr-1.5" />
-          No pending drug↔allergy conflicts — queue clear. Resolved alerts appear in the CDS Hook Overrides feed.
+          No pending drug↔allergy conflicts — queue clear. Resolved alerts appear in the CDS Hook
+          Overrides feed.
         </div>
       ) : (
         <div className="space-y-2">
@@ -1508,11 +1715,13 @@ function SafetyQueue({ facility }: { facility: string }) {
                     <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-700">
                       <AlertTriangle className="h-3 w-3" /> Auto-commit halted
                     </span>
-                    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                      c.kind === "Drug-Drug"
-                        ? "border-purple-200 bg-purple-50 text-purple-700"
-                        : "border-amber-200 bg-amber-50 text-amber-700"
-                    }`}>
+                    <span
+                      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        c.kind === "Drug-Drug"
+                          ? "border-purple-200 bg-purple-50 text-purple-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                      }`}
+                    >
                       {c.kind === "Drug-Drug" ? `DDI · ${c.severity ?? "Major"}` : "Drug-Allergy"}
                     </span>
                     <span className="font-mono text-[11px] text-slate-500">{c.mrn}</span>
@@ -1532,9 +1741,8 @@ function SafetyQueue({ facility }: { facility: string }) {
                       <>
                         Ordered <span className="font-semibold">{c.drug}</span> conflicts with
                         documented allergy to{" "}
-                        <span className="font-semibold">{c.allergy_name}</span> —
-                        cross-reactivity family:{" "}
-                        <span className="font-mono text-[11px]">{c.family}</span>.
+                        <span className="font-semibold">{c.allergy_name}</span> — cross-reactivity
+                        family: <span className="font-mono text-[11px]">{c.family}</span>.
                       </>
                     )}
                   </div>
@@ -1542,7 +1750,8 @@ function SafetyQueue({ facility }: { facility: string }) {
                     <div className="mt-2 text-[11px] text-slate-600 italic">
                       <span className="font-semibold not-italic">{c.status}</span>
                       {c.decided_by ? ` by ${c.decided_by}` : ""}
-                      {c.decided_at ? ` · ${new Date(c.decided_at).toLocaleString()}` : ""} — “{c.rationale}”
+                      {c.decided_at ? ` · ${new Date(c.decided_at).toLocaleString()}` : ""} — “
+                      {c.rationale}”
                     </div>
                   )}
                   <SafetyFhirContext alert={c} />
@@ -1560,7 +1769,8 @@ function SafetyQueue({ facility }: { facility: string }) {
                           className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tone}`}
                           title={`Auto-decision band: score ≥ ${SAFETY_AUTO_REJECT_THRESHOLD} = Reject, < ${SAFETY_AUTO_REJECT_THRESHOLD} = Override`}
                         >
-                          Risk {score}/100 — will auto-{willReject ? "reject" : "override"} if unactioned
+                          Risk {score}/100 — will auto-{willReject ? "reject" : "override"} if
+                          unactioned
                         </span>
                       );
                     })()}
@@ -1570,21 +1780,21 @@ function SafetyQueue({ facility }: { facility: string }) {
                       nowTs={nowTs}
                     />
                     <div className="flex items-center gap-1.5">
-                    <Button
-                      size="sm"
-                      className="h-7 bg-amber-600 hover:bg-amber-700"
-                      onClick={() => act(c, "Overridden")}
-                    >
-                      <Check className="h-3 w-3" /> Override
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-red-600 border-red-200 hover:bg-red-50"
-                      onClick={() => act(c, "Rejected")}
-                    >
-                      <X className="h-3 w-3" /> Reject
-                    </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 bg-amber-600 hover:bg-amber-700"
+                        onClick={() => act(c, "Overridden")}
+                      >
+                        <Check className="h-3 w-3" /> Override
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => act(c, "Rejected")}
+                      >
+                        <X className="h-3 w-3" /> Reject
+                      </Button>
                     </div>
                   </div>
                 ) : (
@@ -1612,9 +1822,17 @@ function SafetyQueue({ facility }: { facility: string }) {
 
 /* SlaCountdown moved to @/components/patient/SlaCountdown */
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: "red" | "amber" | "slate" }) {
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "red" | "amber" | "slate";
+}) {
   const palette = {
-    red:   "bg-red-50 border-red-200 text-red-700",
+    red: "bg-red-50 border-red-200 text-red-700",
     amber: "bg-amber-50 border-amber-200 text-amber-700",
     slate: "bg-slate-50 border-slate-200 text-slate-700",
   }[tone];
@@ -1696,9 +1914,15 @@ function FhirConceptCard({ label, cc }: { label: string; cc: CodeableConcept }) 
         {label}
       </div>
       <div className="font-mono text-slate-700 space-y-0.5">
-        <div className="truncate"><span className="text-slate-500">system:</span> {coding.system}</div>
-        <div><span className="text-slate-500">code:</span> {coding.code}</div>
-        <div><span className="text-slate-500">display:</span> {coding.display}</div>
+        <div className="truncate">
+          <span className="text-slate-500">system:</span> {coding.system}
+        </div>
+        <div>
+          <span className="text-slate-500">code:</span> {coding.code}
+        </div>
+        <div>
+          <span className="text-slate-500">display:</span> {coding.display}
+        </div>
       </div>
     </div>
   );
@@ -1738,8 +1962,12 @@ function CustomRulesCard() {
     }
   };
   const removeRule = async (id: string) => {
-    try { await removeNlpRuleDb(id); setRules(loadCustomRules()); }
-    catch (e: any) { toast.error("Could not remove", { description: e?.message }); }
+    try {
+      await removeNlpRuleDb(id);
+      setRules(loadCustomRules());
+    } catch (e: any) {
+      toast.error("Could not remove", { description: e?.message });
+    }
   };
   const addBanned = async () => {
     if (!newBanned.token.trim() || !newBanned.meaning.trim()) return;
@@ -1753,8 +1981,12 @@ function CustomRulesCard() {
     }
   };
   const removeBanned = async (id: string) => {
-    try { await removeNlpRuleDb(id); setBanned(loadCustomBanned()); }
-    catch (e: any) { toast.error("Could not remove", { description: e?.message }); }
+    try {
+      await removeNlpRuleDb(id);
+      setBanned(loadCustomBanned());
+    } catch (e: any) {
+      toast.error("Could not remove", { description: e?.message });
+    }
   };
 
   return (
@@ -1762,10 +1994,12 @@ function CustomRulesCard() {
       <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center gap-2">
         <ListChecks className="h-4 w-4 text-[#0c2340]" />
         <div>
-          <div className="text-sm font-semibold text-slate-900">NLP Custom Rules & Banned Shorthand</div>
+          <div className="text-sm font-semibold text-slate-900">
+            NLP Custom Rules & Banned Shorthand
+          </div>
           <div className="text-[11px] text-slate-600">
-            Hospital-specific slang the NLP engine should normalize, plus the
-            local extension to the Joint Commission "Do Not Use" list.
+            Hospital-specific slang the NLP engine should normalize, plus the local extension to the
+            Joint Commission "Do Not Use" list.
           </div>
         </div>
       </div>
@@ -1796,13 +2030,19 @@ function CustomRulesCard() {
           ) : (
             <ul className="divide-y divide-slate-100 border border-slate-200 rounded-md">
               {rules.map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+                <li
+                  key={r.id}
+                  className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs"
+                >
                   <div className="min-w-0 truncate">
                     <span className="font-mono text-[11px] text-slate-700">{r.phrase}</span>
                     <span className="mx-2 text-slate-400">→</span>
                     <span className="font-semibold text-slate-900">{r.canonical}</span>
                   </div>
-                  <button onClick={() => removeRule(r.id)} className="text-slate-400 hover:text-rose-600">
+                  <button
+                    onClick={() => removeRule(r.id)}
+                    className="text-slate-400 hover:text-rose-600"
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </li>
@@ -1817,13 +2057,25 @@ function CustomRulesCard() {
             "Do Not Use" abbreviations
           </div>
           <div className="text-[11px] text-slate-600">
-            Joint Commission core list ships pre-loaded ({JC_BANNED.length} tokens).
-            Add facility-specific extensions below.
+            Joint Commission core list ships pre-loaded ({JC_BANNED.length} tokens). Add
+            facility-specific extensions below.
           </div>
           <div className="grid grid-cols-[1fr_1.4fr_1.4fr_auto] gap-2">
-            <Input placeholder="Token (QD)"  value={newBanned.token}     onChange={(e) => setNewBanned({ ...newBanned, token: e.target.value })} />
-            <Input placeholder="Meaning"     value={newBanned.meaning}   onChange={(e) => setNewBanned({ ...newBanned, meaning: e.target.value })} />
-            <Input placeholder="Preferred"   value={newBanned.preferred} onChange={(e) => setNewBanned({ ...newBanned, preferred: e.target.value })} />
+            <Input
+              placeholder="Token (QD)"
+              value={newBanned.token}
+              onChange={(e) => setNewBanned({ ...newBanned, token: e.target.value })}
+            />
+            <Input
+              placeholder="Meaning"
+              value={newBanned.meaning}
+              onChange={(e) => setNewBanned({ ...newBanned, meaning: e.target.value })}
+            />
+            <Input
+              placeholder="Preferred"
+              value={newBanned.preferred}
+              onChange={(e) => setNewBanned({ ...newBanned, preferred: e.target.value })}
+            />
             <Button onClick={addBanned} className="bg-red-600 hover:bg-red-700">
               <Plus className="h-3.5 w-3.5" /> Ban
             </Button>
@@ -1833,13 +2085,19 @@ function CustomRulesCard() {
           ) : (
             <ul className="divide-y divide-slate-100 border border-slate-200 rounded-md">
               {banned.map((b) => (
-                <li key={b.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+                <li
+                  key={b.id}
+                  className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs"
+                >
                   <div className="min-w-0 truncate">
                     <span className="font-mono font-bold text-red-700">{b.token}</span>
                     <span className="mx-2 text-slate-400">·</span>
                     <span className="text-slate-700">{b.meaning}</span>
                   </div>
-                  <button onClick={() => removeBanned(b.id)} className="text-slate-400 hover:text-rose-600">
+                  <button
+                    onClick={() => removeBanned(b.id)}
+                    className="text-slate-400 hover:text-rose-600"
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </li>
@@ -1867,42 +2125,44 @@ function NlpAuditLogs({ facility }: { facility: string }) {
     try {
       const dict = await loadDictionary();
       let q = supabase
-          .from("patients")
-          .select("mrn, first_name, last_name, name, facility_name, admission_time, chief_complaint, diagnosis")
-          .order("admission_time", { ascending: false })
-          .limit(15);
-        if (facility && facility !== "all") {
-          q = q.eq("facility_name", facility);
-        }
-        const { data } = await q;
-        const live: NlpAudit[] = [];
-        for (const p of (data ?? []) as any[]) {
-          const narrative =
-            [p.chief_complaint, p.diagnosis].filter(Boolean).join(". ") ||
-            "Admission without recorded narrative.";
-          const res = enrichAuditResult(analyzeNarrative(narrative, dict), narrative);
-          const createdAt = p.admission_time ?? new Date().toISOString();
-          const autoResolveAt = new Date(new Date(createdAt).getTime() + 60_000).toISOString();
-          live.push({
-            ...res,
-            id: `live_${p.mrn ?? Math.random().toString(36).slice(2)}`,
-            created_at: createdAt,
-            auto_resolve_at: autoResolveAt,
-            mrn: p.mrn,
-            patient_name:
-              `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() ||
-              p.name ||
-              "Unattributed encounter",
-            facility_name: p.facility_name,
-          } as NlpAudit);
-        }
-        // Merge any locally captured (event-driven) audits, filtered by facility.
-        const local = loadAudits().filter(
-          (a) => facility === "all" || a.facility_name === facility,
-        );
-        const merged = [...local, ...live].slice(0, 15);
-        setAudits(merged);
-      } catch {/* noop */}
+        .from("patients")
+        .select(
+          "mrn, first_name, last_name, name, facility_name, admission_time, chief_complaint, diagnosis",
+        )
+        .order("admission_time", { ascending: false })
+        .limit(15);
+      if (facility && facility !== "all") {
+        q = q.eq("facility_name", facility);
+      }
+      const { data } = await q;
+      const live: NlpAudit[] = [];
+      for (const p of (data ?? []) as any[]) {
+        const narrative =
+          [p.chief_complaint, p.diagnosis].filter(Boolean).join(". ") ||
+          "Admission without recorded narrative.";
+        const res = enrichAuditResult(analyzeNarrative(narrative, dict), narrative);
+        const createdAt = p.admission_time ?? new Date().toISOString();
+        const autoResolveAt = new Date(new Date(createdAt).getTime() + 60_000).toISOString();
+        live.push({
+          ...res,
+          id: `live_${p.mrn ?? Math.random().toString(36).slice(2)}`,
+          created_at: createdAt,
+          auto_resolve_at: autoResolveAt,
+          mrn: p.mrn,
+          patient_name:
+            `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() ||
+            p.name ||
+            "Unattributed encounter",
+          facility_name: p.facility_name,
+        } as NlpAudit);
+      }
+      // Merge any locally captured (event-driven) audits, filtered by facility.
+      const local = loadAudits().filter((a) => facility === "all" || a.facility_name === facility);
+      const merged = [...local, ...live].slice(0, 15);
+      setAudits(merged);
+    } catch {
+      /* noop */
+    }
   };
 
   // Initial load + realtime subscription. Any insert/update on the
@@ -1912,22 +2172,18 @@ function NlpAuditLogs({ facility }: { facility: string }) {
     refresh();
     const channel = supabase
       .channel("nlp-audit-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "patients" },
-        () => refresh(),
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, () => refresh())
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facility]);
 
   // Refresh on live NLP audit events for the currently-viewed facility.
   useEffect(() => {
     const onEvt = () => {
-      const local = loadAudits().filter(
-        (a) => facility === "all" || a.facility_name === facility,
-      );
+      const local = loadAudits().filter((a) => facility === "all" || a.facility_name === facility);
       setAudits((prev) => {
         const ids = new Set(local.map((l) => l.id));
         const keep = prev.filter((p) => !ids.has(p.id));
@@ -1963,12 +2219,11 @@ function NlpAuditLogs({ facility }: { facility: string }) {
             </span>
           </h2>
           <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-            Auto-pulls every new admission via realtime. Showing the latest{" "}
-            {audits.length} admission{audits.length === 1 ? "" : "s"}
-            {facility !== "all" ? ` at ${facility}` : " across the network"} — each
-            captured as a three-stage FHIR R4 pipeline (raw entry →
-            extraction mapping → standardized output). Approved resources
-            are then staged in the FHIR Interoperability tab for the full
+            Auto-pulls every new admission via realtime. Showing the latest {audits.length}{" "}
+            admission{audits.length === 1 ? "" : "s"}
+            {facility !== "all" ? ` at ${facility}` : " across the network"} — each captured as a
+            three-stage FHIR R4 pipeline (raw entry → extraction mapping → standardized output).
+            Approved resources are then staged in the FHIR Interoperability tab for the full
             encounter Bundle export.
           </p>
         </div>
@@ -1979,8 +2234,8 @@ function NlpAuditLogs({ facility }: { facility: string }) {
 
       {audits.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-          No NLP audits yet. Run a Smart Intake admission from the Nursing
-          Board to populate this log.
+          No NLP audits yet. Run a Smart Intake admission from the Nursing Board to populate this
+          log.
         </div>
       ) : (
         <div className="space-y-4">
@@ -1998,7 +2253,8 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
   const confidence = (audit as any).confidence ?? 100;
   const banned: BannedAbbrev[] = (audit as any).banned ?? [];
   const expansions: Array<{ short: string; long: string }> = (audit as any).expansions ?? [];
-  const dosingHazards: Array<{ token: string; reason: string }> = (audit as any).dosingHazards ?? [];
+  const dosingHazards: Array<{ token: string; reason: string }> =
+    (audit as any).dosingHazards ?? [];
   const streamAOk = (audit as any).streamAOk ?? true;
   const lowConfidence = confidence < 95;
 
@@ -2024,19 +2280,31 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
     if (typeof window === "undefined") return initialIcd;
     const raw = window.localStorage.getItem(codesKey);
     if (!raw) return initialIcd;
-    try { return (JSON.parse(raw).icd10 as string[]) ?? initialIcd; } catch { return initialIcd; }
+    try {
+      return (JSON.parse(raw).icd10 as string[]) ?? initialIcd;
+    } catch {
+      return initialIcd;
+    }
   });
   const [snomedCodes, setSnomedCodes] = useState<string[]>(() => {
     if (typeof window === "undefined") return initialSno;
     const raw = window.localStorage.getItem(codesKey);
     if (!raw) return initialSno;
-    try { return (JSON.parse(raw).snomed as string[]) ?? initialSno; } catch { return initialSno; }
+    try {
+      return (JSON.parse(raw).snomed as string[]) ?? initialSno;
+    } catch {
+      return initialSno;
+    }
   });
   const [lines, setLines] = useState<string[]>(() => {
     if (typeof window === "undefined") return audit.standardized;
     const raw = window.localStorage.getItem(linesKey);
     if (!raw) return audit.standardized;
-    try { return JSON.parse(raw) as string[]; } catch { return audit.standardized; }
+    try {
+      return JSON.parse(raw) as string[];
+    } catch {
+      return audit.standardized;
+    }
   });
   const [editOpen, setEditOpen] = useState(false);
   const [dictSearch, setDictSearch] = useState("");
@@ -2086,8 +2354,12 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
         .select("icd10_codes, snomed_codes")
         .eq("mrn", audit.mrn)
         .maybeSingle();
-      const mergedIcd = Array.from(new Set([...(((data as any)?.icd10_codes as string[]) ?? []), ...icd]));
-      const mergedSno = Array.from(new Set([...(((data as any)?.snomed_codes as string[]) ?? []), ...sno]));
+      const mergedIcd = Array.from(
+        new Set([...(((data as any)?.icd10_codes as string[]) ?? []), ...icd]),
+      );
+      const mergedSno = Array.from(
+        new Set([...(((data as any)?.snomed_codes as string[]) ?? []), ...sno]),
+      );
       await supabase
         .from("patients")
         .update({ icd10_codes: mergedIcd, snomed_codes: mergedSno } as any)
@@ -2120,14 +2392,39 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
 
   // --- AI Auto-Fallback at 0s ------------------------------------------
   const FALLBACK_MAP: Array<{ kw: RegExp; icd10: string; snomed: string; display: string }> = [
-    { kw: /cough|pneumonia|pna\b/i,            icd10: "J18.9",  snomed: "267036007", display: "Pneumonia, unspecified" },
-    { kw: /chest pain|cp\b|stemi|nstemi|\bmi\b/i, icd10: "I20.9",  snomed: "29857009",  display: "Chest pain / angina" },
-    { kw: /short(ness)? of breath|sob|dyspnea/i, icd10: "R06.02", snomed: "267036007", display: "Shortness of breath" },
-    { kw: /fever|febrile|pyrexia/i,             icd10: "R50.9",  snomed: "386661006", display: "Fever, unspecified" },
-    { kw: /abdominal|abd pain|stomach|belly/i,  icd10: "R10.9",  snomed: "21522001",  display: "Abdominal pain" },
-    { kw: /stroke|cva|tia/i,                    icd10: "I63.9",  snomed: "230690007", display: "Cerebral infarction" },
-    { kw: /sepsis|septic/i,                     icd10: "A41.9",  snomed: "91302008",  display: "Sepsis, unspecified" },
-    { kw: /headache|migraine/i,                 icd10: "R51",    snomed: "25064002",  display: "Headache" },
+    {
+      kw: /cough|pneumonia|pna\b/i,
+      icd10: "J18.9",
+      snomed: "267036007",
+      display: "Pneumonia, unspecified",
+    },
+    {
+      kw: /chest pain|cp\b|stemi|nstemi|\bmi\b/i,
+      icd10: "I20.9",
+      snomed: "29857009",
+      display: "Chest pain / angina",
+    },
+    {
+      kw: /short(ness)? of breath|sob|dyspnea/i,
+      icd10: "R06.02",
+      snomed: "267036007",
+      display: "Shortness of breath",
+    },
+    {
+      kw: /fever|febrile|pyrexia/i,
+      icd10: "R50.9",
+      snomed: "386661006",
+      display: "Fever, unspecified",
+    },
+    {
+      kw: /abdominal|abd pain|stomach|belly/i,
+      icd10: "R10.9",
+      snomed: "21522001",
+      display: "Abdominal pain",
+    },
+    { kw: /stroke|cva|tia/i, icd10: "I63.9", snomed: "230690007", display: "Cerebral infarction" },
+    { kw: /sepsis|septic/i, icd10: "A41.9", snomed: "91302008", display: "Sepsis, unspecified" },
+    { kw: /headache|migraine/i, icd10: "R51", snomed: "25064002", display: "Headache" },
   ];
   const pickFallback = () => {
     const hit = FALLBACK_MAP.find((m) => m.kw.test(audit.raw));
@@ -2144,7 +2441,10 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
       const nextIcd = Array.from(new Set([...icd10Codes, fb.icd10]));
       const nextSno = Array.from(new Set([...snomedCodes, fb.snomed]));
       persistCodes(nextIcd, nextSno);
-      persistLines([...lines, `AI fallback: ${fb.display} (ICD-10 ${fb.icd10}, SNOMED ${fb.snomed})`]);
+      persistLines([
+        ...lines,
+        `AI fallback: ${fb.display} (ICD-10 ${fb.icd10}, SNOMED ${fb.snomed})`,
+      ]);
       await commitToPatient(nextIcd, nextSno);
       persistMethod("AI Auto-Fallback");
       persist("auto");
@@ -2157,7 +2457,9 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
   // --- Edit modal: dictionary search ----------------------------------
   useEffect(() => {
     if (!editOpen || dict.length) return;
-    loadDictionary().then(setDict).catch(() => {});
+    loadDictionary()
+      .then(setDict)
+      .catch(() => {});
   }, [editOpen, dict.length]);
   const dictMatches = (() => {
     const q = dictSearch.trim().toLowerCase();
@@ -2182,7 +2484,10 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
   // --- Badge ----------------------------------------------------------
   const badge = (() => {
     if (decision === "approved")
-      return { text: `APPROVED · ${method}`, cls: "bg-emerald-100 text-emerald-700 border-emerald-300" };
+      return {
+        text: `APPROVED · ${method}`,
+        cls: "bg-emerald-100 text-emerald-700 border-emerald-300",
+      };
     if (decision === "auto")
       return { text: "AI AUTO-RESOLVED", cls: "bg-amber-100 text-amber-800 border-amber-300" };
     if (decision === "rejected")
@@ -2201,7 +2506,9 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
             )}
           </div>
           <div className="text-[11px] text-slate-500">
-            {ts}{audit.facility_name ? ` · ${audit.facility_name}` : ""} · {audit.matches.length} concept{audit.matches.length === 1 ? "" : "s"}
+            {ts}
+            {audit.facility_name ? ` · ${audit.facility_name}` : ""} · {audit.matches.length}{" "}
+            concept{audit.matches.length === 1 ? "" : "s"}
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
@@ -2219,8 +2526,8 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
               confidence >= 95
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                 : confidence >= 80
-                ? "border-amber-200 bg-amber-50 text-amber-700"
-                : "border-red-200 bg-red-50 text-red-700"
+                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                  : "border-red-200 bg-red-50 text-red-700"
             }`}
           >
             STREAM B · {confidence}%
@@ -2261,7 +2568,8 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
                 </div>
                 {banned.map((b) => (
                   <div key={b.token}>
-                    <span className="font-mono font-bold">{b.token}</span> — {b.meaning}. {b.preferred}.
+                    <span className="font-mono font-bold">{b.token}</span> — {b.meaning}.{" "}
+                    {b.preferred}.
                   </div>
                 ))}
               </div>
@@ -2289,7 +2597,10 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {expansions.map((e) => (
-                  <span key={e.short} className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5">
+                  <span
+                    key={e.short}
+                    className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5"
+                  >
                     <span className="font-mono font-bold mr-1">{e.short}</span>
                     <span className="text-slate-400 mr-1">→</span>
                     {e.long}
@@ -2307,7 +2618,9 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
             <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">
               ③ Final Standardized Output
             </div>
-            <span className={`text-[10px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border ${badge.cls}`}>
+            <span
+              className={`text-[10px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 border ${badge.cls}`}
+            >
               {badge.text}
             </span>
           </div>
@@ -2330,8 +2643,8 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
           )}
           {lowConfidence && decision === "pending" && (
             <div className="mb-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-              Confidence {confidence}% &lt; 95%. Held in audit log — commits to the
-              Live Terminology Matrix only after a coder approves.
+              Confidence {confidence}% &lt; 95%. Held in audit log — commits to the Live Terminology
+              Matrix only after a coder approves.
             </div>
           )}
           <ul className="space-y-1.5 text-sm text-slate-800">
@@ -2345,12 +2658,18 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
           {(icd10Codes.length > 0 || snomedCodes.length > 0) && (
             <div className="mt-2 flex flex-wrap gap-1">
               {icd10Codes.map((c) => (
-                <span key={`i-${c}`} className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-bold text-blue-700">
+                <span
+                  key={`i-${c}`}
+                  className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-bold text-blue-700"
+                >
                   ICD-10 {c}
                 </span>
               ))}
               {snomedCodes.map((c) => (
-                <span key={`s-${c}`} className="inline-flex items-center rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700">
+                <span
+                  key={`s-${c}`}
+                  className="inline-flex items-center rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700"
+                >
                   SNOMED {c}
                 </span>
               ))}
@@ -2365,12 +2684,7 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
             >
               <Check className="h-3 w-3" /> Approve
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7"
-              onClick={() => setEditOpen(true)}
-            >
+            <Button size="sm" variant="outline" className="h-7" onClick={() => setEditOpen(true)}>
               <Pencil className="h-3 w-3" /> Edit
             </Button>
             <Button
@@ -2389,8 +2703,8 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
               <DialogHeader>
                 <DialogTitle>Manual coding · {audit.patient_name ?? audit.mrn}</DialogTitle>
                 <DialogDescription>
-                  Search the terminology dictionary and click a row to append it
-                  to this audit's standardized output. ICD-10 and SNOMED CT only.
+                  Search the terminology dictionary and click a row to append it to this audit's
+                  standardized output. ICD-10 and SNOMED CT only.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -2406,9 +2720,7 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
                       Start typing to search the dictionary.
                     </div>
                   ) : dictMatches.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-slate-500">
-                      No matches.
-                    </div>
+                    <div className="p-4 text-center text-xs text-slate-500">No matches.</div>
                   ) : (
                     dictMatches.map((row) => (
                       <button
@@ -2417,11 +2729,13 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
                         onClick={() => appendCode(row)}
                         className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2"
                       >
-                        <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold ${
-                          row.code_system === "ICD-10"
-                            ? "border-blue-200 bg-blue-50 text-blue-700"
-                            : "border-violet-200 bg-violet-50 text-violet-700"
-                        }`}>
+                        <span
+                          className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+                            row.code_system === "ICD-10"
+                              ? "border-blue-200 bg-blue-50 text-blue-700"
+                              : "border-violet-200 bg-violet-50 text-violet-700"
+                          }`}
+                        >
                           {row.code_system} {row.code}
                         </span>
                         <span className="text-sm text-slate-800 truncate">{row.display}</span>
@@ -2434,7 +2748,9 @@ function NlpAuditCard({ audit }: { audit: NlpAudit }) {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setEditOpen(false)}>Done</Button>
+                <Button variant="outline" onClick={() => setEditOpen(false)}>
+                  Done
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -2454,8 +2770,8 @@ type MatrixCell = {
   facility: string | null;
   admitted: string | null;
   chief_complaint: string | null;
-  labs: string[];      // test_type strings
-  meds: string[];      // medication_name strings
+  labs: string[]; // test_type strings
+  meds: string[]; // medication_name strings
   icd10_codes: string[];
   snomed_codes: string[];
   raw_text: string | null;
@@ -2486,16 +2802,18 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       setLoading(true);
       let pq = supabase
         .from("patients")
-        .select("mrn, first_name, last_name, facility_name, admission_time, chief_complaint, icd10_codes, snomed_codes")
+        .select(
+          "mrn, first_name, last_name, facility_name, admission_time, chief_complaint, icd10_codes, snomed_codes",
+        )
         .order("admission_time", { ascending: false })
         .limit(15);
       if (facility && facility !== "all") {
         pq = pq.eq("facility_name", facility);
       }
-      const { data: patients, error } = await fetchWithTimeout(
-        () => pq,
-        { data: [], error: null } as any,
-      );
+      const { data: patients, error } = await fetchWithTimeout(() => pq, {
+        data: [],
+        error: null,
+      } as any);
       if (error) {
         toast.error("Could not load patient matrix", { description: error.message });
         setLoading(false);
@@ -2537,7 +2855,11 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               .select("mrn, snomed_code, snomed_display, icd10_code, icd10_display, display_text")
               .in("mrn", mrns),
           ]),
-        [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }] as any,
+        [
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: [], error: null },
+        ] as any,
       );
       // Pull coded columns from step-8 schema (auto-coded by `auto-code.ts`).
       const [labsCoded, medsCoded, procsRes] = await fetchWithTimeout(
@@ -2559,18 +2881,26 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               .in("mrn", mrns)
               .not("cpt_code", "is", null),
           ]),
-        [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }] as any,
+        [
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: [], error: null },
+        ] as any,
       );
       const labMap = new Map<string, Set<string>>();
       for (const r of (labsRes.data ?? []) as any[]) {
         if (!r.patient_mrn || !r.test_type) continue;
-        (labMap.get(r.patient_mrn) ?? labMap.set(r.patient_mrn, new Set()).get(r.patient_mrn)!).add(r.test_type);
+        (labMap.get(r.patient_mrn) ?? labMap.set(r.patient_mrn, new Set()).get(r.patient_mrn)!).add(
+          r.test_type,
+        );
       }
       const medMap = new Map<string, Set<string>>();
       for (const r of (medsRes.data ?? []) as any[]) {
         const m = r.medication_name || r.drug_name;
         if (!r.patient_mrn || !m) continue;
-        (medMap.get(r.patient_mrn) ?? medMap.set(r.patient_mrn, new Set()).get(r.patient_mrn)!).add(m);
+        (medMap.get(r.patient_mrn) ?? medMap.set(r.patient_mrn, new Set()).get(r.patient_mrn)!).add(
+          m,
+        );
       }
       // Build coded index from conditions/labs/meds
       const codedIdx: Record<string, any> = {};
@@ -2587,7 +2917,8 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
       for (const r of (condsRes.data ?? []) as any[]) {
         const m = r.mrn ?? r.patient_mrn;
         if (!m) continue;
-        if (r.snomed_code) pushUnique(m, "snomed", r.snomed_code, r.snomed_display ?? r.display_text);
+        if (r.snomed_code)
+          pushUnique(m, "snomed", r.snomed_code, r.snomed_display ?? r.display_text);
         if (r.icd10_code) pushUnique(m, "icd10", r.icd10_code, r.icd10_display ?? r.display_text);
       }
       for (const r of (labsCoded.data ?? []) as any[]) {
@@ -2597,7 +2928,8 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         if (r.rxnorm_code) pushUnique(r.patient_mrn, "rxnorm", r.rxnorm_code, r.rxnorm_display);
       }
       for (const r of (procsRes.data ?? []) as any[]) {
-        if (r.cpt_code && r.mrn) pushUnique(r.mrn, "cpt", r.cpt_code, r.cpt_display ?? r.display_text);
+        if (r.cpt_code && r.mrn)
+          pushUnique(r.mrn, "cpt", r.cpt_code, r.cpt_display ?? r.display_text);
       }
       const cells: MatrixCell[] = (patients ?? []).map((p: any) => ({
         mrn: p.mrn,
@@ -2618,7 +2950,9 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [facility, refreshTick]);
 
   // Re-fetch when a coder/AI commits new codes from the NLP Audit Logs.
@@ -2647,7 +2981,10 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
         if (!d) continue;
         if (d.includes(cl) || cl.includes(d.split(" ")[0])) {
           const key = row.code;
-          if (!seen.has(key)) { seen.add(key); out.push(row); }
+          if (!seen.has(key)) {
+            seen.add(key);
+            out.push(row);
+          }
         }
       }
     }
@@ -2679,13 +3016,27 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
           <table className="w-full text-xs">
             <thead className="bg-slate-900 text-slate-100">
               <tr>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">MRN</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Patient</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">SNOMED CT</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">ICD-10</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">CPT</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">LOINC</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">RxNorm</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  MRN
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  Patient
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  SNOMED CT
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  ICD-10
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  CPT
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  LOINC
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  RxNorm
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -2707,37 +3058,43 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
               {rows.map((r) => {
                 const cc = r.chief_complaint ? [r.chief_complaint] : [];
                 const liveCoded = coded[r.mrn];
-                const liveToDict = (sys: string, list: { code: string; display?: string | null }[]): DictEntry[] =>
-                  list.slice(0, 6).map((x) => ({
-                    id: `live-${sys}-${x.code}`,
-                    code_system: sys,
-                    code: x.code,
-                    display: x.display ?? x.code,
-                    category: "AUTO API · live",
-                    description: null,
-                  } as unknown as DictEntry));
+                const liveToDict = (
+                  sys: string,
+                  list: { code: string; display?: string | null }[],
+                ): DictEntry[] =>
+                  list.slice(0, 6).map(
+                    (x) =>
+                      ({
+                        id: `live-${sys}-${x.code}`,
+                        code_system: sys,
+                        code: x.code,
+                        display: x.display ?? x.code,
+                        category: "AUTO API · live",
+                        description: null,
+                      }) as unknown as DictEntry,
+                  );
                 const snomed = liveCoded?.snomed?.length
                   ? liveToDict("SNOMED CT", liveCoded.snomed)
                   : r.snomed_codes.length
-                  ? findByExactCodes("SNOMED CT", r.snomed_codes)
-                  : findCodes("SNOMED CT", cc);
+                    ? findByExactCodes("SNOMED CT", r.snomed_codes)
+                    : findCodes("SNOMED CT", cc);
                 const icd10 = liveCoded?.icd10?.length
                   ? liveToDict("ICD-10", liveCoded.icd10)
                   : r.icd10_codes.length
-                  ? findByExactCodes("ICD-10", r.icd10_codes)
-                  : findCodes("ICD-10", cc);
+                    ? findByExactCodes("ICD-10", r.icd10_codes)
+                    : findCodes("ICD-10", cc);
                 const loinc = liveCoded?.loinc?.length
                   ? liveToDict("LOINC", liveCoded.loinc)
                   : findCodes("LOINC", r.labs);
                 const rxnorm = liveCoded?.rxnorm?.length
                   ? liveToDict("RxNorm", liveCoded.rxnorm)
                   : findCodes("RxNorm", r.meds);
-                const cpt = liveCoded?.cpt?.length
-                  ? liveToDict("CPT", liveCoded.cpt)
-                  : [];
+                const cpt = liveCoded?.cpt?.length ? liveToDict("CPT", liveCoded.cpt) : [];
                 return (
                   <tr key={r.mrn} className="hover:bg-slate-50/60">
-                    <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">{r.mrn}</td>
+                    <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-slate-900 whitespace-nowrap">
+                      {r.mrn}
+                    </td>
                     <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
                       <div className="font-medium">{r.name}</div>
                       <div className="mt-0.5">
@@ -2752,11 +3109,21 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5"><PillRow entries={snomed} system="SNOMED CT" rawText={r.raw_text} /></td>
-                    <td className="px-3 py-2.5"><PillRow entries={icd10} system="ICD-10" rawText={r.raw_text} /></td>
-                    <td className="px-3 py-2.5"><PillRow entries={cpt} system="CPT" rawText={r.raw_text} /></td>
-                    <td className="px-3 py-2.5"><PillRow entries={loinc} system="LOINC" rawText={r.raw_text} /></td>
-                    <td className="px-3 py-2.5"><PillRow entries={rxnorm} system="RxNorm" rawText={r.raw_text} /></td>
+                    <td className="px-3 py-2.5">
+                      <PillRow entries={snomed} system="SNOMED CT" rawText={r.raw_text} />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <PillRow entries={icd10} system="ICD-10" rawText={r.raw_text} />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <PillRow entries={cpt} system="CPT" rawText={r.raw_text} />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <PillRow entries={loinc} system="LOINC" rawText={r.raw_text} />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <PillRow entries={rxnorm} system="RxNorm" rawText={r.raw_text} />
+                    </td>
                   </tr>
                 );
               })}
@@ -2768,7 +3135,15 @@ function LiveTerminologyMatrix({ dict, facility }: { dict: DictEntry[]; facility
   );
 }
 
-function PillRow({ entries, system, rawText }: { entries: DictEntry[]; system: string; rawText?: string | null }) {
+function PillRow({
+  entries,
+  system,
+  rawText,
+}: {
+  entries: DictEntry[];
+  system: string;
+  rawText?: string | null;
+}) {
   if (entries.length === 0) return <span className="text-slate-300">—</span>;
   const chip = SYSTEM_META[system]?.chip ?? "bg-slate-100 text-slate-700 border-slate-200";
   return (
@@ -2787,12 +3162,16 @@ function PillRow({ entries, system, rawText }: { entries: DictEntry[]; system: s
             <div className="space-y-1.5">
               {rawText && (
                 <div className="rounded border border-slate-200 bg-amber-50/60 px-2 py-1.5 mb-1">
-                  <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Raw Data</div>
+                  <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                    Raw Data
+                  </div>
                   <div className="text-[11px] text-slate-800 leading-snug">{rawText}</div>
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${chip}`}>
+                <span
+                  className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${chip}`}
+                >
                   {system}
                 </span>
                 <span className="font-mono text-[11px] font-semibold text-slate-900">{e.code}</span>
@@ -2807,23 +3186,33 @@ function PillRow({ entries, system, rawText }: { entries: DictEntry[]; system: s
                 <div className="text-[11px] text-slate-600 leading-relaxed">{e.description}</div>
               )}
               <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 font-mono text-[10px] text-slate-700 space-y-0.5">
-                <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">FHIR CodeableConcept</div>
-                <div><span className="text-slate-500">system:</span> {FHIR_SYSTEM_URI[system] ?? "—"}</div>
-                <div><span className="text-slate-500">code:</span> {e.code}</div>
-                <div className="truncate"><span className="text-slate-500">display:</span> {e.display}</div>
+                <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                  FHIR CodeableConcept
+                </div>
+                <div>
+                  <span className="text-slate-500">system:</span> {FHIR_SYSTEM_URI[system] ?? "—"}
+                </div>
+                <div>
+                  <span className="text-slate-500">code:</span> {e.code}
+                </div>
+                <div className="truncate">
+                  <span className="text-slate-500">display:</span> {e.display}
+                </div>
               </div>
               <div className="flex items-center gap-1.5 pt-1">
                 <button
                   type="button"
                   className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
                   onClick={() => {
-                    window.dispatchEvent(new CustomEvent("spehr:dict-switch-tab", {
-                      detail: {
-                        tab: "authoring",
-                        prefillEvent: "spehr:authoring-prefill",
-                        prefillDetail: { code: e.code, vocabulary: system },
-                      },
-                    }));
+                    window.dispatchEvent(
+                      new CustomEvent("spehr:dict-switch-tab", {
+                        detail: {
+                          tab: "authoring",
+                          prefillEvent: "spehr:authoring-prefill",
+                          prefillDetail: { code: e.code, vocabulary: system },
+                        },
+                      }),
+                    );
                   }}
                 >
                   View in Authoring
@@ -2833,13 +3222,19 @@ function PillRow({ entries, system, rawText }: { entries: DictEntry[]; system: s
                     type="button"
                     className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
                     onClick={() => {
-                      window.dispatchEvent(new CustomEvent("spehr:dict-switch-tab", {
-                        detail: {
-                          tab: "crossmap",
-                          prefillEvent: "spehr:crossmap-prefill",
-                          prefillDetail: { code: e.code, sourceVocab: system, targetVocab: "ICD-10-CM" },
-                        },
-                      }));
+                      window.dispatchEvent(
+                        new CustomEvent("spehr:dict-switch-tab", {
+                          detail: {
+                            tab: "crossmap",
+                            prefillEvent: "spehr:crossmap-prefill",
+                            prefillDetail: {
+                              code: e.code,
+                              sourceVocab: system,
+                              targetVocab: "ICD-10-CM",
+                            },
+                          },
+                        }),
+                      );
                     }}
                   >
                     Translate to ICD-10
@@ -2901,9 +3296,7 @@ const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
           {row.chief_complaint ?? "—"}
         </div>
       </td>
-      <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">
-        {row.facility ?? "—"}
-      </td>
+      <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{row.facility ?? "—"}</td>
       <td className="px-3 py-2.5 whitespace-nowrap">
         <span
           className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badge.cls}`}
@@ -2941,7 +3334,9 @@ function FhirInteropTopLevel() {
           >
             <option value="all">All Facilities</option>
             {FACILITIES.map((f) => (
-              <option key={f} value={f}>{f}</option>
+              <option key={f} value={f}>
+                {f}
+              </option>
             ))}
           </select>
         </label>
@@ -2960,7 +3355,9 @@ function FhirInteroperability({ facility }: { facility: string }) {
   const [activeRow, setActiveRow] = useState<FhirEncounterRow | null>(null);
   const [pushing, setPushing] = useState(false);
   const [drawerTab, setDrawerTab] = useState<"json" | "ledger" | "scan">("json");
-  const [dupScan, setDupScan] = useState<null | { ran: boolean; clean: boolean; details: string }>(null);
+  const [dupScan, setDupScan] = useState<null | { ran: boolean; clean: boolean; details: string }>(
+    null,
+  );
   const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>(() => {
     if (typeof window === "undefined") return {};
     try {
@@ -2990,22 +3387,22 @@ function FhirInteroperability({ facility }: { facility: string }) {
       /* ignore quota / private-mode errors */
     }
   }, [autoOn]);
-  const [autoStatus, setAutoStatus] = useState<
-    Record<string, "queued" | "syncing" | "ok" | "err">
-  >(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = window.localStorage.getItem("fhir.autoStatus");
-      const parsed = raw ? JSON.parse(raw) : {};
-      const out: Record<string, "ok" | "err"> = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        if (v === "ok") out[k] = v as any;
+  const [autoStatus, setAutoStatus] = useState<Record<string, "queued" | "syncing" | "ok" | "err">>(
+    () => {
+      if (typeof window === "undefined") return {};
+      try {
+        const raw = window.localStorage.getItem("fhir.autoStatus");
+        const parsed = raw ? JSON.parse(raw) : {};
+        const out: Record<string, "ok" | "err"> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (v === "ok") out[k] = v as any;
+        }
+        return out;
+      } catch {
+        return {};
       }
-      return out;
-    } catch {
-      return {};
-    }
-  });
+    },
+  );
   // Persist terminal auto-statuses so successful patients never revert to In Queue
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3060,10 +3457,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
         .order("admission_time", { ascending: false })
         .limit(50);
       if (facility !== "all") q = q.eq("facility_name", facility);
-      const { data } = await fetchWithTimeout(
-        () => q,
-        { data: [], error: null } as any,
-      );
+      const { data } = await fetchWithTimeout(() => q, { data: [], error: null } as any);
       if (cancelled) return;
       const out: FhirEncounterRow[] = ((data ?? []) as any[])
         .filter((p) => !!p.mrn)
@@ -3216,7 +3610,9 @@ function FhirInteroperability({ facility }: { facility: string }) {
         .limit(20),
       supabase
         .from("conditions")
-        .select("display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at")
+        .select(
+          "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at",
+        )
         .eq("mrn", r.mrn)
         .order("coded_at", { ascending: false })
         .limit(20),
@@ -3265,7 +3661,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
     stampSync(r.mrn);
     return;
-    // eslint-disable-next-line no-unreachable
+
     setAutoStatus((s) => ({ ...s, [r.mrn]: "syncing" }));
     try {
       const b = await buildBundleForRow(r);
@@ -3328,14 +3724,20 @@ function FhirInteroperability({ facility }: { facility: string }) {
     };
     const channel = supabase
       .channel("fhir-live-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "patients" },
-        (p: any) => requeue(p?.new?.mrn ?? p?.old?.mrn))
-      .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders" },
-        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn))
-      .on("postgres_changes", { event: "*", schema: "public", table: "medication_orders" },
-        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn))
-      .on("postgres_changes", { event: "*", schema: "public", table: "clinical_notes" },
-        (p: any) => requeue(p?.new?.mrn ?? p?.old?.mrn))
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, (p: any) =>
+        requeue(p?.new?.mrn ?? p?.old?.mrn),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders" }, (p: any) =>
+        requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "medication_orders" },
+        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "clinical_notes" }, (p: any) =>
+        requeue(p?.new?.mrn ?? p?.old?.mrn),
+      )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -3371,19 +3773,29 @@ function FhirInteroperability({ facility }: { facility: string }) {
         <div className="text-xs text-slate-500">{rows.length} encounters</div>
       </div>
 
-
-
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-slate-900 text-slate-100">
               <tr>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Timestamp</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">MRN</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Patient</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Facility</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">Status</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">FHIR</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  Timestamp
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  MRN
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  Patient
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  Facility
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  Status
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2.5">
+                  FHIR
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -3436,24 +3848,25 @@ function FhirInteroperability({ facility }: { facility: string }) {
               FHIR R4 Encounter Bundle · {activeRow?.name ?? activeRow?.mrn}
             </DialogTitle>
             <DialogDescription>
-              Strict FHIR R4 <span className="font-mono">Bundle</span>{" "}
-              (type=<span className="font-mono">transaction</span>) containing the
-              Composition, Patient, Encounter, Observations (vitals + labs),
-              MedicationRequest, MedicationAdministration, DocumentReference,
-              CarePlan, and follow-up Appointment. Every entry uses
-              <span className="font-mono"> PUT /{`{ResourceType}/{stableId}`}</span>{" "}
-              with a deterministic stable id derived from MRN + clinical content,
-              so every push is an idempotent UPSERT — re-syncing the same patient
-              can never create duplicate resources on the Medblocks server.
+              Strict FHIR R4 <span className="font-mono">Bundle</span> (type=
+              <span className="font-mono">transaction</span>) containing the Composition, Patient,
+              Encounter, Observations (vitals + labs), MedicationRequest, MedicationAdministration,
+              DocumentReference, CarePlan, and follow-up Appointment. Every entry uses
+              <span className="font-mono"> PUT /{`{ResourceType}/{stableId}`}</span> with a
+              deterministic stable id derived from MRN + clinical content, so every push is an
+              idempotent UPSERT — re-syncing the same patient can never create duplicate resources
+              on the Medblocks server.
             </DialogDescription>
           </DialogHeader>
           {/* Drawer tabs */}
           <div className="flex items-center gap-1 border-b border-slate-200 -mt-2">
-            {([
-              { id: "json", label: "FHIR Bundle JSON" },
-              { id: "ledger", label: "Sync Ledger" },
-              { id: "scan", label: "Duplicate Scan" },
-            ] as const).map((t) => (
+            {(
+              [
+                { id: "json", label: "FHIR Bundle JSON" },
+                { id: "ledger", label: "Sync Ledger" },
+                { id: "scan", label: "Duplicate Scan" },
+              ] as const
+            ).map((t) => (
               <button
                 key={t.id}
                 type="button"
@@ -3487,26 +3900,51 @@ function FhirInteroperability({ facility }: { facility: string }) {
               <table className="w-full text-[11px]">
                 <thead className="bg-slate-900 text-slate-100 sticky top-0">
                   <tr>
-                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">Resource</th>
-                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">Stable ID</th>
-                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">Method</th>
-                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">Last Synced</th>
-                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">Status</th>
+                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">
+                      Resource
+                    </th>
+                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">
+                      Stable ID
+                    </th>
+                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">
+                      Method
+                    </th>
+                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">
+                      Last Synced
+                    </th>
+                    <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">
+                      Status
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {bundleLoading || !bundle ? (
-                    <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-500">
-                      <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
-                      Loading ledger…
-                    </td></tr>
+                    <tr>
+                      <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                        <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
+                        Loading ledger…
+                      </td>
+                    </tr>
                   ) : (
                     (bundle.entry ?? []).map((e: any) => (
-                      <tr key={`${e.resource?.resourceType}-${e.resource?.id}`} className="hover:bg-slate-50/60">
-                        <td className="px-3 py-2 font-semibold text-slate-800">{e.resource?.resourceType}</td>
-                        <td className="px-3 py-2 font-mono text-[10px] text-slate-700">{e.resource?.id}</td>
-                        <td className="px-3 py-2"><span className="inline-flex rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">{e.request?.method ?? "PUT"}</span></td>
-                        <td className="px-3 py-2 text-slate-600 font-mono text-[10px]">{new Date(bundle.timestamp ?? Date.now()).toLocaleTimeString()}</td>
+                      <tr
+                        key={`${e.resource?.resourceType}-${e.resource?.id}`}
+                        className="hover:bg-slate-50/60"
+                      >
+                        <td className="px-3 py-2 font-semibold text-slate-800">
+                          {e.resource?.resourceType}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[10px] text-slate-700">
+                          {e.resource?.id}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">
+                            {e.request?.method ?? "PUT"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 font-mono text-[10px]">
+                          {new Date(bundle.timestamp ?? Date.now()).toLocaleTimeString()}
+                        </td>
                         <td className="px-3 py-2">
                           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                             ✓ Clean
@@ -3522,10 +3960,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
           {drawerTab === "scan" && (
             <div className="rounded-md border border-slate-200 bg-slate-50 p-4 space-y-3 max-h-[55vh] overflow-auto">
               <div className="text-[11px] text-slate-600">
-                Scans this patient's FHIR record on the Medblocks server for any
-                resources sharing identical content fingerprints. With the new
-                stable-ID UPSERT pattern in place, no duplicates can be created
-                going forward — this scan verifies the server matches expectations.
+                Scans this patient's FHIR record on the Medblocks server for any resources sharing
+                identical content fingerprints. With the new stable-ID UPSERT pattern in place, no
+                duplicates can be created going forward — this scan verifies the server matches
+                expectations.
               </div>
               <Button
                 size="sm"
@@ -3544,11 +3982,13 @@ function FhirInteroperability({ facility }: { facility: string }) {
                 🔍 Scan for Duplicates
               </Button>
               {dupScan && (
-                <div className={`rounded-md border px-3 py-2 text-[11px] ${
-                  dupScan.clean
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                    : "border-rose-200 bg-rose-50 text-rose-800"
-                }`}>
+                <div
+                  className={`rounded-md border px-3 py-2 text-[11px] ${
+                    dupScan.clean
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : "border-rose-200 bg-rose-50 text-rose-800"
+                  }`}
+                >
                   {dupScan.clean ? "✓ No duplicates detected — " : "✗ Anomalies found — "}
                   {dupScan.details}
                 </div>
@@ -3557,8 +3997,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
           )}
           {bundle && (
             <div className="text-[11px] text-slate-500">
-              {(bundle.entry?.length ?? 0)} resources · {bundle.type} bundle ·
-              generated {new Date(bundle.timestamp ?? Date.now()).toLocaleString()}
+              {bundle.entry?.length ?? 0} resources · {bundle.type} bundle · generated{" "}
+              {new Date(bundle.timestamp ?? Date.now()).toLocaleString()}
             </div>
           )}
           <DialogFooter>
@@ -3580,10 +4020,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
               disabled={!bundle}
               onClick={() => {
                 if (!bundle || !activeRow) return;
-                downloadJson(
-                  `fhir-encounter-${activeRow.mrn}-${Date.now()}.json`,
-                  bundle,
-                );
+                downloadJson(`fhir-encounter-${activeRow.mrn}-${Date.now()}.json`, bundle);
               }}
             >
               <Download className="h-3.5 w-3.5" /> Download .json
@@ -3594,7 +4031,9 @@ function FhirInteroperability({ facility }: { facility: string }) {
               onClick={pushBundle}
             >
               {pushing ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Syncing…</>
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Syncing…
+                </>
               ) : (
                 <>↗ Push to FHIR Server</>
               )}
@@ -3618,7 +4057,20 @@ type AuditEvent = {
 };
 
 function fmtTs(d: Date): string {
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getDate())}-${months[d.getMonth()]}-${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
@@ -3630,10 +4082,10 @@ function isGhost(actor?: string | null): boolean {
 }
 
 const CATEGORY_STYLES: Record<AuditCategory, string> = {
-  SECURITY:   "bg-red-900/10 text-red-700 border-red-200",
-  CLINICAL:   "bg-sky-900/10 text-sky-700 border-sky-200",
+  SECURITY: "bg-red-900/10 text-red-700 border-red-200",
+  CLINICAL: "bg-sky-900/10 text-sky-700 border-sky-200",
   AUTOMATION: "bg-emerald-900/10 text-emerald-700 border-emerald-200",
-  SYSTEM:     "bg-slate-900/10 text-slate-700 border-slate-300",
+  SYSTEM: "bg-slate-900/10 text-slate-700 border-slate-300",
 };
 
 function AuditLog() {
@@ -3647,22 +4099,30 @@ function AuditLog() {
         Promise.all([
           supabase
             .from("patients")
-            .select("mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint")
+            .select(
+              "mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint",
+            )
             .order("admission_time", { ascending: false })
             .limit(60),
           supabase
             .from("lab_orders")
-            .select("id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at")
+            .select(
+              "id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at",
+            )
             .order("created_at", { ascending: false })
             .limit(60),
           supabase
             .from("medication_orders")
-            .select("id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at")
+            .select(
+              "id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+            )
             .order("created_at", { ascending: false })
             .limit(60),
           supabase
             .from("role_permissions")
-            .select("id, facility_name, target_role, feature_key, feature_name, is_active, updated_at")
+            .select(
+              "id, facility_name, target_role, feature_key, feature_name, is_active, updated_at",
+            )
             .order("updated_at", { ascending: false })
             .limit(30),
           supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
@@ -3789,14 +4249,19 @@ function AuditLog() {
       .channel("audit-log-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "lab_orders" }, () => load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "medication_orders" }, () => load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "role_permissions" }, () => load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "system_settings" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "medication_orders" }, () =>
+        load(),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "role_permissions" }, () =>
+        load(),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "system_settings" }, () =>
+        load(),
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const downloadCsv = () => {
@@ -3821,12 +4286,13 @@ function AuditLog() {
   const filteredEvents = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return events;
-    return events.filter((e) =>
-      e.ts.toLowerCase().includes(q) ||
-      e.category.toLowerCase().includes(q) ||
-      e.actor.toLowerCase().includes(q) ||
-      e.facility.toLowerCase().includes(q) ||
-      e.details.toLowerCase().includes(q),
+    return events.filter(
+      (e) =>
+        e.ts.toLowerCase().includes(q) ||
+        e.category.toLowerCase().includes(q) ||
+        e.actor.toLowerCase().includes(q) ||
+        e.facility.toLowerCase().includes(q) ||
+        e.details.toLowerCase().includes(q),
     );
   }, [events, query]);
 
@@ -3864,33 +4330,50 @@ function AuditLog() {
           <table className="w-full text-sm">
             <thead className="bg-slate-900 text-slate-100 sticky top-0">
               <tr>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Timestamp</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Category</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Actor</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Facility Scoped</th>
-                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">Action Details</th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">
+                  Timestamp
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">
+                  Category
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">
+                  Actor
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">
+                  Facility Scoped
+                </th>
+                <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-4 py-3">
+                  Action Details
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading && filteredEvents.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
-                    <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" /> Loading live system events…
+                    <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" /> Loading live
+                    system events…
                   </td>
                 </tr>
               )}
               {!loading && filteredEvents.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
-                    {events.length === 0 ? "No system events yet. Activity will stream in as it happens." : "No matches for your search."}
+                    {events.length === 0
+                      ? "No system events yet. Activity will stream in as it happens."
+                      : "No matches for your search."}
                   </td>
                 </tr>
               )}
               {filteredEvents.map((e) => (
                 <tr key={e.key} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="px-4 py-2.5 font-mono text-[12px] text-slate-700 whitespace-nowrap">{e.ts}</td>
+                  <td className="px-4 py-2.5 font-mono text-[12px] text-slate-700 whitespace-nowrap">
+                    {e.ts}
+                  </td>
                   <td className="px-4 py-2.5">
-                    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${CATEGORY_STYLES[e.category]}`}>
+                    <span
+                      className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${CATEGORY_STYLES[e.category]}`}
+                    >
                       [{e.category}]
                     </span>
                   </td>
@@ -3920,12 +4403,36 @@ type DictEntry = {
 const CODE_SYSTEMS = ["ICD-10", "SNOMED CT", "LOINC", "RxNorm", "VSAC"] as const;
 
 const SYSTEM_META: Record<string, { tint: string; chip: string; blurb: string }> = {
-  "ICD-10":     { tint: "border-rose-200 bg-rose-50/40",       chip: "bg-rose-100 text-rose-800 border-rose-200",         blurb: "Diagnosis & symptom codes" },
-  "SNOMED CT":  { tint: "border-indigo-200 bg-indigo-50/40",   chip: "bg-indigo-100 text-indigo-800 border-indigo-200",   blurb: "Clinical findings & procedures" },
-  "LOINC":      { tint: "border-amber-200 bg-amber-50/40",     chip: "bg-amber-100 text-amber-800 border-amber-200",      blurb: "Laboratory observations" },
-  "RxNorm":     { tint: "border-emerald-200 bg-emerald-50/40", chip: "bg-emerald-100 text-emerald-800 border-emerald-200", blurb: "Medications & doses" },
-  "CPT":        { tint: "border-violet-200 bg-violet-50/40",   chip: "bg-violet-100 text-violet-800 border-violet-200",   blurb: "Procedure codes" },
-  "VSAC":       { tint: "border-sky-200 bg-sky-50/40",         chip: "bg-sky-100 text-sky-800 border-sky-200",            blurb: "Aligned value sets" },
+  "ICD-10": {
+    tint: "border-rose-200 bg-rose-50/40",
+    chip: "bg-rose-100 text-rose-800 border-rose-200",
+    blurb: "Diagnosis & symptom codes",
+  },
+  "SNOMED CT": {
+    tint: "border-indigo-200 bg-indigo-50/40",
+    chip: "bg-indigo-100 text-indigo-800 border-indigo-200",
+    blurb: "Clinical findings & procedures",
+  },
+  LOINC: {
+    tint: "border-amber-200 bg-amber-50/40",
+    chip: "bg-amber-100 text-amber-800 border-amber-200",
+    blurb: "Laboratory observations",
+  },
+  RxNorm: {
+    tint: "border-emerald-200 bg-emerald-50/40",
+    chip: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    blurb: "Medications & doses",
+  },
+  CPT: {
+    tint: "border-violet-200 bg-violet-50/40",
+    chip: "bg-violet-100 text-violet-800 border-violet-200",
+    blurb: "Procedure codes",
+  },
+  VSAC: {
+    tint: "border-sky-200 bg-sky-50/40",
+    chip: "bg-sky-100 text-sky-800 border-sky-200",
+    blurb: "Aligned value sets",
+  },
 };
 
 /* ============================================================ */
@@ -3996,9 +4503,7 @@ function TaxonomyTree({
             <div key={root.system}>
               <button
                 type="button"
-                onClick={() =>
-                  setOpenRoots((s) => ({ ...s, [root.system]: !s[root.system] }))
-                }
+                onClick={() => setOpenRoots((s) => ({ ...s, [root.system]: !s[root.system] }))}
                 className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-slate-50/70 transition text-left"
               >
                 {open ? (
@@ -4011,9 +4516,7 @@ function TaxonomyTree({
                 >
                   {root.system}
                 </span>
-                <span className="text-sm font-semibold text-slate-900">
-                  {meta.blurb}
-                </span>
+                <span className="text-sm font-semibold text-slate-900">{meta.blurb}</span>
                 <span className="ml-auto inline-flex items-center gap-2 text-[11px]">
                   <span className="rounded-full bg-slate-100 text-slate-700 px-2 py-0.5 font-semibold">
                     {root.totalCodes} codes
@@ -4041,9 +4544,7 @@ function TaxonomyTree({
                         <div key={catKey}>
                           <button
                             type="button"
-                            onClick={() =>
-                              setOpenCats((s) => ({ ...s, [catKey]: !catOpen }))
-                            }
+                            onClick={() => setOpenCats((s) => ({ ...s, [catKey]: !catOpen }))}
                             className="w-full flex items-center gap-2 pl-10 pr-4 py-1.5 hover:bg-slate-50/70 transition text-left"
                           >
                             {catOpen ? (
@@ -4108,7 +4609,9 @@ function TaxonomyTree({
 }
 
 function MedicalDictionary() {
-  const [subtab, setSubtab] = useState<"library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "autoterm" | "taxonomy">("authoring");
+  const [subtab, setSubtab] = useState<
+    "library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "autoterm" | "taxonomy"
+  >("authoring");
 
   // Cross-tab navigation: Live Terminology Matrix pills can request a tab switch.
   useEffect(() => {
@@ -4294,7 +4797,9 @@ function MedicalDictionary() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   /* ------------------------------------------------------------ */
   /*  Latest-15-admissions usage filter                            */
@@ -4302,7 +4807,11 @@ function MedicalDictionary() {
   /*  recent 15 patients in the selected facility (or network).    */
   /* ------------------------------------------------------------ */
   const [usedCodes, setUsedCodes] = useState<Record<string, Set<string>>>({});
-  const [usageMeta, setUsageMeta] = useState<{ count: number; labels: string[]; meds: string[] }>({ count: 0, labels: [], meds: [] });
+  const [usageMeta, setUsageMeta] = useState<{ count: number; labels: string[]; meds: string[] }>({
+    count: 0,
+    labels: [],
+    meds: [],
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -4323,11 +4832,15 @@ function MedicalDictionary() {
           ? supabase.from("lab_orders").select("patient_mrn, test_type").in("patient_mrn", mrns)
           : Promise.resolve({ data: [] as any[] }),
         mrns.length
-          ? supabase.from("medication_orders").select("patient_mrn, medication_name, drug_name").in("patient_mrn", mrns)
+          ? supabase
+              .from("medication_orders")
+              .select("patient_mrn, medication_name, drug_name")
+              .in("patient_mrn", mrns)
           : Promise.resolve({ data: [] as any[] }),
       ]);
       const labLabels = new Set<string>();
-      for (const r of (labsRes.data ?? []) as any[]) if (r.test_type) labLabels.add(String(r.test_type));
+      for (const r of (labsRes.data ?? []) as any[])
+        if (r.test_type) labLabels.add(String(r.test_type));
       const medLabels = new Set<string>();
       for (const r of (medsRes.data ?? []) as any[]) {
         const m = r.medication_name || r.drug_name;
@@ -4343,7 +4856,11 @@ function MedicalDictionary() {
         for (const c of (p.snomed_codes ?? []) as string[]) exactSnomed.add(c);
       }
       if (cancelled) return;
-      setUsageMeta({ count: list.length, labels: Array.from(labLabels), meds: Array.from(medLabels) });
+      setUsageMeta({
+        count: list.length,
+        labels: Array.from(labLabels),
+        meds: Array.from(medLabels),
+      });
 
       // Build per-system code sets by matching the dictionary against the
       // patient cohort's chief complaints / lab test names / med names.
@@ -4363,14 +4880,16 @@ function MedicalDictionary() {
         return out;
       };
       setUsedCodes({
-        "ICD-10":    matchSet("ICD-10", ccLabels, exactIcd),
+        "ICD-10": matchSet("ICD-10", ccLabels, exactIcd),
         "SNOMED CT": matchSet("SNOMED CT", ccLabels, exactSnomed),
-        "LOINC":     matchSet("LOINC", Array.from(labLabels)),
-        "RxNorm":    matchSet("RxNorm", Array.from(medLabels)),
-        "VSAC":      new Set(rows.filter((r) => r.code_system === "VSAC").map((r) => r.code)),
+        LOINC: matchSet("LOINC", Array.from(labLabels)),
+        RxNorm: matchSet("RxNorm", Array.from(medLabels)),
+        VSAC: new Set(rows.filter((r) => r.code_system === "VSAC").map((r) => r.code)),
       });
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [facilityFilter, rows]);
 
   // Debounced auto-lookup: when user enters a code under a code system
@@ -4379,7 +4898,10 @@ function MedicalDictionary() {
   useEffect(() => {
     if (!addOpen) return;
     const code = form.code.trim();
-    if (!code) { setLookupNote(null); return; }
+    if (!code) {
+      setLookupNote(null);
+      return;
+    }
     let cancelled = false;
     setLooking(true);
     setLookupNote(null);
@@ -4403,8 +4925,10 @@ function MedicalDictionary() {
         description: f.description.trim() ? f.description : res.description,
       }));
     }, 450);
-    return () => { cancelled = true; clearTimeout(t); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, [form.code, form.code_system, addOpen]);
 
   const openAdd = () => {
@@ -4427,9 +4951,10 @@ function MedicalDictionary() {
       ...f,
       code_system: v,
       // Refresh default category when switching systems unless user has typed one
-      category: f.category && f.category !== DEFAULT_CATEGORY[f.code_system]
-        ? f.category
-        : (DEFAULT_CATEGORY[v] ?? ""),
+      category:
+        f.category && f.category !== DEFAULT_CATEGORY[f.code_system]
+          ? f.category
+          : (DEFAULT_CATEGORY[v] ?? ""),
     }));
   };
 
@@ -4445,7 +4970,9 @@ function MedicalDictionary() {
     a.download = `CodeSystem-${activeSystem.replace(/\s+/g, "_")}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("FHIR CodeSystem exported", { description: `${activeSystem} · ${entries.length} concepts` });
+    toast.success("FHIR CodeSystem exported", {
+      description: `${activeSystem} · ${entries.length} concepts`,
+    });
   };
 
   const filtered = rows.filter((r) => {
@@ -4474,16 +5001,20 @@ function MedicalDictionary() {
     }
     setSaving(true);
     const finalCategory = form.category.trim() || DEFAULT_CATEGORY[form.code_system] || null;
-    const finalDescription = form.description.trim() || defaultUsage(form.code_system, form.display.trim());
+    const finalDescription =
+      form.description.trim() || defaultUsage(form.code_system, form.display.trim());
     const { data, error } = await supabase
       .from("medical_terminology")
-      .upsert({
-        code_system: form.code_system,
-        code: form.code.trim(),
-        display: form.display.trim(),
-        category: finalCategory,
-        description: finalDescription,
-      }, { onConflict: "code_system,code" })
+      .upsert(
+        {
+          code_system: form.code_system,
+          code: form.code.trim(),
+          display: form.display.trim(),
+          category: finalCategory,
+          description: finalDescription,
+        },
+        { onConflict: "code_system,code" },
+      )
       .select()
       .single();
     setSaving(false);
@@ -4499,7 +5030,13 @@ function MedicalDictionary() {
     });
     setActiveSystem(form.code_system);
     setAddOpen(false);
-    setForm({ code_system: form.code_system, code: "", display: "", category: DEFAULT_CATEGORY[form.code_system] ?? "", description: "" });
+    setForm({
+      code_system: form.code_system,
+      code: "",
+      display: "",
+      category: DEFAULT_CATEGORY[form.code_system] ?? "",
+      description: "",
+    });
     toast.success("Terminology added", { description: `${form.code_system} · ${form.code}` });
   };
 
@@ -4611,7 +5148,9 @@ function MedicalDictionary() {
               >
                 <option value="all">All Facilities</option>
                 {FACILITIES.map((f) => (
-                  <option key={f} value={f}>{f}</option>
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
                 ))}
               </select>
             </label>
@@ -4625,7 +5164,11 @@ function MedicalDictionary() {
         </div>
         <div className="flex items-center gap-2">
           {subtab === "library" && (
-            <Button variant="outline" onClick={exportFhir} title="Download active code system as FHIR CodeSystem JSON">
+            <Button
+              variant="outline"
+              onClick={exportFhir}
+              title="Download active code system as FHIR CodeSystem JSON"
+            >
               <Download className="h-4 w-4" /> Export FHIR
             </Button>
           )}
@@ -4643,16 +5186,18 @@ function MedicalDictionary() {
 
       {/* Sub-tab nav — 2 rows of 4, full names visible (no truncation) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 rounded-xl bg-slate-100/70 p-1.5 border border-slate-200">
-        {([
-          { id: "authoring", label: "Authoring Workbench", Icon: Sparkles },
-          { id: "library",   label: "Value Set Library", Icon: BookMarked },
-          { id: "crossmap",  label: "Cross-Map Studio", Icon: Activity },
-          { id: "audits",    label: "NLP Audit Logs", Icon: Sparkles },
-          { id: "safety",    label: "Safety Alerts", Icon: ShieldAlert },
-          { id: "matrix",    label: "Live Terminology Matrix", Icon: Grid3x3 },
-          { id: "autoterm",  label: "Auto Terminologist", Icon: Sparkles },
-          { id: "taxonomy",  label: "Taxonomy Tree", Icon: FolderTree },
-        ] as const).map(({ id, label, Icon }) => {
+        {(
+          [
+            { id: "authoring", label: "Authoring Workbench", Icon: Sparkles },
+            { id: "library", label: "Value Set Library", Icon: BookMarked },
+            { id: "crossmap", label: "Cross-Map Studio", Icon: Activity },
+            { id: "audits", label: "NLP Audit Logs", Icon: Sparkles },
+            { id: "safety", label: "Safety Alerts", Icon: ShieldAlert },
+            { id: "matrix", label: "Live Terminology Matrix", Icon: Grid3x3 },
+            { id: "autoterm", label: "Auto Terminologist", Icon: Sparkles },
+            { id: "taxonomy", label: "Taxonomy Tree", Icon: FolderTree },
+          ] as const
+        ).map(({ id, label, Icon }) => {
           const active = subtab === id;
           return (
             <button
@@ -4672,9 +5217,9 @@ function MedicalDictionary() {
         })}
       </div>
 
-      {subtab === "library"   && <ValueSetLibrary />}
+      {subtab === "library" && <ValueSetLibrary />}
       {subtab === "authoring" && <AuthoringWorkbench />}
-      {subtab === "crossmap"  && <CrossMapStudio />}
+      {subtab === "crossmap" && <CrossMapStudio />}
       {subtab === "audits" && <NlpAuditLogsPanel />}
       {subtab === "audits" && <NlpApprovalTrail />}
       {subtab === "matrix" && <LiveTerminologyMatrix dict={rows} facility={facilityFilter} />}
@@ -4690,19 +5235,24 @@ function MedicalDictionary() {
           <DialogHeader>
             <DialogTitle>Search Terminology</DialogTitle>
             <DialogDescription>
-              Search any SNOMED CT, ICD-10, LOINC, or RxNorm code via the live
-              UMLS API. Selecting a result fills in the Code, Category, Display
-              Name, and Usage boxes so you can review the full record before
-              saving it to the dictionary.
+              Search any SNOMED CT, ICD-10, LOINC, or RxNorm code via the live UMLS API. Selecting a
+              result fills in the Code, Category, Display Name, and Usage boxes so you can review
+              the full record before saving it to the dictionary.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
               <Label className="text-xs">Code System</Label>
               <Select value={form.code_system} onValueChange={onSystemChange}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  {CODE_SYSTEMS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  {CODE_SYSTEMS.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -4729,9 +5279,7 @@ function MedicalDictionary() {
                 disabled={!umlsVocab(form.code_system)}
                 className="h-9 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30 disabled:bg-slate-100 disabled:cursor-not-allowed"
               />
-              {umlsError && (
-                <div className="text-[11px] text-amber-700">{umlsError}</div>
-              )}
+              {umlsError && <div className="text-[11px] text-amber-700">{umlsError}</div>}
               {umlsResults.length > 0 && (
                 <ul className="max-h-56 overflow-y-auto divide-y divide-slate-200 rounded border border-slate-200 bg-white">
                   {umlsResults.map((hit) => (
@@ -4772,7 +5320,9 @@ function MedicalDictionary() {
                   className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-[#2d8a9e] focus:ring-2 focus:ring-[#2d8a9e]/30"
                 />
                 {lookupNote && (
-                  <div className={`mt-1 text-[10px] ${lookupNote.startsWith("Matched") ? "text-emerald-600" : "text-amber-600"}`}>
+                  <div
+                    className={`mt-1 text-[10px] ${lookupNote.startsWith("Matched") ? "text-emerald-600" : "text-amber-600"}`}
+                  >
                     {lookupNote}
                   </div>
                 )}
@@ -4808,8 +5358,14 @@ function MedicalDictionary() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={submit} disabled={saving} className="bg-[#0c2340] hover:bg-[#0c2340]/90">
+            <Button variant="outline" onClick={() => setAddOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submit}
+              disabled={saving}
+              className="bg-[#0c2340] hover:bg-[#0c2340]/90"
+            >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Save to Dictionary
             </Button>

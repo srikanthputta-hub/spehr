@@ -59,7 +59,7 @@ export function buildTaxonomy(
         code: r.code,
         display: r.display,
         description: r.description ?? null,
-        status: (r as any).status ?? "Active",
+        status: r.status ?? "Active",
         category: r.category ?? null,
         recentlyUsed: used.has(r.code),
         usageCount: usageCounts[`${system}|${r.code}`] ?? 0,

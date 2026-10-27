@@ -78,7 +78,10 @@ Deno.serve(async (req) => {
     typeof body?.transfer_id === "string" ? body.transfer_id : undefined;
 
   if (!mrn || !transferId) {
-    return json({ ok: false, mrn: mrn ?? null, deleted: false, reason: "missing_mrn_or_transfer_id" }, 400);
+    return json(
+      { ok: false, mrn: mrn ?? null, deleted: false, reason: "missing_mrn_or_transfer_id" },
+      400,
+    );
   }
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
@@ -92,7 +95,10 @@ Deno.serve(async (req) => {
     .maybeSingle();
 
   if (transferErr) {
-    return json({ ok: false, mrn, deleted: false, reason: `transfer_lookup_failed: ${transferErr.message}` }, 500);
+    return json(
+      { ok: false, mrn, deleted: false, reason: `transfer_lookup_failed: ${transferErr.message}` },
+      500,
+    );
   }
   if (!transfer) {
     return json({ ok: false, mrn, deleted: false, reason: "transfer_not_found" }, 404);
@@ -101,7 +107,15 @@ Deno.serve(async (req) => {
     return json({ ok: false, mrn, deleted: false, reason: "transfer_mrn_mismatch" }, 409);
   }
   if (transfer.status !== "Approved") {
-    return json({ ok: false, mrn, deleted: false, reason: `transfer_not_approved (status=${transfer.status})` }, 409);
+    return json(
+      {
+        ok: false,
+        mrn,
+        deleted: false,
+        reason: `transfer_not_approved (status=${transfer.status})`,
+      },
+      409,
+    );
   }
 
   const { data: deletedRows, error: delErr } = await admin
@@ -111,10 +125,16 @@ Deno.serve(async (req) => {
     .select("mrn");
 
   if (delErr) {
-    return json({ ok: false, mrn, deleted: false, reason: `patient_delete_failed: ${delErr.message}` }, 500);
+    return json(
+      { ok: false, mrn, deleted: false, reason: `patient_delete_failed: ${delErr.message}` },
+      500,
+    );
   }
   if (!deletedRows || deletedRows.length === 0) {
-    return json({ ok: false, mrn, deleted: false, reason: "patient_not_found_or_already_deleted" }, 404);
+    return json(
+      { ok: false, mrn, deleted: false, reason: "patient_not_found_or_already_deleted" },
+      404,
+    );
   }
 
   return json({ ok: true, mrn, deleted: true });

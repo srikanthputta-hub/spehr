@@ -88,7 +88,34 @@ type Check = {
   valueSetName: VsName;
 };
 
-function categoryTokens(res: any): string[] {
+/**
+ * Minimal FHIR shapes for the fields this validator actually reads off the
+ * transaction bundle built by `buildBundleForMrn` — not a full FHIR typing,
+ * but `unknown`-backed rather than `any`.
+ */
+interface FhirCoding {
+  system?: string;
+  code?: string;
+  display?: string;
+}
+interface FhirCodeableConcept {
+  coding?: FhirCoding[];
+  text?: string;
+}
+interface FhirResource {
+  resourceType?: string;
+  category?: FhirCodeableConcept[];
+  code?: FhirCodeableConcept;
+  medicationCodeableConcept?: FhirCodeableConcept;
+}
+interface FhirBundleEntry {
+  resource?: FhirResource;
+}
+export interface FhirTransactionBundle {
+  entry?: FhirBundleEntry[];
+}
+
+function categoryTokens(res: FhirResource): string[] {
   const cats = Array.isArray(res?.category) ? res.category : [];
   const out: string[] = [];
   for (const c of cats) {
@@ -102,12 +129,12 @@ function categoryTokens(res: any): string[] {
 
 function pushCoding(
   out: Check[],
-  cc: any,
+  cc: FhirCodeableConcept | undefined,
   element: string,
   valueSetName: VsName,
   systemMatch: (s: string | undefined) => boolean,
 ) {
-  const codings: any[] = Array.isArray(cc?.coding) ? cc.coding : [];
+  const codings: FhirCoding[] = Array.isArray(cc?.coding) ? cc.coding : [];
   for (const c of codings) {
     const code = c?.code ? String(c.code).trim() : "";
     if (!code) continue;
@@ -122,9 +149,9 @@ function pushCoding(
   }
 }
 
-function extractChecks(bundle: any): Check[] {
+function extractChecks(bundle: FhirTransactionBundle): Check[] {
   const out: Check[] = [];
-  const entries: any[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
+  const entries: FhirBundleEntry[] = Array.isArray(bundle?.entry) ? bundle.entry : [];
   for (const e of entries) {
     const res = e?.resource;
     if (!res) continue;
@@ -192,7 +219,7 @@ async function validateOne(
     body: JSON.stringify({ code, system, valueSetOid: oid }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const j: any = await res.json();
+  const j = (await res.json()) as { ok?: boolean; valid?: boolean; error?: string } | undefined;
   if (j?.ok !== true) throw new Error(String(j?.error ?? "validate failed"));
   const valid = !!j.valid;
   memo.set(key, valid);
@@ -210,7 +237,7 @@ async function logRow(mrn: string, message: string) {
       stage: "discharge-conformance",
       message,
       mrn,
-    } as any);
+    });
   } catch (e) {
     console.warn("[discharge-conformance] log failed", e);
   }
@@ -250,7 +277,7 @@ export type InvalidCode = {
 };
 
 export async function validateDischargeConformance(
-  bundle: any,
+  bundle: FhirTransactionBundle,
   mrn: string,
 ): Promise<{ ok: boolean; invalid: InvalidCode[] }> {
   try {

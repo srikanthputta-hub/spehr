@@ -18,13 +18,58 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 const UTS = "https://uts-ws.nlm.nih.gov/rest";
 const RXNAV = "https://rxnav.nlm.nih.gov/REST";
+
+// ─── UMLS/VSAC response shapes ───────────────────────────────────────────────
+//
+// The UTS REST API returns loosely-typed JSON; these interfaces describe only
+// the fields this function actually reads, so upstream payloads are cast to
+// them (via `as`) instead of flowing through as `any`.
+
+/** One row of a UMLS /search or /atoms result ("ui" is "NONE" when absent). */
+interface UmlsSearchResult {
+  ui: string;
+  name: string;
+  rootSource?: string;
+}
+
+interface UmlsSearchResponse {
+  result?: { results?: UmlsSearchResult[] };
+}
+
+/** One row of a UMLS /atoms or /ancestors /descendants /children /parents list. */
+interface UmlsAtom {
+  code?: string;
+  ui?: string;
+  name?: string;
+  rootSource?: string;
+}
+
+interface UmlsAtomsResponse {
+  result?: UmlsAtom[];
+}
+
+/** A VSAC/FHIR ValueSet $expand response, trimmed to the fields we read. */
+interface VsacExpansionContains {
+  code?: string;
+  display?: string;
+  system?: string;
+}
+
+interface VsacInclude {
+  valueSet?: string[];
+  filter?: unknown[];
+}
+
+interface VsacValueSetResource {
+  expansion?: { contains?: VsacExpansionContains[] };
+  compose?: { include?: VsacInclude[] };
+}
 
 // ─── Secret redaction ────────────────────────────────────────────────────────
 //
@@ -112,7 +157,14 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
   const sab = String(p.sab ?? "SNOMEDCT_US");
 
   if (!input) {
-    return { resolvedCode: null, resolvedName: null, confidence: 0, valid: false, statusRouting: "held", elapsed_ms: 0 };
+    return {
+      resolvedCode: null,
+      resolvedName: null,
+      confidence: 0,
+      valid: false,
+      statusRouting: "held",
+      elapsed_ms: 0,
+    };
   }
 
   // If input looks like an existing SNOMED code (purely numeric, 6-18 digits),
@@ -124,15 +176,36 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
     const res = await fetch(url, { headers: { Accept: "application/json" } });
     const elapsed_ms = Date.now() - started;
     if (!res.ok) {
-      return { resolvedCode: input, resolvedName: null, confidence: 0.35, valid: false, statusRouting: "held", elapsed_ms };
+      return {
+        resolvedCode: input,
+        resolvedName: null,
+        confidence: 0.35,
+        valid: false,
+        statusRouting: "held",
+        elapsed_ms,
+      };
     }
-    const json = await res.json();
+    const json = (await res.json()) as UmlsSearchResponse;
     const results = Array.isArray(json?.result?.results) ? json.result.results : [];
-    const top = results.find((r: any) => r?.ui && r.ui !== "NONE");
+    const top = results.find((r) => r?.ui && r.ui !== "NONE");
     if (top) {
-      return { resolvedCode: top.ui, resolvedName: top.name, confidence: 0.95, valid: true, statusRouting: "review", elapsed_ms };
+      return {
+        resolvedCode: top.ui,
+        resolvedName: top.name,
+        confidence: 0.95,
+        valid: true,
+        statusRouting: "review",
+        elapsed_ms,
+      };
     }
-    return { resolvedCode: input, resolvedName: null, confidence: 0.30, valid: false, statusRouting: "held", elapsed_ms };
+    return {
+      resolvedCode: input,
+      resolvedName: null,
+      confidence: 0.3,
+      valid: false,
+      statusRouting: "held",
+      elapsed_ms,
+    };
   }
 
   // Free text: two-step CUI lookup.
@@ -146,18 +219,32 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
   const elapsed_ms = Date.now() - started;
 
   if (!res.ok) {
-    return { resolvedCode: null, resolvedName: null, confidence: 0.20, valid: false, statusRouting: "held", elapsed_ms };
+    return {
+      resolvedCode: null,
+      resolvedName: null,
+      confidence: 0.2,
+      valid: false,
+      statusRouting: "held",
+      elapsed_ms,
+    };
   }
 
-  const json = await res.json();
+  const json = (await res.json()) as UmlsSearchResponse;
   const results = Array.isArray(json?.result?.results) ? json.result.results : [];
-  const top = results.find((r: any) => r?.ui && r.ui !== "NONE");
+  const top = results.find((r) => r?.ui && r.ui !== "NONE");
 
   if (!top) {
-    return { resolvedCode: null, resolvedName: null, confidence: 0.25, valid: false, statusRouting: "held", elapsed_ms };
+    return {
+      resolvedCode: null,
+      resolvedName: null,
+      confidence: 0.25,
+      valid: false,
+      statusRouting: "held",
+      elapsed_ms,
+    };
   }
 
-  const cui = String(top.ui);          // e.g. "C0008031"
+  const cui = String(top.ui); // e.g. "C0008031"
   const cuiDisplayName = String(top.name ?? ""); // e.g. "Chest Pain"
 
   // Step 2: resolve CUI → source code in the requested vocabulary.
@@ -180,12 +267,23 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
       }
     }
   } catch (e) {
-    console.log("[umls-proxy] atoms lookup error for CUI", cui, redactSecrets((e as Error).message));
+    console.log(
+      "[umls-proxy] atoms lookup error for CUI",
+      cui,
+      redactSecrets((e as Error).message),
+    );
   }
 
   if (!resolvedSourceCode) {
     // CUI found but no atom in requested vocabulary — return held with low confidence
-    return { resolvedCode: null, resolvedName: cuiDisplayName, confidence: 0.30, valid: false, statusRouting: "held", elapsed_ms };
+    return {
+      resolvedCode: null,
+      resolvedName: cuiDisplayName,
+      confidence: 0.3,
+      valid: false,
+      statusRouting: "held",
+      elapsed_ms,
+    };
   }
 
   // Compute confidence from name similarity between the resolved display name and input.
@@ -202,16 +300,23 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
     // Word-overlap ratio — partial match
     const inputWords = new Set(inputLower.split(/\s+/).filter(Boolean));
     const nameWords = new Set(resolvedName.split(/\s+/).filter(Boolean));
-    const overlap = [...inputWords].filter(w => nameWords.has(w)).length;
+    const overlap = [...inputWords].filter((w) => nameWords.has(w)).length;
     const maxWords = Math.max(inputWords.size, nameWords.size, 1);
     const ratio = overlap / maxWords;
-    confidence = 0.50 + Math.min(ratio, 1) * 0.28;
+    confidence = 0.5 + Math.min(ratio, 1) * 0.28;
   }
 
   const statusRouting: "review" | "draft" | "held" =
-    confidence >= 0.80 ? "review" : confidence >= 0.50 ? "draft" : "held";
+    confidence >= 0.8 ? "review" : confidence >= 0.5 ? "draft" : "held";
 
-  return { resolvedCode: resolvedSourceCode, resolvedName: resolvedSourceName, confidence, valid: true, statusRouting, elapsed_ms };
+  return {
+    resolvedCode: resolvedSourceCode,
+    resolvedName: resolvedSourceName,
+    confidence,
+    valid: true,
+    statusRouting,
+    elapsed_ms,
+  };
 }
 
 // ─── P1-B: Subsumption check via UMLS source ancestors ───────────────────────
@@ -451,7 +556,10 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
     try {
       auth = btoa(`apikey:${UMLS_API_KEY}`);
     } catch {
-      return { error: "UMLS_API_KEY contains characters that cannot be Base64-encoded for Basic auth.", status: 500 };
+      return {
+        error: "UMLS_API_KEY contains characters that cannot be Base64-encoded for Basic auth.",
+        status: 500,
+      };
     }
     const res = await fetch(url, {
       headers: { Accept: "application/json", Authorization: `Basic ${auth}` },
@@ -464,19 +572,23 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
       };
     }
 
-    let resource: any;
+    let resource: VsacValueSetResource;
     try {
-      resource = await res.json();
+      resource = (await res.json()) as VsacValueSetResource;
     } catch {
       return { error: "VSAC returned a non-JSON response body.", status: 502 };
     }
     const expansion = resource?.expansion ?? {};
-    const contains: any[] = Array.isArray(expansion.contains) ? expansion.contains : [];
-    const codes = contains.map((c) => ({
-      code: String(c?.code ?? ""),
-      display: String(c?.display ?? ""),
-      vocabulary: VSAC_SYSTEM_TO_VOCAB[String(c?.system ?? "")] ?? String(c?.system ?? ""),
-    })).filter((c) => c.code);
+    const contains: VsacExpansionContains[] = Array.isArray(expansion.contains)
+      ? expansion.contains
+      : [];
+    const codes = contains
+      .map((c) => ({
+        code: String(c?.code ?? ""),
+        display: String(c?.display ?? ""),
+        vocabulary: VSAC_SYSTEM_TO_VOCAB[String(c?.system ?? "")] ?? String(c?.system ?? ""),
+      }))
+      .filter((c) => c.code);
 
     // Fetch the ValueSet definition (without $expand) to detect its authoring
     // type: grouping (compose.include[].valueSet), intensional (…filter), or
@@ -488,8 +600,10 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
         { headers: { Accept: "application/json", Authorization: `Basic ${auth}` } },
       );
       if (defRes.ok) {
-        const def: any = await defRes.json();
-        const includes: any[] = Array.isArray(def?.compose?.include) ? def.compose.include : [];
+        const def = (await defRes.json()) as VsacValueSetResource;
+        const includes: VsacInclude[] = Array.isArray(def?.compose?.include)
+          ? def.compose.include
+          : [];
         const hasGrouping = includes.some(
           (inc) => Array.isArray(inc?.valueSet) && inc.valueSet.length > 0,
         );
@@ -513,7 +627,10 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
       codes,
     };
   } catch (e) {
-    return { error: `VSAC request failed: ${redactSecrets((e as Error).message ?? "unknown error")}`, status: 502 };
+    return {
+      error: `VSAC request failed: ${redactSecrets((e as Error).message ?? "unknown error")}`,
+      status: 502,
+    };
   }
 }
 
@@ -533,10 +650,10 @@ type Action =
   | "snomed"
   | "icd10Resolve"
   | "loinc"
-  | "resolveAndValidate"   // P1-A: replaces "validate" for Auto Terminologist
-  | "subsumes"             // P1-B: FHIR $subsumes via UMLS ancestors
-  | "vsacExpand"           // VSAC $expand by OID via HL7 FHIR terminology server
-  | "hierarchyExpand";     // P2: intensional expansion for SNOMED CT
+  | "resolveAndValidate" // P1-A: replaces "validate" for Auto Terminologist
+  | "subsumes" // P1-B: FHIR $subsumes via UMLS ancestors
+  | "vsacExpand" // VSAC $expand by OID via HL7 FHIR terminology server
+  | "hierarchyExpand"; // P2: intensional expansion for SNOMED CT
 
 interface Body {
   action: Action;
@@ -545,11 +662,12 @@ interface Body {
 
 // ─── Supabase client + cache helpers ─────────────────────────────────────────
 
-const supabase = SUPABASE_URL && SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-  : null;
+const supabase =
+  SUPABASE_URL && SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : null;
 
 async function hashKey(input: string): Promise<string> {
   const buf = new TextEncoder().encode(input);
@@ -571,11 +689,7 @@ async function cacheGet(key: string): Promise<unknown | null> {
   return data.response;
 }
 
-async function cacheSet(
-  key: string,
-  vocabulary: string,
-  response: unknown,
-): Promise<void> {
+async function cacheSet(key: string, vocabulary: string, response: unknown): Promise<void> {
   if (!supabase) return;
   await supabase.from("umls_cache").upsert(
     {
@@ -591,7 +705,10 @@ async function cacheSet(
 
 // ─── Simple single-URL action builder ────────────────────────────────────────
 
-function buildUrl(action: Action, p: Record<string, unknown>): {
+function buildUrl(
+  action: Action,
+  p: Record<string, unknown>,
+): {
   url: string;
   vocab: string;
 } {
@@ -749,10 +866,10 @@ Deno.serve(async (req) => {
     // ── P1-A: resolveAndValidate (multi-step, bypasses buildUrl) ─────────────
     if (action === "resolveAndValidate") {
       if (!UMLS_API_KEY) {
-        return new Response(
-          JSON.stringify({ error: "UMLS_API_KEY not configured" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ error: "UMLS_API_KEY not configured" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       const cacheKey = await hashKey(`resolveAndValidate:${JSON.stringify(params ?? {})}`);
       const cached = await cacheGet(cacheKey);
@@ -764,19 +881,18 @@ Deno.serve(async (req) => {
       }
       const result = await resolveAndValidate(params ?? {});
       cacheSet(cacheKey, "SNOMEDCT_US", result).catch(() => {});
-      return new Response(
-        JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...result }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...result }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // ── P1-B: subsumes (multi-step, bypasses buildUrl) ────────────────────────
     if (action === "subsumes") {
       if (!UMLS_API_KEY) {
-        return new Response(
-          JSON.stringify({ error: "UMLS_API_KEY not configured" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ error: "UMLS_API_KEY not configured" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       const cacheKey = await hashKey(`subsumes:${JSON.stringify(params ?? {})}`);
       const cached = await cacheGet(cacheKey);
@@ -788,19 +904,18 @@ Deno.serve(async (req) => {
       }
       const result = await checkSubsumes(params ?? {});
       cacheSet(cacheKey, "SNOMEDCT_US", result).catch(() => {});
-      return new Response(
-        JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...result }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...result }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // ── P2: hierarchyExpand (multi-step, bypasses buildUrl) ──────────────────
     if (action === "hierarchyExpand") {
       if (!UMLS_API_KEY) {
-        return new Response(
-          JSON.stringify({ error: "UMLS_API_KEY not configured" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ error: "UMLS_API_KEY not configured" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       const cacheKey = await hashKey(`hierarchyExpand:${JSON.stringify(params ?? {})}`);
       const cached = await cacheGet(cacheKey);
@@ -812,21 +927,20 @@ Deno.serve(async (req) => {
       }
       const result = await hierarchyExpand(params ?? {});
       cacheSet(cacheKey, "SNOMEDCT_US", result).catch(() => {});
-      return new Response(
-        JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...result }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...result }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // ── vsacExpand: VSAC ValueSet $expand by OID ─────────────────────────────
     if (action === "vsacExpand") {
       if (!UMLS_API_KEY) {
-        return new Response(
-          JSON.stringify({ error: "UMLS_API_KEY not configured" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ error: "UMLS_API_KEY not configured" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
-      const oid = String((params as any)?.oid ?? "").trim();
+      const oid = String(params?.oid ?? "").trim();
       const cacheKey = await hashKey(`vsacExpand:${oid}`);
       const cached = await cacheGet(cacheKey);
       if (cached) {
@@ -837,27 +951,25 @@ Deno.serve(async (req) => {
       }
       const result = await vsacExpand(params ?? {});
       if ("error" in result) {
-        return new Response(
-          JSON.stringify({ error: result.error }),
-          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ error: result.error }), {
+          status: 502,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       cacheSet(cacheKey, "VSAC", result).catch(() => {});
-      return new Response(
-        JSON.stringify({ cached: false, vocabulary: "VSAC", ...result }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ cached: false, vocabulary: "VSAC", ...result }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // ── All other actions: single-URL via buildUrl ───────────────────────────
     // ── snomed: 2-step CUI → SNOMEDCT_US atom lookup (free-text safe) ────────
     if (action === "snomed") {
-      const input = String((params as any)?.string ?? "").trim();
+      const input = String(params?.string ?? "").trim();
       if (!input || !UMLS_API_KEY) {
-        return new Response(
-          JSON.stringify({ result: { results: [] } }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ result: { results: [] } }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       const cacheKey = await hashKey(`snomed2:${input}`);
       const cached = await cacheGet(cacheKey);
@@ -872,10 +984,10 @@ Deno.serve(async (req) => {
         `${UTS}/search/current?string=${encodeURIComponent(input)}&returnIdType=concept&searchType=words&pageSize=10&apiKey=${UMLS_API_KEY}`,
         { headers: { Accept: "application/json" } },
       );
-      const s1json = s1.ok ? await s1.json() : {};
-      const candidates = (Array.isArray((s1json as any)?.result?.results)
-        ? (s1json as any).result.results
-        : []).filter((r: any) => r?.ui && r.ui !== "NONE");
+      const s1json = (s1.ok ? await s1.json() : {}) as UmlsSearchResponse;
+      const candidates = (
+        Array.isArray(s1json?.result?.results) ? s1json.result.results : []
+      ).filter((r) => r?.ui && r.ui !== "NONE");
 
       let code: string | null = null;
       let name: string | null = null;
@@ -885,8 +997,8 @@ Deno.serve(async (req) => {
           { headers: { Accept: "application/json" } },
         );
         if (!a.ok) continue;
-        const aj = await a.json();
-        const atoms = Array.isArray((aj as any)?.result) ? (aj as any).result : [];
+        const aj = (await a.json()) as UmlsAtomsResponse;
+        const atoms = Array.isArray(aj?.result) ? aj.result : [];
         for (const atom of atoms) {
           const raw = String(atom?.code ?? "");
           const extracted = raw.includes("/") ? raw.split("/").pop()! : raw;
@@ -901,20 +1013,18 @@ Deno.serve(async (req) => {
 
       const out = { result: { results: code ? [{ ui: code, name }] : [] } };
       cacheSet(cacheKey, "SNOMEDCT_US", out).catch(() => {});
-      return new Response(
-        JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...out }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ cached: false, vocabulary: "SNOMEDCT_US", ...out }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // ── icd10Resolve: 2-step CUI → ICD10CM atom lookup (free-text safe) ──────
     if (action === "icd10Resolve") {
-      const input = String((params as any)?.string ?? "").trim();
+      const input = String(params?.string ?? "").trim();
       if (!input || !UMLS_API_KEY) {
-        return new Response(
-          JSON.stringify({ result: { results: [] } }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ result: { results: [] } }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       const cacheKey = await hashKey(`icd10Resolve2:${input}`);
       const cached = await cacheGet(cacheKey);
@@ -929,10 +1039,10 @@ Deno.serve(async (req) => {
         `${UTS}/search/current?string=${encodeURIComponent(input)}&returnIdType=concept&searchType=words&pageSize=10&apiKey=${UMLS_API_KEY}`,
         { headers: { Accept: "application/json" } },
       );
-      const s1json = s1.ok ? await s1.json() : {};
-      const candidates = (Array.isArray((s1json as any)?.result?.results)
-        ? (s1json as any).result.results
-        : []).filter((r: any) => r?.ui && r.ui !== "NONE");
+      const s1json = (s1.ok ? await s1.json() : {}) as UmlsSearchResponse;
+      const candidates = (
+        Array.isArray(s1json?.result?.results) ? s1json.result.results : []
+      ).filter((r) => r?.ui && r.ui !== "NONE");
 
       let code: string | null = null;
       let name: string | null = null;
@@ -942,8 +1052,8 @@ Deno.serve(async (req) => {
           { headers: { Accept: "application/json" } },
         );
         if (!a.ok) continue;
-        const aj = await a.json();
-        const atoms = Array.isArray((aj as any)?.result) ? (aj as any).result : [];
+        const aj = (await a.json()) as UmlsAtomsResponse;
+        const atoms = Array.isArray(aj?.result) ? aj.result : [];
         for (const atom of atoms) {
           const raw = String(atom?.code ?? "");
           const extracted = raw.includes("/") ? raw.split("/").pop()! : raw;
@@ -958,19 +1068,18 @@ Deno.serve(async (req) => {
 
       const out = { result: { results: code ? [{ ui: code, name }] : [] } };
       cacheSet(cacheKey, "ICD10CM", out).catch(() => {});
-      return new Response(
-        JSON.stringify({ cached: false, vocabulary: "ICD10CM", ...out }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ cached: false, vocabulary: "ICD10CM", ...out }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const needsUmls = action !== "rxnorm" && action !== "rxnormDetail" &&
-      action !== "rxnormRelated";
+    const needsUmls =
+      action !== "rxnorm" && action !== "rxnormDetail" && action !== "rxnormRelated";
     if (needsUmls && !UMLS_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "UMLS_API_KEY not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ error: "UMLS_API_KEY not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const { url, vocab } = buildUrl(action, params ?? {});
@@ -997,12 +1106,16 @@ Deno.serve(async (req) => {
       // UMLS crosswalk returns 404 when no equivalents exist — normalize to empty.
       if (action === "crosswalk" && upstream.status === 404) {
         const fb = await crosswalkCuiFallback(params ?? {});
-        const out = { result: fb.matches[0] ?? null, matches: fb.matches, elapsed_ms, fallback: "cui-atoms" };
+        const out = {
+          result: fb.matches[0] ?? null,
+          matches: fb.matches,
+          elapsed_ms,
+          fallback: "cui-atoms",
+        };
         cacheSet(cacheKey, vocab, out).catch(() => {});
-        return new Response(
-          JSON.stringify({ cached: false, vocabulary: vocab, ...out }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ cached: false, vocabulary: vocab, ...out }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       const text = await upstream.text();
       return new Response(
@@ -1021,9 +1134,10 @@ Deno.serve(async (req) => {
     let shaped: Record<string, unknown> = { elapsed_ms, ...json };
 
     if (action === "crosswalk") {
-      const raw = Array.isArray((json as any).result) ? (json as any).result : [];
-      const filtered = raw.filter((r: any) => r && r.ui && r.ui !== "NONE");
-      let matches = filtered.map((r: any) => ({
+      const crosswalkJson = json as { result?: UmlsSearchResult[] };
+      const raw = Array.isArray(crosswalkJson.result) ? crosswalkJson.result : [];
+      const filtered = raw.filter((r) => r && r.ui && r.ui !== "NONE");
+      let matches = filtered.map((r) => ({
         code: r.ui,
         name: r.name,
         rootSource: r.rootSource,
@@ -1040,10 +1154,11 @@ Deno.serve(async (req) => {
     }
 
     if (action === "validate") {
-      const results = Array.isArray((json as any)?.result?.results)
-        ? (json as any).result.results
+      const validateJson = json as UmlsSearchResponse;
+      const results = Array.isArray(validateJson?.result?.results)
+        ? validateJson.result.results
         : [];
-      const top = results.find((r: any) => r && r.ui && r.ui !== "NONE") ?? null;
+      const top = results.find((r) => r && r.ui && r.ui !== "NONE") ?? null;
       shaped = {
         elapsed_ms,
         result: top
