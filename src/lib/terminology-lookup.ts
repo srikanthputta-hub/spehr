@@ -36,7 +36,7 @@ export function defaultUsage(system: string, display: string): string {
   return fn ? fn(display) : `${system} concept: ${display}`;
 }
 
-async function safeJson(url: string, init?: RequestInit): Promise<any | null> {
+async function safeJson(url: string, init?: RequestInit): Promise<unknown | null> {
   try {
     const r = await fetch(url, init);
     if (!r.ok) return null;
@@ -85,9 +85,9 @@ async function lookupLoinc(code: string): Promise<LookupResult | null> {
 
 /** RxNorm RxCUI lookup via RxNav. */
 async function lookupRxNorm(code: string): Promise<LookupResult | null> {
-  const j = await safeJson(
+  const j = (await safeJson(
     `https://rxnav.nlm.nih.gov/REST/rxcui/${encodeURIComponent(code.trim())}/properties.json`,
-  );
+  )) as { properties?: { name?: string; tty?: string } } | null;
   const display: string | undefined = j?.properties?.name;
   if (!display) return null;
   const tty: string | undefined = j?.properties?.tty;

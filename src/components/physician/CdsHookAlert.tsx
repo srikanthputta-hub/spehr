@@ -97,8 +97,10 @@ export function CdsHookAlert({
       setShowInput(null);
       setOverrideReason("");
       toast.success("Override logged to audit trail");
-    } catch (e: any) {
-      toast.error("Failed to log override", { description: e?.message });
+    } catch (e) {
+      toast.error("Failed to log override", {
+        description: e instanceof Error ? e.message : undefined,
+      });
     }
   };
 

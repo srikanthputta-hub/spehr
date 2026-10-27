@@ -52,8 +52,8 @@ export const Route = createFileRoute("/api/public/directory")({
             .order("name");
           if (error) throw error;
           const providers = (data ?? [])
-            .filter((r: any) => r.active !== false)
-            .map((r: any) => ({ name: r.name, facility: r.facility }));
+            .filter((r) => r.active !== false)
+            .map((r) => ({ name: r.name, facility: r.facility }));
           return new Response(JSON.stringify({ facilities: FACILITIES, providers }), {
             headers: cors,
           });

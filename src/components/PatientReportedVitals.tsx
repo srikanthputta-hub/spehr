@@ -2,16 +2,44 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, Loader2, Smartphone } from "lucide-react";
 
+/**
+ * Minimal FHIR Observation shape for the fields this card reads — the
+ * `resource` column is `Json` (any valid FHIR Observation), so this is
+ * `unknown`-backed rather than `any`.
+ */
+interface FhirCoding {
+  code?: string;
+  display?: string;
+  text?: string;
+}
+interface FhirCodeableConcept {
+  text?: string;
+  coding?: FhirCoding[];
+}
+interface FhirObservationResource {
+  category?: Array<{ coding?: FhirCoding[]; text?: string }>;
+  performer?: Array<{ reference?: string }>;
+  code?: FhirCodeableConcept;
+  valueQuantity?: { value?: number | string; unit?: string };
+  valueString?: string;
+  component?: Array<{
+    code?: FhirCodeableConcept;
+    valueQuantity?: { value?: number | string; unit?: string };
+  }>;
+  effectiveDateTime?: string;
+  issued?: string;
+}
+
 interface ObsRow {
   id: string;
   patient_mrn: string;
   status: string;
-  resource: any;
+  resource: FhirObservationResource;
   created_at: string | null;
 }
 
-function isPatientReported(r: any): boolean {
-  const cats: any[] = r?.resource?.category ?? [];
+function isPatientReported(r: ObsRow): boolean {
+  const cats = r?.resource?.category ?? [];
   for (const c of cats) {
     for (const coding of c?.coding ?? []) {
       const code = String(coding?.code ?? "").toLowerCase();
@@ -37,7 +65,7 @@ function isPatientReported(r: any): boolean {
   return false;
 }
 
-function describe(r: any): { label: string; value: string; when: string } {
+function describe(r: ObsRow): { label: string; value: string; when: string } {
   const res = r?.resource ?? {};
   const label =
     res?.code?.text ||
@@ -52,7 +80,7 @@ function describe(r: any): { label: string; value: string; when: string } {
   } else if (res?.component?.length) {
     value = res.component
       .map(
-        (c: any) =>
+        (c) =>
           `${c?.code?.text ?? c?.code?.coding?.[0]?.display ?? "?"} ${c?.valueQuantity?.value ?? ""}${c?.valueQuantity?.unit ?? ""}`,
       )
       .join(" / ");
@@ -68,14 +96,18 @@ export function PatientReportedVitals({ mrn }: { mrn: string }) {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("fhir_observations")
         .select("id, patient_mrn, status, resource, created_at")
         .eq("patient_mrn", mrn)
         .order("created_at", { ascending: false })
         .limit(50);
       if (!active) return;
-      setRows(((data ?? []) as ObsRow[]).filter((r) => isPatientReported(r)));
+      setRows(
+        (data ?? [])
+          .map((r) => ({ ...r, resource: r.resource as unknown as FhirObservationResource }))
+          .filter((r) => isPatientReported(r)),
+      );
       setLoading(false);
     };
     load();

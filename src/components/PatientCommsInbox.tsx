@@ -32,7 +32,7 @@ export function PatientCommsInbox({
   const [sending, setSending] = useState(false);
 
   const load = async () => {
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("fhir_communications")
       .select("*")
       .eq("mrn", mrn)
@@ -45,7 +45,7 @@ export function PatientCommsInbox({
       (m) => m.sender === "patient" && m.status === "unread",
     );
     if (unread.length) {
-      await (supabase as any)
+      await supabase
         .from("fhir_communications")
         .update({ status: "read" })
         .in(
@@ -89,7 +89,7 @@ export function PatientCommsInbox({
       recipient: [{ reference: `Patient/${mrn}` }],
       payload: [{ contentString: text }],
     };
-    const { error } = await (supabase as any).from("fhir_communications").insert({
+    const { error } = await supabase.from("fhir_communications").insert({
       mrn,
       facility_name: facility ?? null,
       sender: "provider",

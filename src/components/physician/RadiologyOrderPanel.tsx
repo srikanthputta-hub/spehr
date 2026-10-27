@@ -112,8 +112,8 @@ export function RadiologyOrderPanel({
     const chosen = RADIOLOGY_CATALOG[examIdx];
     setSubmitting(true);
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase.from("radiology_orders") as any)
+      const { data, error } = await supabase
+        .from("radiology_orders")
         .insert({
           patient_mrn: mrn,
           patient_name: patientName,
@@ -145,8 +145,8 @@ export function RadiologyOrderPanel({
           resolver: "radiology-order-panel",
         });
         if (coded && data?.id) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from("radiology_orders") as any)
+          await supabase
+            .from("radiology_orders")
             .update({
               indication_icd10_code: coded.code,
               indication_icd10_display: coded.display,
@@ -154,8 +154,11 @@ export function RadiologyOrderPanel({
             })
             .eq("id", data.id);
         }
-      } catch (codeErr: any) {
-        console.warn("[radiology] ICD-10 resolution failed", codeErr?.message);
+      } catch (codeErr) {
+        console.warn(
+          "[radiology] ICD-10 resolution failed",
+          codeErr instanceof Error ? codeErr.message : codeErr,
+        );
       }
 
       // Push a FHIR ServiceRequest to the shared server so the sibling
@@ -210,20 +213,27 @@ export function RadiologyOrderPanel({
           },
         });
         // Best-effort: also stamp the FHIR id back onto the row.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase.from("radiology_orders") as any)
-          .update({ svcreq_fhir_id: svcId })
-          .eq("id", data?.id);
-      } catch (pushErr: any) {
-        console.warn("[radiology] FHIR push failed", pushErr?.message);
+        if (data?.id) {
+          await supabase
+            .from("radiology_orders")
+            .update({ svcreq_fhir_id: svcId })
+            .eq("id", data.id);
+        }
+      } catch (pushErr) {
+        console.warn(
+          "[radiology] FHIR push failed",
+          pushErr instanceof Error ? pushErr.message : pushErr,
+        );
       }
 
       toast.success(`${chosen.exam} ordered`, {
         description: `Routed to imaging queue · order ${data?.id?.slice(0, 8)}`,
       });
       setIndication(diagnosis ?? "");
-    } catch (e: any) {
-      toast.error("Failed to submit radiology order", { description: e?.message });
+    } catch (e) {
+      toast.error("Failed to submit radiology order", {
+        description: e instanceof Error ? e.message : undefined,
+      });
     } finally {
       setSubmitting(false);
     }

@@ -14,7 +14,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ShieldAlert, Stethoscope, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { loadPublishedValueSetsForConsumer } from "@/lib/value-set-registry";
+import {
+  loadPublishedValueSetsForConsumer,
+  type PublishedValueSetHit,
+} from "@/lib/value-set-registry";
 
 type CodeEntry = {
   code: string;
@@ -64,7 +67,7 @@ function useValueSets(): {
         loadPublishedValueSetsForConsumer({ consumer: "Auto Admin — Isolation/Status Flags" }),
       ]);
       if (cancelled) return;
-      const pick = (hits: any[], name: string): ValueSet | null => {
+      const pick = (hits: PublishedValueSetHit[], name: string): ValueSet | null => {
         const h = hits.find((x) => x.value_set_name === name);
         if (!h?.row?.codes) return null;
         return { name, codes: h.row.codes as CodeEntry[] };
@@ -95,12 +98,10 @@ export default function ClinicalTriggersBanner({ mrn }: { mrn: string }) {
         supabase.from("procedures").select("snomed_code, cpt_code").eq("mrn", mrn),
       ]);
       if (cancelled) return;
-      setDxCodes(
-        new Set(((conds ?? []) as any[]).map((c) => String(c.snomed_code ?? "")).filter(Boolean)),
-      );
+      setDxCodes(new Set((conds ?? []).map((c) => String(c.snomed_code ?? "")).filter(Boolean)));
       setProcCodes(
         new Set(
-          ((procs ?? []) as any[])
+          (procs ?? [])
             .flatMap((p) => [p.snomed_code, p.cpt_code])
             .filter(Boolean)
             .map(String),

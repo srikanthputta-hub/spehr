@@ -105,14 +105,16 @@ function FinanceBoard() {
   const refresh = async () => {
     if (initialLoadRef.current) setLoading(true);
     const { data, error } = await fetchWithTimeout(
-      () =>
-        (supabase as any)
+      async () => {
+        const res = await supabase
           .from("fhir_invoices")
           .select(
             "id,invoice_no,mrn,patient_name,encounter_id,facility_name,status,subtotal,tax,total,currency,issued_at,paid_at,payment_origin",
           )
-          .order("issued_at", { ascending: false }),
-      { data: [], error: null } as any,
+          .order("issued_at", { ascending: false });
+        return { data: res.data, error: res.error };
+      },
+      { data: [], error: null },
     );
     if (error) toast.error(`Unable to load invoices: ${error.message}`);
     else {
@@ -128,12 +130,12 @@ function FinanceBoard() {
         ...patientTimes,
       };
       if (mrns.length > 0) {
-        const { data: pts, error: pErr } = await (supabase as any)
+        const { data: pts, error: pErr } = await supabase
           .from("patients")
           .select("mrn,admission_time,discharge_time")
           .in("mrn", mrns);
         if (pErr) console.warn("[finance-board] patients join failed", pErr.message);
-        for (const p of (pts ?? []) as any[]) {
+        for (const p of pts ?? []) {
           times[String(p.mrn)] = {
             admission_time: p.admission_time ?? null,
             discharge_time: p.discharge_time ?? null,
@@ -176,8 +178,8 @@ function FinanceBoard() {
   useEffect(() => {
     refresh();
     // Auto-backfill any missing invoices on first mount.
-    backfill({} as any)
-      .then((res: any) => {
+    backfill()
+      .then((res) => {
         if (res?.generated > 0) refresh();
       })
       .catch(() => {});
@@ -239,7 +241,7 @@ function FinanceBoard() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const res: any = await backfill({} as any);
+      const res = await backfill();
       toast.success(`Sync complete · ${res?.generated ?? 0} invoice(s) generated`);
       await refresh();
     } catch (e) {
@@ -251,7 +253,7 @@ function FinanceBoard() {
 
   const handleRegen = async (mrn: string) => {
     try {
-      await regenerate({ data: { mrn } } as any);
+      await regenerate({ data: { mrn } });
       toast.success("Invoice regenerated from latest clinical course");
       await refresh();
     } catch (e) {
@@ -480,19 +482,16 @@ function RiskAdjustmentGaps({ facility, invoices }: { facility: string; invoices
         return;
       }
       const [patRes, ciRes] = await Promise.all([
-        (supabase as any)
-          .from("patients")
-          .select("mrn,name,diagnosis,chief_complaint")
-          .in("mrn", mrns),
-        (supabase as any).from("fhir_charge_items").select("mrn,code_system").in("mrn", mrns),
+        supabase.from("patients").select("mrn,name,diagnosis,chief_complaint").in("mrn", mrns),
+        supabase.from("fhir_charge_items").select("mrn,code_system").in("mrn", mrns),
       ]);
       if (cancelled) return;
       const risk = new Set<string>();
-      for (const r of (ciRes?.data ?? []) as any[]) {
+      for (const r of ciRes?.data ?? []) {
         if (String(r.code_system) === "ICD-10") risk.add(String(r.mrn));
       }
       const rows: Array<{ mrn: string; name: string; diagnosis: string }> = [];
-      for (const p of (patRes?.data ?? []) as any[]) {
+      for (const p of patRes?.data ?? []) {
         const dx = String(p.diagnosis ?? p.chief_complaint ?? "");
         if (!CHRONIC_RE.test(dx)) continue;
         if (risk.has(String(p.mrn))) continue;
@@ -587,29 +586,31 @@ function BillModal({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [ciRes, pRes] = await fetchWithTimeout(
-        () =>
-          Promise.all([
-            (supabase as any)
-              .from("fhir_charge_items")
-              .select(
-                "id,invoice_id,charge_code,code_system,description,category,quantity,unit_price,amount,service_date",
-              )
-              .eq("invoice_id", invoice.id)
-              .order("created_at", { ascending: true }),
-            supabase
-              .from("patients")
-              .select(
-                "mrn,name,age,gender,room,chief_complaint,diagnosis,admission_time,discharge_time",
-              )
-              .eq("mrn", invoice.mrn)
-              .maybeSingle(),
-          ]),
-        [
-          { data: [], error: null },
-          { data: null, error: null },
-        ] as any,
-      );
+      const [ciRes, pRes] = await fetchWithTimeout(async () => {
+        const [chargeRes, patientRes] = await Promise.all([
+          supabase
+            .from("fhir_charge_items")
+            .select(
+              "id,invoice_id,charge_code,code_system,description,category,quantity,unit_price,amount,service_date",
+            )
+            .eq("invoice_id", invoice.id)
+            .order("created_at", { ascending: true }),
+          supabase
+            .from("patients")
+            .select(
+              "mrn,name,age,gender,room,chief_complaint,diagnosis,admission_time,discharge_time",
+            )
+            .eq("mrn", invoice.mrn)
+            .maybeSingle(),
+        ]);
+        return [
+          { data: chargeRes.data, error: chargeRes.error },
+          { data: patientRes.data, error: patientRes.error },
+        ];
+      }, [
+        { data: [], error: null },
+        { data: null, error: null },
+      ]);
       if (cancelled) return;
       setItems((ciRes.data ?? []) as ChargeItemRow[]);
       setPatient((pRes.data ?? null) as PatientLite | null);

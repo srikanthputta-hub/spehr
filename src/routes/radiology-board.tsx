@@ -54,7 +54,7 @@ const REPORTED_SET = new Set(["reported", "completed"]);
 function RadiologyBoard() {
   const { facility } = useFacility();
   const radiologist = useActiveStaff("Rad");
-  const { can, gate } = useRolePermissions("Rad" as any);
+  const { can, gate } = useRolePermissions("Rad");
   const automationEnabled = useAutomationEnabled();
   const [orders, setOrders] = useState<RadRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,16 +67,18 @@ function RadiologyBoard() {
   const load = async () => {
     if (initialLoadRef.current) setLoading(true);
     const { data } = await fetchWithTimeout(
-      () =>
-        supabase
+      async () => {
+        const res = await supabase
           .from("radiology_orders")
           .select(
             "id, patient_mrn, patient_name, facility_name, requested_by, exam_type, modality, body_part, clinical_indication, snomed_code, snomed_display, status, impression, report_text, ordered_at, resulted_at, created_at",
           )
           .eq("facility_name", facility)
           .order("created_at", { ascending: false })
-          .limit(300),
-      { data: [], error: null } as any,
+          .limit(300);
+        return { data: res.data, error: res.error };
+      },
+      { data: [], error: null },
     );
     setOrders((data as RadRow[]) ?? []);
     setLoading(false);
@@ -160,8 +162,10 @@ function RadiologyBoard() {
         return rest;
       });
       await load();
-    } catch (e: any) {
-      toast.error("Failed to submit report", { description: e?.message });
+    } catch (e) {
+      toast.error("Failed to submit report", {
+        description: e instanceof Error ? e.message : undefined,
+      });
     } finally {
       setSubmitting(null);
     }

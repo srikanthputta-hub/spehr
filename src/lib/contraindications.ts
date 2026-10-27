@@ -120,7 +120,7 @@ export async function checkDrugDiseaseFromValueSets(
   const hits: CdsHit[] = [];
   let matchedAnyDrugSet = false;
 
-  for (const vs of data as any[]) {
+  for (const vs of data) {
     const name = String(vs.name ?? "");
     const desc = String(vs.description ?? "");
     const haystack = `${name} ${desc}`.toLowerCase();
@@ -144,11 +144,13 @@ export async function checkDrugDiseaseFromValueSets(
     for (const cond of patientConditions) {
       const condLower = String(cond ?? "").toLowerCase();
       if (!condLower) continue;
-      const match = codes.find((c: any) => {
-        const disp = String(c?.display ?? "").toLowerCase();
-        if (!disp) return false;
-        return condLower.includes(disp) || disp.includes(condLower);
-      });
+      const match = codes
+        .map((c) => (c && typeof c === "object" && !Array.isArray(c) ? c : null))
+        .find((c) => {
+          const disp = String(c?.display ?? "").toLowerCase();
+          if (!disp) return false;
+          return condLower.includes(disp) || disp.includes(condLower);
+        });
       if (match) {
         const rule: ContraindicationRule = {
           drug_match: new RegExp(drugLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),

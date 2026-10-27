@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { LiveClock } from "@/components/common/LiveClock";
 import { BedManagementBoard } from "@/components/admissions/BedManagementBoard";
 import {
@@ -23,6 +24,7 @@ import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
+import { reconcileOrphanedBeds } from "@/lib/admit-patient";
 import { InfoHint } from "@/components/ui/info-hint";
 import { StatusBadge, type StatusBadgeProps } from "@/components/common/StatusBadge";
 import { TableSkeleton } from "@/components/common/LoadingSkeleton";
@@ -69,44 +71,9 @@ function normalizeCode(s: string | null | undefined): CodeStatus {
   return "Full Code";
 }
 
-/**
- * Release any beds whose `current_patient_mrn` no longer maps to an
- * actively admitted patient (discharged, deleted, or status mismatch).
- * Keeps bed_management in sync with the patients table even when the AI
- * automation sweeper is disabled or the discharge happened while the
- * client was offline.
- */
-async function reconcileOrphanedBeds(facility: string): Promise<void> {
-  if (!facility) return;
-  const { data: beds } = await supabase
-    .from("bed_management")
-    .select("id, current_patient_mrn, status")
-    .eq("facility_name", facility);
-  if (!beds || beds.length === 0) return;
-  const occupied = beds.filter(
-    (b: any) => b.current_patient_mrn && (b.status ?? "").toLowerCase().startsWith("occupied"),
-  );
-  if (occupied.length === 0) return;
-  const mrns = Array.from(new Set(occupied.map((b: any) => b.current_patient_mrn as string)));
-  const { data: active } = await supabase.from("patients").select("mrn, status").in("mrn", mrns);
-  const activeSet = new Set(
-    (active ?? [])
-      .filter((p: any) => (p.status ?? "").toLowerCase() === "admitted")
-      .map((p: any) => p.mrn),
-  );
-  const orphanIds = occupied
-    .filter((b: any) => !activeSet.has(b.current_patient_mrn))
-    .map((b: any) => b.id);
-  if (orphanIds.length === 0) return;
-  await supabase
-    .from("bed_management")
-    .update({
-      status: "Available",
-      current_patient_mrn: null,
-      status_updated_at: new Date().toISOString(),
-    } as any)
-    .in("id", orphanIds);
-}
+// `reconcileOrphanedBeds` (releases beds whose `current_patient_mrn` no
+// longer maps to an actively admitted patient) is shared from
+// @/lib/admit-patient — it used to be duplicated here verbatim.
 
 type AlertKind = "sepsis" | "stemi" | "dka" | "stroke" | "pending";
 function classifyAlert(dx: string | null | undefined): AlertKind {
@@ -306,7 +273,29 @@ function LiveVitals({
   );
 }
 
-function toRow(p: any): PatientRow {
+type ToRowPatient = Pick<
+  Database["public"]["Tables"]["patients"]["Row"],
+  | "mrn"
+  | "first_name"
+  | "last_name"
+  | "room"
+  | "age"
+  | "gender"
+  | "code_status"
+  | "chief_complaint"
+  | "hr"
+  | "bp_systolic"
+  | "bp_diastolic"
+  | "spo2"
+  | "meds_due_count"
+  | "facility_name"
+  | "unread_labs_alert"
+  | "admission_time"
+  | "rr"
+  | "temp"
+>;
+
+function toRow(p: ToRowPatient): PatientRow {
   return {
     mrn: p.mrn,
     name: `${p.first_name} ${p.last_name}`,
@@ -323,8 +312,8 @@ function toRow(p: any): PatientRow {
     facility: p.facility_name ?? "Memorial Hospital",
     unreadLabs: !!p.unread_labs_alert,
     admittedAt: p.admission_time ?? null,
-    rr: p.rr,
-    temp: p.temp,
+    rr: p.rr ?? 0,
+    temp: p.temp ?? 0,
   };
 }
 
@@ -424,7 +413,7 @@ function Dashboard() {
         .select("mrn")
         .eq("facility_name", facility)
         .eq("status", "Pending Review");
-      if (!cancelled) setAlertMrns(new Set((data ?? []).map((r: any) => r.mrn)));
+      if (!cancelled) setAlertMrns(new Set((data ?? []).map((r) => r.mrn)));
     };
     load();
     const ch = supabase
@@ -457,14 +446,16 @@ function Dashboard() {
       // We then hydrate patient rows by MRN so the Floor Overview count
       // ALWAYS matches the occupied-bed KPI / Bed Allocation matrix.
       const { data: occBeds, error: bedErr } = await fetchWithTimeout(
-        () =>
-          supabase
+        async () => {
+          const res = await supabase
             .from("bed_management")
             .select("current_patient_mrn, room_number, bed_letter, status")
             .eq("facility_name", facility)
             .ilike("status", "Occupied%")
-            .not("current_patient_mrn", "is", null),
-        { data: [], error: null } as any,
+            .not("current_patient_mrn", "is", null);
+          return { data: res.data, error: res.error };
+        },
+        { data: [], error: null },
       );
       if (cancelled) return;
       if (bedErr) {
@@ -474,7 +465,7 @@ function Dashboard() {
         return;
       }
       const bedByMrn = new Map<string, { room: string }>();
-      for (const b of (occBeds ?? []) as any[]) {
+      for (const b of occBeds ?? []) {
         if (!b.current_patient_mrn) continue;
         bedByMrn.set(b.current_patient_mrn, {
           room: `${b.room_number}-${b.bed_letter}`,
@@ -488,14 +479,16 @@ function Dashboard() {
         return;
       }
       const { data, error } = await fetchWithTimeout(
-        () =>
-          supabase
+        async () => {
+          const res = await supabase
             .from("patients")
             .select(
               "mrn, first_name, last_name, age, gender, code_status, chief_complaint, room, hr, bp_systolic, bp_diastolic, spo2, rr, temp, meds_due_count, facility_name, unread_labs_alert, status, admission_time",
             )
-            .in("mrn", mrns),
-        { data: [], error: null } as any,
+            .in("mrn", mrns);
+          return { data: res.data, error: res.error };
+        },
+        { data: [], error: null },
       );
       if (cancelled) return;
       if (error) {
@@ -504,8 +497,8 @@ function Dashboard() {
         initialLoadRef.current = false;
         return;
       }
-      const patientByMrn = new Map<string, any>();
-      for (const p of (data ?? []) as any[]) patientByMrn.set(p.mrn, p);
+      const patientByMrn = new Map<string, NonNullable<typeof data>[number]>();
+      for (const p of data ?? []) patientByMrn.set(p.mrn, p);
       // Build one row per occupied bed. If clinical/intake data hasn't
       // initialized yet, surface a minimal "Initializing…" placeholder
       // so the row count still matches the bed tally exactly.
@@ -591,7 +584,7 @@ function Dashboard() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "patients" },
         (payload) => {
-          const p: any = payload.new;
+          const p = payload.new as Database["public"]["Tables"]["patients"]["Row"];
           setPatients((prev) =>
             prev.map((row) =>
               row.mrn === p.mrn
@@ -606,8 +599,8 @@ function Dashboard() {
                     hr: p.hr,
                     bp: `${p.bp_systolic}/${p.bp_diastolic}`,
                     o2: p.spo2,
-                    rr: p.rr,
-                    temp: p.temp,
+                    rr: p.rr ?? row.rr,
+                    temp: p.temp ?? row.temp,
                     medsDue: p.meds_due_count ?? row.medsDue,
                   }
                 : row,
@@ -619,7 +612,7 @@ function Dashboard() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "patients" },
         (payload) => {
-          const row = toRow(payload.new);
+          const row = toRow(payload.new as Database["public"]["Tables"]["patients"]["Row"]);
           setPatients((prev) => (prev.some((p) => p.mrn === row.mrn) ? prev : [...prev, row]));
         },
       )
@@ -627,7 +620,7 @@ function Dashboard() {
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "patients" },
         (payload) => {
-          const oldMrn = (payload.old as any)?.mrn;
+          const oldMrn = (payload.old as { mrn?: string } | null)?.mrn;
           if (!oldMrn) return;
           setPatients((prev) => prev.filter((p) => p.mrn !== oldMrn));
         },
@@ -995,7 +988,7 @@ function StatCard({
   const activeCls = active
     ? "ring-2 ring-[var(--teal)] border-[var(--teal)] bg-[var(--teal-soft)]/40 shadow-[0_0_0_4px_rgba(20,184,166,0.12)]"
     : "";
-  const Comp: any = interactive ? "button" : "div";
+  const Comp = interactive ? "button" : "div";
   return (
     <Comp
       type={interactive ? "button" : undefined}

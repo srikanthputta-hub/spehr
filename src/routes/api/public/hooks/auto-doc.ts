@@ -10,7 +10,7 @@ export const Route = createFileRoute("/api/public/hooks/auto-doc")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        let body: any = null;
+        let body: { mrn?: string } | null = null;
         try {
           body = await request.json();
         } catch {

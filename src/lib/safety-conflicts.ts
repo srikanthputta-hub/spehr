@@ -76,7 +76,7 @@ export async function refreshNlpRulesFromDb(): Promise<void> {
     .select("id, type, raw_term, canonical_mapping, preferred_form, created_at")
     .order("created_at", { ascending: true });
   if (error || !data) return;
-  _bannedCache = (data as any[])
+  _bannedCache = data
     .filter((r) => r.type === "banned_token")
     .map((r) => ({
       id: r.id,
@@ -84,7 +84,7 @@ export async function refreshNlpRulesFromDb(): Promise<void> {
       meaning: r.canonical_mapping ?? "",
       preferred: r.preferred_form ?? "",
     }));
-  _rulesCache = (data as any[])
+  _rulesCache = data
     .filter((r) => r.type === "slang_mapping")
     .map((r) => ({ id: r.id, phrase: r.raw_term, canonical: r.canonical_mapping ?? "" }));
   _hydrated = true;
@@ -226,11 +226,14 @@ async function loadVsCodeMap(ids: string[]): Promise<Map<string, VsCodeSet>> {
     .from("custom_value_sets")
     .select("id, codes, status")
     .in("id", uniq);
-  for (const row of (data ?? []) as any[]) {
+  for (const row of data ?? []) {
     if (row?.status && row.status !== "published") continue;
     const set: VsCodeSet = new Set();
-    for (const c of (row?.codes ?? []) as any[]) {
-      const code = String(c?.code ?? "").trim();
+    const rowCodes = Array.isArray(row?.codes) ? row.codes : [];
+    for (const c of rowCodes) {
+      const code = String(
+        (c && typeof c === "object" && !Array.isArray(c) ? c.code : null) ?? "",
+      ).trim();
       if (code) set.add(code);
     }
     out.set(String(row.id), set);
@@ -263,12 +266,12 @@ async function loadRules(): Promise<{ cross: CrossRule[]; ddi: DdiRule[]; vsIds:
         "severity, summary, drug_a_value_set_id, drug_b_value_set_id, drug_a_single_code, drug_b_single_code",
       ),
   ]);
-  const cross: CrossRule[] = ((crossRes.data ?? []) as any[]).map((r) => ({
+  const cross: CrossRule[] = (crossRes.data ?? []).map((r) => ({
     family_label: String(r?.family_label ?? ""),
     allergy_vs_id: r?.allergy_value_set_id ?? null,
     drug_vs_id: r?.drug_value_set_id ?? null,
   }));
-  const ddi: DdiRule[] = ((ddiRes.data ?? []) as any[]).map((r) => ({
+  const ddi: DdiRule[] = (ddiRes.data ?? []).map((r) => ({
     severity: (r?.severity === "Major" ? "Major" : "Moderate") as "Major" | "Moderate",
     summary: String(r?.summary ?? ""),
     a_vs_id: r?.drug_a_value_set_id ?? null,
@@ -300,7 +303,7 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
     .limit(limit);
   if (error || !patients) return [];
 
-  const mrns = patients.map((p: any) => p.mrn).filter(Boolean);
+  const mrns = patients.map((p) => p.mrn).filter(Boolean);
   if (mrns.length === 0) return [];
 
   const { rules, vsCodeMap, medsByMrn, allergiesByMrn } = await (async () => {
@@ -308,7 +311,7 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
       loadRules(),
       supabase
         .from("medication_orders")
-        .select("patient_mrn, medication_name, drug_name, rxnorm_code, ordered_at, created_at")
+        .select("patient_mrn, medication_name, drug_name, rxnorm_code, created_at")
         .in("patient_mrn", mrns),
       supabase
         .from("allergies")
@@ -319,7 +322,7 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
 
     type MedRec = { name: string; rxcui: string | null };
     const medsByMrn = new Map<string, MedRec[]>();
-    for (const m of (medsRes.data ?? []) as any[]) {
+    for (const m of medsRes.data ?? []) {
       const name = (m.medication_name || m.drug_name || "").trim();
       if (!name || !m.patient_mrn) continue;
       const rxcui = m.rxnorm_code ? String(m.rxnorm_code).trim() : null;
@@ -333,7 +336,7 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
 
     type AllergyRec = { substance: string; rxcui: string | null; snomed: string | null };
     const allergiesByMrn = new Map<string, AllergyRec[]>();
-    for (const a of (allergiesRes.data ?? []) as any[]) {
+    for (const a of allergiesRes.data ?? []) {
       if (!a?.mrn || !a?.substance) continue;
       const list = allergiesByMrn.get(a.mrn) ?? [];
       list.push({
@@ -350,7 +353,7 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
   const decisions = loadDecisions();
   const out: SafetyConflict[] = [];
 
-  for (const p of patients as any[]) {
+  for (const p of patients) {
     const intake = loadIntake(p.mrn);
     const intakeAllergies = intake?.drugAllergies ?? [];
     const codedAllergies = allergiesByMrn.get(p.mrn) ?? [];
@@ -421,9 +424,7 @@ export async function loadSafetyQueue(limit = 50): Promise<SafetyConflict[]> {
       pushed.add(id);
       const dec = decisions[id];
       const intake: IntakeAllergy =
-        "reaction" in (latexAllergy as any)
-          ? (latexAllergy as IntakeAllergy)
-          : { name: (latexAllergy as any).substance, reaction: "" };
+        "reaction" in latexAllergy ? latexAllergy : { name: latexAllergy.substance, reaction: "" };
       out.push({
         id,
         mrn: p.mrn,

@@ -83,14 +83,17 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
           .limit(15),
       ]);
       if (cancelled) return;
-      setAppts((aRes.data ?? []) as any[]);
-      const pRows = ((pRes.data ?? []) as any[])
+      setAppts((aRes.data ?? []) as Appt[]);
+      type PaymentJoinRow = Payment & {
+        fhir_invoices?: { invoice_no?: string | null; facility_name?: string | null } | null;
+      };
+      const pRows = ((pRes.data ?? []) as unknown as PaymentJoinRow[])
         .filter((r) => {
           if (!facility || facility === "all") return true;
           return r?.fhir_invoices?.facility_name === facility;
         })
         .map((r) => ({ ...r, invoice_no: r?.fhir_invoices?.invoice_no ?? null }));
-      setPayments(pRows as Payment[]);
+      setPayments(pRows);
       setLoading(false);
     }
     void run();

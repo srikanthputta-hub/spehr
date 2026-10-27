@@ -7,6 +7,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { ModuleRibbon, SectionHeader } from "@/components/ClinicalShell";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useAutomationEnabled } from "@/hooks/useAutomationEnabled";
@@ -22,6 +23,14 @@ export const Route = createFileRoute("/lab-board")({
   component: LabBoard,
 });
 
+interface LabValue {
+  test: string;
+  value: string;
+  unit: string;
+  range: string;
+  flag: "H" | "L" | "CRITICAL" | "NORMAL";
+}
+
 interface LabOrderRow {
   id: string;
   patient_mrn: string;
@@ -31,19 +40,11 @@ interface LabOrderRow {
   test_type: string;
   clinical_condition: string | null;
   status: string | null;
-  results_data: any;
+  results_data: LabValue[] | null;
   created_at: string | null;
   result_value?: string | null;
   collected_at?: string | null;
   resulted_at?: string | null;
-}
-
-interface LabValue {
-  test: string;
-  value: string;
-  unit: string;
-  range: string;
-  flag: "H" | "L" | "CRITICAL" | "NORMAL";
 }
 
 interface BoardPatient {
@@ -144,7 +145,7 @@ function LabBoard() {
   const { facility } = useFacility();
   const tech = useActiveStaff("Lab");
   // DB target_role for laboratory tech is "CLT"
-  const { can, gate } = useRolePermissions("CLT" as any);
+  const { can, gate } = useRolePermissions("CLT");
   const automationEnabled = useAutomationEnabled();
   const [orders, setOrders] = useState<LabOrderRow[]>([]);
   const [completedOrders, setCompletedOrders] = useState<LabOrderRow[]>([]);
@@ -158,49 +159,52 @@ function LabBoard() {
   const load = async () => {
     if (initialLoadRef.current) setLoading(true);
     const [{ data: labData }, { data: completedData }, { data: patientData }] =
-      await fetchWithTimeout(
-        () =>
-          Promise.all([
-            supabase
-              .from("lab_orders")
-              .select("*")
-              .eq("facility_name", facility)
-              .in("status", [
-                "Ordered",
-                "ORDERED",
-                "Pending",
-                "PENDING",
-                "Pending Collection",
-                "Processing",
-                "PROCESSING",
-                "Reported",
-                "Resulted",
-                "Completed",
-              ])
-              .order("created_at", { ascending: false })
-              .limit(250),
-            supabase
-              .from("lab_orders")
-              .select("*")
-              .eq("facility_name", facility)
-              .in("status", ["Reported", "Resulted", "Completed"])
-              .order("resulted_at", { ascending: false, nullsFirst: false })
-              .order("created_at", { ascending: false, nullsFirst: false })
-              .limit(150),
-            supabase
-              .from("patients")
-              .select("mrn, first_name, last_name, name, admission_time")
-              .eq("facility_name", facility)
-              .eq("status", "Admitted")
-              .order("admission_time", { ascending: false })
-              .limit(25),
-          ]),
-        [
-          { data: [], error: null },
-          { data: [], error: null },
-          { data: [], error: null },
-        ] as any,
-      );
+      await fetchWithTimeout(async () => {
+        const [labRes, completedRes, patientRes] = await Promise.all([
+          supabase
+            .from("lab_orders")
+            .select("*")
+            .eq("facility_name", facility)
+            .in("status", [
+              "Ordered",
+              "ORDERED",
+              "Pending",
+              "PENDING",
+              "Pending Collection",
+              "Processing",
+              "PROCESSING",
+              "Reported",
+              "Resulted",
+              "Completed",
+            ])
+            .order("created_at", { ascending: false })
+            .limit(250),
+          supabase
+            .from("lab_orders")
+            .select("*")
+            .eq("facility_name", facility)
+            .in("status", ["Reported", "Resulted", "Completed"])
+            .order("resulted_at", { ascending: false, nullsFirst: false })
+            .order("created_at", { ascending: false, nullsFirst: false })
+            .limit(150),
+          supabase
+            .from("patients")
+            .select("mrn, first_name, last_name, name, admission_time")
+            .eq("facility_name", facility)
+            .eq("status", "Admitted")
+            .order("admission_time", { ascending: false })
+            .limit(25),
+        ]);
+        return [
+          { data: labRes.data, error: labRes.error },
+          { data: completedRes.data, error: completedRes.error },
+          { data: patientRes.data, error: patientRes.error },
+        ];
+      }, [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+      ]);
     setOrders((labData as LabOrderRow[]) ?? []);
     setCompletedOrders((completedData as LabOrderRow[]) ?? []);
     const rows =
@@ -341,7 +345,7 @@ function LabBoard() {
         Array.isArray(results) && results.length > 0
           ? results
               .map(
-                (r: any) =>
+                (r) =>
                   `${r.test}: ${r.value}${r.unit ? ` ${r.unit}` : ""}${r.flag && r.flag !== "NORMAL" ? ` [${r.flag}]` : ""}`,
               )
               .join(" | ")
@@ -351,7 +355,11 @@ function LabBoard() {
         .from("lab_orders")
         .update({
           status: "Reported",
-          results_data: results as any,
+          // LabValue[] is plain JSON-shaped data; TS's structural check for
+          // the recursive `Json` type doesn't match interfaces 1:1, so this
+          // goes through `unknown` rather than loosening the field to `any`.
+          results_data:
+            results as unknown as Database["public"]["Tables"]["lab_orders"]["Update"]["results_data"],
           result_value: summary,
           collected_at: officialAt,
           resulted_at: officialAt,
@@ -369,8 +377,10 @@ function LabBoard() {
         return rest;
       });
       await load();
-    } catch (e: any) {
-      toast.error("Failed to submit report", { description: e?.message });
+    } catch (e) {
+      toast.error("Failed to submit report", {
+        description: e instanceof Error ? e.message : undefined,
+      });
     } finally {
       setSubmitting(null);
     }

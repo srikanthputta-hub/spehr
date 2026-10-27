@@ -240,7 +240,7 @@ function codeColor(c: string | null) {
 function AdminDashboard() {
   const admin = useActiveStaff("Admin");
   const { facility } = useFacility();
-  const { can } = useRolePermissions("Admin" as any);
+  const { can } = useRolePermissions("Admin");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [pendingPharm, setPendingPharm] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -257,25 +257,27 @@ function AdminDashboard() {
 
   useEffect(() => {
     (async () => {
-      const [pRes, mRes] = await fetchWithTimeout(
-        () =>
-          Promise.all([
-            supabase
-              .from("patients")
-              .select(
-                "id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time",
-              )
-              .order("admission_time", { ascending: false }),
-            supabase
-              .from("medication_orders")
-              .select("id", { count: "exact", head: true })
-              .eq("status", "PENDING_PHARMACY"),
-          ]),
-        [
-          { data: [], error: null },
-          { count: 0, error: null },
-        ] as any,
-      );
+      const [pRes, mRes] = await fetchWithTimeout(async () => {
+        const [patientsRes, medsRes] = await Promise.all([
+          supabase
+            .from("patients")
+            .select(
+              "id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time",
+            )
+            .order("admission_time", { ascending: false }),
+          supabase
+            .from("medication_orders")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "PENDING_PHARMACY"),
+        ]);
+        return [
+          { data: patientsRes.data, error: patientsRes.error },
+          { count: medsRes.count, error: medsRes.error },
+        ];
+      }, [
+        { data: [], error: null },
+        { count: 0, error: null },
+      ]);
       if (pRes.error) toast.error(pRes.error.message);
       else setPatients((pRes.data ?? []) as Patient[]);
       if (!mRes.error) setPendingPharm(mRes.count ?? 0);
@@ -291,13 +293,15 @@ function AdminDashboard() {
 
   const loadTransfers = async () => {
     const { data, error } = await fetchWithTimeout(
-      () =>
-        supabase
+      async () => {
+        const res = await supabase
           .from("patient_transfers")
           .select("*")
           .eq("status", "Pending Approval")
-          .order("created_at", { ascending: false }),
-      { data: [], error: null } as any,
+          .order("created_at", { ascending: false });
+        return { data: res.data, error: res.error };
+      },
+      { data: [], error: null },
     );
     if (error) toast.error(error.message);
     else setTransfers((data ?? []) as TransferRequest[]);
@@ -377,8 +381,8 @@ function AdminDashboard() {
       toast.success("Patient successfully transferred and rerouted across network servers.");
       setTransfers((cur) => cur.filter((x) => x.id !== t.id));
       await reloadPatients();
-    } catch (e: any) {
-      toast.error("Transfer failed", { description: e?.message });
+    } catch (e) {
+      toast.error("Transfer failed", { description: e instanceof Error ? e.message : undefined });
     } finally {
       setActingOn(null);
     }

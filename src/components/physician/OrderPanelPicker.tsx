@@ -67,8 +67,8 @@ export function OrderPanelPicker({ mrn, patientName, facility, diagnosis, physic
       // Insert one lab order per code, pre-coded — no separate UMLS round trip.
       const rows = panel.codes.map((c) => ({
         patient_mrn: mrn,
-        patient_name: patientName,
-        facility_name: facility,
+        patient_name: patientName ?? "Unknown",
+        facility_name: facility ?? "Memorial Hospital",
         requested_by: physicianName ?? "Physician",
         test_type: c.display,
         clinical_condition: diagnosis,
@@ -77,16 +77,20 @@ export function OrderPanelPicker({ mrn, patientName, facility, diagnosis, physic
         loinc_display: c.display,
         coding_source: `value-set:${panel.name}`,
         coded_at: new Date().toISOString(),
+        // `source` is a required column on lab_orders; previously missing
+        // here (masked by an `as any` cast on the insert).
+        source: "physician-order-panel",
       }));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase.from("lab_orders") as any).insert(rows).select("id");
+      const { data, error } = await supabase.from("lab_orders").insert(rows).select("id");
       if (error) throw error;
       okCount = (data ?? []).length;
       toast.success(`Panel staged: ${panel.name}`, {
         description: `${okCount} lab orders routed to the lab queue.`,
       });
-    } catch (e: any) {
-      toast.error("Failed to stage panel", { description: e?.message });
+    } catch (e) {
+      toast.error("Failed to stage panel", {
+        description: e instanceof Error ? e.message : undefined,
+      });
     } finally {
       setSubmittingId(null);
     }

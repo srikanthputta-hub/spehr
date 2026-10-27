@@ -60,7 +60,7 @@ export const Route = createFileRoute("/api/public/umls-search")({
         const apiKey = process.env.UMLS_API_KEY;
         if (!apiKey) return json({ error: "UMLS_API_KEY not configured" }, 500, cors);
 
-        let body: any = null;
+        let body: { searchTerm?: string; vocabulary?: string } | null = null;
         try {
           body = await request.json();
         } catch {
@@ -100,9 +100,12 @@ export const Route = createFileRoute("/api/public/umls-search")({
             status: 200,
             headers: { "Content-Type": "application/json", ...cors },
           });
-        } catch (err: any) {
+        } catch (err) {
           return json(
-            { error: "UMLS upstream failed", detail: String(err?.message ?? err) },
+            {
+              error: "UMLS upstream failed",
+              detail: err instanceof Error ? err.message : String(err),
+            },
             502,
             cors,
           );

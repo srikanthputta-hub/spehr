@@ -65,14 +65,16 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
 
   const load = async () => {
     const { data, error } = await fetchWithTimeout(
-      () =>
-        supabase
+      async () => {
+        const res = await supabase
           .from("patients")
           .select(
             "id, mrn, name, first_name, last_name, status, facility_name, chief_complaint, admission_time",
           )
-          .order("admission_time", { ascending: false }),
-      { data: [], error: null } as any,
+          .order("admission_time", { ascending: false });
+        return { data: res.data, error: res.error };
+      },
+      { data: [], error: null },
     );
     if (error) setError(error.message);
     else setPatients((data as Patient[]) ?? []);
@@ -138,7 +140,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
     return rows;
   }, [patients, searchTerm]);
 
-  const Wrapper: any = embedded ? "div" : "main";
+  const Wrapper = embedded ? "div" : "main";
   return (
     <Wrapper className={embedded ? "bg-slate-50" : "min-h-screen bg-slate-50"}>
       {!embedded && (
@@ -229,7 +231,9 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
                     boxShadow: "0 4px 12px rgba(15,23,42,0.08)",
                   }}
                   labelFormatter={(_, payload) =>
-                    payload && payload[0] ? (payload[0].payload as any).full : ""
+                    payload && payload[0]
+                      ? ((payload[0].payload as { full?: string }).full ?? "")
+                      : ""
                   }
                   formatter={(v: number) => [v, "Active"]}
                 />

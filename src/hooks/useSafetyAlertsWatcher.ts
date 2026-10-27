@@ -10,6 +10,7 @@
 
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import {
   ensureValueSetsLoaded,
   runMedicationOrderRules,
@@ -28,7 +29,10 @@ export function useSafetyAlertsWatcher() {
         { event: "INSERT", schema: "public", table: "medication_orders" },
         (payload) => {
           if (cancelled) return;
-          const rec: any = payload?.new ?? {};
+          const rec = (payload?.new ?? {}) as Partial<
+            Database["public"]["Tables"]["medication_orders"]["Row"]
+          >;
+          if (!rec.patient_mrn) return;
           void runMedicationOrderRules({
             mrn: rec.patient_mrn,
             rxnorm_code: rec.rxnorm_code,
@@ -52,7 +56,7 @@ export function useSafetyAlertsWatcher() {
           .eq("status", "approved")
           .order("updated_at", { ascending: false })
           .limit(5);
-        for (const row of (data ?? []) as any[]) {
+        for (const row of data ?? []) {
           await runNlpApprovalRules(row);
         }
       } catch (err) {

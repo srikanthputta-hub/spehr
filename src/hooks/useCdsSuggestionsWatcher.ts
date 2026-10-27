@@ -32,8 +32,10 @@ async function hydrateAcsCodes(): Promise<void> {
     const hits = await loadPublishedValueSetsForConsumer({ consumer: "CDS Order Sets" });
     const acs = hits.find((h) => h.value_set_name === "Acute Coronary Syndrome Presentations");
     const codes: string[] = [];
-    for (const c of (acs?.row?.codes ?? []) as any[]) {
-      const code = String(c?.code ?? "").trim();
+    const rawCodes = Array.isArray(acs?.row?.codes) ? acs.row.codes : [];
+    for (const c of rawCodes) {
+      const code =
+        c && typeof c === "object" && !Array.isArray(c) ? String(c.code ?? "").trim() : "";
       if (code) codes.push(code);
     }
     setAcsCodes(codes);
@@ -105,11 +107,14 @@ async function processMrn(mrn: string) {
     .order("updated_at", { ascending: false })
     .limit(5);
   const codes = new Set<string>();
-  for (const row of (audit ?? []) as Array<{ standardized_output: any }>) {
-    const so = row.standardized_output ?? {};
-    const arr = (
-      Array.isArray(so["SNOMED CT"]) ? so["SNOMED CT"] : Array.isArray(so.snomed) ? so.snomed : []
-    ) as unknown[];
+  for (const row of audit ?? []) {
+    const so = row.standardized_output;
+    const soObj = so && typeof so === "object" && !Array.isArray(so) ? so : {};
+    const arr = Array.isArray(soObj["SNOMED CT"])
+      ? soObj["SNOMED CT"]
+      : Array.isArray(soObj.snomed)
+        ? soObj.snomed
+        : [];
     for (const c of arr) if (typeof c === "string") codes.add(c.trim());
   }
   if (codes.size === 0) return;

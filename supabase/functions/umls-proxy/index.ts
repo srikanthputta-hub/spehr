@@ -25,6 +25,52 @@ const corsHeaders = {
 const UTS = "https://uts-ws.nlm.nih.gov/rest";
 const RXNAV = "https://rxnav.nlm.nih.gov/REST";
 
+// ─── UMLS/VSAC response shapes ───────────────────────────────────────────────
+//
+// The UTS REST API returns loosely-typed JSON; these interfaces describe only
+// the fields this function actually reads, so upstream payloads are cast to
+// them (via `as`) instead of flowing through as `any`.
+
+/** One row of a UMLS /search or /atoms result ("ui" is "NONE" when absent). */
+interface UmlsSearchResult {
+  ui: string;
+  name: string;
+  rootSource?: string;
+}
+
+interface UmlsSearchResponse {
+  result?: { results?: UmlsSearchResult[] };
+}
+
+/** One row of a UMLS /atoms or /ancestors /descendants /children /parents list. */
+interface UmlsAtom {
+  code?: string;
+  ui?: string;
+  name?: string;
+  rootSource?: string;
+}
+
+interface UmlsAtomsResponse {
+  result?: UmlsAtom[];
+}
+
+/** A VSAC/FHIR ValueSet $expand response, trimmed to the fields we read. */
+interface VsacExpansionContains {
+  code?: string;
+  display?: string;
+  system?: string;
+}
+
+interface VsacInclude {
+  valueSet?: string[];
+  filter?: unknown[];
+}
+
+interface VsacValueSetResource {
+  expansion?: { contains?: VsacExpansionContains[] };
+  compose?: { include?: VsacInclude[] };
+}
+
 // ─── Secret redaction ────────────────────────────────────────────────────────
 //
 // UMLS authenticates via an `apiKey` query parameter, so every upstream URL we
@@ -139,9 +185,9 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
         elapsed_ms,
       };
     }
-    const json = await res.json();
+    const json = (await res.json()) as UmlsSearchResponse;
     const results = Array.isArray(json?.result?.results) ? json.result.results : [];
-    const top = results.find((r: any) => r?.ui && r.ui !== "NONE");
+    const top = results.find((r) => r?.ui && r.ui !== "NONE");
     if (top) {
       return {
         resolvedCode: top.ui,
@@ -183,9 +229,9 @@ async function resolveAndValidate(p: Record<string, unknown>): Promise<{
     };
   }
 
-  const json = await res.json();
+  const json = (await res.json()) as UmlsSearchResponse;
   const results = Array.isArray(json?.result?.results) ? json.result.results : [];
-  const top = results.find((r: any) => r?.ui && r.ui !== "NONE");
+  const top = results.find((r) => r?.ui && r.ui !== "NONE");
 
   if (!top) {
     return {
@@ -526,14 +572,16 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
       };
     }
 
-    let resource: any;
+    let resource: VsacValueSetResource;
     try {
-      resource = await res.json();
+      resource = (await res.json()) as VsacValueSetResource;
     } catch {
       return { error: "VSAC returned a non-JSON response body.", status: 502 };
     }
     const expansion = resource?.expansion ?? {};
-    const contains: any[] = Array.isArray(expansion.contains) ? expansion.contains : [];
+    const contains: VsacExpansionContains[] = Array.isArray(expansion.contains)
+      ? expansion.contains
+      : [];
     const codes = contains
       .map((c) => ({
         code: String(c?.code ?? ""),
@@ -552,8 +600,10 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
         { headers: { Accept: "application/json", Authorization: `Basic ${auth}` } },
       );
       if (defRes.ok) {
-        const def: any = await defRes.json();
-        const includes: any[] = Array.isArray(def?.compose?.include) ? def.compose.include : [];
+        const def = (await defRes.json()) as VsacValueSetResource;
+        const includes: VsacInclude[] = Array.isArray(def?.compose?.include)
+          ? def.compose.include
+          : [];
         const hasGrouping = includes.some(
           (inc) => Array.isArray(inc?.valueSet) && inc.valueSet.length > 0,
         );
@@ -890,7 +940,7 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const oid = String((params as any)?.oid ?? "").trim();
+      const oid = String(params?.oid ?? "").trim();
       const cacheKey = await hashKey(`vsacExpand:${oid}`);
       const cached = await cacheGet(cacheKey);
       if (cached) {
@@ -915,7 +965,7 @@ Deno.serve(async (req) => {
     // ── All other actions: single-URL via buildUrl ───────────────────────────
     // ── snomed: 2-step CUI → SNOMEDCT_US atom lookup (free-text safe) ────────
     if (action === "snomed") {
-      const input = String((params as any)?.string ?? "").trim();
+      const input = String(params?.string ?? "").trim();
       if (!input || !UMLS_API_KEY) {
         return new Response(JSON.stringify({ result: { results: [] } }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -934,10 +984,10 @@ Deno.serve(async (req) => {
         `${UTS}/search/current?string=${encodeURIComponent(input)}&returnIdType=concept&searchType=words&pageSize=10&apiKey=${UMLS_API_KEY}`,
         { headers: { Accept: "application/json" } },
       );
-      const s1json = s1.ok ? await s1.json() : {};
+      const s1json = (s1.ok ? await s1.json() : {}) as UmlsSearchResponse;
       const candidates = (
-        Array.isArray((s1json as any)?.result?.results) ? (s1json as any).result.results : []
-      ).filter((r: any) => r?.ui && r.ui !== "NONE");
+        Array.isArray(s1json?.result?.results) ? s1json.result.results : []
+      ).filter((r) => r?.ui && r.ui !== "NONE");
 
       let code: string | null = null;
       let name: string | null = null;
@@ -947,8 +997,8 @@ Deno.serve(async (req) => {
           { headers: { Accept: "application/json" } },
         );
         if (!a.ok) continue;
-        const aj = await a.json();
-        const atoms = Array.isArray((aj as any)?.result) ? (aj as any).result : [];
+        const aj = (await a.json()) as UmlsAtomsResponse;
+        const atoms = Array.isArray(aj?.result) ? aj.result : [];
         for (const atom of atoms) {
           const raw = String(atom?.code ?? "");
           const extracted = raw.includes("/") ? raw.split("/").pop()! : raw;
@@ -970,7 +1020,7 @@ Deno.serve(async (req) => {
 
     // ── icd10Resolve: 2-step CUI → ICD10CM atom lookup (free-text safe) ──────
     if (action === "icd10Resolve") {
-      const input = String((params as any)?.string ?? "").trim();
+      const input = String(params?.string ?? "").trim();
       if (!input || !UMLS_API_KEY) {
         return new Response(JSON.stringify({ result: { results: [] } }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -989,10 +1039,10 @@ Deno.serve(async (req) => {
         `${UTS}/search/current?string=${encodeURIComponent(input)}&returnIdType=concept&searchType=words&pageSize=10&apiKey=${UMLS_API_KEY}`,
         { headers: { Accept: "application/json" } },
       );
-      const s1json = s1.ok ? await s1.json() : {};
+      const s1json = (s1.ok ? await s1.json() : {}) as UmlsSearchResponse;
       const candidates = (
-        Array.isArray((s1json as any)?.result?.results) ? (s1json as any).result.results : []
-      ).filter((r: any) => r?.ui && r.ui !== "NONE");
+        Array.isArray(s1json?.result?.results) ? s1json.result.results : []
+      ).filter((r) => r?.ui && r.ui !== "NONE");
 
       let code: string | null = null;
       let name: string | null = null;
@@ -1002,8 +1052,8 @@ Deno.serve(async (req) => {
           { headers: { Accept: "application/json" } },
         );
         if (!a.ok) continue;
-        const aj = await a.json();
-        const atoms = Array.isArray((aj as any)?.result) ? (aj as any).result : [];
+        const aj = (await a.json()) as UmlsAtomsResponse;
+        const atoms = Array.isArray(aj?.result) ? aj.result : [];
         for (const atom of atoms) {
           const raw = String(atom?.code ?? "");
           const extracted = raw.includes("/") ? raw.split("/").pop()! : raw;
@@ -1084,9 +1134,10 @@ Deno.serve(async (req) => {
     let shaped: Record<string, unknown> = { elapsed_ms, ...json };
 
     if (action === "crosswalk") {
-      const raw = Array.isArray((json as any).result) ? (json as any).result : [];
-      const filtered = raw.filter((r: any) => r && r.ui && r.ui !== "NONE");
-      let matches = filtered.map((r: any) => ({
+      const crosswalkJson = json as { result?: UmlsSearchResult[] };
+      const raw = Array.isArray(crosswalkJson.result) ? crosswalkJson.result : [];
+      const filtered = raw.filter((r) => r && r.ui && r.ui !== "NONE");
+      let matches = filtered.map((r) => ({
         code: r.ui,
         name: r.name,
         rootSource: r.rootSource,
@@ -1103,10 +1154,11 @@ Deno.serve(async (req) => {
     }
 
     if (action === "validate") {
-      const results = Array.isArray((json as any)?.result?.results)
-        ? (json as any).result.results
+      const validateJson = json as UmlsSearchResponse;
+      const results = Array.isArray(validateJson?.result?.results)
+        ? validateJson.result.results
         : [];
-      const top = results.find((r: any) => r && r.ui && r.ui !== "NONE") ?? null;
+      const top = results.find((r) => r && r.ui && r.ui !== "NONE") ?? null;
       shaped = {
         elapsed_ms,
         result: top

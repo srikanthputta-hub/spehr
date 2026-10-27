@@ -123,8 +123,7 @@ export function BedManagementBoard({
       if (cancelled) return;
       const map: PatientNameMap = {};
       for (const p of pts ?? []) {
-        map[p.mrn as string] =
-          `${(p as any).first_name ?? ""} ${(p as any).last_name ?? ""}`.trim();
+        map[p.mrn as string] = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
       }
       setNames(map);
       // Best-effort precaution lookup — never blocks bed board rendering.
@@ -133,8 +132,10 @@ export function BedManagementBoard({
           consumer: "Auto Admin — Isolation/Status Flags",
         });
         const iso = hits.find((h) => h.value_set_name === "Isolation Precaution Diagnoses");
-        const codes: Array<{ code: string; display?: string; precaution_type?: string }> =
-          iso?.row?.codes ?? [];
+        type PrecautionCode = { code: string; display?: string; precaution_type?: string };
+        const codes: PrecautionCode[] = Array.isArray(iso?.row?.codes)
+          ? (iso.row.codes as PrecautionCode[])
+          : [];
         if (codes.length && mrns.length) {
           const { data: conds } = await supabase
             .from("conditions")
@@ -142,7 +143,7 @@ export function BedManagementBoard({
             .in("mrn", mrns);
           const codeMap = new Map(codes.map((c) => [c.code, c]));
           const pmap: PrecautionMap = {};
-          for (const c of (conds ?? []) as any[]) {
+          for (const c of conds ?? []) {
             const hit = codeMap.get(String(c.snomed_code));
             if (hit && !pmap[c.mrn]) pmap[c.mrn] = hit.precaution_type ?? "Contact";
           }

@@ -15,9 +15,15 @@ export function useStartupRecovery() {
 
     (async () => {
       const settings = await fetchWithTimeout(
-        () =>
-          supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
-        { data: null, error: new Error("system_settings timeout") } as any,
+        async () => {
+          const res = await supabase
+            .from("system_settings")
+            .select("automation_enabled")
+            .eq("id", 1)
+            .maybeSingle();
+          return { data: res.data, error: res.error as Error | null };
+        },
+        { data: null, error: new Error("system_settings timeout") },
       );
 
       if (!settings?.error) return;
@@ -36,12 +42,14 @@ export function useStartupRecovery() {
 
     (async () => {
       const res = await fetchWithTimeout(
-        () =>
-          supabase
+        async () => {
+          const r = await supabase
             .from("patients")
             .select("mrn", { count: "exact", head: true })
-            .eq("status", "Admitted"),
-        { count: null, error: new Error("patients timeout") } as any,
+            .eq("status", "Admitted");
+          return { count: r.count, error: r.error as Error | null };
+        },
+        { count: null, error: new Error("patients timeout") },
       );
 
       if (res?.error || res?.count !== 0) return;

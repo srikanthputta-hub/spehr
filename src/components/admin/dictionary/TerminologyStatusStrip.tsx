@@ -39,7 +39,7 @@ export function TerminologyStatusStrip() {
       const { data: vs } = await supabase.from("custom_value_sets").select("status");
       if (vs && alive) {
         const c = { published: 0, review: 0, draft: 0 };
-        vs.forEach((r: any) => {
+        vs.forEach((r) => {
           if (r.status === "published") c.published++;
           else if (r.status === "review") c.review++;
           else if (r.status === "draft") c.draft++;

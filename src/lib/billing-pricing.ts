@@ -522,7 +522,7 @@ function applyChargeMaster(
  */
 export function matchBillingValueSets(
   icd10Codes: string[],
-  billingValueSets: Array<{ name: string; codes: any[] }>,
+  billingValueSets: Array<{ name: string; codes: Array<{ code?: string; display?: string }> }>,
 ): Array<{ icd10: string; display: string; valueSetName: string }> {
   const results: Array<{ icd10: string; display: string; valueSetName: string }> = [];
   const seen = new Set<string>();

@@ -8,7 +8,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FACILITIES, useFacility, STAFF_BY_FACILITY, type StaffRole } from "@/lib/facility-context";
+import {
+  FACILITIES,
+  useFacility,
+  STAFF_BY_FACILITY,
+  type StaffRole,
+  type Facility,
+} from "@/lib/facility-context";
 import spehrLogo from "@/assets/spehr-logo.png";
 
 export const Route = createFileRoute("/")({
@@ -198,7 +204,7 @@ function LoginScreen() {
                 </label>
                 <select
                   value={facility}
-                  onChange={(e) => setFacility(e.target.value as any)}
+                  onChange={(e) => setFacility(e.target.value as Facility)}
                   className="w-full h-10 rounded-md bg-[#0a1220] border border-white/10 text-slate-100 text-sm px-2 outline-none hover:border-[#5cbdb9]/40 focus:border-[#5cbdb9]/60 cursor-pointer"
                 >
                   {FACILITIES.map((f) => (

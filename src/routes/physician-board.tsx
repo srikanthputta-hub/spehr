@@ -173,7 +173,7 @@ function PhysicianBoard() {
         .select("mrn")
         .eq("facility_name", facility)
         .eq("status", "Pending Review");
-      if (!cancelled) setAlertMrns(new Set((data ?? []).map((r: any) => r.mrn)));
+      if (!cancelled) setAlertMrns(new Set((data ?? []).map((r) => r.mrn)));
     };
     load();
     const ch = supabase
@@ -230,16 +230,18 @@ function PhysicianBoard() {
     let active = true;
     (async () => {
       const { data, error } = await fetchWithTimeout(
-        () =>
-          supabase
+        async () => {
+          const res = await supabase
             .from("patients")
             .select(
               "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
             )
             .eq("status", "Admitted")
             .eq("facility_name", facility ?? "Memorial Hospital")
-            .order("room", { ascending: true }),
-        { data: [], error: null } as any,
+            .order("room", { ascending: true });
+          return { data: res.data, error: res.error };
+        },
+        { data: [], error: null },
       );
       if (!active) return;
       if (error) {
@@ -347,8 +349,10 @@ function PhysicianBoard() {
       setRoute("PO");
       setFreq("Daily");
       if (actionsMrn) setActionsMrn(null);
-    } catch (err: any) {
-      toast.error("Order failed", { description: err?.message ?? "Unknown error" });
+    } catch (err) {
+      toast.error("Order failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     } finally {
       setSubmitting(false);
     }

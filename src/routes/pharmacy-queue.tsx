@@ -65,6 +65,24 @@ interface BoardPatient {
   admission_time: string | null;
 }
 
+interface DispensedRow {
+  id: string;
+  mrn: string | null;
+  patient_mrn: string | null;
+  patient_name: string | null;
+  drug_name: string | null;
+  medication_name: string | null;
+  dose: string | null;
+  route: string | null;
+  frequency: string | null;
+  status: string | null;
+  updated_at: string | null;
+  administered_at: string | null;
+  created_at: string | null;
+  ordering_physician: string | null;
+  facility_name: string | null;
+}
+
 interface DispensedFeedRow {
   key: string;
   timestamp: string | null;
@@ -81,31 +99,13 @@ interface DispensedFeedRow {
 function PharmacyQueue() {
   const { facility } = useFacility();
   const pharm = useActiveStaff("PharmD");
-  const { can } = useRolePermissions("PharmD" as any);
+  const { can } = useRolePermissions("PharmD");
   const automationEnabled = useAutomationEnabled();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [dispensed, setDispensed] = useState<
-    {
-      id: string;
-      mrn: string | null;
-      patient_mrn: string | null;
-      patient_name: string | null;
-      drug_name: string | null;
-      medication_name: string | null;
-      dose: string | null;
-      route: string | null;
-      frequency: string | null;
-      status: string | null;
-      updated_at: string | null;
-      administered_at: string | null;
-      created_at: string | null;
-      ordering_physician: string | null;
-      facility_name: string | null;
-    }[]
-  >([]);
+  const [dispensed, setDispensed] = useState<DispensedRow[]>([]);
   const [boardPatients, setBoardPatients] = useState<BoardPatient[]>([]);
   const [heldAlerts, setHeldAlerts] = useState<HeldAlert[]>([]);
   const [nowTs, setNowTs] = useState<number>(Date.now());
@@ -120,15 +120,17 @@ function PharmacyQueue() {
     let active = true;
     const loadBoard = async () => {
       const { data } = await fetchWithTimeout(
-        () =>
-          supabase
+        async () => {
+          const res = await supabase
             .from("patients")
             .select("mrn, first_name, last_name, name, admission_time")
             .eq("facility_name", facility)
             .eq("status", "Admitted")
             .order("admission_time", { ascending: false })
-            .limit(25),
-        { data: [], error: null } as any,
+            .limit(25);
+          return { data: res.data, error: res.error };
+        },
+        { data: [], error: null },
       );
       if (!active) return;
       const rows =
@@ -247,8 +249,8 @@ function PharmacyQueue() {
     ];
     (async () => {
       const { data, error } = await fetchWithTimeout(
-        () =>
-          supabase
+        async () => {
+          const res = await supabase
             .from("medication_orders")
             .select(
               "id, mrn, patient_mrn, drug_name, dose, route, frequency, status, facility_name, created_at, approved_at, dispensed_at, administered_at, ordering_physician",
@@ -256,8 +258,10 @@ function PharmacyQueue() {
             .eq("facility_name", facility)
             .in("status", PENDING_STATUSES)
             .order("created_at", { ascending: false })
-            .limit(200),
-        { data: [], error: null } as any,
+            .limit(200);
+          return { data: res.data, error: res.error };
+        },
+        { data: [], error: null },
       );
       if (!active) return;
       if (error) setError(error.message);
@@ -322,7 +326,7 @@ function PharmacyQueue() {
         .order("created_at", { ascending: false, nullsFirst: false })
         .limit(150);
       if (!active) return;
-      setDispensed((data ?? []) as any);
+      setDispensed(data ?? []);
     };
     loadDispensed();
     let dispensedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -342,7 +346,7 @@ function PharmacyQueue() {
           // Instant optimistic prepend so meds inserted by backend SQL
           // triggers (auto_order_ghost_labs, etc.) appear immediately
           // without waiting for the broader refetch below.
-          const row = payload.new as any;
+          const row = payload.new as DispensedRow | null;
           if (row && row.facility_name === facility) {
             setDispensed((prev) => (prev.some((o) => o.id === row.id) ? prev : [row, ...prev]));
           }

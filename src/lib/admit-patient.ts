@@ -8,6 +8,7 @@ import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
 import type { CodeStatus } from "@/lib/patients";
 import { runSixStreamPipeline } from "@/lib/coding-pipeline";
+import type { Database } from "@/integrations/supabase/types";
 
 export interface AdmitInput {
   name: string;
@@ -24,7 +25,7 @@ export interface AdmitInput {
 export interface AdmitResult {
   ok: boolean;
   error?: string;
-  patient?: any;
+  patient?: Database["public"]["Tables"]["patients"]["Row"];
 }
 
 export function genMRN() {
@@ -181,13 +182,13 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
         mrn: data.mrn,
         first_name: data.first_name,
         last_name: data.last_name,
-        name: (data as any).name ?? null,
+        name: data.name ?? null,
         facility_name: data.facility_name,
-        chief_complaint: (data as any).chief_complaint ?? null,
+        chief_complaint: data.chief_complaint ?? null,
       },
       { manual: true },
     );
-  } catch (e: any) {
+  } catch (e) {
     console.warn("[admit] seedAdmission failed", e);
   }
 
@@ -246,13 +247,13 @@ const HRRP_REQUEST_NAME = "CMS Hospital Readmissions Reduction Program (HRRP) Co
 
 async function requestHrrpValueSet(): Promise<void> {
   const { data: existing } = await supabase
-    .from("terminology_requests" as any)
+    .from("terminology_requests")
     .select("id")
     .eq("requested_name", HRRP_REQUEST_NAME)
     .in("status", ["pending", "drafted", "published"])
     .limit(1);
-  if (existing && (existing as any[]).length > 0) return;
-  await supabase.from("terminology_requests" as any).insert({
+  if (existing && existing.length > 0) return;
+  await supabase.from("terminology_requests").insert({
     requesting_consumer: "Auto Admin",
     requested_name: HRRP_REQUEST_NAME,
     justification:
@@ -260,6 +261,9 @@ async function requestHrrpValueSet(): Promise<void> {
     vocabulary: "ICD-10",
     clinical_application: "Billing",
     priority: "high",
+    request_type: "create",
+    requested_at: new Date().toISOString(),
+    status: "pending",
     seed_codes: [
       { code: "I50.9", display: "Heart failure, unspecified", vocabulary: "ICD-10" },
       {
@@ -272,7 +276,7 @@ async function requestHrrpValueSet(): Promise<void> {
       { code: "Z96.641", display: "Presence of right artificial hip joint", vocabulary: "ICD-10" },
       { code: "Z96.652", display: "Presence of left artificial knee joint", vocabulary: "ICD-10" },
     ],
-  } as any);
+  });
 }
 
 /**
@@ -287,19 +291,17 @@ export async function reconcileOrphanedBeds(facility: string): Promise<void> {
     .eq("facility_name", facility);
   if (!beds || beds.length === 0) return;
   const occupied = beds.filter(
-    (b: any) => b.current_patient_mrn && (b.status ?? "").toLowerCase().startsWith("occupied"),
+    (b) => b.current_patient_mrn && (b.status ?? "").toLowerCase().startsWith("occupied"),
   );
   if (occupied.length === 0) return;
-  const mrns = Array.from(new Set(occupied.map((b: any) => b.current_patient_mrn as string)));
+  const mrns = Array.from(new Set(occupied.map((b) => b.current_patient_mrn as string)));
   const { data: active } = await supabase.from("patients").select("mrn, status").in("mrn", mrns);
   const activeSet = new Set(
-    (active ?? [])
-      .filter((p: any) => (p.status ?? "").toLowerCase() === "admitted")
-      .map((p: any) => p.mrn),
+    (active ?? []).filter((p) => (p.status ?? "").toLowerCase() === "admitted").map((p) => p.mrn),
   );
   const orphanIds = occupied
-    .filter((b: any) => !activeSet.has(b.current_patient_mrn))
-    .map((b: any) => b.id);
+    .filter((b) => !activeSet.has(b.current_patient_mrn ?? ""))
+    .map((b) => b.id);
   if (orphanIds.length === 0) return;
   await supabase
     .from("bed_management")
@@ -307,6 +309,6 @@ export async function reconcileOrphanedBeds(facility: string): Promise<void> {
       status: "Available",
       current_patient_mrn: null,
       status_updated_at: new Date().toISOString(),
-    } as any)
+    })
     .in("id", orphanIds);
 }

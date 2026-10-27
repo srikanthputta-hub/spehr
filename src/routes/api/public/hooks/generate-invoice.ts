@@ -14,7 +14,7 @@ export const Route = createFileRoute("/api/public/hooks/generate-invoice")({
       POST: async ({ request }) => {
         const url = new URL(request.url);
         const all = url.searchParams.get("all");
-        let body: any = null;
+        let body: { mrn?: string } | null = null;
         try {
           body = await request.json();
         } catch {

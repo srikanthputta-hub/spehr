@@ -53,9 +53,9 @@ export function useTerminologySearch(opts: UseTerminologySearchOpts): UseTermino
       try {
         const hits = await searchTerminology({ query: term, sabs, pageSize });
         if (id === reqIdRef.current) setResults(hits);
-      } catch (e: any) {
+      } catch (e) {
         if (id === reqIdRef.current) {
-          setError(e?.message ?? "Terminology server unavailable");
+          setError(e instanceof Error ? e.message : "Terminology server unavailable");
           setResults([]);
         }
       } finally {

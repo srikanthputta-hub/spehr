@@ -14,9 +14,11 @@ import {
   UserPlus,
   Users,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { BoardHeader } from "@/components/BoardShell";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { admitPatient, type AdmitInput } from "@/lib/admit-patient";
 import { AdmitPatientModal } from "@/components/admissions/AdmitPatientModal";
@@ -44,13 +46,17 @@ function AdmissionsBoard() {
     const cancelled = false;
     const load = async () => {
       const { data } = await fetchWithTimeout(
-        () => supabase.from("bed_management").select("status").eq("facility_name", facility),
-        { data: [], error: null } as any,
+        async () => {
+          const res = await supabase
+            .from("bed_management")
+            .select("status")
+            .eq("facility_name", facility);
+          return { data: res.data, error: res.error };
+        },
+        { data: [] as Array<{ status: string | null }>, error: null },
       );
       if (cancelled || !data) return;
-      const available = data.filter(
-        (b: any) => (b.status ?? "").toLowerCase() === "available",
-      ).length;
+      const available = data.filter((b) => (b.status ?? "").toLowerCase() === "available").length;
       setBedCounts({ available, total: data.length });
     };
     load();
@@ -85,13 +91,13 @@ function AdmissionsBoard() {
       return false;
     }
     toast.success("Patient admitted", {
-      description: `${res.patient.first_name} ${res.patient.last_name} · ${res.patient.mrn}`,
+      description: `${res.patient?.first_name} ${res.patient?.last_name} · ${res.patient?.mrn}`,
     });
     setTab("roster");
     return true;
   };
 
-  const tabs: { key: TabKey; label: string; icon: any }[] = [
+  const tabs: { key: TabKey; label: string; icon: LucideIcon }[] = [
     { key: "home", label: "Home", icon: ClipboardList },
     { key: "admit", label: "Admit Patient", icon: UserPlus },
     { key: "roster", label: "Patient Census", icon: Users },
@@ -201,18 +207,36 @@ function RosterTab({ facility }: { facility: string }) {
     // status = 'Discharged' → FHIR Encounter.status = finished
     if (initialLoadRef.current) setLoading(true);
     const { data } = await fetchWithTimeout(
-      () =>
-        supabase
+      async () => {
+        const res = await supabase
           .from("patients")
           .select(
             "mrn, first_name, last_name, dob, address, status, admission_time, discharge_time, room",
           )
           .eq("facility_name", facility)
           .order("admission_time", { ascending: false })
-          .limit(150),
-      { data: [], error: null } as any,
+          .limit(150);
+        return { data: res.data, error: res.error };
+      },
+      {
+        data: [] as Array<
+          Pick<
+            Database["public"]["Tables"]["patients"]["Row"],
+            | "mrn"
+            | "first_name"
+            | "last_name"
+            | "dob"
+            | "address"
+            | "status"
+            | "admission_time"
+            | "discharge_time"
+            | "room"
+          >
+        >,
+        error: null,
+      },
     );
-    const mapped: EncounterRow[] = ((data ?? []) as any[]).map((p) => ({
+    const mapped: EncounterRow[] = (data ?? []).map((p) => ({
       mrn: p.mrn,
       name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
       dob: p.dob ?? null,
@@ -418,30 +442,30 @@ function SchedulingTab({ facility }: { facility: string }) {
     // mid-visit) and excludes closed statuses; History is the closed
     // statuses, most-recent first.
     const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+    type FhirAppointmentRow = Database["public"]["Tables"]["fhir_appointments"]["Row"];
+    const emptyFallback = { data: [] as FhirAppointmentRow[], error: null };
     const [upcomingRes, historyRes] = await Promise.all([
-      fetchWithTimeout(
-        () =>
-          (supabase as any)
-            .from("fhir_appointments")
-            .select("*")
-            .eq("facility_name", facility)
-            .not("status", "in", `(${CLOSED_APPT_STATUSES.join(",")})`)
-            .gte("start_time", sixHoursAgo)
-            .order("start_time", { ascending: true })
-            .limit(200),
-        { data: [], error: null } as any,
-      ),
-      fetchWithTimeout(
-        () =>
-          (supabase as any)
-            .from("fhir_appointments")
-            .select("*")
-            .eq("facility_name", facility)
-            .in("status", CLOSED_APPT_STATUSES)
-            .order("start_time", { ascending: false })
-            .limit(50),
-        { data: [], error: null } as any,
-      ),
+      fetchWithTimeout(async () => {
+        const res = await supabase
+          .from("fhir_appointments")
+          .select("*")
+          .eq("facility_name", facility)
+          .not("status", "in", `(${CLOSED_APPT_STATUSES.join(",")})`)
+          .gte("start_time", sixHoursAgo)
+          .order("start_time", { ascending: true })
+          .limit(200);
+        return { data: res.data, error: res.error };
+      }, emptyFallback),
+      fetchWithTimeout(async () => {
+        const res = await supabase
+          .from("fhir_appointments")
+          .select("*")
+          .eq("facility_name", facility)
+          .in("status", CLOSED_APPT_STATUSES)
+          .order("start_time", { ascending: false })
+          .limit(50);
+        return { data: res.data, error: res.error };
+      }, emptyFallback),
     ]);
     if (upcomingRes.error)
       toast.error("Could not load upcoming appointments", {
@@ -492,10 +516,7 @@ function SchedulingTab({ facility }: { facility: string }) {
   // `needs_fhir_push` DB trigger + `fhir-outbound-poll` now own all
   // outbound Appointment writes, keyed uniformly off `fhir_id`.
   const updateStatus = async (id: string, status: string) => {
-    const { error } = await (supabase as any)
-      .from("fhir_appointments")
-      .update({ status })
-      .eq("id", id);
+    const { error } = await supabase.from("fhir_appointments").update({ status }).eq("id", id);
     if (error) toast.error("Update failed", { description: error.message });
     else toast.success(`Appointment marked ${status}`);
   };
@@ -503,7 +524,7 @@ function SchedulingTab({ facility }: { facility: string }) {
   const reschedule = async (id: string, start: string, end: string) => {
     const startIso = new Date(start).toISOString();
     const endIso = new Date(end).toISOString();
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("fhir_appointments")
       .update({ start_time: startIso, end_time: endIso, status: "booked" })
       .eq("id", id);
@@ -852,12 +873,12 @@ function BookAppointmentModal({
       toast.error("Auto-fill failed", { description: error.message });
       return;
     }
-    const candidates = (data ?? []).filter((p: any) => p.mrn);
+    const candidates = (data ?? []).filter((p) => p.mrn);
     if (candidates.length === 0) {
       toast.error(`No existing patients found at ${facility}`);
       return;
     }
-    const p: any = candidates[Math.floor(Math.random() * candidates.length)];
+    const p = candidates[Math.floor(Math.random() * candidates.length)];
     const start = new Date(Date.now() + (1 + Math.floor(Math.random() * 14)) * 24 * 60 * 60 * 1000);
     start.setHours(
       9 + Math.floor(Math.random() * 8),
@@ -937,7 +958,7 @@ function BookAppointmentModal({
     // same `fhir_id`, so there is exactly one writer and one resource id
     // per appointment (previously this booking flow PUT directly AND the
     // poller separately PUT under a different id for the same row).
-    const { data: inserted, error } = await (supabase as any)
+    const { data: inserted, error } = await supabase
       .from("fhir_appointments")
       .insert({
         facility_name: facility,
@@ -960,8 +981,8 @@ function BookAppointmentModal({
       return;
     }
 
-    const fhirId = (inserted as any)?.fhir_id ?? `appt-${(inserted as any)?.id}`;
-    const appt: any = {
+    const fhirId = inserted?.fhir_id ?? `appt-${inserted?.id}`;
+    const appt = {
       resourceType: "Appointment",
       id: fhirId,
       status: form.status,
@@ -997,10 +1018,10 @@ function BookAppointmentModal({
     // Appointment?actor=Patient/[MRN] without round-tripping to the
     // external server while the poll cycle is in flight.
     try {
-      await (supabase as any).rpc("persist_fhir_resource", {
+      await supabase.rpc("persist_fhir_resource", {
         _resource_type: "Appointment",
         _resource_id: fhirId,
-        _mrn: mrnTrim || null,
+        _mrn: mrnTrim || "",
         _payload: appt,
         _source: "reception-booking",
         _origin: "human",

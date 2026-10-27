@@ -86,8 +86,10 @@ export function AdmitPatientModal({
       toast.success("NLP analysis complete", {
         description: `${result.matches.length} concept${result.matches.length === 1 ? "" : "s"} extracted`,
       });
-    } catch (e: any) {
-      toast.error("NLP analysis failed", { description: e?.message ?? String(e) });
+    } catch (e) {
+      toast.error("NLP analysis failed", {
+        description: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       setAnalyzing(false);
     }

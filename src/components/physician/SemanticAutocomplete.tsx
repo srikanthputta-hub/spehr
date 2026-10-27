@@ -62,13 +62,16 @@ export function SemanticAutocomplete({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ searchTerm: term, vocabulary }),
         });
-        const j = await r.json();
+        const j = (await r.json()) as {
+          error?: string;
+          result?: { results?: Array<{ ui?: string; name?: string; rootSource?: string }> };
+        };
         if (lastQuery.current !== term) return;
         if (!r.ok) {
           setErr(j?.error ?? "UMLS unavailable");
           setItems([]);
         } else {
-          const results = (j?.result?.results ?? []) as any[];
+          const results = j?.result?.results ?? [];
           setItems(
             results
               .filter((x) => x?.ui && x.ui !== "NONE")
@@ -81,8 +84,8 @@ export function SemanticAutocomplete({
           );
         }
         setOpen(true);
-      } catch (e: any) {
-        setErr(String(e?.message ?? e));
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : String(e));
         setItems([]);
       } finally {
         setLoading(false);

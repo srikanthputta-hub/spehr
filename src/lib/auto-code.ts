@@ -9,6 +9,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveConcept, type Vocabulary } from "@/lib/terminology-resolver";
 import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
+import type { Database } from "@/integrations/supabase/types";
 
 interface AutoCodeContext {
   resourceId: string;
@@ -16,11 +17,41 @@ interface AutoCodeContext {
   resolver?: string;
 }
 
+type PatchableTable = "lab_orders" | "medication_orders" | "conditions" | "allergies";
+
+// Overloads give every call site a fully-typed `patchData` for its literal
+// table. The implementation below stays generic across all four tables,
+// which the Supabase-generated query builder's overloads can't express
+// without a cast — see the disable comment there.
 async function patch(
-  table: "lab_orders" | "medication_orders" | "conditions" | "allergies",
+  table: "lab_orders",
+  id: string,
+  patchData: Database["public"]["Tables"]["lab_orders"]["Update"],
+): Promise<void>;
+async function patch(
+  table: "medication_orders",
+  id: string,
+  patchData: Database["public"]["Tables"]["medication_orders"]["Update"],
+): Promise<void>;
+async function patch(
+  table: "conditions",
+  id: string,
+  patchData: Database["public"]["Tables"]["conditions"]["Update"],
+): Promise<void>;
+async function patch(
+  table: "allergies",
+  id: string,
+  patchData: Database["public"]["Tables"]["allergies"]["Update"],
+): Promise<void>;
+async function patch(
+  table: PatchableTable,
   id: string,
   patchData: Record<string, unknown>,
 ): Promise<void> {
+  // The overloads above are what every caller sees; this implementation
+  // needs one escape hatch because `table` is widened back to the union
+  // and Supabase's generated builder can't resolve .update()'s parameter
+  // type from a non-literal table name.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase.from(table) as any).update(patchData).eq("id", id);
   if (error) console.warn(`[auto-code] ${table} update failed`, error.message);
@@ -48,18 +79,22 @@ async function requestCoverageIfMissing(args: {
       .from("custom_value_sets")
       .select("codes")
       .eq("status", "published");
-    for (const row of (sets ?? []) as any[]) {
+    for (const row of sets ?? []) {
       const codes = Array.isArray(row?.codes) ? row.codes : [];
-      if (codes.some((c: any) => String(c?.code ?? "").trim() === code)) return;
+      const hasCode = codes.some(
+        (c) =>
+          c && typeof c === "object" && !Array.isArray(c) && String(c.code ?? "").trim() === code,
+      );
+      if (hasCode) return;
     }
     const { data: existing } = await supabase
-      .from("terminology_requests" as any)
+      .from("terminology_requests")
       .select("id")
       .eq("requested_name", name)
       .in("status", ["pending", "drafted"])
       .limit(1);
-    if (existing && (existing as any[]).length > 0) return;
-    await supabase.from("terminology_requests" as any).insert({
+    if (existing && existing.length > 0) return;
+    await supabase.from("terminology_requests").insert({
       requesting_consumer: "Auto Doc",
       requested_name: name,
       justification: `Coding-compliance check found no governed value set covering ${vocabulary} code ${code} (${name}) assigned during note finalization for MRN ${mrn ?? "unknown"}`,
@@ -68,7 +103,10 @@ async function requestCoverageIfMissing(args: {
       clinical_application: "CDS",
       related_mrn: mrn ?? null,
       priority: "normal",
-    } as any);
+      request_type: "create",
+      requested_at: new Date().toISOString(),
+      status: "pending",
+    });
   } catch (e) {
     console.warn("[auto-code] coverage-request failed", e);
   }

@@ -56,7 +56,7 @@ function TasksPage() {
       setLoading(false);
       return;
     }
-    const mrns = (facPatients ?? []).map((p: any) => p.mrn).filter(Boolean);
+    const mrns = (facPatients ?? []).map((p) => p.mrn).filter(Boolean);
     if (mrns.length === 0) {
       setTasks([]);
       setLoading(false);

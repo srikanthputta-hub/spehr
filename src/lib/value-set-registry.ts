@@ -12,10 +12,21 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
+
+/**
+ * The columns every caller actually selects — none of them override the
+ * `columns` default below, so this matches the real shape of `row` exactly
+ * (a subset of `custom_value_sets`), instead of widening it to `any`.
+ */
+export type PublishedValueSetRow = Pick<
+  Database["public"]["Tables"]["custom_value_sets"]["Row"],
+  "id" | "name" | "oid" | "vocabulary" | "type" | "codes" | "intensional_rule" | "status"
+>;
 
 export type PublishedValueSetHit = {
   value_set_name: string;
-  row: any;
+  row: PublishedValueSetRow;
 };
 
 export async function loadPublishedValueSetsForConsumer(
@@ -31,9 +42,22 @@ export async function loadPublishedValueSetsForConsumer(
   const { data, error } = await q;
   if (error || !data) return [];
 
+  // `columns` is built from a runtime string, so Supabase's type-level query
+  // parser can't resolve the joined row shape (it types `data` as a
+  // ParserError placeholder) — cast to what the query actually returns at
+  // runtime instead of widening to `any`.
+  type JoinedRow = {
+    value_set_name: string;
+    custom_value_sets: PublishedValueSetRow | PublishedValueSetRow[] | null;
+  };
+  const rows = data as unknown as JoinedRow[];
+
   const out: PublishedValueSetHit[] = [];
-  for (const dep of data as any[]) {
-    const row = dep?.custom_value_sets;
+  for (const dep of rows) {
+    // The join can return either one row or an array depending on the FK
+    // relationship Supabase infers; normalize to a single row either way.
+    const joined = dep?.custom_value_sets;
+    const row = Array.isArray(joined) ? joined[0] : joined;
     if (!row) continue;
     if (row.status && row.status !== "published") continue;
     const name = String(dep?.value_set_name ?? row?.name ?? "");
@@ -62,7 +86,7 @@ export async function requestTerminologyUpdate(req: {
   related_mrn?: string | null;
 }): Promise<void> {
   try {
-    const { error: insertErr } = await supabase.from("terminology_requests" as any).insert({
+    const { error: insertErr } = await supabase.from("terminology_requests").insert({
       requesting_consumer: req.requesting_consumer,
       requested_name: req.requested_name,
       justification: req.justification,
@@ -72,10 +96,12 @@ export async function requestTerminologyUpdate(req: {
       clinical_application: req.clinical_application ?? null,
       related_mrn: req.related_mrn ?? null,
       status: "pending",
-    } as any);
+      request_type: "create",
+      requested_at: new Date().toISOString(),
+    });
 
     if (!insertErr) return; // fresh pending request created
-    if ((insertErr as any).code !== "23505") {
+    if (insertErr.code !== "23505") {
       console.warn(
         "[value-set-registry] requestTerminologyUpdate insert failed",
         insertErr.message,
@@ -86,7 +112,7 @@ export async function requestTerminologyUpdate(req: {
     // Unique-violation: a pending request for this (consumer, name) already
     // exists — merge our seed codes into it instead of creating a duplicate.
     const { data: existing } = await supabase
-      .from("terminology_requests" as any)
+      .from("terminology_requests")
       .select("id, seed_codes")
       .eq("requesting_consumer", req.requesting_consumer)
       .eq("requested_name", req.requested_name)
@@ -94,10 +120,8 @@ export async function requestTerminologyUpdate(req: {
       .maybeSingle();
     if (!existing) return; // resolved/processed between our insert attempt and this read
 
-    const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(
-      (existing as any).seed_codes,
-    )
-      ? (existing as any).seed_codes
+    const prevCodes: Array<{ code: string; display?: string }> = Array.isArray(existing.seed_codes)
+      ? (existing.seed_codes as Array<{ code: string; display?: string }>)
       : [];
     const seen = new Set(prevCodes.map((c) => String(c?.code ?? "")));
     const merged = [...prevCodes];
@@ -109,9 +133,9 @@ export async function requestTerminologyUpdate(req: {
     }
     if (merged.length === prevCodes.length) return; // nothing new to add
     await supabase
-      .from("terminology_requests" as any)
-      .update({ seed_codes: merged, updated_at: new Date().toISOString() } as any)
-      .eq("id", (existing as any).id);
+      .from("terminology_requests")
+      .update({ seed_codes: merged, updated_at: new Date().toISOString() })
+      .eq("id", existing.id);
   } catch (e) {
     console.warn("[value-set-registry] requestTerminologyUpdate failed", (e as Error)?.message);
   }

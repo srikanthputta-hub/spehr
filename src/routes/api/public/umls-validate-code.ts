@@ -65,8 +65,8 @@ async function fetchSnomedAncestors(code: string, apiKey: string): Promise<Set<s
     // 404 = code has no ancestors on this page (common for leaf/invalid codes). Treat as end-of-list.
     if (r.status === 404) break;
     if (!r.ok) throw new Error(`UMLS ${r.status}`);
-    const j: any = await r.json();
-    const results: any[] = j?.result ?? [];
+    const j = (await r.json()) as { result?: Array<{ ui?: string }> } | undefined;
+    const results = j?.result ?? [];
     for (const row of results) {
       if (row?.ui) set.add(String(row.ui));
     }
@@ -94,7 +94,7 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
         if (!supabaseUrl || !supabaseKey)
           return json({ ok: false, error: "Supabase not configured" }, 500, cors);
 
-        let body: any = null;
+        let body: { code?: string; valueSetOid?: string } | null = null;
         try {
           body = await request.json();
         } catch {
@@ -117,12 +117,18 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
           return json({ ok: false, error: `value set lookup failed: ${error.message}` }, 502, cors);
         if (!vs) return json({ ok: false, error: "value set not found" }, 404, cors);
 
-        const type = (vs as any).type as string;
-        const vocabulary = String((vs as any).vocabulary ?? "").toUpperCase();
+        const type = vs.type;
+        const vocabulary = String(vs.vocabulary ?? "").toUpperCase();
 
         if (type === "extensional") {
-          const codes: any[] = ((vs as any).codes ?? []) as any[];
-          const valid = codes.some((c) => String(c?.code ?? "").trim() === code);
+          const codes = Array.isArray(vs.codes) ? vs.codes : [];
+          const valid = codes.some(
+            (c) =>
+              c &&
+              typeof c === "object" &&
+              !Array.isArray(c) &&
+              String(c.code ?? "").trim() === code,
+          );
           return json(
             { ok: true, valid, reason: valid ? undefined : "not in extensional list" },
             200,
@@ -131,8 +137,10 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
         }
 
         if (type === "intensional") {
-          const rule = ((vs as any).intensional_rule ?? null) as any;
-          const root = String(rule?.root_concept ?? FALLBACK_ROOTS[(vs as any).name] ?? "").trim();
+          const rule = vs.intensional_rule;
+          const rootConcept =
+            rule && typeof rule === "object" && !Array.isArray(rule) ? rule.root_concept : null;
+          const root = String(rootConcept ?? FALLBACK_ROOTS[vs.name] ?? "").trim();
           const isSnomed = vocabulary.includes("SNOMED");
           if (!isSnomed || !root) return json({ ok: true, valid: true }, 200, cors);
           if (code === root) return json({ ok: true, valid: true }, 200, cors);
@@ -145,9 +153,13 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
               200,
               cors,
             );
-          } catch (err: any) {
+          } catch (err) {
             // Fail-open with 200 so callers treat as "errored" (valid=true) instead of surfacing a 502 runtime error.
-            return json({ ok: false, error: String(err?.message ?? err) }, 200, cors);
+            return json(
+              { ok: false, error: err instanceof Error ? err.message : String(err) },
+              200,
+              cors,
+            );
           }
         }
 
