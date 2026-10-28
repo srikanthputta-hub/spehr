@@ -4573,6 +4573,17 @@ function TaxonomyTree({
                                   <span className="text-[12px] text-slate-700 truncate">
                                     {leaf.display}
                                   </span>
+                                  <StatusBadge
+                                    status={
+                                      leaf.status.toLowerCase() === "active"
+                                        ? "success"
+                                        : leaf.status.toLowerCase() === "deprecated"
+                                          ? "critical"
+                                          : "neutral"
+                                    }
+                                    label={leaf.status}
+                                    className="shrink-0"
+                                  />
                                   {leaf.recentlyUsed && (
                                     <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider">
                                       ● live
@@ -4644,7 +4655,6 @@ function MedicalDictionary() {
   const [rows, setRows] = useState<DictEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSystem, setActiveSystem] = useState<string>("ICD-10");
-  const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [looking, setLooking] = useState(false);
@@ -4770,7 +4780,11 @@ function MedicalDictionary() {
    * then review the full record inside the assigned boxes before
    * committing it to the dictionary with "Save to Dictionary".
    */
-  const useUmlsHit = (hit: { ui: string; name: string }) => {
+  // NOTE: deliberately not named `useUmlsHit` — it's a plain event-handler
+  // closure, not a hook, and the `use`-prefix tripped `react-hooks/rules-of-hooks`
+  // (it's invoked from inside a .map() row's onClick, which is legal for a plain
+  // function but flagged as illegal hook usage under the naming convention).
+  const applyUmlsHit = (hit: { ui: string; name: string }) => {
     setForm((f) => ({
       ...f,
       code: hit.ui,
@@ -4975,25 +4989,6 @@ function MedicalDictionary() {
     });
   };
 
-  const filtered = rows.filter((r) => {
-    if (r.code_system !== activeSystem) return false;
-    const used = usedCodes[r.code_system];
-    if (used && !used.has(r.code)) return false;
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      r.code.toLowerCase().includes(q) ||
-      r.display.toLowerCase().includes(q) ||
-      (r.category ?? "").toLowerCase().includes(q)
-    );
-  });
-
-  const counts = CODE_SYSTEMS.reduce<Record<string, number>>((acc, s) => {
-    const used = usedCodes[s];
-    acc[s] = rows.filter((r) => r.code_system === s && (!used || used.has(r.code))).length;
-    return acc;
-  }, {});
-
   const submit = async () => {
     if (!form.code.trim() || !form.display.trim()) {
       toast.error("Code and display name are required");
@@ -5164,13 +5159,31 @@ function MedicalDictionary() {
         </div>
         <div className="flex items-center gap-2">
           {subtab === "library" && (
-            <Button
-              variant="outline"
-              onClick={exportFhir}
-              title="Download active code system as FHIR CodeSystem JSON"
-            >
-              <Download className="h-4 w-4" /> Export FHIR
-            </Button>
+            <>
+              {/* Export FHIR always exported whatever `activeSystem` happened to be
+                  (last system picked in the Search Terminology dialog, or "ICD-10"
+                  by default) with no visible control — this select makes that
+                  state a real, discoverable choice instead of an invisible one. */}
+              <select
+                value={activeSystem}
+                onChange={(e) => setActiveSystem(e.target.value)}
+                title="Code system to export"
+                className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none hover:bg-slate-50 focus:border-slate-400 transition cursor-pointer"
+              >
+                {CODE_SYSTEMS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                onClick={exportFhir}
+                title={`Download ${activeSystem} as a FHIR CodeSystem JSON`}
+              >
+                <Download className="h-4 w-4" /> Export FHIR
+              </Button>
+            </>
           )}
           {/* Search Terminology is available across every sub-tab so any
               workflow (Catalog, NLP Audits, Live Matrix, Safety Alerts)
@@ -5226,9 +5239,18 @@ function MedicalDictionary() {
       {subtab === "safety" && <SafetyQueue facility={facilityFilter} />}
       {subtab === "safety" && <CdsOverridesFeed />}
       {subtab === "autoterm" && <AutoTerminologistActivity />}
-      {subtab === "taxonomy" && (
-        <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={confirmedRemoveTerminology} />
-      )}
+      {subtab === "taxonomy" &&
+        (loading ? (
+          // `rows` (medical_terminology) loads async; without this, the tree
+          // briefly renders every code system as "No active concepts" before
+          // the real rows arrive, which reads as "the dictionary is empty".
+          <div className="space-y-3">
+            <CardSkeleton lines={5} />
+            <CardSkeleton lines={5} />
+          </div>
+        ) : (
+          <TaxonomyTree rows={rows} usedCodes={usedCodes} onDelete={confirmedRemoveTerminology} />
+        ))}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl">
@@ -5296,7 +5318,7 @@ function MedicalDictionary() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => useUmlsHit(hit)}
+                        onClick={() => applyUmlsHit(hit)}
                         className="shrink-0"
                       >
                         <Search className="h-3.5 w-3.5" />
