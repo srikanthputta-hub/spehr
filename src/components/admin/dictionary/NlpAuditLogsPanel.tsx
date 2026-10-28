@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { runSixStreamPipeline, approveMrnCoding } from "@/lib/coding-pipeline";
 import { AuditCard, type AuditRow } from "./AuditCard";
 import { InfoHint } from "@/components/ui/info-hint";
+import { CardSkeleton } from "@/components/common/LoadingSkeleton";
+import { EmptyState } from "@/components/common/EmptyState";
 import { admissionMapsEqual, auditRowsEqual, sortAuditRows } from "./auditRows";
 
 let cachedAuditRows: AuditRow[] = [];
@@ -185,15 +187,19 @@ export default function NlpAuditLogsPanel() {
       />
 
       {loading ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-          Loading…
+        <div className="space-y-3">
+          <CardSkeleton lines={4} />
+          <CardSkeleton lines={4} />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-          {rows.length === 0
-            ? "No pending items. Admit a patient (or click Refresh) to populate this log."
-            : "No matches for your search."}
-        </div>
+        <EmptyState
+          icon={Sparkles}
+          description={
+            rows.length === 0
+              ? "No pending items. Admit a patient (or click Refresh) to populate this log."
+              : "No matches for your search."
+          }
+        />
       ) : (
         <div className="scroll-feed space-y-3">
           {filtered.map((r) => (

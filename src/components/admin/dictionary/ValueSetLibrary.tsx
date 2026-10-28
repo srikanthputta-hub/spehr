@@ -365,7 +365,51 @@ export function ValueSetLibrary() {
     setSelected((s) => (s && s.id === row.id ? { ...s, status: next, ...(extra as any) } : s));
   };
 
+  // How many live consumers reference this value set, across every table
+  // that stores a `custom_value_sets.id` FK-by-convention (there is no real
+  // FK — see value_set_dependencies/cross_reactivity_rules/drug_interaction_rules
+  // schema — so a delete here otherwise leaves those rows pointing at nothing).
+  // Mirrors the medical_terminology dependents check in MedicalDictionary's
+  // `confirmedRemoveTerminology`; blocks the delete rather than orphaning
+  // Safety Alerts / CDS / discharge-conformance consumers that resolve
+  // through `loadPublishedValueSetsForConsumer`.
+  const countValueSetDependents = async (id: string): Promise<number> => {
+    try {
+      const [deps, cross, drug] = await Promise.all([
+        supabase
+          .from("value_set_dependencies")
+          .select("id", { count: "exact", head: true })
+          .eq("value_set_id", id),
+        supabase
+          .from("cross_reactivity_rules")
+          .select("id", { count: "exact", head: true })
+          .or(`allergy_value_set_id.eq.${id},drug_value_set_id.eq.${id}`),
+        supabase
+          .from("drug_interaction_rules")
+          .select("id", { count: "exact", head: true })
+          .or(`drug_a_value_set_id.eq.${id},drug_b_value_set_id.eq.${id}`),
+      ]);
+      if (deps.error || cross.error || drug.error) return -1;
+      return (deps.count ?? 0) + (cross.count ?? 0) + (drug.count ?? 0);
+    } catch {
+      return -1;
+    }
+  };
+
   const handleDelete = async (row: ValueSet) => {
+    const depCount = await countValueSetDependents(row.id);
+    if (depCount !== 0) {
+      toast.error(
+        depCount < 0 ? "Could not verify usage — delete blocked" : "Cannot delete — in use",
+        {
+          description:
+            depCount < 0
+              ? `Failed to check whether "${row.name}" is referenced by other consumers. Try again.`
+              : `"${row.name}" is referenced by ${depCount} consumer registration${depCount === 1 ? "" : "s"} (value set dependencies / cross-reactivity / drug-interaction rules). Remove those references first.`,
+        },
+      );
+      return;
+    }
     const { error } = await supabase.from("custom_value_sets").delete().eq("id", row.id);
     if (error) return toast.error(error.message);
     toast.success(`Deleted "${row.name}"`);

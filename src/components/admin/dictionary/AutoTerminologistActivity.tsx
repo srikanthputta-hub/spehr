@@ -527,7 +527,7 @@ export function AutoTerminologistActivity() {
                     if (error) {
                       console.warn("[terminology_requests] delete failed", error);
                       setRequests(prev);
-                      alert(`Delete failed: ${error.message}`);
+                      toast.error("Delete failed", { description: error.message });
                     }
                   }}
                   className="ml-1 inline-flex h-7 w-7 flex-none items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
