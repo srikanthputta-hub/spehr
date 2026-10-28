@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, ChevronRight, Database, Layers, ShieldAlert, Sparkles } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
+import { SAFETY_AUTO_REJECT_THRESHOLD } from "@/lib/safety-alert-resolution";
 
 /* ------------------------------------------------------------------ */
 /*  Catalog → live counts from the step-8 tables                       */
@@ -345,11 +346,15 @@ export function CdsOverridesFeed() {
                         label="Risk Score"
                         value={
                           r.risk_score != null
-                            ? `${r.risk_score}/100 (${r.risk_score >= 70 ? "≥70 → auto-Reject band" : "<70 → auto-Override band"})`
+                            ? `${r.risk_score}/100 (${
+                                r.risk_score >= SAFETY_AUTO_REJECT_THRESHOLD
+                                  ? `≥${SAFETY_AUTO_REJECT_THRESHOLD} → auto-Reject band`
+                                  : `<${SAFETY_AUTO_REJECT_THRESHOLD} → auto-Override band`
+                              })`
                             : "—"
                         }
                         mono
-                        info="Composite risk score computed from drug-disease severity × condition-match confidence. ≥70 → the Safety Engine auto-Rejects the order; <70 → auto-Overrides (logs the alert but lets the order proceed)."
+                        info={`Composite risk score computed from drug-disease severity × condition-match confidence. ≥${SAFETY_AUTO_REJECT_THRESHOLD} → the Safety Engine auto-Rejects the order; <${SAFETY_AUTO_REJECT_THRESHOLD} → auto-Overrides (logs the alert but lets the order proceed).`}
                       />
                       <DetailField label="Drug" value={r.drug_name ?? "—"} />
                       <DetailField label="Drug RxNorm" value={r.drug_rxnorm ?? "—"} mono />
