@@ -51,7 +51,13 @@ async function logEvent(
  * routes those writes through the service-role admin client instead.
  */
 export const updateSystemSettings = createServerFn({ method: "POST" })
-  .inputValidator((d: { automation_enabled?: boolean; auto_api_enabled?: boolean }) => d)
+  .inputValidator(
+    (d: {
+      automation_enabled?: boolean;
+      auto_api_enabled?: boolean;
+      author_id?: string | null;
+    }) => d,
+  )
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("system_settings").upsert({ id: 1, ...data } as any);

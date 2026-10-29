@@ -27,7 +27,7 @@ import {
   FileCheck2,
   ListChecks,
 } from "lucide-react";
-import { FACILITIES, type Facility } from "@/lib/facility-context";
+import { FACILITIES, useActiveStaff, type Facility } from "@/lib/facility-context";
 import {
   Dialog,
   DialogContent,
@@ -47,7 +47,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge } from "@/components/common/StatusBadge";
-import { CardSkeleton } from "@/components/common/LoadingSkeleton";
+import { CardSkeleton, TableSkeleton } from "@/components/common/LoadingSkeleton";
+import { EmptyState } from "@/components/common/EmptyState";
 import { dischargePatientViaWorker } from "@/lib/discharge-patient";
 import { AnalyticsPage as GlobalNetworkAnalytics } from "./analytics";
 import {
@@ -97,6 +98,7 @@ import {
 import type { BannedAbbrev } from "@/lib/safety-conflicts";
 import { Input } from "@/components/ui/input";
 import { useLatestWatchdogLog } from "@/hooks/useAutomationWatchdog";
+import { OLD_ID_RE } from "@/hooks/useBackgroundFhirSync";
 import { AutoApiCard } from "@/components/admin/AutoApiCard";
 // NOTE: Step8Surfacing also exports `TerminologyMetricsStrip` — a small
 // audit/value-set/CDS-override count strip — but it's not imported here. Its
@@ -602,6 +604,12 @@ function RoleDefaultsSections({
 }
 
 function SystemAdminPage() {
+  // Locally-selected staff identity (same device-wide convention used for
+  // attribution everywhere else in the app — see physician-board.tsx,
+  // admin-dashboard.tsx, etc. via useActiveStaff). Not real authentication
+  // (see isAdmin below), but it replaces a permanently-fixed fabricated
+  // name with whoever is actually set as the active Admin on this device.
+  const admin = useActiveStaff("Admin");
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("feature_controls");
   const [perms, setPerms] = useState<Perm[]>([]);
   const [loading, setLoading] = useState(true);
@@ -665,7 +673,7 @@ function SystemAdminPage() {
     setLocalAutomationEnabled(next);
     setAutomationSaving(true);
     const { ok } = await fetchWithTimeout(
-      () => updateSystemSettings({ data: { automation_enabled: next } }),
+      () => updateSystemSettings({ data: { automation_enabled: next, author_id: admin.name } }),
       { ok: false, error: "system_settings write timeout" },
     );
     setAutomationSaving(false);
@@ -776,7 +784,7 @@ function SystemAdminPage() {
     setPerms((rows) => rows.map((r) => (r.id === p.id ? { ...r, is_active: next } : r)));
     const { error } = await supabase
       .from("role_permissions")
-      .update({ is_active: next })
+      .update({ is_active: next, author_id: admin.name })
       .eq("feature_key", p.feature_key)
       .eq("target_role", p.target_role)
       .eq("facility_name", selectedFacility);
@@ -1025,79 +1033,46 @@ function SystemAdminPage() {
 }
 
 type StaffMember = {
+  id: string;
   name: string;
   role: string;
   facility: string;
   status: "Active" | "Suspended";
 };
 
-const STAFF_DIRECTORY: StaffMember[] = [
-  {
-    name: "Diane Whitaker",
-    role: "System Administrator",
-    facility: "Memorial Hospital",
-    status: "Active",
-  },
-  {
-    name: "Marcus Lin, MD",
-    role: "Attending Physician",
-    facility: "Memorial Hospital",
-    status: "Active",
-  },
-  {
-    name: "Sarah Jenkins, RN",
-    role: "Registered Nurse",
-    facility: "St. Jude Medical Center",
-    status: "Active",
-  },
-  {
-    name: "Priya Raman, PharmD",
-    role: "Clinical Pharmacist",
-    facility: "City General Infirmary",
-    status: "Active",
-  },
-  {
-    name: "Jordan Alvarez, CLT",
-    role: "Clinical Lab Tech",
-    facility: "Memorial Hospital",
-    status: "Active",
-  },
-  {
-    name: "Evelyn Park, MD",
-    role: "Attending Physician",
-    facility: "Srik Health Clinic",
-    status: "Suspended",
-  },
-  {
-    name: "Daniel Whitfield, CPA",
-    role: "Corporate Finance & Accounts",
-    facility: "County Health Pavilion",
-    status: "Active",
-  },
-  {
-    name: "Hannah O'Connor, RN",
-    role: "Registered Nurse",
-    facility: "Memorial Hospital",
-    status: "Active",
-  },
-  {
-    name: "Brian Yamamoto, MD",
-    role: "Attending Physician",
-    facility: "St. Jude Medical Center",
-    status: "Active",
-  },
-  {
-    name: "Lena Kowalski, CLT",
-    role: "Clinical Lab Tech",
-    facility: "City General Infirmary",
-    status: "Suspended",
-  },
-];
-
 function UserDirectory() {
-  const [staff, setStaff] = useState<StaffMember[]>(STAFF_DIRECTORY);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draft, setDraft] = useState<StaffMember | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("hospital_staff")
+      .select("id, name, role, facility_name, status")
+      .order("name");
+    if (error) {
+      toast.error("Failed to load staff directory", { description: error.message });
+      setLoading(false);
+      return;
+    }
+    setStaff(
+      ((data ?? []) as any[]).map((r) => ({
+        id: r.id,
+        name: r.name,
+        role: r.role,
+        facility: r.facility_name ?? "—",
+        status: r.status === "Suspended" ? "Suspended" : "Active",
+      })),
+    );
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
 
   const openEdit = (idx: number) => {
     setEditingIndex(idx);
@@ -1109,8 +1084,18 @@ function UserDirectory() {
     setDraft(null);
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (editingIndex === null || !draft) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from("hospital_staff")
+      .update({ role: draft.role, facility_name: draft.facility, status: draft.status })
+      .eq("id", draft.id);
+    setSaving(false);
+    if (error) {
+      toast.error("Could not update staff access", { description: error.message });
+      return;
+    }
     setStaff((rows) => rows.map((r, i) => (i === editingIndex ? draft : r)));
     closeEdit();
     toast.success("Staff access updated successfully.");
@@ -1149,8 +1134,22 @@ function UserDirectory() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
+            {loading && staff.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-3">
+                  <TableSkeleton rows={6} columns={5} />
+                </td>
+              </tr>
+            )}
+            {!loading && staff.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-10">
+                  <EmptyState description="No staff on record yet." />
+                </td>
+              </tr>
+            )}
             {staff.map((s, idx) => (
-              <tr key={s.name} className="hover:bg-slate-50/70 transition-colors">
+              <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
                 <td className="px-5 py-3 font-medium text-slate-900">{s.name}</td>
                 <td className="px-5 py-3 text-slate-700">{s.role}</td>
                 <td className="px-5 py-3 text-slate-700">{s.facility}</td>
@@ -1279,10 +1278,18 @@ function UserDirectory() {
               </div>
 
               <DialogFooter>
-                <Button variant="outline" onClick={closeEdit}>
+                <Button variant="outline" onClick={closeEdit} disabled={saving}>
                   Cancel
                 </Button>
-                <Button onClick={saveEdit}>Save Changes</Button>
+                <Button onClick={saveEdit} disabled={saving}>
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
               </DialogFooter>
             </>
           )}
@@ -3267,7 +3274,7 @@ const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
   onOpen,
 }: {
   row: FhirEncounterRow;
-  badge: { label: string; cls: string };
+  badge: { status: "neutral" | "info" | "warning"; label: string };
   autoStatus: "queued" | "syncing" | "ok" | "err" | undefined;
   lastSyncAt: number | undefined;
   onOpen: (r: FhirEncounterRow) => void;
@@ -3294,11 +3301,7 @@ const FhirEncounterTableRow = memo(function FhirEncounterTableRow({
       </td>
       <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{row.facility ?? "—"}</td>
       <td className="px-3 py-2.5 whitespace-nowrap">
-        <span
-          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badge.cls}`}
-        >
-          {badge.label}
-        </span>
+        <StatusBadge status={badge.status} label={badge.label} />
       </td>
       <td className="px-3 py-2.5 whitespace-nowrap">
         <button
@@ -3354,6 +3357,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
   const [dupScan, setDupScan] = useState<null | { ran: boolean; clean: boolean; details: string }>(
     null,
   );
+  const [dupScanning, setDupScanning] = useState(false);
   const [pushedMrns, setPushedMrns] = useState<Record<string, "ok" | "err">>(() => {
     if (typeof window === "undefined") return {};
     try {
@@ -3475,15 +3479,15 @@ function FhirInteroperability({ facility }: { facility: string }) {
     };
   }, [facility]);
 
-  const statusBadge = (r: FhirEncounterRow) => {
+  const statusBadge = (r: FhirEncounterRow): { status: "neutral" | "info" | "warning"; label: string } => {
     const s = (r.status ?? "").toLowerCase();
     if (s === "discharged" || r.discharge_time) {
-      return { label: "Discharged", cls: "bg-slate-100 text-slate-700 border-slate-300" };
+      return { status: "neutral", label: "Discharged" };
     }
     if (s === "admitted" || r.admission_time) {
-      return { label: "Admitted", cls: "bg-sky-50 text-sky-700 border-sky-200" };
+      return { status: "info", label: "Admitted" };
     }
-    return { label: "Pending Sync", cls: "bg-amber-50 text-amber-700 border-amber-200" };
+    return { status: "warning", label: "Pending Sync" };
   };
 
   // Full live-sync mode: every row is sync-eligible regardless of
@@ -3580,105 +3584,39 @@ function FhirInteroperability({ facility }: { facility: string }) {
     }
   };
 
-  // Build an Encounter Bundle for any row (used by both manual + auto loop).
-  const buildBundleForRow = async (r: FhirEncounterRow) => {
-    const [patientRes, labsRes, medsRes, notesRes, condsRes] = await Promise.all([
-      supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
-      supabase
-        .from("lab_orders")
-        .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
-        .eq("patient_mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("medication_orders")
-        .select(
-          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
-        )
-        .eq("patient_mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("clinical_notes")
-        .select("id, note_type, author, content, created_at")
-        .eq("mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(20),
-      supabase
-        .from("conditions")
-        .select(
-          "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at",
-        )
-        .eq("mrn", r.mrn)
-        .order("coded_at", { ascending: false })
-        .limit(20),
-    ]);
-    const p = (patientRes.data ?? {}) as any;
-    return buildEncounterBundle({
-      patient: {
-        mrn: r.mrn,
-        name: p.name ?? r.name,
-        first_name: p.first_name ?? null,
-        last_name: p.last_name ?? null,
-        dob: p.dob ?? null,
-        gender: p.gender ?? null,
-        biological_sex: p.biological_sex ?? null,
-        address: p.address ?? null,
-        phone: p.phone ?? null,
-        facility_name: p.facility_name ?? r.facility,
-        admission_time: p.admission_time ?? r.admission_time,
-        discharge_time: p.discharge_time ?? r.discharge_time,
-        status: p.status ?? r.status,
-        chief_complaint: p.chief_complaint ?? r.chief_complaint,
-        diagnosis: p.diagnosis ?? null,
-        discharge_summary: p.discharge_summary ?? null,
-        bp: p.bp ?? null,
-        hr: p.hr ?? null,
-        rr: p.rr ?? null,
-        spo2: p.spo2 ?? null,
-        temp: p.temp ?? null,
-        allergies: p.allergies ?? null,
-      },
-      labs: (labsRes.data ?? []) as any[],
-      meds: (medsRes.data ?? []) as any[],
-      notes: (notesRes.data ?? []) as any[],
-      conditions: (condsRes.data ?? []) as any[],
-    });
-  };
-
-  // Auto-push a single row, updating the per-row status badge as it goes.
+  // Reflect (never duplicate) the global background sync's real outcome for
+  // this row. useBackgroundFhirSync (mounted in __root.tsx) is the single
+  // writer to the FHIR server — running a second pusher here produced
+  // concurrent PUTs against the same patient bundle, which HAPI rejects with
+  // HTTP 409 "version constraint failure". This used to short-circuit
+  // straight to "ok" without checking anything, which fabricated a success
+  // badge regardless of whether the background hook had actually synced the
+  // row. Instead, consult the real per-MRN outcome the background hook
+  // persists to `pushedMrns` (loaded from localStorage on mount and kept
+  // live via the `spehr:fhir-pushed` event below) and only move the badge
+  // off "queued" once a genuine result exists.
   const autoPushRow = async (r: FhirEncounterRow) => {
-    // The global background sync hook (useBackgroundFhirSync, mounted in
-    // __root.tsx) is the single writer to the FHIR server. Running this
-    // page-level pusher in parallel produced concurrent PUTs against the
-    // same patient bundle, which HAPI rejects with HTTP 409
-    // "version constraint failure". Mark the row as ok locally so the UI
-    // still animates, but skip the duplicate push.
-    setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
-    stampSync(r.mrn);
-    return;
-
-    setAutoStatus((s) => ({ ...s, [r.mrn]: "syncing" }));
-    try {
-      const b = await buildBundleForRow(r);
-      const { data, error } = await supabase.functions.invoke("fhir-proxy", {
-        body: { mrn: r.mrn, bundle: b },
-      });
-      if (error) throw error;
-      if (data?.success === false) throw new Error(data?.error ?? `Status ${data?.status}`);
-      setAutoStatus((s) => ({ ...s, [r.mrn]: "ok" }));
-      setPushedMrns((m) => ({ ...m, [r.mrn]: "ok" }));
-      stampSync(r.mrn);
-      // Silent on success — live mode fires constantly; only surface failures.
-    } catch (e: any) {
-      const msg = typeof e?.message === "string" ? e.message : "Sync failed";
-      console.error("[FHIR auto-sync]", r.mrn, e);
-      setAutoStatus((s) => ({ ...s, [r.mrn]: "err" }));
-      setPushedMrns((m) => ({ ...m, [r.mrn]: "err" }));
-      stampSync(r.mrn);
-      toast.error(`Auto-Sync failed for ${r.name ?? r.mrn} · ${msg}`);
-    }
+    const known = pushedMrns[r.mrn];
+    if (known !== "ok" && known !== "err") return;
+    setAutoStatus((s) => (s[r.mrn] === known ? s : { ...s, [r.mrn]: known }));
+    if (known === "ok") stampSync(r.mrn);
   };
+
+  // Live mirror of the background hook's real per-MRN outcomes, so a row
+  // this panel is watching flips from "queued" to the true ok/err the
+  // moment the background sync actually finishes, instead of waiting on
+  // the next 1.5s tick (or never finding out at all).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ mrn: string; outcome: "ok" | "err" }>).detail;
+      if (!detail?.mrn) return;
+      setPushedMrns((m) => ({ ...m, [detail.mrn]: detail.outcome }));
+      setAutoStatus((s) => ({ ...s, [detail.mrn]: detail.outcome }));
+      if (detail.outcome === "ok") stampSync(detail.mrn);
+    };
+    window.addEventListener("spehr:fhir-pushed", handler as EventListener);
+    return () => window.removeEventListener("spehr:fhir-pushed", handler as EventListener);
+  }, []);
 
   // Toggle ON: seed every un-synced row as "queued" so badges show immediately.
   useEffect(() => {
@@ -3797,16 +3735,15 @@ function FhirInteroperability({ facility }: { facility: string }) {
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
-                    <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
-                    Loading encounters…
+                  <td colSpan={6} className="px-4 py-3">
+                    <TableSkeleton rows={6} columns={6} />
                   </td>
                 </tr>
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-xs text-slate-500">
-                    No encounters to display.
+                  <td colSpan={6} className="px-4 py-10">
+                    <EmptyState description="No encounters to display." />
                   </td>
                 </tr>
               )}
@@ -3906,7 +3843,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
                       Method
                     </th>
                     <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">
-                      Last Synced
+                      Compiled At
                     </th>
                     <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-3 py-2">
                       Status
@@ -3942,9 +3879,15 @@ function FhirInteroperability({ facility }: { facility: string }) {
                           {new Date(bundle.timestamp ?? Date.now()).toLocaleTimeString()}
                         </td>
                         <td className="px-3 py-2">
-                          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                            ✓ Clean
-                          </span>
+                          {OLD_ID_RE.test(String(e.resource?.id ?? "")) ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              ⚠ Legacy ID
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              ✓ Stable ID
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -3956,26 +3899,72 @@ function FhirInteroperability({ facility }: { facility: string }) {
           {drawerTab === "scan" && (
             <div className="rounded-md border border-slate-200 bg-slate-50 p-4 space-y-3 max-h-[55vh] overflow-auto">
               <div className="text-[11px] text-slate-600">
-                Scans this patient's FHIR record on the Medblocks server for any resources sharing
-                identical content fingerprints. With the new stable-ID UPSERT pattern in place, no
-                duplicates can be created going forward — this scan verifies the server matches
-                expectations.
+                Queries this patient's actual FHIR record on the live Medblocks server for any
+                resource still carrying a legacy pre-migration ID (the old{" "}
+                <span className="font-mono">*-mrn-&#123;MRN&#125;-*</span> scheme, superseded by
+                deterministic stable IDs). A legacy-ID resource means an old and new copy of the
+                same clinical fact can both exist server-side until the next background sync sweep
+                deletes it.
               </div>
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => {
-                  // Simulated scan: every resource has a deterministic id, so
-                  // by construction there are no duplicates.
-                  const count = bundle?.entry?.length ?? 0;
-                  setDupScan({
-                    ran: true,
-                    clean: true,
-                    details: `Inspected ${count} resources · all carry unique deterministic stable IDs · no content-fingerprint collisions detected.`,
-                  });
+                disabled={!activeRow || dupScanning}
+                onClick={async () => {
+                  if (!activeRow) return;
+                  setDupScanning(true);
+                  try {
+                    const types = [
+                      "Condition",
+                      "AllergyIntolerance",
+                      "MedicationRequest",
+                      "MedicationAdministration",
+                      "Observation",
+                      "Composition",
+                    ];
+                    let total = 0;
+                    const offenders: string[] = [];
+                    for (const t of types) {
+                      const res = await supabase.functions.invoke("fhir-proxy", {
+                        body: {
+                          method: "GET",
+                          path: t,
+                          query: { patient: activeRow.mrn, _count: "200", _elements: "id" },
+                        },
+                      });
+                      const entries: any[] = Array.isArray(res.data?.entry) ? res.data.entry : [];
+                      total += entries.length;
+                      for (const e of entries) {
+                        const id = String(e?.resource?.id ?? "");
+                        if (id && OLD_ID_RE.test(id)) offenders.push(`${t}/${id}`);
+                      }
+                    }
+                    setDupScan({
+                      ran: true,
+                      clean: offenders.length === 0,
+                      details:
+                        offenders.length === 0
+                          ? `Inspected ${total} live resources on the Medblocks server · all carry the current stable-ID scheme · no legacy duplicate-ID resources found.`
+                          : `Inspected ${total} live resources · found ${offenders.length} legacy-format resource(s) still on the server: ${offenders.slice(0, 5).join(", ")}${offenders.length > 5 ? "…" : ""}. The background sync sweep clears these automatically on this patient's next sync.`,
+                    });
+                  } catch (e: any) {
+                    setDupScan({
+                      ran: true,
+                      clean: false,
+                      details: `Scan failed: ${e?.message ?? "network error contacting Medblocks"}`,
+                    });
+                  } finally {
+                    setDupScanning(false);
+                  }
                 }}
               >
-                🔍 Scan for Duplicates
+                {dupScanning ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Scanning live server…
+                  </>
+                ) : (
+                  <>🔍 Scan for Duplicates</>
+                )}
               </Button>
               {dupScan && (
                 <div
@@ -4117,11 +4106,15 @@ function AuditLog() {
           supabase
             .from("role_permissions")
             .select(
-              "id, facility_name, target_role, feature_key, feature_name, is_active, updated_at",
+              "id, facility_name, target_role, feature_key, feature_name, is_active, updated_at, author_id",
             )
             .order("updated_at", { ascending: false })
             .limit(30),
-          supabase.from("system_settings").select("automation_enabled").eq("id", 1).maybeSingle(),
+          supabase
+            .from("system_settings")
+            .select("automation_enabled, author_id")
+            .eq("id", 1)
+            .maybeSingle(),
         ]),
       [
         { data: [], error: null },
@@ -4214,7 +4207,11 @@ function AuditLog() {
         tsMs: d.getTime(),
         ts: fmtTs(d),
         category: "SECURITY",
-        actor: "Diane Whitaker (Admin)",
+        // Real actor: whoever was the locally-selected Admin when the
+        // toggle fired (stamped via `author_id` in SystemAdminPage.toggle).
+        // Rows written before that attribution existed have no author_id
+        // on record — say so honestly instead of naming a fixed person.
+        actor: r.author_id ?? "Unknown Admin",
         facility: r.facility_name ?? "Global Network",
         details: `${r.is_active ? "Enabled" : "Disabled"} feature '${r.feature_key}' for role ${r.target_role}`,
       });
@@ -4228,7 +4225,7 @@ function AuditLog() {
         tsMs: now.getTime() - 1000,
         ts: fmtTs(now),
         category: "SYSTEM",
-        actor: "Diane Whitaker (Admin)",
+        actor: (settingsRes.data as any)?.author_id ?? "Unknown Admin",
         facility: "Global Network",
         details: `Master AI Automation is ${auto ? "ON" : "OFF"}`,
       });
@@ -4346,18 +4343,21 @@ function AuditLog() {
             <tbody className="divide-y divide-slate-100">
               {loading && filteredEvents.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
-                    <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" /> Loading live
-                    system events…
+                  <td colSpan={5} className="px-4 py-3">
+                    <TableSkeleton rows={6} columns={5} />
                   </td>
                 </tr>
               )}
               {!loading && filteredEvents.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
-                    {events.length === 0
-                      ? "No system events yet. Activity will stream in as it happens."
-                      : "No matches for your search."}
+                  <td colSpan={5} className="px-4 py-10">
+                    <EmptyState
+                      description={
+                        events.length === 0
+                          ? "No system events yet. Activity will stream in as it happens."
+                          : "No matches for your search."
+                      }
+                    />
                   </td>
                 </tr>
               )}

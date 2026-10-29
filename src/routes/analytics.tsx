@@ -3,13 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Activity, Users, LogOut as LogOutIcon, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { PopulationHealth } from "@/components/admin/PopulationHealth";
 import { fetchWithTimeout } from "@/lib/async-timeout";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 import { InfoHint } from "@/components/ui/info-hint";
 import { useVisibilityRefetch } from "@/hooks/useVisibilityRefetch";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { KpiTile } from "@/components/common/KpiTile";
 import { EmptyState } from "@/components/common/EmptyState";
 import { TableSkeleton } from "@/components/common/LoadingSkeleton";
 
@@ -71,7 +72,13 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
           .select(
             "id, mrn, name, first_name, last_name, status, facility_name, chief_complaint, admission_time",
           )
-          .order("admission_time", { ascending: false });
+          .order("admission_time", { ascending: false })
+          // Safety cap only — this network-wide query had no `.limit()` at
+          // all. Current row counts (low thousands) are well under this, so
+          // the "All time" / "Currently Admitted" / "Discharges" KPI math
+          // below is unaffected; it just stops an unbounded table scan if
+          // the patients table keeps growing.
+          .limit(2000);
         return { data: res.data, error: res.error };
       },
       { data: [], error: null },
@@ -167,30 +174,33 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
 
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <KpiCard
-            label="Total Network Admissions"
-            sub="All time"
-            value={totals.total}
-            icon={<Users className="h-4 w-4" />}
-            tone="navy"
-            info="Cumulative count of every row in the patients table across all 5 facilities — INCLUDES already-discharged patients. This is not the current census. Rows are retained ~48h before TTL garbage collection removes them."
-          />
-          <KpiCard
-            label="Currently Active Census"
-            sub="Status = Admitted"
-            value={totals.admitted}
-            icon={<Activity className="h-4 w-4" />}
-            tone="emerald"
-            info={`Global network-wide count of patients where status = "Admitted" across all 5 facilities — unlike the nursing/admin boards, this is not scoped to any one facility.`}
-          />
-          <KpiCard
-            label="Discharges · Last 48h"
-            sub="Rolling window"
-            value={totals.discharged}
-            icon={<LogOutIcon className="h-4 w-4" />}
-            tone="slate"
-            info="Network-wide count of patients currently sitting in the patients table with status = Discharged. This is a ROLLING 48-HOUR WINDOW, not an all-time cumulative total — the TTL garbage-collection sweep deletes discharged rows once they age past ~48h, so the number decrements as older discharges are pruned."
-          />
+          <div className="relative">
+            <KpiTile value={totals.total.toLocaleString()} label="Total Network Admissions · All time" />
+            <InfoHint
+              className="absolute top-4 right-4"
+              text="Cumulative count of every row in the patients table across all 5 facilities — INCLUDES already-discharged patients. This is not the current census. Rows are retained ~48h before TTL garbage collection removes them."
+            />
+          </div>
+          <div className="relative">
+            <KpiTile
+              value={totals.admitted.toLocaleString()}
+              label="Currently Active Census · Status = Admitted"
+            />
+            <InfoHint
+              className="absolute top-4 right-4"
+              text={`Global network-wide count of patients where status = "Admitted" across all 5 facilities — unlike the nursing/admin boards, this is not scoped to any one facility.`}
+            />
+          </div>
+          <div className="relative">
+            <KpiTile
+              value={totals.discharged.toLocaleString()}
+              label="Discharges · Last 48h (rolling window)"
+            />
+            <InfoHint
+              className="absolute top-4 right-4"
+              text="Network-wide count of patients currently sitting in the patients table with status = Discharged. This is a ROLLING 48-HOUR WINDOW, not an all-time cumulative total — the TTL garbage-collection sweep deletes discharged rows once they age past ~48h, so the number decrements as older discharges are pruned."
+            />
+          </div>
         </div>
 
         {/* Chart */}
@@ -341,44 +351,5 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean } = {})
         </div>
       </section>
     </Wrapper>
-  );
-}
-
-function KpiCard({
-  label,
-  sub,
-  value,
-  icon,
-  tone,
-  info,
-}: {
-  label: string;
-  sub: string;
-  value: number;
-  icon: React.ReactNode;
-  tone: "navy" | "emerald" | "slate";
-  info?: string;
-}) {
-  const tones: Record<string, string> = {
-    navy: "bg-[#0c2340] text-white",
-    emerald: "bg-emerald-500 text-white",
-    slate: "bg-slate-200 text-slate-700",
-  };
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-sm px-5 py-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            {label}
-            {info && <InfoHint className="ml-1" text={info} />}
-          </div>
-          <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>
-        </div>
-        <div className={`grid place-items-center h-8 w-8 rounded-md ${tones[tone]}`}>{icon}</div>
-      </div>
-      <div className="mt-3 font-mono text-3xl font-semibold text-slate-900 tabular-nums">
-        {value.toLocaleString()}
-      </div>
-    </div>
   );
 }

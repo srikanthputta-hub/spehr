@@ -66,6 +66,15 @@ function persistPushed(mrn: string, outcome: "ok" | "err") {
   } catch {
     /* ignore */
   }
+  try {
+    // Same-tab mirror of the localStorage write above — the browser's
+    // `storage` event only fires in OTHER tabs, so any mounted page (e.g.
+    // the FHIR Interoperability admin panel) needs this to learn the real
+    // outcome live instead of guessing.
+    window.dispatchEvent(new CustomEvent("spehr:fhir-pushed", { detail: { mrn, outcome } }));
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -78,7 +87,7 @@ function persistPushed(mrn: string, outcome: "ok" | "err") {
  * clinical fact. Successful cleanups are remembered in localStorage so
  * we never replay the sweep for the same MRN.
  */
-const OLD_ID_RE = /^(?:cond|allergy|medreq|medadmin|lab|vital|obs|composition)-mrn-/i;
+export const OLD_ID_RE = /^(?:cond|allergy|medreq|medadmin|lab|vital|obs|composition)-mrn-/i;
 const CLEAN_KEY = "fhir.cleanedOldIds";
 
 function alreadyCleaned(mrn: string): boolean {
