@@ -1690,9 +1690,9 @@ function SafetyQueue({ facility }: { facility: string }) {
       </div>
 
       {loading ? (
-        <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
-          <Loader2 className="inline h-3.5 w-3.5 animate-spin mr-1.5" />
-          Scanning intake records and medication orders…
+        <div className="space-y-3">
+          <CardSkeleton lines={3} />
+          <CardSkeleton lines={3} />
         </div>
       ) : pending.length === 0 ? (
         <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 p-8 text-center text-sm text-emerald-800">
@@ -1798,15 +1798,11 @@ function SafetyQueue({ facility }: { facility: string }) {
                     </div>
                   </div>
                 ) : (
-                  <span
-                    className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                      c.status === "Overridden"
-                        ? "border-amber-200 bg-amber-50 text-amber-700"
-                        : "border-slate-200 bg-slate-50 text-slate-600"
-                    }`}
-                  >
-                    {c.status}
-                  </span>
+                  <StatusBadge
+                    status={c.status === "Overridden" ? "warning" : "neutral"}
+                    label={c.status}
+                    className="text-[10px] uppercase tracking-wider"
+                  />
                 )}
               </div>
             </div>

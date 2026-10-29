@@ -35,7 +35,6 @@ type VsRow = {
 };
 
 const VS_NAMES = [
-  "Allergy Substances",
   "Anticoagulants",
   "High-Acuity ED Presentations",
   "Sepsis Indicators",
@@ -455,10 +454,17 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
   /* ---- RULE 2: Anticoagulant Bleeding Risk ---- */
   const isAnticoag = !!code && extensionalContains(anticoags, code);
   if (isAnticoag) {
-    const { data: activeMeds } = await supabase
+    // NOTE: `medication_orders` has no `ordered_at` column (only `created_at`
+    // / `administered_at` / `approved_at` / `dispensed_at`) — selecting it
+    // made this query 400 on every call, so `activeMeds` was always `null`
+    // and Rule 2 never found a single concurrent anticoagulant/NSAID order.
+    const { data: activeMeds, error: activeMedsErr } = await supabase
       .from("medication_orders")
-      .select("rxnorm_code, medication_name, drug_name, status, ordered_at, created_at")
+      .select("rxnorm_code, medication_name, drug_name, status, created_at")
       .eq("patient_mrn", mrn);
+    if (activeMedsErr) {
+      console.warn("[safety-alerts] active meds lookup failed", activeMedsErr.message);
+    }
     let conflict: { name: string; code: string; kind: "anticoag" | "nsaid" } | null = null;
     for (const m of (activeMeds ?? []) as any[]) {
       const mCode = String(m?.rxnorm_code ?? "").trim();

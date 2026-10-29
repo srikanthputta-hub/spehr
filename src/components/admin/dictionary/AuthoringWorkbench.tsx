@@ -489,6 +489,35 @@ export function AuthoringWorkbench() {
     setSaving(true);
     try {
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      // `intensional_clause` (anchor/operator/computedAt/count) is this
+      // workbench's own audit snapshot — nothing else in the app reads it.
+      // ValueSetLibrary's FHIR $expand/export, the editable "Rule" drawer,
+      // safety-alerts-engine.ts and the umls-validate-code API route all key
+      // off `intensional_rule` (shape: {rootConcept, rootDisplay, include,
+      // exclude, activeOnly}) instead — without also writing that column, an
+      // intensional value set authored here exported as a flat code list
+      // forever, even though the hierarchy rule was right there. Map the
+      // subset of HIERARCHY_OPERATORS that `intensional_rule.include` can
+      // actually represent (descendant-direction only — "children" or
+      // "descendants"); leave it null for equal/in/ancestor*/parentOf rather
+      // than writing an is-a filter that would misrepresent the rule (the
+      // already-resolved `codes` snapshot below stays correct either way).
+      const descendantInclude: "descendants" | "children" | null =
+        operator === "childOf"
+          ? "children"
+          : operator === "descendantOf" || operator === "descendantOrSelfOf"
+            ? "descendants"
+            : null;
+      const intensionalRule =
+        type === "intensional" && intensionalClause && descendantInclude
+          ? {
+              rootConcept: intensionalClause.anchorCode,
+              rootDisplay: intensionalClause.anchorDisplay,
+              include: descendantInclude,
+              exclude: [] as string[],
+              activeOnly: true,
+            }
+          : null;
       const { data, error } = await supabase
         .from("custom_value_sets")
         .upsert(
@@ -503,6 +532,7 @@ export function AuthoringWorkbench() {
             author: author.trim() || null,
             binding_strength: bindingStrength,
             intensional_clause: type === "intensional" ? (intensionalClause as any) : null,
+            intensional_rule: intensionalRule,
             grouping_members:
               type === "grouping"
                 ? (groupingMembers.map((m) => ({
@@ -1000,7 +1030,17 @@ export function AuthoringWorkbench() {
               )}
             </div>
             <div className="flex gap-1.5">
-              <Button size="sm" variant="outline" onClick={() => save("draft")} disabled={saving}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => save("draft")}
+                disabled={saving || (savedStatus !== null && savedStatus !== "draft")}
+                title={
+                  savedStatus !== null && savedStatus !== "draft"
+                    ? "Already submitted — editing from here would silently move it back to Draft, bypassing steward review. Use the Value Set Library to change a value set that's in review, approved, or published."
+                    : undefined
+                }
+              >
                 {saving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : savedFlash ? (
