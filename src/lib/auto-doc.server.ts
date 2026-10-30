@@ -1542,6 +1542,36 @@ export async function payInvoiceById(
   const i = inv as any;
   if (i.status === "balanced") return { ok: true };
 
+  // CAS (compare-and-swap): flip the invoice's status FIRST, guarded by
+  // `.eq("status", "issued")`, and only insert a payment notice if THIS
+  // call is the one that actually won that update. Without this guard,
+  // two concurrent payment attempts for the same invoice (a double-click,
+  // or this manual pay racing the `auto_pay_overdue_invoices` cron) could
+  // both pass the `status === "balanced"` check above — both read "issued"
+  // before either commits — and both insert a duplicate FHIR
+  // PaymentNotice, with the loser's unconditional UPDATE afterward also
+  // stomping a legitimate auto-pay's paid_at/payment_origin. The UPDATE
+  // itself is atomic at the Postgres row level: only one concurrent
+  // `WHERE id = ... AND status = 'issued'` can match and affect a row: the
+  // other gets back zero rows and knows it lost the race.
+  const { data: updatedRows, error: updErr } = await sb
+    .from("fhir_invoices")
+    .update({
+      status: "balanced",
+      paid_at: new Date().toISOString(),
+      payment_origin: "staff",
+    } as never)
+    .eq("id", i.id)
+    .eq("status", "issued")
+    .select("id");
+  if (updErr) return { ok: false, error: updErr.message };
+  if (!updatedRows || updatedRows.length === 0) {
+    // Lost the race (or the invoice was already balanced by the time this
+    // UPDATE ran) — another payment already settled it. Treat as success
+    // without inserting a second payment notice.
+    return { ok: true };
+  }
+
   const { data: noticeRow, error: nErr } = await sb
     .from("fhir_payment_notices")
     .insert({
@@ -1571,15 +1601,6 @@ export async function payInvoiceById(
     .from("fhir_payment_notices")
     .update({ payload: notice as never } as never)
     .eq("id", noticeId);
-
-  await sb
-    .from("fhir_invoices")
-    .update({
-      status: "balanced",
-      paid_at: new Date().toISOString(),
-      payment_origin: "staff",
-    } as never)
-    .eq("id", i.id);
 
   try {
     await sb.rpc(
