@@ -598,6 +598,11 @@ function originChip(r: AppointmentRow): { label: string; cls: string } | null {
       return { label: "Recall", cls: "border-sky-200 bg-sky-50 text-sky-700" };
     case "myspehr":
       return { label: "Portal", cls: "border-indigo-200 bg-indigo-50 text-indigo-700" };
+    case "reception-auto-fill":
+      // "Auto-fill" populated practitioner/reason/time with randomly
+      // chosen demo values that were never reviewed by staff -- flag it so
+      // this never reads as a genuine staff-entered booking.
+      return { label: "Auto-filled Demo", cls: "border-amber-300 bg-amber-50 text-amber-800" };
     case "reception":
       return { label: "Reception", cls: "border-slate-200 bg-slate-50 text-slate-600" };
     default:
@@ -835,6 +840,12 @@ function BookAppointmentModal({
   });
   const [submitting, setSubmitting] = useState(false);
   const [looking, setLooking] = useState(false);
+  // True once "Auto-fill" has populated practitioner/service/reason with
+  // randomly chosen demo values the user hasn't reviewed. Persisted on the
+  // appointment's `origin` so it's never indistinguishable from a genuine
+  // staff-entered booking (see originChip above). Cleared the moment the
+  // user edits any of those auto-filled fields themselves.
+  const [autoFilled, setAutoFilled] = useState(false);
 
   const PRACTITIONERS = [
     "Dr. Robert Patel, MD",
@@ -904,6 +915,7 @@ function BookAppointmentModal({
       status: "booked",
       comment: "",
     });
+    setAutoFilled(true);
     toast.success(`Auto-filled with ${p.first_name ?? ""} ${p.last_name ?? ""} (${p.mrn})`);
   };
 
@@ -971,7 +983,7 @@ function BookAppointmentModal({
         end_time: endIso,
         status: form.status,
         comment: form.comment.trim() || null,
-        origin: "reception",
+        origin: autoFilled ? "reception-auto-fill" : "reception",
       })
       .select()
       .maybeSingle();
@@ -1091,7 +1103,10 @@ function BookAppointmentModal({
           <FormField label="Practitioner / CareTeam" className="col-span-7">
             <input
               value={form.practitioner_name}
-              onChange={(e) => setForm({ ...form, practitioner_name: e.target.value })}
+              onChange={(e) => {
+                setForm({ ...form, practitioner_name: e.target.value });
+                setAutoFilled(false);
+              }}
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
               placeholder="Dr. Robert Patel"
             />
@@ -1099,7 +1114,10 @@ function BookAppointmentModal({
           <FormField label="Service Type" className="col-span-5">
             <input
               value={form.service_type}
-              onChange={(e) => setForm({ ...form, service_type: e.target.value })}
+              onChange={(e) => {
+                setForm({ ...form, service_type: e.target.value });
+                setAutoFilled(false);
+              }}
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
               placeholder="Outpatient Visit"
             />
@@ -1136,7 +1154,10 @@ function BookAppointmentModal({
           <FormField label="Description / Reason" className="col-span-12">
             <input
               value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              onChange={(e) => {
+                setForm({ ...form, description: e.target.value });
+                setAutoFilled(false);
+              }}
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--teal)]/40"
               placeholder="Annual physical, follow-up, etc."
             />
@@ -1150,6 +1171,13 @@ function BookAppointmentModal({
             />
           </FormField>
         </div>
+        {autoFilled && (
+          <div className="px-5 pb-3 -mt-1 text-[11px] font-medium text-amber-800 bg-amber-50 border-t border-amber-200 py-2">
+            ⚠ Practitioner, service type, reason and time were auto-filled with random demo values —
+            this will be booked and shown as "Auto-filled Demo", not a staff-reviewed appointment,
+            unless you edit them first.
+          </div>
+        )}
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-secondary/30">
           <button
             type="button"

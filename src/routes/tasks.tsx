@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
-import { useFacility } from "@/lib/facility-context";
+import { useActiveStaff, useFacility } from "@/lib/facility-context";
 import { toast } from "sonner";
 import { CheckCircle2, ClipboardCheck } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
@@ -27,6 +27,7 @@ interface TaskRow {
   dose: string | null;
   route: string | null;
   status: string | null;
+  administered_by: string | null;
 }
 
 function medName(t: TaskRow) {
@@ -38,6 +39,11 @@ function mrnOf(t: TaskRow) {
 
 function TasksPage() {
   const { facility } = useFacility();
+  // Device-local attribution for the administration audit trail -- same
+  // convention as useActiveStaff("Admin") in system-admin.tsx (PR #47). No
+  // real auth in this app, so this is who the device says is acting, not a
+  // cryptographically verified identity.
+  const nurse = useActiveStaff("RN");
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -89,7 +95,11 @@ function TasksPage() {
     // actOnOrder guard.
     const { data, error } = await supabase
       .from("medication_orders")
-      .update({ status: "Administered", administered_at: new Date().toISOString() })
+      .update({
+        status: "Administered",
+        administered_at: new Date().toISOString(),
+        administered_by: nurse.name,
+      })
       .eq("id", t.id)
       .eq("status", "Approved")
       .select("id");
@@ -153,7 +163,7 @@ function TasksPage() {
                   <th className="px-3 py-2 text-right font-semibold">
                     <span className="inline-flex items-center gap-1">
                       Action
-                      <InfoHint text='"Administer" marks the dose given (status = Administered, administered_at stamped). Only pharmacist-verified ("Approved") orders reach this list, so nurses cannot bypass pharmacist medication verification from here.' />
+                      <InfoHint text='"Administer" marks the dose given (status = Administered, administered_at and administered_by stamped with the active nurse). Only pharmacist-verified ("Approved") orders reach this list, so nurses cannot bypass pharmacist medication verification from here.' />
                     </span>
                   </th>
                 </tr>

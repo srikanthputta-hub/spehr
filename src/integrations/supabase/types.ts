@@ -1749,6 +1749,7 @@ export type Database = {
       medication_orders: {
         Row: {
           administered_at: string | null;
+          administered_by: string | null;
           approved_at: string | null;
           author_id: string | null;
           coded_at: string | null;
@@ -1783,6 +1784,7 @@ export type Database = {
         };
         Insert: {
           administered_at?: string | null;
+          administered_by?: string | null;
           approved_at?: string | null;
           author_id?: string | null;
           coded_at?: string | null;
@@ -1817,6 +1819,7 @@ export type Database = {
         };
         Update: {
           administered_at?: string | null;
+          administered_by?: string | null;
           approved_at?: string | null;
           author_id?: string | null;
           coded_at?: string | null;
