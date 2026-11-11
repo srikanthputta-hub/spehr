@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { BoardHeader } from "@/components/BoardShell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Users, PillBottle, Loader2, Inbox, Check, X, ArrowRightLeft } from "lucide-react";
+import { Loader2, Inbox, Check, X, ArrowRightLeft, FlaskConical, RotateCw } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -26,6 +26,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { TableSkeleton } from "@/components/common/LoadingSkeleton";
 import { severityRowVariants } from "@/components/common/SeverityRow";
 import { cn } from "@/lib/utils";
+import { IN_NETWORK_FACILITIES_LIST } from "../../supabase/functions/_shared/in-network-facilities";
 
 export const Route = createFileRoute("/admin-dashboard")({
   component: AdminDashboard,
@@ -185,13 +186,12 @@ function buildRoster(facility: string): Record<RoleKey, string[]> {
   return out;
 }
 
-const IN_NETWORK_FACILITIES = new Set([
-  "Memorial Hospital",
-  "St. Jude Medical Center",
-  "City General Infirmary",
-  "County Health Pavilion",
-  "Srik Health Clinic",
-]);
+// Single shared source of truth with the server-side transfer-delete-worker
+// edge function (supabase/functions/_shared/in-network-facilities.ts) — see
+// that file's header. This UI constant used to be a local, forked copy that
+// the edge function never actually enforced; it's now the SAME array both
+// sides import, so the two can't drift out of sync again.
+const IN_NETWORK_FACILITIES = new Set<string>(IN_NETWORK_FACILITIES_LIST);
 
 interface TransferRequest {
   id: string;
@@ -203,6 +203,8 @@ interface TransferRequest {
   reason_for_transfer: string | null;
   status: string | null;
   created_at: string | null;
+  approved_by?: string | null;
+  failure_reason?: string | null;
 }
 
 function roleBadgeClass(role: string) {
@@ -243,6 +245,7 @@ function AdminDashboard() {
   const { can } = useRolePermissions("Admin");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [pendingPharm, setPendingPharm] = useState(0);
+  const [pharmLoading, setPharmLoading] = useState(true);
   const [loading, setLoading] = useState(true);
 
   // Per-role shift clock — driven by real wall-clock time. Every 12h
@@ -253,37 +256,57 @@ function AdminDashboard() {
 
   const [transfers, setTransfers] = useState<TransferRequest[]>([]);
   const [transfersLoading, setTransfersLoading] = useState(true);
+  const [stuckTransfers, setStuckTransfers] = useState<TransferRequest[]>([]);
   const [actingOn, setActingOn] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
-      const [pRes, mRes] = await fetchWithTimeout(async () => {
-        const [patientsRes, medsRes] = await Promise.all([
-          supabase
+      const { data, error } = await fetchWithTimeout(
+        async () => {
+          const res = await supabase
             .from("patients")
             .select(
               "id,mrn,name,first_name,last_name,room,code_status,hr,spo2,facility_name,status,chief_complaint,admission_time",
             )
-            .order("admission_time", { ascending: false }),
-          supabase
-            .from("medication_orders")
-            .select("id", { count: "exact", head: true })
-            .eq("status", "PENDING_PHARMACY"),
-        ]);
-        return [
-          { data: patientsRes.data, error: patientsRes.error },
-          { count: medsRes.count, error: medsRes.error },
-        ];
-      }, [
+            .order("admission_time", { ascending: false });
+          return { data: res.data, error: res.error };
+        },
         { data: [], error: null },
-        { count: 0, error: null },
-      ]);
-      if (pRes.error) toast.error(pRes.error.message);
-      else setPatients((pRes.data ?? []) as Patient[]);
-      if (!mRes.error) setPendingPharm(mRes.count ?? 0);
+      );
+      if (error) toast.error(error.message);
+      else setPatients((data ?? []) as Patient[]);
       setLoading(false);
     })();
   }, []);
+
+  // Pharmacy Bottleneck — facility-scoped. `medication_orders.facility_name`
+  // IS populated (previously this count queried PENDING_PHARMACY orders
+  // network-wide while claiming in its tooltip to be scoped to the current
+  // facility — a false claim). Refetches whenever the facility switches so
+  // the tile and its tooltip stay accurate for whichever facility is active.
+  useEffect(() => {
+    let cancelled = false;
+    setPharmLoading(true);
+    (async () => {
+      const { count, error } = await fetchWithTimeout(
+        async () => {
+          const res = await supabase
+            .from("medication_orders")
+            .select("id", { count: "exact", head: true })
+            .eq("facility_name", facility)
+            .eq("status", "PENDING_PHARMACY");
+          return { count: res.count, error: res.error };
+        },
+        { count: 0, error: null },
+      );
+      if (cancelled) return;
+      if (!error) setPendingPharm(count ?? 0);
+      setPharmLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [facility]);
 
   // Re-sync immediately when the facility switches so the new tab shows
   // the correct current shift state without waiting for the next tick.
@@ -308,6 +331,26 @@ function AdminDashboard() {
     setTransfersLoading(false);
   };
 
+  // Transfers that got past CAS-approval but whose delete-worker call is
+  // still in flight ('Deleting') or didn't finish ('Failed') — i.e. exactly
+  // the stuck/desynced state that used to be invisible (the row just sat as
+  // 'Approved' forever with no sign anything was wrong). Surfaced here with
+  // a retry action instead.
+  const loadStuckTransfers = async () => {
+    const { data, error } = await fetchWithTimeout(
+      async () => {
+        const res = await supabase
+          .from("patient_transfers")
+          .select("*")
+          .in("status", ["Deleting", "Failed"])
+          .order("created_at", { ascending: false });
+        return { data: res.data, error: res.error };
+      },
+      { data: [], error: null },
+    );
+    if (!error) setStuckTransfers((data ?? []) as TransferRequest[]);
+  };
+
   const reloadPatients = async () => {
     const { data, error } = await supabase
       .from("patients")
@@ -320,12 +363,47 @@ function AdminDashboard() {
 
   useEffect(() => {
     loadTransfers();
+    loadStuckTransfers();
   }, []);
 
   const facilityTransfers = useMemo(
     () => transfers.filter((t) => t.source_facility === facility),
     [transfers, facility],
   );
+  const facilityStuckTransfers = useMemo(
+    () => stuckTransfers.filter((t) => t.source_facility === facility),
+    [stuckTransfers, facility],
+  );
+
+  // Runs the actual service-role delete-worker call and resolves the
+  // transfer row to a terminal status based on the result — 'Completed' on
+  // success, 'Failed' (with the reason recorded) otherwise. Shared by the
+  // first attempt (from approveTransfer) and by the retry action on a
+  // stuck/failed transfer, so both paths leave the transfer in a visible,
+  // non-ambiguous end state instead of silently stuck as 'Approved'.
+  const runDeleteAndResolve = async (t: TransferRequest) => {
+    const result = await transferDeletePatientViaWorker({
+      mrn: t.patient_mrn,
+      transferId: t.id,
+    });
+    // "Already deleted" on a retry means the goal state (patient gone) is
+    // already achieved — treat it as success rather than a new failure.
+    const alreadyDone = result.reason === "patient_not_found_or_already_deleted";
+    if ((result.ok && result.deleted) || alreadyDone) {
+      await supabase
+        .from("patient_transfers")
+        .update({ status: "Completed", failure_reason: null })
+        .eq("id", t.id);
+      return { ok: true as const };
+    }
+    const reason =
+      result.reason ?? "Patient delete could not be confirmed by transfer-delete-worker.";
+    await supabase
+      .from("patient_transfers")
+      .update({ status: "Failed", failure_reason: reason })
+      .eq("id", t.id);
+    return { ok: false as const, reason };
+  };
 
   const approveTransfer = async (t: TransferRequest) => {
     setActingOn(t.id);
@@ -337,7 +415,11 @@ function AdminDashboard() {
     try {
       const { data: updData, error: updErr } = await supabase
         .from("patient_transfers")
-        .update({ status: "Approved" })
+        // approved_by: audit trail of which admin (useActiveStaff identity,
+        // same convention as `ordered_by: md.name` in physician-board.tsx)
+        // approved this transfer — patient_transfers previously had no
+        // record of who authorized a permanent patient-record deletion.
+        .update({ status: "Approved", approved_by: admin.name })
         .eq("id", t.id)
         .eq("status", "Pending Approval")
         .select("id");
@@ -359,6 +441,7 @@ function AdminDashboard() {
           })
           .eq("mrn", t.patient_mrn);
         if (pErr) throw pErr;
+        await supabase.from("patient_transfers").update({ status: "Completed" }).eq("id", t.id);
       } else {
         // Outside-network transfer: permanently delete the patient record.
         // This MUST go through the service-role `transfer-delete-worker`
@@ -367,22 +450,53 @@ function AdminDashboard() {
         // delete silently affects 0 rows with no error, and this branch
         // would otherwise show a false success toast while leaving the
         // patient record completely untouched.
-        const result = await transferDeletePatientViaWorker({
-          mrn: t.patient_mrn,
-          transferId: t.id,
-        });
-        if (!result.ok || !result.deleted) {
-          throw new Error(
-            result.reason ?? "Patient delete could not be confirmed by transfer-delete-worker.",
-          );
+        //
+        // Status goes Approved -> Deleting (visible "in flight" marker,
+        // so a crash mid-call isn't indistinguishable from a healthy
+        // 'Approved' row) -> Completed/Failed once the worker responds.
+        // This replaces the old silent-desync behavior where a failed
+        // worker call left the transfer permanently 'Approved' with the
+        // patient never actually deleted and no way to tell or retry.
+        await supabase.from("patient_transfers").update({ status: "Deleting" }).eq("id", t.id);
+        const outcome = await runDeleteAndResolve(t);
+        if (!outcome.ok) {
+          throw new Error(outcome.reason);
         }
       }
 
       toast.success("Patient successfully transferred and rerouted across network servers.");
       setTransfers((cur) => cur.filter((x) => x.id !== t.id));
-      await reloadPatients();
+      await Promise.all([reloadPatients(), loadStuckTransfers()]);
     } catch (e) {
-      toast.error("Transfer failed", { description: e instanceof Error ? e.message : undefined });
+      toast.error("Transfer failed", {
+        description:
+          (e instanceof Error ? e.message : undefined) ??
+          "The transfer is now marked Failed and can be retried below.",
+      });
+      setTransfers((cur) => cur.filter((x) => x.id !== t.id));
+      await loadStuckTransfers();
+    } finally {
+      setActingOn(null);
+    }
+  };
+
+  // Retries the delete-worker call for a transfer stuck in 'Deleting' or
+  // 'Failed' — the admin-visible counterpart to the former silent-desync
+  // bug. The worker itself re-validates the destination-facility allowlist
+  // every time, so a retry can't be used to smuggle through a delete that
+  // the server-side check would otherwise refuse.
+  const retryStuckTransfer = async (t: TransferRequest) => {
+    setActingOn(t.id);
+    try {
+      const outcome = await runDeleteAndResolve(t);
+      if (!outcome.ok) {
+        toast.error("Retry failed", { description: outcome.reason });
+        await loadStuckTransfers();
+        return;
+      }
+      toast.success("Patient delete confirmed — transfer marked Completed.");
+      setStuckTransfers((cur) => cur.filter((x) => x.id !== t.id));
+      await reloadPatients();
     } finally {
       setActingOn(null);
     }
@@ -525,21 +639,23 @@ function AdminDashboard() {
       <section className="p-6 space-y-6 max-w-7xl mx-auto">
         {/* Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard
-            icon={<Users className="h-5 w-5" />}
-            label="Total Active Census"
-            value={loading ? "…" : activePatients.length}
-            tint="bg-sky-50 text-sky-700"
-            info={`Facility-scoped count of patients where status = "Admitted" at ${facility}.`}
-          />
-          <MetricCard
-            icon={<PillBottle className="h-5 w-5" />}
-            label="Pharmacy Bottleneck"
-            value={loading ? "…" : pendingPharm}
-            tint="bg-amber-50 text-amber-700"
-            sub="Orders pending verification"
-            info={`Orders at ${facility} with status = "PENDING_PHARMACY". PENDING_VERIFICATION and HELD_SAFETY_REVIEW orders are NOT included in this count.`}
-          />
+          <div className="relative">
+            <KpiTile value={loading ? "…" : activePatients.length} label="Total Active Census" />
+            <InfoHint
+              className="absolute top-4 right-4"
+              text={`Facility-scoped count of patients where status = "Admitted" at ${facility}.`}
+            />
+          </div>
+          <div className="relative">
+            <KpiTile
+              value={pharmLoading ? "…" : pendingPharm}
+              label="Pharmacy Bottleneck · Orders Pending Verification"
+            />
+            <InfoHint
+              className="absolute top-4 right-4"
+              text={`Orders at ${facility} (facility_name = "${facility}") with status = "PENDING_PHARMACY". PENDING_VERIFICATION and HELD_SAFETY_REVIEW orders are NOT included in this count.`}
+            />
+          </div>
           <CohortCountsStrip variant="card" facilityName={facility} />
         </div>
 
@@ -648,6 +764,95 @@ function AdminDashboard() {
           </div>
         </div>
 
+        {/* Stuck / Failed Transfer-Deletions — only rendered when one exists,
+            this is the admin-visible fix for the old silent-desync bug
+            (a failed delete-worker call used to leave the transfer
+            permanently 'Approved' with the patient never actually deleted
+            and no way to tell or retry). */}
+        {facilityStuckTransfers.length > 0 && (
+          <div className="rounded-xl border border-red-300 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-red-100 px-5 py-3">
+              <h2 className="text-sm font-semibold text-red-900 flex items-center gap-2">
+                <X className="h-4 w-4 text-red-700" />
+                ⚠️ Stuck / Failed Transfer Deletions
+              </h2>
+              <span className="text-xs text-red-700">
+                {facilityStuckTransfers.length} need attention · {facility}
+              </span>
+            </div>
+            <div className="p-5">
+              <ul className="space-y-3">
+                {facilityStuckTransfers.map((t) => {
+                  const busy = actingOn === t.id;
+                  const deleting = t.status === "Deleting";
+                  return (
+                    <li
+                      key={t.id}
+                      className={cn(
+                        severityRowVariants({ severity: "critical" }),
+                        "rounded-lg border border-slate-200 p-4",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-900">
+                              {t.patient_name}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-500">
+                              MRN {t.patient_mrn}
+                            </span>
+                            <StatusBadge
+                              status="critical"
+                              label={deleting ? "Deleting — never finished" : "Delete Failed"}
+                            />
+                          </div>
+                          <div className="mt-1 text-xs text-slate-600 flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{t.source_facility}</span>
+                            <ArrowRightLeft className="h-3 w-3 text-slate-400" />
+                            <span className="font-medium">{t.destination_facility}</span>
+                          </div>
+                          {t.approved_by && (
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              Approved by{" "}
+                              <span className="font-medium text-slate-700">{t.approved_by}</span>
+                            </div>
+                          )}
+                          {t.failure_reason && (
+                            <p className="mt-2 text-xs text-red-800 bg-red-50 border border-red-100 rounded-md px-3 py-2 font-mono">
+                              {t.failure_reason}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            size="sm"
+                            disabled={busy || !can("btn_approve_transfer")}
+                            onClick={() => retryStuckTransfer(t)}
+                            title={
+                              can("btn_approve_transfer")
+                                ? undefined
+                                : "Action disabled — contact admin to activate"
+                            }
+                            className="bg-red-600 hover:bg-red-700"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RotateCw className="h-3.5 w-3.5" />
+                            )}
+                            Retry Delete
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        )}
+
         {/* Active Unit Staffing & Shift Roster */}
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
@@ -677,10 +882,14 @@ function AdminDashboard() {
                 return (
                   <div
                     key={s.key}
-                    className={`rounded-lg border p-4 transition-colors ${
+                    // Dashed border (vs. the solid borders every REAL status
+                    // card elsewhere in the app uses) so this synthetic
+                    // roster can't be mistaken for live data at a glance,
+                    // even if someone misses the header disclaimer.
+                    className={`rounded-lg border border-dashed p-4 transition-colors ${
                       onDuty
-                        ? "border-emerald-200 bg-emerald-50/40 hover:border-emerald-300"
-                        : "border-slate-200 bg-slate-50/40 hover:border-slate-300"
+                        ? "border-emerald-300 bg-emerald-50/40 hover:border-emerald-400"
+                        : "border-slate-300 bg-slate-50/40 hover:border-slate-400"
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -694,7 +903,15 @@ function AdminDashboard() {
                           {s.role}
                         </span>
                       </div>
-                      <StatusBadge status={onDuty ? "success" : "neutral"} label={s.status} />
+                      {/* icon marks this as simulated data — same StatusBadge
+                          used for real statuses elsewhere, but never without
+                          this icon on this panel, so it doesn't read as an
+                          authentic live status at a glance. */}
+                      <StatusBadge
+                        status={onDuty ? "success" : "neutral"}
+                        label={s.status}
+                        icon={<FlaskConical className="h-3 w-3" aria-label="Simulated" />}
+                      />
                     </div>
                     {s.cap > 0 && (
                       <div className="mt-3">
@@ -744,42 +961,6 @@ function AdminDashboard() {
         <PatientFlowCensusLog />
       </section>
     </main>
-  );
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  tint,
-  sub,
-  alert,
-  info,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-  tint: string;
-  sub?: string;
-  alert?: boolean;
-  info?: string;
-}) {
-  return (
-    <div
-      className={`rounded-xl border bg-white p-5 shadow-sm ${
-        alert ? "border-red-300" : "border-slate-200"
-      }`}
-    >
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-medium uppercase tracking-widest text-slate-500">
-          {label}
-          {info && <InfoHint className="ml-1.5" text={info} />}
-        </div>
-        <div className={`grid place-items-center h-8 w-8 rounded-md ${tint}`}>{icon}</div>
-      </div>
-      <div className="mt-2 text-3xl font-bold text-slate-900">{value}</div>
-      {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
-    </div>
   );
 }
 

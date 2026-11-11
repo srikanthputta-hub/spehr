@@ -2172,10 +2172,12 @@ export type Database = {
       };
       patient_transfers: {
         Row: {
+          approved_by: string | null;
           author_id: string | null;
           created_at: string;
           created_by_type: Database["public"]["Enums"]["provenance_origin"];
           destination_facility: string;
+          failure_reason: string | null;
           id: string;
           patient_mrn: string;
           patient_name: string;
@@ -2186,10 +2188,12 @@ export type Database = {
           updated_at: string | null;
         };
         Insert: {
+          approved_by?: string | null;
           author_id?: string | null;
           created_at?: string;
           created_by_type?: Database["public"]["Enums"]["provenance_origin"];
           destination_facility: string;
+          failure_reason?: string | null;
           id?: string;
           patient_mrn: string;
           patient_name: string;
@@ -2200,10 +2204,12 @@ export type Database = {
           updated_at?: string | null;
         };
         Update: {
+          approved_by?: string | null;
           author_id?: string | null;
           created_at?: string;
           created_by_type?: Database["public"]["Enums"]["provenance_origin"];
           destination_facility?: string;
+          failure_reason?: string | null;
           id?: string;
           patient_mrn?: string;
           patient_name?: string;
