@@ -43,6 +43,7 @@ interface RadRow {
   status: string | null;
   impression: string | null;
   report_text: string | null;
+  reported_by: string | null;
   ordered_at: string | null;
   resulted_at: string | null;
   created_at: string | null;
@@ -71,7 +72,7 @@ function RadiologyBoard() {
         const res = await supabase
           .from("radiology_orders")
           .select(
-            "id, patient_mrn, patient_name, facility_name, requested_by, exam_type, modality, body_part, clinical_indication, snomed_code, snomed_display, status, impression, report_text, ordered_at, resulted_at, created_at",
+            "id, patient_mrn, patient_name, facility_name, requested_by, exam_type, modality, body_part, clinical_indication, snomed_code, snomed_display, status, impression, report_text, reported_by, ordered_at, resulted_at, created_at",
           )
           .eq("facility_name", facility)
           .order("created_at", { ascending: false })
@@ -149,6 +150,7 @@ function RadiologyBoard() {
           impression,
           report_text: reportText || impression,
           resulted_at: officialAt,
+          reported_by: radiologist.name,
         })
         .eq("id", order.id);
       if (error) throw error;
@@ -317,7 +319,9 @@ function RadiologyBoard() {
                               )}
                               {submitting === o.id ? "Posting…" : "Submit Official Report"}
                             </button>
-                            <InfoHint text="Final, irreversible release: sets radiology_orders.status = Reported, writes the impression and report text, and makes the study visible as a completed read." />
+                            <InfoHint
+                              text={`Final, irreversible release: sets radiology_orders.status = Reported, writes the impression and report text, stamps reported_by with ${radiologist.name} (this device's active radiologist), and makes the study visible as a completed read.`}
+                            />
                           </div>
                         </div>
                       )}
@@ -415,7 +419,11 @@ function RadiologyBoard() {
                           <td className="px-3 py-2">
                             <StatusBadge status="success" label="Reported" />
                           </td>
-                          <td className="px-3 py-2 text-slate-700">{radiologist.name}</td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {o.reported_by ?? (
+                              <span className="italic text-slate-400">Auto-Generated</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })
