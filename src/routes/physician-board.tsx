@@ -254,20 +254,33 @@ function PhysicianBoard() {
     })();
 
     const channel = supabase
-      .channel("physician-patients")
-      .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, () => {
-        supabase
-          .from("patients")
-          .select(
-            "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
-          )
-          .eq("status", "Admitted")
-          .eq("facility_name", facility ?? "Memorial Hospital")
-          .order("room", { ascending: true })
-          .then(({ data }) => {
-            if (data) setPatients(data as Patient[]);
-          });
-      })
+      .channel(`physician-patients-${facility ?? "Memorial Hospital"}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "patients",
+          // Scoped to the active facility, matching the sibling
+          // `safety-alerts-board-${facility}` subscription above — without
+          // this filter, a change to ANY patient at ANY facility in the
+          // system triggered a full `patients` table refetch here.
+          filter: `facility_name=eq.${facility ?? "Memorial Hospital"}`,
+        },
+        () => {
+          supabase
+            .from("patients")
+            .select(
+              "mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, facility_name, status",
+            )
+            .eq("status", "Admitted")
+            .eq("facility_name", facility ?? "Memorial Hospital")
+            .order("room", { ascending: true })
+            .then(({ data }) => {
+              if (data) setPatients(data as Patient[]);
+            });
+        },
+      )
       .subscribe();
     return () => {
       active = false;

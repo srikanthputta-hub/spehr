@@ -242,6 +242,16 @@ type FireInput = {
   allergy_name?: string | null;
   medication_order_id?: string | null;
   valueSetNames: string[];
+  // Rule 1 (Drug-Allergy) only: size of the matched allergy value set's
+  // extensional code list. A small, narrowly-named class (e.g. "Penicillin
+  // Class Drugs") is a more confident/specific match than a broad catch-all
+  // value set with hundreds of codes.
+  matchSpecificity?: number;
+  // Rule 2 (Drug-Drug / anticoagulant bleeding) only: which kind of
+  // interacting order was found. Two concurrent anticoagulants (additive
+  // anticoagulation) is mechanistically riskier than an anticoagulant +
+  // NSAID combination.
+  conflictKind?: "anticoag" | "nsaid";
 };
 
 async function fireAlert(input: FireInput): Promise<void> {
@@ -264,7 +274,7 @@ async function fireAlert(input: FireInput): Promise<void> {
     severity: severityLevel,
     status: "Pending Review",
     auto_resolve_at: new Date(Date.now() + 45_000).toISOString(),
-    risk_score: riskScoreFor(input.severity),
+    risk_score: riskScoreFor(input),
     medication_order_id: input.medication_order_id ?? null,
     rule_id: input.ruleKey,
     created_by_type: "automation",
@@ -326,17 +336,99 @@ export type MedOrderEvent = {
   medication_order_id?: string | null;
 };
 
-function riskScoreFor(severity: string | null | undefined): number {
-  const s = String(severity ?? "").toUpperCase();
-  const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
-  // Ranges are intentionally wide so demo alerts spread across the
-  // SAFETY_AUTO_REJECT_THRESHOLD (=50) and produce a visible mix of
-  // Overridden vs Rejected outcomes on the safety dashboard.
-  if (s === "CONTRAINDICATION" || s === "CRITICAL") return rand(55, 96);
-  if (s === "HIGH") return rand(30, 82);
-  if (s === "CAUTION" || s === "MEDIUM" || s === "WARNING") return rand(20, 60);
-  if (s === "INFO" || s === "LOW") return rand(5, 35);
-  return rand(30, 70);
+/**
+ * Stable (non-cryptographic) string hash — FNV-1a. Used below only as a
+ * deterministic tie-breaker, never as a source of randomness: the same
+ * string always produces the same number.
+ */
+function stableStringHash(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+/**
+ * Deterministic clinical risk score (0-100) for a fired safety alert.
+ *
+ * This REPLACES a previous implementation that returned `Math.random()`
+ * bucketed only by severity string. That meant the exact same drug pair
+ * (e.g. the same penicillin-class order against the same documented
+ * allergy) could score above `SAFETY_AUTO_REJECT_THRESHOLD` on one
+ * admission and below it on the next, purely by chance — i.e. identical
+ * clinical input could be auto-Rejected or silently auto-Overridden (order
+ * allowed to proceed) at random, while the UI presented the number as a
+ * real computed risk score.
+ *
+ * This function is a pure, reproducible function of the real interaction
+ * data available at the call site — calling it twice with the same
+ * `FireInput` always returns the same score:
+ *
+ *   - severity level supplied by the firing rule (CRITICAL outranks HIGH)
+ *   - which rule fired and its real clinical structure:
+ *       Rule 1 (Drug-Allergy): how specific/narrow the matched allergy
+ *         value set is (`matchSpecificity`) — a narrowly-named class is a
+ *         higher-confidence match than a broad catch-all value set.
+ *       Rule 2 (Drug-Drug): whether the interacting order is a second
+ *         anticoagulant (additive anticoagulation — the more dangerous
+ *         combination) or an NSAID (`conflictKind`).
+ *       Rules 3/4 (Clinical-Acuity): sepsis/high-acuity protocols are
+ *         time-critical by construction.
+ *   - the specific drug / allergy / trigger-code identifiers involved,
+ *     folded into a stable (hashed, not random) tie-breaker so two
+ *     different pairs at the same severity/kind don't collapse onto one
+ *     identical number.
+ */
+function riskScoreFor(
+  input: Pick<
+    FireInput,
+    | "severity"
+    | "kind"
+    | "ruleKey"
+    | "triggerCode"
+    | "drug"
+    | "drug_b"
+    | "allergy_name"
+    | "matchSpecificity"
+    | "conflictKind"
+  >,
+): number {
+  const severity = String(input.severity ?? "").toUpperCase();
+
+  // Severity sets the base band. The current rules only ever fire HIGH or
+  // CRITICAL (see FireInput["severity"]); the extra buckets are kept as a
+  // defensive default for any future caller.
+  let base: number;
+  if (severity === "CONTRAINDICATION" || severity === "CRITICAL") base = 80;
+  else if (severity === "HIGH") base = 58;
+  else if (severity === "CAUTION" || severity === "MEDIUM" || severity === "WARNING") base = 45;
+  else if (severity === "INFO" || severity === "LOW") base = 20;
+  else base = 50;
+
+  // Rule-specific adjustment from real clinical structure available at the
+  // call site.
+  let adj = 0;
+  if (input.kind === "Drug-Allergy") {
+    const specificity = input.matchSpecificity ?? 0;
+    if (specificity > 0 && specificity <= 5)
+      adj += 10; // narrowly-named class: high-confidence match
+    else if (specificity > 100) adj -= 6; // broad catch-all value set: lower-confidence match
+  } else if (input.kind === "Drug-Drug") {
+    // Additive anticoagulation (two anticoagulants) is mechanistically
+    // riskier than an anticoagulant + NSAID combination.
+    adj += input.conflictKind === "anticoag" ? 12 : 6;
+  } else if (input.kind === "Clinical-Acuity") {
+    adj += 8; // time-critical bundle/triage protocol
+  }
+
+  // Deterministic tie-breaker derived from the real identifiers of this
+  // specific alert, so two distinct pairs at the same severity/kind don't
+  // produce an identical score — without resorting to randomness.
+  const key = [input.ruleKey, input.triggerCode, input.drug, input.drug_b, input.allergy_name]
+    .filter(Boolean)
+    .join("|");
+  const tie = (stableStringHash(key) % 9) - 4; // deterministic, in [-4, +4]
+
+  return Math.max(1, Math.min(99, Math.round(base + adj + tie)));
 }
 
 export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void> {
@@ -427,6 +519,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
             allergy_name: best.allergyName,
             medication_order_id: evt.medication_order_id ?? null,
             valueSetNames: [best.vs.name],
+            matchSpecificity: best.specificity,
           });
         }
       } else {
@@ -497,6 +590,7 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
           medication_order_id: evt.medication_order_id ?? null,
           valueSetNames:
             conflict.kind === "nsaid" ? ["Anticoagulants", "NSAIDs"] : ["Anticoagulants"],
+          conflictKind: conflict.kind,
         });
       }
     }

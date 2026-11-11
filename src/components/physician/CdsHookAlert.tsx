@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ShieldCheck, X } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -10,6 +10,7 @@ import { logCdsOverride } from "@/lib/auto-api.functions";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
 import { toast } from "sonner";
 import { InfoHint } from "@/components/ui/info-hint";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
   drugName: string;
@@ -72,7 +73,55 @@ export function CdsHookAlert({
     return allergies.filter((a) => a && dn.includes(a.toLowerCase().split(/\s|,/)[0] ?? ""));
   }, [drugName, allergies, autoApi]);
 
-  if (!autoApi || (hits.length === 0 && allergyHits.length === 0)) return null;
+  // `auto_api_enabled` is documented (see useAutomationEnabled.ts) as
+  // scoped to autocomplete/sync features, but it also gates the
+  // drug-disease / drug-allergy contraindication checks above — with no
+  // disclosure and no audit trail. Rather than fail silently, log once per
+  // (patient, drug) that a check was skipped for this reason.
+  const loggedSkipKeysRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (autoApi) return;
+    if (!drugName || drugName.length < 3 || !mrn) return;
+    const key = `${mrn}:${drugName.toLowerCase()}`;
+    if (loggedSkipKeysRef.current.has(key)) return;
+    loggedSkipKeysRef.current.add(key);
+    (async () => {
+      try {
+        await supabase.from("auto_doc_logs").insert({
+          mrn,
+          stage: "cds-contraindication-check",
+          level: "warning",
+          message: `Drug-disease/drug-allergy contraindication checking SKIPPED for "${drugName}" — "Auto API" (auto_api_enabled) is OFF. This flag's documented scope is autocomplete/sync only; it also silently gates this safety check.`,
+          meta: { drugName, physicianName: physicianName ?? null },
+          created_by_type: "automation",
+        });
+      } catch {
+        // Best-effort audit log — never block the UI on this.
+      }
+    })();
+  }, [autoApi, drugName, mrn, physicianName]);
+
+  if (!autoApi) {
+    if (!drugName || drugName.length < 3) return null;
+    return (
+      <div className="flex items-start gap-2 rounded-md border-2 border-amber-300 bg-amber-50 p-3 text-amber-900">
+        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 mt-0.5" />
+        <div className="flex-1 text-[12px]">
+          <div className="text-[11px] font-bold uppercase tracking-wider inline-flex items-center gap-1">
+            Contraindication Checking Disabled
+            <InfoHint text='The system-wide "Auto API" toggle (system_settings.auto_api_enabled) is OFF. That flag is meant to control CPOE autocomplete and FHIR sync, but it also suppresses drug-disease and drug-allergy CDS checks for this order. Each occurrence is logged to auto_doc_logs for audit.' />
+          </div>
+          <div className="mt-0.5">
+            Drug-disease and drug-allergy CDS alerts for{" "}
+            <span className="font-semibold">{drugName}</span> are not running right now — verify
+            manually. This has been written to the audit log.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (hits.length === 0 && allergyHits.length === 0) return null;
 
   const handleOverride = async (key: string, hit: CdsHit | null, allergy: string | null) => {
     if (!overrideReason.trim()) {

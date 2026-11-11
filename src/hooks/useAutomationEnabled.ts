@@ -137,6 +137,17 @@ export async function getAutomationEnabled(): Promise<boolean> {
  * When OFF: Medical Dictionary shows Manual Mode, CPOE Semantic
  * Autocomplete disables, MySpehr CHV sub-lines hide, and the 400 ms
  * FHIR live sync pauses.
+ *
+ * NOTE — this flag ALSO silently gates drug-disease and drug-allergy
+ * contraindication alerting in CdsHookAlert.tsx, even though that is
+ * outside the scope described above (toggling autocomplete off was never
+ * meant to also turn off safety alerting). CdsHookAlert.tsx renders a
+ * visible disclosure banner and writes an auto_doc_logs entry whenever it
+ * suppresses a contraindication check for this reason, so the gap is at
+ * least never silent — but a clinician flipping this OFF for autocomplete
+ * reasons should know it also disables those checks. Prefer introducing a
+ * dedicated `cds_contraindication_alerts_enabled` flag if this coupling
+ * ever needs to be fully removed.
  * ---------------------------------------------------------------- */
 let cachedApi: boolean | null = null;
 const apiListeners = new Set<(v: boolean) => void>();

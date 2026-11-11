@@ -113,6 +113,12 @@ function PharmacyQueue() {
   const [patient, setPatient] = useState<Patient | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [acting, setActing] = useState(false);
+  // Real, uncapped KPI counts (head counts, not the length of the capped
+  // 150-row `dispensed` feed array below) — kept separate so a true
+  // "Dispensed" (actually-administered) count is never conflated with
+  // rejected orders under one green tile.
+  const [administeredCount, setAdministeredCount] = useState(0);
+  const [rejectedCount, setRejectedCount] = useState(0);
 
   // Load the Nursing Board roster (latest 25 admitted patients) for the
   // active facility — same source the Nursing Board / Lab Board use.
@@ -328,13 +334,35 @@ function PharmacyQueue() {
       if (!active) return;
       setDispensed(data ?? []);
     };
+    // Real counts for the KPI tiles — exact head counts against the full
+    // table, not the length of the 150-row capped feed array above, and
+    // split Dispensed (actually-administered) from Rejected so a rejected
+    // order never gets silently counted as "Dispensed".
+    const loadCounts = async () => {
+      const [administered, rejected] = await Promise.all([
+        supabase
+          .from("medication_orders")
+          .select("id", { count: "exact", head: true })
+          .eq("facility_name", facility)
+          .in("status", ["Administered", "ADMINISTERED"]),
+        supabase
+          .from("medication_orders")
+          .select("id", { count: "exact", head: true })
+          .eq("facility_name", facility)
+          .in("status", ["REJECTED", "REJECTED_SAFETY_ALERT"]),
+      ]);
+      setAdministeredCount(administered.count ?? 0);
+      setRejectedCount(rejected.count ?? 0);
+    };
     loadDispensed();
+    loadCounts();
     let dispensedTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleDispensed = () => {
       if (dispensedTimer) clearTimeout(dispensedTimer);
       dispensedTimer = setTimeout(() => {
         dispensedTimer = null;
         void loadDispensed();
+        void loadCounts();
       }, 300);
     };
     const channel = supabase
@@ -508,7 +536,8 @@ function PharmacyQueue() {
             value: visibleOrders.length,
             tone: visibleOrders.length > 0 ? "warn" : "good",
           },
-          { label: "Dispensed", value: recentDispensed.length, tone: "good" },
+          { label: "Dispensed", value: administeredCount, tone: "good" },
+          { label: "Rejected", value: rejectedCount, tone: rejectedCount > 0 ? "bad" : "good" },
           { label: "Pharmacist", value: pharm.name },
           { label: "Mode", value: automationEnabled ? "Verification" : "Manual Approval" },
         ]}
@@ -714,9 +743,9 @@ function PharmacyQueue() {
                   <div className="inline-flex items-center gap-1">
                     <button
                       onClick={() => actOnOrder(selected.id, "Approved")}
-                      disabled={acting || !can("btn_dispense_med")}
+                      disabled={acting || !can("btn_verify_med")}
                       title={
-                        can("btn_dispense_med")
+                        can("btn_verify_med")
                           ? undefined
                           : "Action disabled — contact admin to activate"
                       }
@@ -734,9 +763,9 @@ function PharmacyQueue() {
                   <div className="inline-flex items-center gap-1">
                     <button
                       onClick={() => actOnOrder(selected.id, "REJECTED")}
-                      disabled={acting || !can("btn_verify_med")}
+                      disabled={acting || !can("btn_dispense_med")}
                       title={
-                        can("btn_verify_med")
+                        can("btn_dispense_med")
                           ? undefined
                           : "Action disabled — contact admin to activate"
                       }
