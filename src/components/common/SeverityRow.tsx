@@ -11,9 +11,16 @@ import { cn } from "@/lib/utils";
  * vision catches them before they read the text. Pair with row-hover
  * (mandatory on any clickable/actionable row) via the `interactive` prop.
  *
- * Usable as a className helper (`severityRowVariants({ severity })` on an
- * existing <tr>/<div>) or via the <SeverityRow> wrapper below when a plain
- * element is enough.
+ * Usable as a className helper (`severityRowVariants({ severity })`) on an
+ * existing <div>/<li>/<button>, or via the <SeverityRow> wrapper below when
+ * a plain element is enough.
+ *
+ * NOT on a <tr> directly: per the CSS table-rendering spec, a border set
+ * on a table ROW is never painted under border-collapse: separate (the
+ * default) — only td/th borders render. In an HTML <table>, apply this to
+ * the row's first <td>/<th> instead (see finance-board.tsx's Coverage Gaps
+ * table), with `pl-3` compensating for the 4px border so the cell's text
+ * keeps the same left inset as its sibling cells.
  */
 const severityRowVariants = cva("border-l-4 pl-3 -ml-px", {
   variants: {

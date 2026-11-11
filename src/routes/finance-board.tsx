@@ -274,14 +274,21 @@ function FinanceBoard() {
         <KpiTile value={issued.length} label="Issued Invoices · Awaiting Payment" />
         <KpiTile value={balanced.length} label="Balanced (Paid) Invoices" />
         <div className="relative">
-          <KpiTile value={money(totalRevenue)} label="Total Billed Revenue" />
+          {/*
+            pr-10 reserves a gutter the full height of the tile for the
+            absolutely-positioned InfoHint icon (top-4 right-4, ~18px +
+            offset). Without it, the headline value has no right padding
+            of its own, so a large dollar figure (7+ digits) can run its
+            text under the icon instead of wrapping clear of it.
+          */}
+          <KpiTile value={money(totalRevenue)} label="Total Billed Revenue" className="pr-10" />
           <InfoHint
             className="absolute top-4 right-4"
             text="Sum of ALL invoices at this facility regardless of status (issued + balanced) — not just money actually collected. The gap between Total Billed and Collected is the outstanding accounts receivable."
           />
         </div>
         <div className="relative">
-          <KpiTile value={money(collected)} label="Collected (Paid)" />
+          <KpiTile value={money(collected)} label="Collected (Paid)" className="pr-10" />
           <InfoHint
             className="absolute top-4 right-4"
             text="Sum of only FHIR Invoices with status = balanced at this facility — money actually collected, either paid by the patient via the MySPEHR portal, or auto-paid on file after a 3-hour no-response timeout (FHIR PaymentNotice either way)."
@@ -473,7 +480,17 @@ function RiskAdjustmentGaps({ facility, invoices }: { facility: string; invoices
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const mrns = Array.from(new Set(invoices.map((i) => i.mrn))).filter(Boolean);
+      // Scope to the CURRENT encounter's invoice per MRN, not the MRN's
+      // whole lifetime history. `invoices` arrives already sorted
+      // latest-discharge-first (see refresh() in FinanceBoard), so the
+      // first invoice seen for a given MRN is that patient's current/most
+      // recent encounter — a prior encounter's invoice having an ICD-10
+      // line must never mask a gap on the current one.
+      const mrnToInvoiceId = new Map<string, string>();
+      for (const inv of invoices) {
+        if (inv.mrn && !mrnToInvoiceId.has(inv.mrn)) mrnToInvoiceId.set(inv.mrn, inv.id);
+      }
+      const mrns = Array.from(mrnToInvoiceId.keys());
       if (mrns.length === 0) {
         if (!cancelled) {
           setGaps([]);
@@ -481,20 +498,28 @@ function RiskAdjustmentGaps({ facility, invoices }: { facility: string; invoices
         }
         return;
       }
+      const invoiceIds = Array.from(new Set(mrnToInvoiceId.values()));
       const [patRes, ciRes] = await Promise.all([
         supabase.from("patients").select("mrn,name,diagnosis,chief_complaint").in("mrn", mrns),
-        supabase.from("fhir_charge_items").select("mrn,code_system").in("mrn", mrns),
+        supabase
+          .from("fhir_charge_items")
+          .select("invoice_id,code_system")
+          .in("invoice_id", invoiceIds),
       ]);
       if (cancelled) return;
-      const risk = new Set<string>();
+      // Keyed by invoice_id (the specific encounter being evaluated), not
+      // by mrn — an ICD-10 line on a different past invoice for the same
+      // MRN must not count as coverage for this one.
+      const riskByInvoice = new Set<string>();
       for (const r of ciRes?.data ?? []) {
-        if (String(r.code_system) === "ICD-10") risk.add(String(r.mrn));
+        if (String(r.code_system) === "ICD-10") riskByInvoice.add(String(r.invoice_id));
       }
       const rows: Array<{ mrn: string; name: string; diagnosis: string }> = [];
       for (const p of patRes?.data ?? []) {
         const dx = String(p.diagnosis ?? p.chief_complaint ?? "");
         if (!CHRONIC_RE.test(dx)) continue;
-        if (risk.has(String(p.mrn))) continue;
+        const invoiceId = mrnToInvoiceId.get(String(p.mrn));
+        if (invoiceId && riskByInvoice.has(invoiceId)) continue;
         rows.push({
           mrn: String(p.mrn),
           name: String(p.name ?? "—"),
@@ -541,14 +566,27 @@ function RiskAdjustmentGaps({ facility, invoices }: { facility: string; invoices
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {gaps.map((g) => (
-                  <tr
-                    key={g.mrn}
-                    className={cn(
-                      severityRowVariants({ severity: "critical" }),
-                      "hover:bg-slate-50",
-                    )}
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{g.mrn}</td>
+                  <tr key={g.mrn} className="hover:bg-slate-50">
+                    {/*
+                      Per the CSS table-rendering spec, a border set directly
+                      on a <tr> is never painted under border-collapse:
+                      separate (this table's default — it never sets
+                      border-collapse) — only td/th borders render. So the
+                      critical accent stripe goes on the first <td> instead.
+                      `-ml-px` from severityRowVariants is a margin, which
+                      also has no effect on table cells, but is harmless;
+                      `border-l-4`/`pl-3` are what actually render it. `pl-3`
+                      (not `px-4`) matches this table's other cells' 16px
+                      left inset exactly: 4px border + 12px padding = 16px.
+                    */}
+                    <td
+                      className={cn(
+                        severityRowVariants({ severity: "critical" }),
+                        "py-3 pr-4 font-mono text-xs text-slate-700",
+                      )}
+                    >
+                      {g.mrn}
+                    </td>
                     <td className="px-4 py-3 font-medium text-slate-900">{g.name}</td>
                     <td className="px-4 py-3 text-slate-700">{g.diagnosis}</td>
                     <td className="px-4 py-3 text-right">
