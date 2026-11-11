@@ -2627,6 +2627,7 @@ export type Database = {
           patient_mrn: string;
           patient_name: string | null;
           report_text: string | null;
+          reported_by: string | null;
           requested_by: string | null;
           resulted_at: string | null;
           snomed_code: string | null;
@@ -2654,6 +2655,7 @@ export type Database = {
           patient_mrn: string;
           patient_name?: string | null;
           report_text?: string | null;
+          reported_by?: string | null;
           requested_by?: string | null;
           resulted_at?: string | null;
           snomed_code?: string | null;
@@ -2681,6 +2683,7 @@ export type Database = {
           patient_mrn?: string;
           patient_name?: string | null;
           report_text?: string | null;
+          reported_by?: string | null;
           requested_by?: string | null;
           resulted_at?: string | null;
           snomed_code?: string | null;
