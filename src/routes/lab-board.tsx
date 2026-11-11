@@ -62,6 +62,7 @@ interface FeedRow {
   result_value: string | null;
   status: string;
   physician: string;
+  hasCritical: boolean;
 }
 
 function generateMockResults(testType: string, condition: string | null): LabValue[] {
@@ -154,13 +155,26 @@ function LabBoard() {
   const [draft, setDraft] = useState<Record<string, LabValue[]>>({});
   const [processing, setProcessing] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
+  // Real, uncapped counts for the KPI ribbon — exact head counts against
+  // the full table, not the length of the capped 250/150-row feed arrays
+  // below (those arrays are deliberately truncated for render performance
+  // and would silently plateau the "Pending"/"Resulted" tiles once a
+  // facility's queue outgrows the cap).
+  const [pendingCount, setPendingCount] = useState(0);
+  const [resultedCount, setResultedCount] = useState(0);
   const initialLoadRef = useRef(true);
 
   const load = async () => {
     if (initialLoadRef.current) setLoading(true);
-    const [{ data: labData }, { data: completedData }, { data: patientData }] =
-      await fetchWithTimeout(async () => {
-        const [labRes, completedRes, patientRes] = await Promise.all([
+    const [
+      { data: labData },
+      { data: completedData },
+      { data: patientData },
+      { count: pendingTotal },
+      { count: resultedTotal },
+    ] = await fetchWithTimeout(async () => {
+      const [labRes, completedRes, patientRes, pendingCountRes, resultedCountRes] =
+        await Promise.all([
           supabase
             .from("lab_orders")
             .select("*")
@@ -194,19 +208,43 @@ function LabBoard() {
             .eq("status", "Admitted")
             .order("admission_time", { ascending: false })
             .limit(25),
+          supabase
+            .from("lab_orders")
+            .select("id", { count: "exact", head: true })
+            .eq("facility_name", facility)
+            .in("status", [
+              "Ordered",
+              "ORDERED",
+              "Pending",
+              "PENDING",
+              "Pending Collection",
+              "Processing",
+              "PROCESSING",
+            ]),
+          supabase
+            .from("lab_orders")
+            .select("id", { count: "exact", head: true })
+            .eq("facility_name", facility)
+            .in("status", ["Reported", "Resulted", "Completed"]),
         ]);
-        return [
-          { data: labRes.data, error: labRes.error },
-          { data: completedRes.data, error: completedRes.error },
-          { data: patientRes.data, error: patientRes.error },
-        ];
-      }, [
-        { data: [], error: null },
-        { data: [], error: null },
-        { data: [], error: null },
-      ]);
+      return [
+        { data: labRes.data, error: labRes.error },
+        { data: completedRes.data, error: completedRes.error },
+        { data: patientRes.data, error: patientRes.error },
+        { count: pendingCountRes.count, error: pendingCountRes.error },
+        { count: resultedCountRes.count, error: resultedCountRes.error },
+      ];
+    }, [
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { count: 0, error: null },
+      { count: 0, error: null },
+    ]);
     setOrders((labData as LabOrderRow[]) ?? []);
     setCompletedOrders((completedData as LabOrderRow[]) ?? []);
+    setPendingCount(pendingTotal ?? 0);
+    setResultedCount(resultedTotal ?? 0);
     const rows =
       (patientData as Array<{
         mrn: string | null;
@@ -297,6 +335,14 @@ function LabBoard() {
       if (o.facility_name !== facility) continue;
       const s = (o.status ?? "").toUpperCase();
       if (s !== "RESULTED" && s !== "COMPLETED" && s !== "REPORTED") continue;
+      // Critical-flagged results deserve the same loud severity treatment
+      // here that the pending queue above already gives them — check the
+      // structured results_data first, and fall back to scanning the
+      // plain-text result_value summary for rows (e.g. ones finalized by
+      // the auto-finalize sweep) that only have the string.
+      const hasCritical =
+        (Array.isArray(o.results_data) && o.results_data.some((r) => r.flag === "CRITICAL")) ||
+        (typeof o.result_value === "string" && o.result_value.includes("[CRITICAL]"));
       rows.push({
         key: o.id,
         timestamp: o.resulted_at ?? o.collected_at ?? o.created_at,
@@ -313,6 +359,7 @@ function LabBoard() {
             : null),
         status: "Reported",
         physician: o.requested_by || "Dr. Ghost",
+        hasCritical,
       });
     }
 
@@ -323,9 +370,6 @@ function LabBoard() {
     });
     return rows.slice(0, 150);
   }, [completedOrders, facility]);
-
-  // Pending count for header still reflects real pending orders.
-  const completed = recentResulted;
 
   const runSample = async (order: LabOrderRow) => {
     setProcessing(order.id);
@@ -351,7 +395,19 @@ function LabBoard() {
               .join(" | ")
           : `${order.test_type}: Resulted`;
       const officialAt = new Date().toISOString();
-      const { error: e1 } = await supabase
+      // Guard against the stalled-order auto-finalize sweep
+      // (sweep_stalled_clinical_orders(), pg_cron) racing this manual
+      // submit: that DB function flips any lab_orders row stuck in
+      // "Processing" for >90s straight to "Reported" with its own
+      // simulated result, with no concurrency check. Without the
+      // `.eq("status", "Processing")` precondition here, a tech who
+      // submits a hair too late would silently overwrite — or be
+      // silently overwritten by — the cron's result with no error on
+      // either side. `.select("id")` lets us see how many rows the
+      // UPDATE actually touched: 0 means the row had already moved off
+      // "Processing" (most likely auto-finalized) before this write
+      // landed, so we must not report success.
+      const { data: updatedRows, error: e1 } = await supabase
         .from("lab_orders")
         .update({
           status: "Reported",
@@ -364,8 +420,22 @@ function LabBoard() {
           collected_at: officialAt,
           resulted_at: officialAt,
         })
-        .eq("id", order.id);
+        .eq("id", order.id)
+        .eq("status", "Processing")
+        .select("id");
       if (e1) throw e1;
+      if (!updatedRows || updatedRows.length === 0) {
+        toast.error("This order was already finalized", {
+          description:
+            "The auto-finalize sweep (or another tech) resulted this order before your submit landed. Your draft was discarded — refreshing the board.",
+        });
+        setDraft((d) => {
+          const { [order.id]: _, ...rest } = d;
+          return rest;
+        });
+        await load();
+        return;
+      }
       const { error: e2 } = await supabase
         .from("patients")
         .update({ unread_labs_alert: true })
@@ -390,7 +460,7 @@ function LabBoard() {
     <main className="min-h-screen bg-slate-50">
       <BoardHeader
         title={`Laboratory Workspace: ${tech.name} | ${tech.facility}`}
-        subtitle={`${tech.ward} · ${pending.length} pending · ${completed.length} resulted`}
+        subtitle={`${tech.ward} · ${pendingCount} pending · ${resultedCount} resulted`}
         badge="Lab Tech"
       />
       <div className="px-6 pt-3">
@@ -405,8 +475,8 @@ function LabBoard() {
         module="LAB"
         context={`${facility} · Central Lab`}
         stats={[
-          { label: "Pending", value: pending.length, tone: pending.length > 0 ? "warn" : "good" },
-          { label: "Resulted", value: completed.length, tone: "good" },
+          { label: "Pending", value: pendingCount, tone: pendingCount > 0 ? "warn" : "good" },
+          { label: "Resulted", value: resultedCount, tone: "good" },
           { label: "Tech", value: tech.name },
           { label: "Mode", value: automationEnabled ? "Auto-Result" : "Manual Approval" },
         ]}
@@ -425,7 +495,12 @@ function LabBoard() {
               icon={<FlaskConical className="h-3.5 w-3.5" />}
               title={`Pending Lab Requests — ${facility}`}
               subtitle="Ring-fenced queue · Live"
-              right={<span className="font-mono">{pending.length} OPEN</span>}
+              right={
+                <span className="font-mono">
+                  {pending.length} OPEN
+                  {pendingCount > pending.length && ` (+${pendingCount - pending.length} more)`}
+                </span>
+              }
             />
             {loading ? (
               <div className="p-4">
@@ -579,7 +654,7 @@ function LabBoard() {
               tone="teal"
               icon={<span>🗄️</span>}
               title={`Recent Completed Labs Feed — ${facility}`}
-              subtitle={`Auto-Updating · Newest first · ${recentResulted.length} entries`}
+              subtitle={`Auto-Updating · Newest first · ${recentResulted.length} entries${resultedCount > recentResulted.length ? ` (+${resultedCount - recentResulted.length} more)` : ""}`}
               right={<span className="font-mono">LIVE</span>}
             />
             <div className="scroll-feed">
@@ -622,7 +697,20 @@ function LabBoard() {
                         key={o.key}
                         className={`border-t border-slate-200 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/70"} hover:bg-cyan-50/50 transition-colors`}
                       >
-                        <td className="px-3 py-2 tabular-nums text-slate-700 whitespace-nowrap">
+                        {/*
+                          Per the CSS table-rendering spec, a border set on a
+                          <tr> is never painted under border-collapse:
+                          separate — only td/th borders render. So the
+                          critical accent stripe (same treatment as the
+                          pending-queue table above) goes on the first <td>,
+                          matching finance-board.tsx's Coverage Gaps table.
+                        */}
+                        <td
+                          className={cn(
+                            severityRowVariants({ severity: o.hasCritical ? "critical" : "none" }),
+                            "pr-3 py-2 tabular-nums text-slate-700 whitespace-nowrap",
+                          )}
+                        >
                           {o.timestamp
                             ? new Date(o.timestamp).toLocaleString([], {
                                 month: "short",
@@ -641,7 +729,10 @@ function LabBoard() {
                           {o?.patient_mrn ?? "—"}
                         </td>
                         <td className="px-3 py-2 text-slate-800">
-                          <div className="font-medium">{o?.test_type ?? "Unknown"}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium">{o?.test_type ?? "Unknown"}</span>
+                            {o.hasCritical && <StatusBadge status="critical" label="CRITICAL" />}
+                          </div>
                           {o.result_value && (
                             <div className="text-[11px] text-slate-500 mt-0.5">
                               {o.result_value}
