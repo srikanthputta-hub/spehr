@@ -138,8 +138,11 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
 
         if (type === "intensional") {
           const rule = vs.intensional_rule;
+          // `intensional_rule` is written by ValueSetLibrary.tsx's Rule drawer and
+          // AuthoringWorkbench.tsx as {rootConcept, rootDisplay, include, exclude,
+          // activeOnly} (camelCase) — match those keys, not a snake_case guess.
           const rootConcept =
-            rule && typeof rule === "object" && !Array.isArray(rule) ? rule.root_concept : null;
+            rule && typeof rule === "object" && !Array.isArray(rule) ? rule.rootConcept : null;
           const root = String(rootConcept ?? FALLBACK_ROOTS[vs.name] ?? "").trim();
           const isSnomed = vocabulary.includes("SNOMED");
           if (!isSnomed || !root) return json({ ok: true, valid: true }, 200, cors);
