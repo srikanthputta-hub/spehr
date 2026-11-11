@@ -24,7 +24,6 @@ import { Route as PhysicianBoardRouteImport } from './routes/physician-board'
 import { Route as RadiologyBoardRouteImport } from './routes/radiology-board'
 import { Route as SystemAdminRouteImport } from './routes/system-admin'
 import { Route as TasksRouteImport } from './routes/tasks'
-import { Route as ChartMrnRouteImport } from './routes/chart.$mrn'
 import { Route as PatientMrnRouteImport } from './routes/patient.$mrn'
 import { Route as ApiPublicDirectoryRouteImport } from './routes/api/public/directory'
 import { Route as ApiPublicUmlsSearchRouteImport } from './routes/api/public/umls-search'
@@ -108,11 +107,6 @@ const TasksRoute = TasksRouteImport.update({
   path: '/tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ChartMrnRoute = ChartMrnRouteImport.update({
-  id: '/chart/$mrn',
-  path: '/chart/$mrn',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const PatientMrnRoute = PatientMrnRouteImport.update({
   id: '/patient/$mrn',
   path: '/patient/$mrn',
@@ -168,7 +162,6 @@ export interface FileRoutesByFullPath {
   '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
-  '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/directory': typeof ApiPublicDirectoryRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
@@ -193,7 +186,6 @@ export interface FileRoutesByTo {
   '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
-  '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/directory': typeof ApiPublicDirectoryRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
@@ -219,7 +211,6 @@ export interface FileRoutesById {
   '/radiology-board': typeof RadiologyBoardRoute
   '/system-admin': typeof SystemAdminRoute
   '/tasks': typeof TasksRoute
-  '/chart/$mrn': typeof ChartMrnRoute
   '/patient/$mrn': typeof PatientMrnRoute
   '/api/public/directory': typeof ApiPublicDirectoryRoute
   '/api/public/umls-search': typeof ApiPublicUmlsSearchRoute
@@ -246,7 +237,6 @@ export interface FileRouteTypes {
     | '/radiology-board'
     | '/system-admin'
     | '/tasks'
-    | '/chart/$mrn'
     | '/patient/$mrn'
     | '/api/public/directory'
     | '/api/public/umls-search'
@@ -271,7 +261,6 @@ export interface FileRouteTypes {
     | '/radiology-board'
     | '/system-admin'
     | '/tasks'
-    | '/chart/$mrn'
     | '/patient/$mrn'
     | '/api/public/directory'
     | '/api/public/umls-search'
@@ -296,7 +285,6 @@ export interface FileRouteTypes {
     | '/radiology-board'
     | '/system-admin'
     | '/tasks'
-    | '/chart/$mrn'
     | '/patient/$mrn'
     | '/api/public/directory'
     | '/api/public/umls-search'
@@ -322,7 +310,6 @@ export interface RootRouteChildren {
   RadiologyBoardRoute: typeof RadiologyBoardRoute
   SystemAdminRoute: typeof SystemAdminRoute
   TasksRoute: typeof TasksRoute
-  ChartMrnRoute: typeof ChartMrnRoute
   PatientMrnRoute: typeof PatientMrnRoute
   ApiPublicDirectoryRoute: typeof ApiPublicDirectoryRoute
   ApiPublicUmlsSearchRoute: typeof ApiPublicUmlsSearchRoute
@@ -439,13 +426,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/chart/$mrn': {
-      id: '/chart/$mrn'
-      path: '/chart/$mrn'
-      fullPath: '/chart/$mrn'
-      preLoaderRoute: typeof ChartMrnRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/patient/$mrn': {
       id: '/patient/$mrn'
       path: '/patient/$mrn'
@@ -514,7 +494,6 @@ const rootRouteChildren: RootRouteChildren = {
   RadiologyBoardRoute: RadiologyBoardRoute,
   SystemAdminRoute: SystemAdminRoute,
   TasksRoute: TasksRoute,
-  ChartMrnRoute: ChartMrnRoute,
   PatientMrnRoute: PatientMrnRoute,
   ApiPublicDirectoryRoute: ApiPublicDirectoryRoute,
   ApiPublicUmlsSearchRoute: ApiPublicUmlsSearchRoute,

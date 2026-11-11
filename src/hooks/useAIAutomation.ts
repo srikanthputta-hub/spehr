@@ -531,9 +531,13 @@ async function cascadeLab(
   // Structured results_data — array of metric entries. Shape covers every
   // reader currently in the codebase:
   //   • lab-board.tsx reads r.test / r.value / r.unit / r.flag
-  //   • chart.$mrn.tsx reads m.name / m.value / m.unit / m.reference / m.flag
   //   • fhir-ingest.ts writes { flag, referenceRange } on inbound Observations
   // so we emit all of the above plus the LOINC code for FHIR symmetry.
+  // (chart.$mrn.tsx used to read m.name / m.value / m.unit / m.reference /
+  // m.flag here too, but it was dead code — unreachable from any UI link,
+  // duplicated tasks.tsx/patient.$mrn.tsx's medication-administration flow
+  // without its CAS guard, and gated a fake "cryptographic" PIN of "1234" —
+  // so it was deleted rather than wired in.)
   let resultsData: Array<Record<string, unknown>> | null = null;
   if (labMeta && typeof labMeta.numericValue === "number" && labMeta.flagCode) {
     const flagWord =
