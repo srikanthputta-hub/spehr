@@ -1,6 +1,24 @@
 // Transfer-Out Delete Worker — server-side, service-role replacement for the
 // direct anon `patients.delete()` call in admin-dashboard's approveTransfer().
 //
+// SECURITY — destination-facility allowlist (fixed 2026-10-29):
+//   This function used to select `destination_facility` off the transfer
+//   row (to check the row existed) and then NEVER READ IT AGAIN. The only
+//   gates before the service-role DELETE were "transfer row exists",
+//   "mrn matches", and "status === 'Approved'" — none of which say anything
+//   about WHERE the patient is being transferred to. The admin-dashboard
+//   UI's in-network/outside-network split (`IN_NETWORK_FACILITIES`) was
+//   purely a client-side decision about which branch to call; this worker
+//   gave it zero actual enforcement, so a forged/replayed call against any
+//   'Approved' transfer — including a perfectly normal in-network one —
+//   would permanently delete the patient record.
+//
+//   Fix: this worker now re-validates `destination_facility` itself,
+//   server-side, against the SAME allowlist the UI uses
+//   (`../_shared/in-network-facilities.ts` — single shared source, no
+//   forked copy), and refuses to delete when the destination IS in-network.
+//   Deletion is only for patients actually leaving the SPEHR network.
+//
 // Why this exists:
 //   The app runs entirely as Postgres `anon` (no auth). `public.patients` has
 //   RLS enabled with SELECT/INSERT/UPDATE policies open to `{public}`, but the
@@ -33,19 +51,25 @@
 //   2. Loads the `patient_transfers` row by `transfer_id` and verifies it:
 //        - exists
 //        - belongs to the given `mrn`
-//        - has status 'Approved' (the admin-dashboard CAS update to
-//          'Approved' must have already committed before this is called)
-//      This is a defense-in-depth check — the frontend has already decided
-//      the destination is outside the in-network set before calling this —
-//      so a stray/forged call can't delete a patient with no matching
-//      approved transfer behind it.
+//        - has status 'Approved' / 'Deleting' / 'Failed' (one of the
+//          in-flight-or-retryable states the admin-dashboard CAS flow puts
+//          a transfer in before calling this worker)
+//        - has a `destination_facility` that is OUTSIDE the in-network
+//          allowlist — THIS is the real security gate (see above). The
+//          frontend's own in-network/outside-network branch is NOT trusted
+//          — this worker makes the same determination itself, server-side.
+//      This is a defense-in-depth check — so a stray/forged call can't
+//      delete a patient with no matching approved, outside-network
+//      transfer behind it.
 //   3. Deletes the `patients` row for that `mrn` using the service-role
 //      client (bypasses RLS, so — unlike the anon call it replaces — this
 //      actually deletes the row).
 //   4. Returns a clear { ok, mrn, deleted, reason? } result the frontend
-//      must check before showing any success toast.
+//      must check before showing any success toast and before advancing
+//      the transfer's status to 'Completed' (vs. 'Failed').
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { isInNetworkFacility } from "../_shared/in-network-facilities.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -106,13 +130,37 @@ Deno.serve(async (req) => {
   if (transfer.patient_mrn !== mrn) {
     return json({ ok: false, mrn, deleted: false, reason: "transfer_mrn_mismatch" }, 409);
   }
-  if (transfer.status !== "Approved") {
+  // Admin-dashboard's approveTransfer() moves an outside-network transfer
+  // through Approved -> Deleting -> (Completed | Failed). A retry after a
+  // failed worker call re-invokes this function while the row is still
+  // 'Failed' (or, if the browser died mid-call, still 'Deleting'), so all
+  // three in-flight states are accepted here — only a transfer that never
+  // got CAS-approved ('Pending Approval'/'Denied') or has already finished
+  // ('Completed') is rejected.
+  const ACCEPTABLE_STATUSES = new Set(["Approved", "Deleting", "Failed"]);
+  if (!ACCEPTABLE_STATUSES.has(transfer.status ?? "")) {
     return json(
       {
         ok: false,
         mrn,
         deleted: false,
         reason: `transfer_not_approved (status=${transfer.status})`,
+      },
+      409,
+    );
+  }
+
+  // Destination-facility allowlist — THE fix for the critical gap this
+  // function used to have (see header comment). An in-network destination
+  // must never reach the delete below, no matter what the caller claims
+  // the status is.
+  if (isInNetworkFacility(transfer.destination_facility)) {
+    return json(
+      {
+        ok: false,
+        mrn,
+        deleted: false,
+        reason: `destination_in_network: "${transfer.destination_facility}" is an in-network SPEHR facility — in-network transfers relocate the patient record (facility_name update), they never delete it. Refusing to delete.`,
       },
       409,
     );
