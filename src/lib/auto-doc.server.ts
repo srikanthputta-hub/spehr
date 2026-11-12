@@ -4,6 +4,7 @@
  */
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { recommendDefinitionType } from "@/lib/value-set-registry";
 import { templateForDepartment, type ConditionTemplate } from "./auto-doc-catalog";
 import { routeDepartment, type Department } from "./chief-complaints";
 import { buildAdmissionTransactionBundle, type AdmissionPatient } from "./fhir-admission-discharge";
@@ -426,6 +427,10 @@ export async function runAutoDocPipeline(mrn: string) {
               .eq("id", (existingReq as any).id);
           }
         } else {
+          const recommendation = await recommendDefinitionType(
+            { vocabulary: "SNOMED CT", candidates: seedCodes },
+            sb,
+          );
           await sb.from("terminology_requests" as any).insert({
             requesting_consumer: "Auto Doc",
             requested_name: tpl.condition,
@@ -436,6 +441,9 @@ export async function runAutoDocPipeline(mrn: string) {
             clinical_application: "CDS",
             related_mrn: mrn,
             status: "pending",
+            recommended_type: recommendation.recommendedType,
+            reasoning: recommendation.reasoning,
+            suggested_root_concept: recommendation.suggestedRootConcept ?? null,
           } as any);
         }
       }
@@ -689,6 +697,10 @@ export async function runAutoDocPipeline(mrn: string) {
               .eq("id", (existingReq as any).id);
           }
         } else {
+          const recommendation = await recommendDefinitionType(
+            { vocabulary: "SNOMED CT", candidates: [seedCode] },
+            sb,
+          );
           await sb.from("terminology_requests" as any).insert({
             requesting_consumer: "Auto Doc",
             request_type: "create",
@@ -700,6 +712,9 @@ export async function runAutoDocPipeline(mrn: string) {
             clinical_application: "CDS",
             related_mrn: mrn,
             status: "pending",
+            recommended_type: recommendation.recommendedType,
+            reasoning: recommendation.reasoning,
+            suggested_root_concept: recommendation.suggestedRootConcept ?? null,
           } as any);
         }
       }
@@ -1245,8 +1260,13 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
         const seedCodes = unmatchedIcd10.map((c) => ({
           code: c,
           display: displayByCode.get(c) ?? c,
+          vocabulary: "ICD-10",
         }));
 
+        const recommendation = await recommendDefinitionType(
+          { vocabulary: "ICD-10", candidates: seedCodes },
+          sb,
+        );
         const { error: insertErr } = await sb.from("terminology_requests" as any).insert({
           requesting_consumer: "Auto Admin",
           requested_name: "Billing Coverage Gaps",
@@ -1257,6 +1277,9 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
           clinical_application: "Billing",
           related_mrn: mrn,
           status: "pending",
+          recommended_type: recommendation.recommendedType,
+          reasoning: recommendation.reasoning,
+          suggested_root_concept: recommendation.suggestedRootConcept ?? null,
         } as any);
 
         if (!insertErr) {

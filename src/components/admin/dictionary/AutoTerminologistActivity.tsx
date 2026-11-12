@@ -10,8 +10,13 @@ import {
   Inbox,
   Archive,
   Copy,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Send,
+  CheckCheck,
 } from "lucide-react";
-import { Trash2, Download } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 import { toast } from "sonner";
 
@@ -73,7 +78,16 @@ type RequestRow = {
   clinical_application?: string | null;
   request_type?: string | null;
   target_value_set_id?: string | null;
+  recommended_type?: "intensional" | "extensional" | null;
+  reasoning?: string | null;
+  suggested_root_concept?: { code: string; display: string } | null;
 };
+
+// Statuses a suggestion brief can still be actioned from — anything the
+// human steward hasn't yet sent to VSAC or resolved. "umls-suggested" means
+// the background cycle found candidate UMLS concepts worth bringing to a
+// steward's attention; it is staged, not imported.
+const ACTIONABLE_STATUSES = new Set(["pending", "umls-suggested"]);
 
 type DeprecationRow = {
   id: string;
@@ -93,9 +107,11 @@ function latestChange(history: any[] | null): string | null {
 
 function statusBadge(status: string | null): string {
   const s = String(status ?? "pending").toLowerCase();
-  if (s === "drafted") return "text-sky-700 bg-sky-50 border-sky-200";
+  if (s === "drafted" || s === "extended") return "text-sky-700 bg-sky-50 border-sky-200";
   if (s === "umls-suggested") return "text-indigo-700 bg-indigo-50 border-indigo-200";
-  if (s === "published") return "text-emerald-700 bg-emerald-50 border-emerald-200";
+  if (s === "sent_to_vsac") return "text-violet-700 bg-violet-50 border-violet-200";
+  if (s === "published" || s === "resolved")
+    return "text-emerald-700 bg-emerald-50 border-emerald-200";
   if (s === "rejected") return "text-red-700 bg-red-50 border-red-200";
   return "text-amber-700 bg-amber-50 border-amber-200"; // pending
 }
@@ -109,77 +125,67 @@ export function AutoTerminologistActivity() {
   const [requestQuery, setRequestQuery] = useState("");
   const [consumerFilter, setConsumerFilter] = useState<string>("All");
   const [draftedQuery, setDraftedQuery] = useState("");
-  const [importingId, setImportingId] = useState<string | null>(null);
   const [deprecations, setDeprecations] = useState<DeprecationRow[]>([]);
   const [targetNames, setTargetNames] = useState<Record<string, string>>({});
+  const [expandedBriefId, setExpandedBriefId] = useState<string | null>(null);
+  const [actioningId, setActioningId] = useState<string | null>(null);
 
-  const importFromUmls = async (r: RequestRow) => {
-    const codes = Array.isArray(r.seed_codes) ? r.seed_codes : [];
-    if (codes.length === 0) {
-      toast.error("No UMLS codes staged on this request");
-      return;
-    }
-    setImportingId(r.id);
+  /**
+   * Terminology requests never auto-create a `custom_value_sets` row with a
+   * fabricated OID anymore — that was exactly the "spehr invents its own
+   * value sets" pattern this view used to encourage via "Import from UMLS".
+   * The only actions left here are read-only (view the suggestion brief) or
+   * a plain status update: "Mark as Sent to VSAC" records that the human
+   * steward has taken the brief's recommendation to NLM VSAC and authored
+   * the real value set there. The loop closes in the Value Set Library's
+   * existing "Import from VSAC" dialog (paste the real OID VSAC assigned),
+   * or by manually marking the request Resolved once that import lands.
+   */
+  const markSentToVsac = async (r: RequestRow) => {
+    setActioningId(r.id);
     try {
       const now = new Date().toISOString();
-      const name = r.requested_name;
-      const vocab = r.vocabulary || (codes[0] as any)?.vocabulary || "SNOMED CT";
-      const slug = name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
-      const { data: inserted, error: insertErr } = await supabase
-        .from("custom_value_sets")
-        .insert({
-          name,
-          system: String(vocab).replace(" ", "-"),
-          vocabulary: vocab,
-          type: "extensional",
-          codes,
-          status: "draft",
-          description:
-            `Imported from UMLS in response to terminology request from ${r.requesting_consumer}: ${r.justification ?? ""}`.trim(),
-          clinical_application: r.clinical_application ?? null,
-          fhir_url: `http://spehr.live/fhir/ValueSet/${slug}`,
-          oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
-          change_history: [
-            {
-              at: now,
-              actor: "S.P.E.H.R. Terminology Services",
-              change: `Imported from UMLS (${codes.length} concepts) — ${vocab}`,
-            },
-          ],
-        } as any)
-        .select("id")
-        .single();
-      if (insertErr) throw insertErr;
-      const valueSetId = (inserted as any)?.id;
-      await supabase
-        .from("terminology_requests" as any)
+      const { error } = await supabase
+        .from("terminology_requests")
         .update({
-          status: "drafted",
-          value_set_id: valueSetId,
-          resolved_at: now,
+          status: "sent_to_vsac",
           updated_at: now,
-          quality_gate_notes: `Imported from UMLS (${codes.length} concepts).`,
-        } as any)
+          quality_gate_notes: `Suggestion brief sent to VSAC for authoring by a human steward.`,
+        })
         .eq("id", r.id);
-      await supabase.from("auto_terminologist_log" as any).insert({
-        action: "drafted",
-        message: `Imported '${name}' from UMLS (${codes.length} ${vocab} concepts) — status: draft — awaiting human review.`,
-        theme: name,
-        codes_count: codes.length,
-        value_set_id: valueSetId,
-      } as any);
-      setRequests((rs) =>
-        rs.map((x) => (x.id === r.id ? { ...x, status: "drafted", resolved_at: now } : x)),
-      );
-      toast.success(`Imported "${name}" from UMLS as draft value set`);
-    } catch (e: any) {
-      console.warn("[auto-term] UMLS import failed", e);
-      toast.error(`Import failed: ${e?.message ?? e}`);
+      if (error) throw error;
+      setRequests((rs) => rs.map((x) => (x.id === r.id ? { ...x, status: "sent_to_vsac" } : x)));
+      toast.success(`Marked "${r.requested_name}" as sent to VSAC`);
+    } catch (e) {
+      toast.error(`Failed to update request: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setImportingId(null);
+      setActioningId(null);
+    }
+  };
+
+  const markResolved = async (r: RequestRow) => {
+    if (
+      !confirm(
+        `Mark "${r.requested_name}" resolved? Only do this once the matching value set has been imported from VSAC into the Value Set Library.`,
+      )
+    )
+      return;
+    setActioningId(r.id);
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from("terminology_requests")
+        .update({ status: "resolved", resolved_at: now, updated_at: now })
+        .eq("id", r.id);
+      if (error) throw error;
+      setRequests((rs) =>
+        rs.map((x) => (x.id === r.id ? { ...x, status: "resolved", resolved_at: now } : x)),
+      );
+      toast.success(`Marked "${r.requested_name}" resolved`);
+    } catch (e) {
+      toast.error(`Failed to update request: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setActioningId(null);
     }
   };
 
@@ -250,7 +256,7 @@ export function AutoTerminologistActivity() {
       const { data } = await supabase
         .from("terminology_requests" as any)
         .select(
-          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id",
+          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id, recommended_type, reasoning, suggested_root_concept",
         )
         .order("requested_at", { ascending: false })
         .limit(50);
@@ -455,87 +461,204 @@ export function AutoTerminologistActivity() {
             const isDeprecate = r.request_type === "deprecate";
             const targetName =
               isDeprecate && r.target_value_set_id ? targetNames[r.target_value_set_id] : null;
+            const isExpanded = expandedBriefId === r.id;
+            const actionable =
+              !isDeprecate && ACTIONABLE_STATUSES.has(String(r.status ?? "pending"));
+            const seedCodes: Array<{ code?: string; display?: string; vocabulary?: string }> =
+              Array.isArray(r.seed_codes) ? r.seed_codes : [];
             return (
-              <div key={r.id} className="flex items-start gap-3 px-4 py-3">
-                <span className="mt-0.5 inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                  {r.requesting_consumer}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {isDeprecate ? (
-                      <>
-                        <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                          Deprecation Request
-                        </span>
+              <div key={r.id} className="flex flex-col gap-2 px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                    {r.requesting_consumer}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isDeprecate ? (
+                        <>
+                          <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                            Deprecation Request
+                          </span>
+                          <p className="text-sm font-medium text-slate-800 leading-snug">
+                            {targetName
+                              ? `Target: ${targetName}`
+                              : `Deprecation target label: ${r.requested_name}`}
+                          </p>
+                        </>
+                      ) : (
                         <p className="text-sm font-medium text-slate-800 leading-snug">
-                          {targetName
-                            ? `Target: ${targetName}`
-                            : `Deprecation target label: ${r.requested_name}`}
+                          {r.requested_name}
                         </p>
-                      </>
-                    ) : (
-                      <p className="text-sm font-medium text-slate-800 leading-snug">
-                        {r.requested_name}
+                      )}
+                      <span
+                        className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBadge(r.status)}`}
+                      >
+                        {r.status ?? "pending"}
+                      </span>
+                      {r.priority && r.priority !== "normal" && (
+                        <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                          priority: {r.priority}
+                        </span>
+                      )}
+                    </div>
+                    {r.justification && (
+                      <p className="mt-1 text-xs text-slate-600 leading-snug">{r.justification}</p>
+                    )}
+                    {r.quality_gate_notes && (
+                      <p className="mt-1 text-[11px] text-amber-700 leading-snug">
+                        Gate: {r.quality_gate_notes}
                       </p>
                     )}
-                    <span
-                      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBadge(r.status)}`}
+                    <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3">
+                      <span>{time}</span>
+                      <span>({formatAgo(r.requested_at)})</span>
+                    </div>
+                  </div>
+                  {!isDeprecate && (
+                    <button
+                      type="button"
+                      onClick={() => setExpandedBriefId(isExpanded ? null : r.id)}
+                      className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                      title="View suggestion brief"
                     >
-                      {r.status ?? "pending"}
-                    </span>
-                    {r.priority && r.priority !== "normal" && (
-                      <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                        priority: {r.priority}
-                      </span>
-                    )}
-                  </div>
-                  {r.justification && (
-                    <p className="mt-1 text-xs text-slate-600 leading-snug">{r.justification}</p>
+                      <FileText className="h-3 w-3" />
+                      Brief
+                      {isExpanded ? (
+                        <ChevronUp className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      )}
+                    </button>
                   )}
-                  {r.quality_gate_notes && (
-                    <p className="mt-1 text-[11px] text-amber-700 leading-snug">
-                      Gate: {r.quality_gate_notes}
-                    </p>
+                  {actionable && r.status !== "sent_to_vsac" && (
+                    <button
+                      type="button"
+                      disabled={actioningId === r.id}
+                      onClick={() => void markSentToVsac(r)}
+                      className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 text-[11px] font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-60"
+                      title="Record that this brief's recommendation has been taken to NLM VSAC for authoring"
+                    >
+                      <Send className="h-3 w-3" />
+                      Mark as Sent to VSAC
+                    </button>
                   )}
-                  <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3">
-                    <span>{time}</span>
-                    <span>({formatAgo(r.requested_at)})</span>
-                  </div>
-                </div>
-                {r.status === "umls-suggested" && (
+                  {r.status === "sent_to_vsac" && (
+                    <button
+                      type="button"
+                      disabled={actioningId === r.id}
+                      onClick={() => void markResolved(r)}
+                      className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                      title="Mark resolved once the matching value set has been imported from VSAC"
+                    >
+                      <CheckCheck className="h-3 w-3" />
+                      Mark Resolved
+                    </button>
+                  )}
                   <button
                     type="button"
-                    disabled={importingId === r.id}
-                    onClick={() => void importFromUmls(r)}
-                    className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
-                    title="Create a draft value set from these UMLS concepts"
+                    onClick={async () => {
+                      if (!confirm(`Delete terminology request "${r.requested_name}"?`)) return;
+                      const prev = requests;
+                      setRequests((rs) => rs.filter((x) => x.id !== r.id));
+                      const { error } = await supabase
+                        .from("terminology_requests")
+                        .delete()
+                        .eq("id", r.id);
+                      if (error) {
+                        console.warn("[terminology_requests] delete failed", error);
+                        setRequests(prev);
+                        toast.error("Delete failed", { description: error.message });
+                      }
+                    }}
+                    className="ml-1 inline-flex h-7 w-7 flex-none items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
+                    aria-label="Delete request"
+                    title="Delete request"
                   >
-                    <Download className="h-3 w-3" />
-                    {importingId === r.id ? "Importing…" : "Import from UMLS"}
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
+                </div>
+
+                {!isDeprecate && isExpanded && (
+                  <div className="ml-1 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-[11px] text-slate-700 space-y-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Suggestion Brief · for a human to review and author in VSAC
+                    </div>
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      <div>
+                        <span className="font-semibold text-slate-500">Suggested Name</span>
+                        <div className="text-slate-800">{r.requested_name}</div>
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-500">Source Vocabulary</span>
+                        <div className="text-slate-800">{r.vocabulary ?? "—"}</div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="font-semibold text-slate-500">Clinical Purpose</span>
+                        <div className="text-slate-800">
+                          Filed by <span className="font-medium">{r.requesting_consumer}</span>
+                          {r.justification ? `: ${r.justification}` : " — no justification given."}
+                        </div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="font-semibold text-slate-500">
+                          Recommended Definition Type
+                        </span>
+                        <div className="mt-0.5 flex items-start gap-2">
+                          {r.recommended_type ? (
+                            <span
+                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${
+                                r.recommended_type === "intensional"
+                                  ? "border-violet-200 bg-violet-50 text-violet-800"
+                                  : "border-sky-200 bg-sky-50 text-sky-800"
+                              }`}
+                            >
+                              {r.recommended_type}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Not yet determined</span>
+                          )}
+                        </div>
+                        {r.reasoning && (
+                          <div className="mt-1 text-slate-600 leading-snug">{r.reasoning}</div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="font-semibold text-slate-500">
+                          {r.recommended_type === "intensional"
+                            ? "Suggested Root Concept"
+                            : "Candidate Codes"}
+                        </span>
+                        {r.recommended_type === "intensional" && r.suggested_root_concept ? (
+                          <div className="mt-0.5 font-mono text-[10px] text-slate-700">
+                            {r.suggested_root_concept.code} —{" "}
+                            <span className="font-sans">{r.suggested_root_concept.display}</span>
+                          </div>
+                        ) : seedCodes.length > 0 ? (
+                          <ul className="mt-0.5 space-y-0.5">
+                            {seedCodes.slice(0, 10).map((c, i) => (
+                              <li key={i} className="font-mono text-[10px] text-slate-700">
+                                {c.code ?? "—"}{" "}
+                                <span className="font-sans text-slate-600">{c.display ?? ""}</span>
+                              </li>
+                            ))}
+                            {seedCodes.length > 10 && (
+                              <li className="text-slate-400">+ {seedCodes.length - 10} more</li>
+                            )}
+                          </ul>
+                        ) : (
+                          <div className="mt-0.5 text-slate-400">No candidate codes staged yet</div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="font-semibold text-slate-500">Intended Consumer</span>
+                        <div className="text-slate-800">
+                          {r.requesting_consumer}
+                          {r.clinical_application ? ` · ${r.clinical_application}` : ""}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 )}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!confirm(`Delete terminology request "${r.requested_name}"?`)) return;
-                    const prev = requests;
-                    setRequests((rs) => rs.filter((x) => x.id !== r.id));
-                    const { error } = await supabase
-                      .from("terminology_requests" as any)
-                      .delete()
-                      .eq("id", r.id);
-                    if (error) {
-                      console.warn("[terminology_requests] delete failed", error);
-                      setRequests(prev);
-                      toast.error("Delete failed", { description: error.message });
-                    }
-                  }}
-                  className="ml-1 inline-flex h-7 w-7 flex-none items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
-                  aria-label="Delete request"
-                  title="Delete request"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
               </div>
             );
           })
