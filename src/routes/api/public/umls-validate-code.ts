@@ -138,9 +138,10 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
 
         if (type === "intensional") {
           const rule = vs.intensional_rule;
-          // `intensional_rule` is written by ValueSetLibrary.tsx's Rule drawer and
-          // AuthoringWorkbench.tsx as {rootConcept, rootDisplay, include, exclude,
-          // activeOnly} (camelCase) — match those keys, not a snake_case guess.
+          // `intensional_rule` is written by ValueSetLibrary.tsx's Rule drawer
+          // (and, on older rows, the now-removed Authoring Workbench) as
+          // {rootConcept, rootDisplay, include, exclude, activeOnly}
+          // (camelCase) — match those keys, not a snake_case guess.
           const rootConcept =
             rule && typeof rule === "object" && !Array.isArray(rule) ? rule.rootConcept : null;
           const root = String(rootConcept ?? FALLBACK_ROOTS[vs.name] ?? "").trim();

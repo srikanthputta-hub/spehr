@@ -233,13 +233,13 @@ async function logActivity(opts: {
 /* ------------------------------------------------------------------ */
 /*  Shared activity bus mirror                                         */
 /*  Writes to terminology_activity_log (feature-scoped) so the         */
-/*  Library / Authoring / Cross-Map panels see automated activity.     */
+/*  Library / Cross-Map panels see automated activity.                 */
 /*  Uses actor "Auto Terminologist" (vs. human handlers' actor         */
 /*  "S.P.E.H.R. Terminology Services") so reviewers can distinguish    */
 /*  automated rows from manual ones at a glance.                       */
 /* ------------------------------------------------------------------ */
 async function logToBus(
-  feature: "library" | "authoring" | "crossmap",
+  feature: "library" | "crossmap",
   action: string,
   message: string,
   ref_id?: string | null,
