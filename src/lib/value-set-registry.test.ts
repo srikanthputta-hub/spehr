@@ -550,6 +550,7 @@ describe("buildVsacImportInsert — shared VSAC import payload (Gap 2)", () => {
           { code: "A1", display: "a", vocabulary: "SNOMED CT" },
           { code: "A2", display: "b", vocabulary: "SNOMED CT" },
         ],
+        publisher: "NCQA",
       },
       "My Imported Value Set",
     );
@@ -566,10 +567,52 @@ describe("buildVsacImportInsert — shared VSAC import payload (Gap 2)", () => {
   it("falls back to a VSAC-OID-based name when no name is given", async () => {
     const { buildVsacImportInsert } = await import("./value-set-registry");
     const insert = buildVsacImportInsert(
-      { oid: "2.16.2", name: null, title: null, total: 0, type: "extensional", codes: [] },
+      {
+        oid: "2.16.2",
+        name: null,
+        title: null,
+        total: 0,
+        type: "extensional",
+        codes: [],
+        publisher: null,
+      },
       "   ",
     );
     expect(insert.name).toBe("VSAC 2.16.2");
+  });
+
+  it("records the VSAC publisher as steward", async () => {
+    const { buildVsacImportInsert } = await import("./value-set-registry");
+    const insert = buildVsacImportInsert(
+      {
+        oid: "2.16.3",
+        name: "Diabetes",
+        title: "Diabetes",
+        total: 1,
+        type: "extensional",
+        codes: [{ code: "D1", display: "d", vocabulary: "SNOMED CT" }],
+        publisher: "NCQA",
+      },
+      "Diabetes",
+    );
+    expect(insert.steward).toBe("NCQA");
+  });
+
+  it("leaves steward null when VSAC reports no publisher", async () => {
+    const { buildVsacImportInsert } = await import("./value-set-registry");
+    const insert = buildVsacImportInsert(
+      {
+        oid: "2.16.4",
+        name: "No Publisher",
+        title: null,
+        total: 0,
+        type: "extensional",
+        codes: [],
+        publisher: null,
+      },
+      "No Publisher",
+    );
+    expect(insert.steward).toBeNull();
   });
 });
 

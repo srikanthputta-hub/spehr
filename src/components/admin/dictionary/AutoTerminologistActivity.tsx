@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Bot,
@@ -17,6 +17,7 @@ import {
   CheckCheck,
   Link2,
   Loader2,
+  type LucideIcon,
 } from "lucide-react";
 import { Trash2 } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
@@ -112,6 +113,10 @@ type RequestRow = {
   clinical_application?: string | null;
   request_type?: string | null;
   target_value_set_id?: string | null;
+  // Set once a request resolves via a VSAC import (importExpansionAndResolve
+  // below) — distinguishes "resolved by importing a value set" from "marked
+  // resolved by hand" in the Resolved section's compact audit row.
+  value_set_id?: string | null;
   recommended_type?: "intensional" | "extensional" | "grouping" | null;
   reasoning?: string | null;
   suggested_root_concept?: SuggestedRootConcept;
@@ -190,6 +195,45 @@ function statusBadge(status: string | null): string {
 // linked for the background publication-detection pass (Gap 2).
 const LINKABLE_STATUSES = new Set(["pending", "sent_to_vsac"]);
 
+/**
+ * The four lifecycle sections the "Terminology Requests" list is grouped
+ * into, most-actionable first: a human just needs to click (ready), a
+ * human needs to read a brief and decide (review), a human already acted
+ * and VSAC hasn't published yet (awaiting), or it's done (resolved).
+ */
+type RequestSection = "ready" | "review" | "awaiting" | "resolved";
+
+/**
+ * Buckets one terminology_requests row into the section it belongs in.
+ * Priority, in order: `resolved` always wins (nothing left to do); a
+ * ready-to-act VSAC signal — either the background poll's staged
+ * `ready_to_import` preview, or a Gap-1 known-catalog candidate hit — is
+ * the most actionable state and comes next; a human-linked OID still
+ * awaiting VSAC's own publish cycle is next; everything else (including
+ * deprecation requests, which never carry a suggestion brief of their own)
+ * still needs a human look, so it lands in `review`.
+ */
+function sectionOf(r: RequestRow): RequestSection {
+  const status = String(r.status ?? "pending");
+  if (status === "resolved") return "resolved";
+  const isDeprecate = r.request_type === "deprecate";
+  const hasKnownCandidates =
+    !isDeprecate && Array.isArray(r.known_vsac_candidates) && r.known_vsac_candidates.length > 0;
+  if (!isDeprecate && (status === "ready_to_import" || hasKnownCandidates)) return "ready";
+  if (!isDeprecate && r.linked_vsac_oid) return "awaiting";
+  return "review";
+}
+
+function requestTimeLabel(iso: string): { time: string; ago: string } {
+  const time = new Date(iso).toLocaleString([], {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return { time, ago: formatAgo(iso) };
+}
+
 export function AutoTerminologistActivity() {
   const { gate: stewardGate, can: stewardCan } = useRolePermissions();
   const stewardAllowed = stewardCan("dictionary.steward_approve");
@@ -208,6 +252,17 @@ export function AutoTerminologistActivity() {
   // Draft OID text per request row for the "Link VSAC OID" inline form.
   const [linkOidDraft, setLinkOidDraft] = useState<Record<string, string>>({});
   const [importingId, setImportingId] = useState<string | null>(null);
+  // Collapse state for the 4 lifecycle sections below — Resolved starts
+  // collapsed (it's an audit trail, not something that needs attention);
+  // the other 3 start open since they're where action happens.
+  const [collapsedSections, setCollapsedSections] = useState<Record<RequestSection, boolean>>({
+    ready: false,
+    review: false,
+    awaiting: false,
+    resolved: true,
+  });
+  const toggleSection = (key: RequestSection) =>
+    setCollapsedSections((s) => ({ ...s, [key]: !s[key] }));
 
   /**
    * Terminology requests never auto-create a `custom_value_sets` row with a
@@ -395,12 +450,25 @@ export function AutoTerminologistActivity() {
           ? data.type
           : "extensional") as "grouping" | "intensional" | "extensional",
         codes: Array.isArray(data.codes) ? data.codes : [],
+        publisher: data.publisher ?? null,
       };
       await importExpansionAndResolve(r, expansion, c.title || c.name);
     } catch (e) {
       toast.error(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setImportingId(null);
+    }
+  };
+
+  const deleteRequest = async (r: RequestRow) => {
+    if (!confirm(`Delete terminology request "${r.requested_name}"?`)) return;
+    const prev = requests;
+    setRequests((rs) => rs.filter((x) => x.id !== r.id));
+    const { error } = await supabase.from("terminology_requests").delete().eq("id", r.id);
+    if (error) {
+      console.warn("[terminology_requests] delete failed", error);
+      setRequests(prev);
+      toast.error("Delete failed", { description: error.message });
     }
   };
 
@@ -419,6 +487,20 @@ export function AutoTerminologistActivity() {
       );
     });
   }, [requests, requestQuery, consumerFilter]);
+
+  // Group the (consumer + search) filtered requests into the 4 lifecycle
+  // sections rendered below — filter first, then bucket, so the existing
+  // consumer/search filters keep working across all 4 sections.
+  const sectionedRequests = useMemo(() => {
+    const buckets: Record<RequestSection, RequestRow[]> = {
+      ready: [],
+      review: [],
+      awaiting: [],
+      resolved: [],
+    };
+    for (const r of filteredRequests) buckets[sectionOf(r)].push(r);
+    return buckets;
+  }, [filteredRequests]);
 
   const consumerOptions = useMemo(() => {
     const set = new Set<string>();
@@ -471,7 +553,7 @@ export function AutoTerminologistActivity() {
       const { data } = await supabase
         .from("terminology_requests" as any)
         .select(
-          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id, recommended_type, reasoning, suggested_root_concept, recommended_binding_strength, possible_existing_match, clinical_focus, data_element_scope, inclusion_criteria, exclusion_criteria, known_vsac_candidates, linked_vsac_oid, last_vsac_check_at, vsac_expansion_preview",
+          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id, value_set_id, recommended_type, reasoning, suggested_root_concept, recommended_binding_strength, possible_existing_match, clinical_focus, data_element_scope, inclusion_criteria, exclusion_criteria, known_vsac_candidates, linked_vsac_oid, last_vsac_check_at, vsac_expansion_preview",
         )
         .order("requested_at", { ascending: false })
         .limit(50);
@@ -658,447 +740,97 @@ export function AutoTerminologistActivity() {
           );
         })}
       </div>
-      <div className="scroll-feed rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
-        {filteredRequests.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-slate-500">
-            {requests.length === 0
-              ? "No terminology requests submitted yet."
-              : "No matches for your search."}
-          </div>
-        ) : (
-          filteredRequests.map((r) => {
-            const time = new Date(r.requested_at).toLocaleString([], {
-              month: "short",
-              day: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-            const isDeprecate = r.request_type === "deprecate";
-            const targetName =
-              isDeprecate && r.target_value_set_id ? targetNames[r.target_value_set_id] : null;
-            const isExpanded = expandedBriefId === r.id;
-            const actionable =
-              !isDeprecate && ACTIONABLE_STATUSES.has(String(r.status ?? "pending"));
-            const seedCodes: Array<{ code?: string; display?: string; vocabulary?: string }> =
-              Array.isArray(r.seed_codes) ? r.seed_codes : [];
-            return (
-              <div key={r.id} className="flex flex-col gap-2 px-4 py-3">
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                    {r.requesting_consumer}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {isDeprecate ? (
-                        <>
-                          <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                            Deprecation Request
-                          </span>
-                          <p className="text-sm font-medium text-slate-800 leading-snug">
-                            {targetName
-                              ? `Target: ${targetName}`
-                              : `Deprecation target label: ${r.requested_name}`}
-                          </p>
-                        </>
-                      ) : (
-                        <p className="text-sm font-medium text-slate-800 leading-snug">
-                          {r.requested_name}
-                        </p>
-                      )}
-                      <span
-                        className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBadge(r.status)}`}
-                      >
-                        {r.status ?? "pending"}
-                      </span>
-                      {r.priority && r.priority !== "normal" && (
-                        <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                          priority: {r.priority}
-                        </span>
-                      )}
-                    </div>
-                    {r.justification && (
-                      <p className="mt-1 text-xs text-slate-600 leading-snug">{r.justification}</p>
-                    )}
-                    {r.quality_gate_notes && (
-                      <p className="mt-1 text-[11px] text-amber-700 leading-snug">
-                        Gate: {r.quality_gate_notes}
-                      </p>
-                    )}
-                    <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3">
-                      <span>{time}</span>
-                      <span>({formatAgo(r.requested_at)})</span>
-                    </div>
-                  </div>
-                  {!isDeprecate && (
-                    <button
-                      type="button"
-                      onClick={() => setExpandedBriefId(isExpanded ? null : r.id)}
-                      className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
-                      title="View suggestion brief"
-                    >
-                      <FileText className="h-3 w-3" />
-                      Brief
-                      {isExpanded ? (
-                        <ChevronUp className="h-3 w-3" />
-                      ) : (
-                        <ChevronDown className="h-3 w-3" />
-                      )}
-                    </button>
-                  )}
-                  {actionable && r.status !== "sent_to_vsac" && (
-                    <button
-                      type="button"
-                      disabled={actioningId === r.id}
-                      onClick={() => void markSentToVsac(r)}
-                      className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 text-[11px] font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-60"
-                      title="Record that this brief's recommendation has been taken to NLM VSAC for authoring"
-                    >
-                      <Send className="h-3 w-3" />
-                      Mark as Sent to VSAC
-                    </button>
-                  )}
-                  {r.status === "sent_to_vsac" && (
-                    <button
-                      type="button"
-                      disabled={actioningId === r.id}
-                      onClick={() => void markResolved(r)}
-                      className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
-                      title="Mark resolved once the matching value set has been imported from VSAC"
-                    >
-                      <CheckCheck className="h-3 w-3" />
-                      Mark Resolved
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!confirm(`Delete terminology request "${r.requested_name}"?`)) return;
-                      const prev = requests;
-                      setRequests((rs) => rs.filter((x) => x.id !== r.id));
-                      const { error } = await supabase
-                        .from("terminology_requests")
-                        .delete()
-                        .eq("id", r.id);
-                      if (error) {
-                        console.warn("[terminology_requests] delete failed", error);
-                        setRequests(prev);
-                        toast.error("Delete failed", { description: error.message });
-                      }
-                    }}
-                    className="ml-1 inline-flex h-7 w-7 flex-none items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
-                    aria-label="Delete request"
-                    title="Delete request"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+      {filteredRequests.length === 0 ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-4 py-6 text-sm text-slate-500">
+          {requests.length === 0
+            ? "No terminology requests submitted yet."
+            : "No matches for your search."}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <RequestSectionBlock
+            title="Ready to Import"
+            icon={CheckCheck}
+            rows={sectionedRequests.ready}
+            collapsed={collapsedSections.ready}
+            onToggle={() => toggleSection("ready")}
+            emptyText="None right now — nothing is just a click away."
+            renderRow={(r) => (
+              <ReadyToImportRow
+                key={r.id}
+                r={r}
+                stewardGate={stewardGate}
+                stewardAllowed={stewardAllowed}
+                importingId={importingId}
+                importReadyToImport={importReadyToImport}
+                importKnownVsacCandidate={importKnownVsacCandidate}
+                onDelete={deleteRequest}
+              />
+            )}
+          />
 
-                {/* Gap 1: VSAC-catalog candidates found for this request — an
-                    already-published, steward-governed value set doesn't
-                    need the "wait for authoring" step, so route straight to
-                    one-click import. */}
-                {!isDeprecate &&
-                  Array.isArray(r.known_vsac_candidates) &&
-                  r.known_vsac_candidates.length > 0 && (
-                    <div className="ml-1 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-900 space-y-1.5">
-                      <div className="flex items-center gap-1.5 font-semibold">
-                        <CheckCircle2 className="h-3 w-3" />
-                        Found in VSAC — Consider Importing
-                      </div>
-                      {r.known_vsac_candidates.map((c) => (
-                        <div
-                          key={c.oid}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded border border-emerald-200 bg-white px-2 py-1"
-                        >
-                          <div className="min-w-0 text-emerald-900">
-                            <span className="font-semibold">{c.name}</span>{" "}
-                            <span className="text-emerald-700">· {c.publisher}</span>{" "}
-                            <span className="font-mono text-[10px] text-emerald-700">
-                              OID {c.oid}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            {...stewardGate(
-                              "dictionary.steward_approve",
-                              () => void importKnownVsacCandidate(r, c),
-                            )}
-                            disabled={!stewardAllowed || importingId === r.id}
-                            className="shrink-0 inline-flex h-6 items-center gap-1 rounded-md border border-emerald-300 bg-emerald-600 px-2 text-[10px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                            title={
-                              stewardAllowed ? "Import this VSAC value set now" : DISABLED_MESSAGE
-                            }
-                          >
-                            {importingId === r.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              "Import Now"
-                            )}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+          <RequestSectionBlock
+            title="Needs Your Review"
+            icon={FileText}
+            rows={sectionedRequests.review}
+            collapsed={collapsedSections.review}
+            onToggle={() => toggleSection("review")}
+            emptyText="None right now — nothing is waiting on a decision."
+            renderRow={(r) => (
+              <ReviewRow
+                key={r.id}
+                r={r}
+                isExpanded={expandedBriefId === r.id}
+                onToggleBrief={() => setExpandedBriefId(expandedBriefId === r.id ? null : r.id)}
+                actioningId={actioningId}
+                markSentToVsac={markSentToVsac}
+                markResolved={markResolved}
+                linkVsacOid={linkVsacOid}
+                linkOidDraftValue={linkOidDraft[r.id] ?? ""}
+                setLinkOidDraft={(value) => setLinkOidDraft((d) => ({ ...d, [r.id]: value }))}
+                targetName={
+                  r.request_type === "deprecate" && r.target_value_set_id
+                    ? (targetNames[r.target_value_set_id] ?? null)
+                    : null
+                }
+                onDelete={deleteRequest}
+              />
+            )}
+          />
 
-                {/* Gap 2: the background cycle detected the linked OID is now
-                    published in VSAC — one-click import of the preview it
-                    staged. Never auto-imported — always this explicit click. */}
-                {!isDeprecate && r.status === "ready_to_import" && r.vsac_expansion_preview && (
-                  <div className="ml-1 rounded-md border border-teal-300 bg-teal-50 px-3 py-2 text-[11px] text-teal-900">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 font-semibold">
-                          <CheckCheck className="h-3 w-3" />
-                          Published in VSAC — Import Now
-                        </div>
-                        <div className="mt-0.5 text-teal-800">
-                          {r.vsac_expansion_preview.title ||
-                            r.vsac_expansion_preview.name ||
-                            "Untitled"}
-                          {" · "}
-                          {r.vsac_expansion_preview.total ??
-                            r.vsac_expansion_preview.codes.length}{" "}
-                          codes
-                          {" · "}
-                          <span className="capitalize">{r.vsac_expansion_preview.type}</span>
-                          {" · OID "}
-                          <span className="font-mono">{r.vsac_expansion_preview.oid}</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        {...stewardGate(
-                          "dictionary.steward_approve",
-                          () => void importReadyToImport(r),
-                        )}
-                        disabled={!stewardAllowed || importingId === r.id}
-                        className="shrink-0 inline-flex h-7 items-center gap-1 rounded-md border border-teal-400 bg-teal-600 px-2.5 text-[11px] font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
-                        title={stewardAllowed ? "Import this value set now" : DISABLED_MESSAGE}
-                      >
-                        {importingId === r.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          "Import Now"
-                        )}
-                      </button>
-                    </div>
-                    {!stewardAllowed && (
-                      <div className="mt-1 text-[10px] text-amber-700">{DISABLED_MESSAGE}</div>
-                    )}
-                  </div>
-                )}
+          <RequestSectionBlock
+            title="Awaiting VSAC Publication"
+            icon={Clock}
+            rows={sectionedRequests.awaiting}
+            collapsed={collapsedSections.awaiting}
+            onToggle={() => toggleSection("awaiting")}
+            emptyText="None right now — nothing is waiting on VSAC to publish."
+            renderRow={(r) => <AwaitingRow key={r.id} r={r} onDelete={deleteRequest} />}
+          />
 
-                {/* Gap 2: "Link VSAC OID" — record the real OID once a human
-                    steward has started authoring this request's recommended
-                    value set in real VSAC, so the background cycle can poll
-                    it for publication. */}
-                {!isDeprecate &&
-                  !r.linked_vsac_oid &&
-                  LINKABLE_STATUSES.has(String(r.status ?? "pending")) && (
-                    <div className="ml-1 flex flex-wrap items-center gap-1.5">
-                      <Link2 className="h-3 w-3 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="Paste real VSAC OID once authoring has started…"
-                        value={linkOidDraft[r.id] ?? ""}
-                        onChange={(e) => setLinkOidDraft((d) => ({ ...d, [r.id]: e.target.value }))}
-                        className="h-7 w-72 rounded-md border border-slate-200 bg-white px-2 font-mono text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"
-                      />
-                      <button
-                        type="button"
-                        disabled={!linkOidDraft[r.id]?.trim() || actioningId === r.id}
-                        onClick={() => void linkVsacOid(r, linkOidDraft[r.id] ?? "")}
-                        className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                        title="Link this OID so the background cycle checks it for publication"
-                      >
-                        Link VSAC OID
-                      </button>
-                    </div>
-                  )}
-                {!isDeprecate &&
-                  r.linked_vsac_oid &&
-                  r.status !== "ready_to_import" &&
-                  r.status !== "resolved" && (
-                    <div className="ml-1 text-[11px] text-slate-500">
-                      Linked VSAC OID{" "}
-                      <span className="font-mono text-slate-700">{r.linked_vsac_oid}</span> ·
-                      awaiting publication (checked{" "}
-                      {r.last_vsac_check_at ? formatAgo(r.last_vsac_check_at) : "not yet"})
-                    </div>
-                  )}
-
-                {!isDeprecate && isExpanded && (
-                  <div className="ml-1 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-[11px] text-slate-700 space-y-2">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                      Suggestion Brief · for a human to review and author in VSAC
-                    </div>
-                    <div className="grid gap-1.5 sm:grid-cols-2">
-                      <div>
-                        <span className="font-semibold text-slate-500">Suggested Name</span>
-                        <div className="text-slate-800">{r.requested_name}</div>
-                      </div>
-                      <div>
-                        <span className="font-semibold text-slate-500">Source Vocabulary</span>
-                        <div className="text-slate-800">{r.vocabulary ?? "—"}</div>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="font-semibold text-slate-500">Clinical Purpose</span>
-                        <div className="text-slate-800">
-                          Filed by <span className="font-medium">{r.requesting_consumer}</span>
-                          {r.justification ? `: ${r.justification}` : " — no justification given."}
-                        </div>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="font-semibold text-slate-500">
-                          Recommended Definition Type
-                        </span>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                          {r.recommended_type ? (
-                            <span
-                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${
-                                r.recommended_type === "intensional"
-                                  ? "border-violet-200 bg-violet-50 text-violet-800"
-                                  : r.recommended_type === "grouping"
-                                    ? "border-amber-200 bg-amber-50 text-amber-800"
-                                    : "border-sky-200 bg-sky-50 text-sky-800"
-                              }`}
-                            >
-                              {r.recommended_type}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">Not yet determined</span>
-                          )}
-                          {r.recommended_binding_strength && (
-                            <span
-                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${bindingStrengthBadgeClass(r.recommended_binding_strength)}`}
-                              title="FHIR ValueSet binding strength — advisory, a human steward decides the real value in VSAC"
-                            >
-                              binding: {r.recommended_binding_strength}
-                            </span>
-                          )}
-                        </div>
-                        {r.reasoning && (
-                          <div className="mt-1 text-slate-600 leading-snug">{r.reasoning}</div>
-                        )}
-                      </div>
-
-                      {r.possible_existing_match && (
-                        <div className="sm:col-span-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5">
-                          <div className="flex items-center gap-1.5 font-semibold text-amber-800">
-                            <AlertTriangle className="h-3 w-3" />
-                            Possible existing coverage
-                          </div>
-                          <div className="mt-0.5 text-amber-700 leading-snug">
-                            {r.possible_existing_match.match_reason}
-                            {r.possible_existing_match.oid && (
-                              <span className="font-mono">
-                                {" "}
-                                (OID {r.possible_existing_match.oid})
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="sm:col-span-2">
-                        <span className="font-semibold text-slate-500">
-                          {r.recommended_type === "intensional" || r.recommended_type === "grouping"
-                            ? "Suggested Root Concept"
-                            : "Candidate Codes"}
-                        </span>
-                        {(r.recommended_type === "intensional" ||
-                          r.recommended_type === "grouping") &&
-                        r.suggested_root_concept?.code ? (
-                          <div className="mt-0.5 font-mono text-[10px] text-slate-700">
-                            {r.suggested_root_concept.code} —{" "}
-                            <span className="font-sans">{r.suggested_root_concept.display}</span>
-                          </div>
-                        ) : seedCodes.length > 0 ? (
-                          <ul className="mt-0.5 space-y-0.5">
-                            {seedCodes.slice(0, 10).map((c, i) => (
-                              <li key={i} className="font-mono text-[10px] text-slate-700">
-                                {c.code ?? "—"}{" "}
-                                <span className="font-sans text-slate-600">{c.display ?? ""}</span>
-                              </li>
-                            ))}
-                            {seedCodes.length > 10 && (
-                              <li className="text-slate-400">+ {seedCodes.length - 10} more</li>
-                            )}
-                          </ul>
-                        ) : (
-                          <div className="mt-0.5 text-slate-400">No candidate codes staged yet</div>
-                        )}
-                      </div>
-
-                      {r.recommended_type === "grouping" &&
-                        Array.isArray(r.suggested_root_concept?.componentValueSets) &&
-                        r.suggested_root_concept!.componentValueSets!.length > 0 && (
-                          <div className="sm:col-span-2">
-                            <span className="font-semibold text-slate-500">
-                              Compose From Published Value Sets
-                            </span>
-                            <ul className="mt-0.5 space-y-0.5">
-                              {r.suggested_root_concept!.componentValueSets!.map((cvs) => (
-                                <li key={cvs.value_set_id} className="text-slate-700">
-                                  {cvs.name}
-                                  {cvs.oid && (
-                                    <span className="ml-1 font-mono text-[10px] text-slate-500">
-                                      OID {cvs.oid}
-                                    </span>
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                      <div className="sm:col-span-2">
-                        <span className="font-semibold text-slate-500">Intended Consumer</span>
-                        <div className="text-slate-800">
-                          {r.requesting_consumer}
-                          {r.clinical_application ? ` · ${r.clinical_application}` : ""}
-                        </div>
-                      </div>
-
-                      <div className="sm:col-span-2 border-t border-slate-100 pt-2 mt-1">
-                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                          VSAC Purpose (draft — paste into VSAC's Metadata tab)
-                        </div>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="font-semibold text-slate-500">Clinical Focus</span>
-                        <div className="text-slate-800 leading-snug">{r.clinical_focus || "—"}</div>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="font-semibold text-slate-500">Data Element Scope</span>
-                        <div className="text-slate-800">{r.data_element_scope || "—"}</div>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="font-semibold text-slate-500">Inclusion Criteria</span>
-                        <div className="text-slate-800 leading-snug">
-                          {r.inclusion_criteria ||
-                            (r.recommended_type === "grouping"
-                              ? "(blank — inherited from component value sets)"
-                              : "—")}
-                        </div>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="font-semibold text-slate-500">Exclusion Criteria</span>
-                        <div className="text-slate-800 leading-snug">
-                          {r.exclusion_criteria ||
-                            (r.recommended_type === "grouping"
-                              ? "(blank — inherited from component value sets)"
-                              : "—")}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
+          <RequestSectionBlock
+            title="Resolved"
+            icon={CheckCircle2}
+            rows={sectionedRequests.resolved}
+            collapsed={collapsedSections.resolved}
+            onToggle={() => toggleSection("resolved")}
+            emptyText="Nothing resolved yet."
+            compact
+            renderRow={(r) => (
+              <ResolvedRow
+                key={r.id}
+                r={r}
+                targetName={
+                  r.request_type === "deprecate" && r.target_value_set_id
+                    ? (targetNames[r.target_value_set_id] ?? null)
+                    : null
+                }
+                onDelete={deleteRequest}
+              />
+            )}
+          />
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-3 pt-1">
         <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
@@ -1218,6 +950,611 @@ export function AutoTerminologistActivity() {
           })
         )}
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Terminology Requests — per-section row components                 */
+/*  Split out of the single flat-list render above so each of the 4    */
+/*  lifecycle sections (see sectionOf() / RequestSection above) can     */
+/*  show only what's relevant to that section's state, instead of every */
+/*  row carrying every PR #56-#61 callout regardless of relevance.      */
+/* ------------------------------------------------------------------ */
+
+function DeleteRequestButton({
+  r,
+  onDelete,
+}: {
+  r: RequestRow;
+  onDelete: (r: RequestRow) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => void onDelete(r)}
+      className="ml-1 inline-flex h-7 w-7 flex-none items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
+      aria-label="Delete request"
+      title="Delete request"
+    >
+      <Trash2 className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+/**
+ * One of the 4 lifecycle sections under "Terminology Requests": a
+ * collapsible header with a count, and (when open) either the rows
+ * themselves or a one-line "none right now" message. `compact` drops the
+ * divided-card background for sections (Resolved) whose rows are already
+ * a tight audit list rather than full cards.
+ */
+function RequestSectionBlock<T>({
+  title,
+  icon: Icon,
+  rows,
+  collapsed,
+  onToggle,
+  emptyText,
+  renderRow,
+  compact,
+}: {
+  title: string;
+  icon: LucideIcon;
+  rows: T[];
+  collapsed: boolean;
+  onToggle: () => void;
+  emptyText: string;
+  renderRow: (row: T) => ReactNode;
+  compact?: boolean;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-2 py-1 text-left"
+      >
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+          <Icon className="h-3.5 w-3.5" />
+          {title}
+          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-slate-200 px-1 text-[10px] font-semibold text-slate-700">
+            {rows.length}
+          </span>
+        </span>
+        {collapsed ? (
+          <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+        ) : (
+          <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
+        )}
+      </button>
+      {!collapsed &&
+        (rows.length === 0 ? (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-4 py-2.5 text-[11px] text-slate-400">
+            {emptyText}
+          </div>
+        ) : (
+          <div
+            className={
+              compact
+                ? "rounded-lg border border-slate-200 divide-y divide-slate-100 bg-white"
+                : "scroll-feed rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40"
+            }
+          >
+            {rows.map(renderRow)}
+          </div>
+        ))}
+    </div>
+  );
+}
+
+/**
+ * "Ready to Import" card — status === "ready_to_import" with a staged
+ * preview, and/or a non-empty known_vsac_candidates hit (Gap 1). The point
+ * of this section is "click to resolve this," so it skips the Brief
+ * entirely and the per-row status chip the flat list used to carry —
+ * being in this section already says everything that chip said.
+ */
+function ReadyToImportRow({
+  r,
+  stewardGate,
+  stewardAllowed,
+  importingId,
+  importReadyToImport,
+  importKnownVsacCandidate,
+  onDelete,
+}: {
+  r: RequestRow;
+  stewardGate: ReturnType<typeof useRolePermissions>["gate"];
+  stewardAllowed: boolean;
+  importingId: string | null;
+  importReadyToImport: (r: RequestRow) => void;
+  importKnownVsacCandidate: (r: RequestRow, c: KnownVsacCandidate) => void;
+  onDelete: (r: RequestRow) => void;
+}) {
+  const { time, ago } = requestTimeLabel(r.requested_at);
+  const hasPreview = r.status === "ready_to_import" && !!r.vsac_expansion_preview;
+  const candidates = Array.isArray(r.known_vsac_candidates) ? r.known_vsac_candidates : [];
+
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+          {r.requesting_consumer}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-slate-800 leading-snug">{r.requested_name}</p>
+          <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3">
+            <span>{time}</span>
+            <span>({ago})</span>
+          </div>
+        </div>
+        <DeleteRequestButton r={r} onDelete={onDelete} />
+      </div>
+
+      {hasPreview && r.vsac_expansion_preview && (
+        <div className="ml-1 rounded-md border border-teal-300 bg-teal-50 px-3 py-2 text-[11px] text-teal-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <CheckCheck className="h-3 w-3" />
+                Published in VSAC — Import Now
+              </div>
+              <div className="mt-0.5 text-teal-800">
+                {r.vsac_expansion_preview.title || r.vsac_expansion_preview.name || "Untitled"}
+                {" · "}
+                {r.vsac_expansion_preview.total ?? r.vsac_expansion_preview.codes.length} codes
+                {" · "}
+                <span className="capitalize">{r.vsac_expansion_preview.type}</span>
+                {" · OID "}
+                <span className="font-mono">{r.vsac_expansion_preview.oid}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              {...stewardGate("dictionary.steward_approve", () => void importReadyToImport(r))}
+              disabled={!stewardAllowed || importingId === r.id}
+              className="shrink-0 inline-flex h-7 items-center gap-1 rounded-md border border-teal-400 bg-teal-600 px-2.5 text-[11px] font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+              title={stewardAllowed ? "Import this value set now" : DISABLED_MESSAGE}
+            >
+              {importingId === r.id ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                "Import Now"
+              )}
+            </button>
+          </div>
+          {!stewardAllowed && (
+            <div className="mt-1 text-[10px] text-amber-700">{DISABLED_MESSAGE}</div>
+          )}
+        </div>
+      )}
+
+      {candidates.length > 0 && (
+        <div className="ml-1 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-900 space-y-1.5">
+          <div className="flex items-center gap-1.5 font-semibold">
+            <CheckCircle2 className="h-3 w-3" />
+            Found in VSAC — Consider Importing
+          </div>
+          {candidates.map((c) => (
+            <div
+              key={c.oid}
+              className="flex flex-wrap items-center justify-between gap-2 rounded border border-emerald-200 bg-white px-2 py-1"
+            >
+              <div className="min-w-0 text-emerald-900">
+                <span className="font-semibold">{c.name}</span>{" "}
+                <span className="text-emerald-700">· {c.publisher}</span>{" "}
+                <span className="font-mono text-[10px] text-emerald-700">OID {c.oid}</span>
+              </div>
+              <button
+                type="button"
+                {...stewardGate(
+                  "dictionary.steward_approve",
+                  () => void importKnownVsacCandidate(r, c),
+                )}
+                disabled={!stewardAllowed || importingId === r.id}
+                className="shrink-0 inline-flex h-6 items-center gap-1 rounded-md border border-emerald-300 bg-emerald-600 px-2 text-[10px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                title={stewardAllowed ? "Import this VSAC value set now" : DISABLED_MESSAGE}
+              >
+                {importingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Import Now"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Needs Your Review" card — pending/sent_to_vsac rows that aren't
+ * ready-to-act and aren't deprecation requests' lean-only path. Shows a
+ * one-line reasoning summary by default; the full Brief (binding
+ * strength, VSAC Purpose fields, grouping component list, possible
+ * existing match, candidate codes) stays behind the Brief toggle so the
+ * card itself stays lean when collapsed. Deprecation requests never carry
+ * a brief of their own, so they render a lean variant with just the
+ * target + notes.
+ */
+function ReviewRow({
+  r,
+  isExpanded,
+  onToggleBrief,
+  actioningId,
+  markSentToVsac,
+  markResolved,
+  linkVsacOid,
+  linkOidDraftValue,
+  setLinkOidDraft,
+  targetName,
+  onDelete,
+}: {
+  r: RequestRow;
+  isExpanded: boolean;
+  onToggleBrief: () => void;
+  actioningId: string | null;
+  markSentToVsac: (r: RequestRow) => void;
+  markResolved: (r: RequestRow) => void;
+  linkVsacOid: (r: RequestRow, oid: string) => void;
+  linkOidDraftValue: string;
+  setLinkOidDraft: (value: string) => void;
+  targetName: string | null;
+  onDelete: (r: RequestRow) => void;
+}) {
+  const { time, ago } = requestTimeLabel(r.requested_at);
+  const isDeprecate = r.request_type === "deprecate";
+  const actionable = !isDeprecate && ACTIONABLE_STATUSES.has(String(r.status ?? "pending"));
+  const seedCodes: Array<{ code?: string; display?: string; vocabulary?: string }> = Array.isArray(
+    r.seed_codes,
+  )
+    ? r.seed_codes
+    : [];
+
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+          {r.requesting_consumer}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            {isDeprecate ? (
+              <>
+                <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                  Deprecation Request
+                </span>
+                <p className="text-sm font-medium text-slate-800 leading-snug">
+                  {targetName
+                    ? `Target: ${targetName}`
+                    : `Deprecation target label: ${r.requested_name}`}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm font-medium text-slate-800 leading-snug">{r.requested_name}</p>
+            )}
+            <span
+              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBadge(r.status)}`}
+            >
+              {r.status ?? "pending"}
+            </span>
+            {r.priority && r.priority !== "normal" && (
+              <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                priority: {r.priority}
+              </span>
+            )}
+          </div>
+          {!isDeprecate && !isExpanded && (
+            <p className="mt-1 text-[11px] text-slate-600 leading-snug line-clamp-1">
+              {r.reasoning ??
+                "Awaiting Auto Terminologist analysis — check back after the next cycle."}
+            </p>
+          )}
+          {r.justification && (
+            <p className="mt-1 text-xs text-slate-600 leading-snug">{r.justification}</p>
+          )}
+          {r.quality_gate_notes && (
+            <p className="mt-1 text-[11px] text-amber-700 leading-snug">
+              Gate: {r.quality_gate_notes}
+            </p>
+          )}
+          <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3">
+            <span>{time}</span>
+            <span>({ago})</span>
+          </div>
+        </div>
+        {!isDeprecate && (
+          <button
+            type="button"
+            onClick={onToggleBrief}
+            className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+            title="View suggestion brief"
+          >
+            <FileText className="h-3 w-3" />
+            Brief
+            {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+        )}
+        {actionable && r.status !== "sent_to_vsac" && (
+          <button
+            type="button"
+            disabled={actioningId === r.id}
+            onClick={() => void markSentToVsac(r)}
+            className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 text-[11px] font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-60"
+            title="Record that this brief's recommendation has been taken to NLM VSAC for authoring"
+          >
+            <Send className="h-3 w-3" />
+            Mark as Sent to VSAC
+          </button>
+        )}
+        {r.status === "sent_to_vsac" && (
+          <button
+            type="button"
+            disabled={actioningId === r.id}
+            onClick={() => void markResolved(r)}
+            className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+            title="Mark resolved once the matching value set has been imported from VSAC"
+          >
+            <CheckCheck className="h-3 w-3" />
+            Mark Resolved
+          </button>
+        )}
+        <DeleteRequestButton r={r} onDelete={onDelete} />
+      </div>
+
+      {/* Linked-OID rows live in the "Awaiting VSAC Publication" section —
+          this one only ever needs the input to create that link. */}
+      {!isDeprecate &&
+        !r.linked_vsac_oid &&
+        LINKABLE_STATUSES.has(String(r.status ?? "pending")) && (
+          <div className="ml-1 flex flex-wrap items-center gap-1.5">
+            <Link2 className="h-3 w-3 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Paste real VSAC OID once authoring has started…"
+              value={linkOidDraftValue}
+              onChange={(e) => setLinkOidDraft(e.target.value)}
+              className="h-7 w-72 rounded-md border border-slate-200 bg-white px-2 font-mono text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"
+            />
+            <button
+              type="button"
+              disabled={!linkOidDraftValue.trim() || actioningId === r.id}
+              onClick={() => void linkVsacOid(r, linkOidDraftValue)}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              title="Link this OID so the background cycle checks it for publication"
+            >
+              Link VSAC OID
+            </button>
+          </div>
+        )}
+
+      {!isDeprecate && isExpanded && (
+        <div className="ml-1 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-[11px] text-slate-700 space-y-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Suggestion Brief · for a human to review and author in VSAC
+          </div>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            <div>
+              <span className="font-semibold text-slate-500">Suggested Name</span>
+              <div className="text-slate-800">{r.requested_name}</div>
+            </div>
+            <div>
+              <span className="font-semibold text-slate-500">Source Vocabulary</span>
+              <div className="text-slate-800">{r.vocabulary ?? "—"}</div>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="font-semibold text-slate-500">Clinical Purpose</span>
+              <div className="text-slate-800">
+                Filed by <span className="font-medium">{r.requesting_consumer}</span>
+                {r.justification ? `: ${r.justification}` : " — no justification given."}
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="font-semibold text-slate-500">Recommended Definition Type</span>
+              <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                {r.recommended_type ? (
+                  <span
+                    className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${
+                      r.recommended_type === "intensional"
+                        ? "border-violet-200 bg-violet-50 text-violet-800"
+                        : r.recommended_type === "grouping"
+                          ? "border-amber-200 bg-amber-50 text-amber-800"
+                          : "border-sky-200 bg-sky-50 text-sky-800"
+                    }`}
+                  >
+                    {r.recommended_type}
+                  </span>
+                ) : (
+                  <span className="text-slate-400">Not yet determined</span>
+                )}
+                {r.recommended_binding_strength && (
+                  <span
+                    className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${bindingStrengthBadgeClass(r.recommended_binding_strength)}`}
+                    title="FHIR ValueSet binding strength — advisory, a human steward decides the real value in VSAC"
+                  >
+                    binding: {r.recommended_binding_strength}
+                  </span>
+                )}
+              </div>
+              {r.reasoning && <div className="mt-1 text-slate-600 leading-snug">{r.reasoning}</div>}
+            </div>
+
+            {r.possible_existing_match && (
+              <div className="sm:col-span-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5">
+                <div className="flex items-center gap-1.5 font-semibold text-amber-800">
+                  <AlertTriangle className="h-3 w-3" />
+                  Possible existing coverage
+                </div>
+                <div className="mt-0.5 text-amber-700 leading-snug">
+                  {r.possible_existing_match.match_reason}
+                  {r.possible_existing_match.oid && (
+                    <span className="font-mono"> (OID {r.possible_existing_match.oid})</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="sm:col-span-2">
+              <span className="font-semibold text-slate-500">
+                {r.recommended_type === "intensional" || r.recommended_type === "grouping"
+                  ? "Suggested Root Concept"
+                  : "Candidate Codes"}
+              </span>
+              {(r.recommended_type === "intensional" || r.recommended_type === "grouping") &&
+              r.suggested_root_concept?.code ? (
+                <div className="mt-0.5 font-mono text-[10px] text-slate-700">
+                  {r.suggested_root_concept.code} —{" "}
+                  <span className="font-sans">{r.suggested_root_concept.display}</span>
+                </div>
+              ) : seedCodes.length > 0 ? (
+                <ul className="mt-0.5 space-y-0.5">
+                  {seedCodes.slice(0, 10).map((c, i) => (
+                    <li key={i} className="font-mono text-[10px] text-slate-700">
+                      {c.code ?? "—"}{" "}
+                      <span className="font-sans text-slate-600">{c.display ?? ""}</span>
+                    </li>
+                  ))}
+                  {seedCodes.length > 10 && (
+                    <li className="text-slate-400">+ {seedCodes.length - 10} more</li>
+                  )}
+                </ul>
+              ) : (
+                <div className="mt-0.5 text-slate-400">No candidate codes staged yet</div>
+              )}
+            </div>
+
+            {r.recommended_type === "grouping" &&
+              Array.isArray(r.suggested_root_concept?.componentValueSets) &&
+              r.suggested_root_concept!.componentValueSets!.length > 0 && (
+                <div className="sm:col-span-2">
+                  <span className="font-semibold text-slate-500">
+                    Compose From Published Value Sets
+                  </span>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {r.suggested_root_concept!.componentValueSets!.map((cvs) => (
+                      <li key={cvs.value_set_id} className="text-slate-700">
+                        {cvs.name}
+                        {cvs.oid && (
+                          <span className="ml-1 font-mono text-[10px] text-slate-500">
+                            OID {cvs.oid}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+            <div className="sm:col-span-2">
+              <span className="font-semibold text-slate-500">Intended Consumer</span>
+              <div className="text-slate-800">
+                {r.requesting_consumer}
+                {r.clinical_application ? ` · ${r.clinical_application}` : ""}
+              </div>
+            </div>
+
+            <div className="sm:col-span-2 border-t border-slate-100 pt-2 mt-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                VSAC Purpose (draft — paste into VSAC's Metadata tab)
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="font-semibold text-slate-500">Clinical Focus</span>
+              <div className="text-slate-800 leading-snug">{r.clinical_focus || "—"}</div>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="font-semibold text-slate-500">Data Element Scope</span>
+              <div className="text-slate-800">{r.data_element_scope || "—"}</div>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="font-semibold text-slate-500">Inclusion Criteria</span>
+              <div className="text-slate-800 leading-snug">
+                {r.inclusion_criteria ||
+                  (r.recommended_type === "grouping"
+                    ? "(blank — inherited from component value sets)"
+                    : "—")}
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="font-semibold text-slate-500">Exclusion Criteria</span>
+              <div className="text-slate-800 leading-snug">
+                {r.exclusion_criteria ||
+                  (r.recommended_type === "grouping"
+                    ? "(blank — inherited from component value sets)"
+                    : "—")}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Awaiting VSAC Publication" row — a human already linked a real VSAC
+ * OID (via "Link VSAC OID" in the Needs Your Review section) and it just
+ * hasn't published yet. The brief already did its job getting here, so
+ * this is only the OID + last-checked signal that it's being polled, not
+ * stalled — no brief re-display needed.
+ */
+function AwaitingRow({ r, onDelete }: { r: RequestRow; onDelete: (r: RequestRow) => void }) {
+  const { time, ago } = requestTimeLabel(r.requested_at);
+  return (
+    <div className="flex items-start gap-3 px-4 py-3">
+      <span className="mt-0.5 inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+        {r.requesting_consumer}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-slate-800 leading-snug">{r.requested_name}</p>
+        <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3">
+          <span>{time}</span>
+          <span>({ago})</span>
+        </div>
+        <div className="mt-1 text-[11px] text-slate-500">
+          Linked VSAC OID <span className="font-mono text-slate-700">{r.linked_vsac_oid}</span>
+          {" · "}
+          {r.last_vsac_check_at
+            ? `last checked ${formatAgo(r.last_vsac_check_at)}`
+            : "not yet checked"}
+        </div>
+      </div>
+      <DeleteRequestButton r={r} onDelete={onDelete} />
+    </div>
+  );
+}
+
+/**
+ * "Resolved" row — a compact audit-list entry (name, how it resolved,
+ * when), not a full card: the brief, the VSAC signals and the action
+ * buttons all did their job already.
+ */
+function ResolvedRow({
+  r,
+  targetName,
+  onDelete,
+}: {
+  r: RequestRow;
+  targetName: string | null;
+  onDelete: (r: RequestRow) => void;
+}) {
+  const isDeprecate = r.request_type === "deprecate";
+  const label = isDeprecate
+    ? targetName
+      ? `Target: ${targetName}`
+      : r.requested_name
+    : r.requested_name;
+  const how = r.value_set_id ? "imported" : "marked resolved";
+  return (
+    <div className="flex items-center gap-3 px-4 py-2 text-xs">
+      <span className="shrink-0 inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+        <CheckCircle2 className="h-3 w-3" />
+        resolved
+      </span>
+      <span className="flex-1 min-w-0 truncate text-slate-700">{label}</span>
+      <span className="shrink-0 text-slate-400">
+        {how} · {r.resolved_at ? formatAgo(r.resolved_at) : "—"}
+      </span>
+      <DeleteRequestButton r={r} onDelete={onDelete} />
     </div>
   );
 }
