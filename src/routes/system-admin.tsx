@@ -112,7 +112,6 @@ import { QaGovernanceQueue } from "@/components/admin/QaGovernanceQueue";
 import { InfoHint } from "@/components/ui/info-hint";
 import { ValueSetBuilder } from "@/components/admin/ValueSetBuilder";
 import { ValueSetLibrary } from "@/components/admin/dictionary/ValueSetLibrary";
-import { AuthoringWorkbench } from "@/components/admin/dictionary/AuthoringWorkbench";
 import { CrossMapStudio } from "@/components/admin/dictionary/CrossMapStudio";
 import { TerminologyStatusStrip } from "@/components/admin/dictionary/TerminologyStatusStrip";
 import { AutoTerminologistActivity } from "@/components/admin/dictionary/AutoTerminologistActivity";
@@ -3202,25 +3201,8 @@ function PillRow({
                   <span className="text-slate-500">display:</span> {e.display}
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 pt-1">
-                <button
-                  type="button"
-                  className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
-                  onClick={() => {
-                    window.dispatchEvent(
-                      new CustomEvent("spehr:dict-switch-tab", {
-                        detail: {
-                          tab: "authoring",
-                          prefillEvent: "spehr:authoring-prefill",
-                          prefillDetail: { code: e.code, vocabulary: system },
-                        },
-                      }),
-                    );
-                  }}
-                >
-                  View in Authoring
-                </button>
-                {system !== "ICD-10" && (
+              {system !== "ICD-10" && (
+                <div className="flex items-center gap-1.5 pt-1">
                   <button
                     type="button"
                     className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
@@ -3242,8 +3224,8 @@ function PillRow({
                   >
                     Translate to ICD-10
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </PopoverContent>
         </Popover>
@@ -4617,8 +4599,8 @@ function TaxonomyTree({
 
 function MedicalDictionary() {
   const [subtab, setSubtab] = useState<
-    "library" | "authoring" | "crossmap" | "audits" | "matrix" | "safety" | "autoterm" | "taxonomy"
-  >("authoring");
+    "library" | "crossmap" | "audits" | "matrix" | "safety" | "autoterm" | "taxonomy"
+  >("library");
 
   // Cross-tab navigation: Live Terminology Matrix pills can request a tab switch.
   useEffect(() => {
@@ -5197,7 +5179,6 @@ function MedicalDictionary() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 rounded-xl bg-slate-100/70 p-1.5 border border-slate-200">
         {(
           [
-            { id: "authoring", label: "Authoring Workbench", Icon: Sparkles },
             { id: "library", label: "Value Set Library", Icon: BookMarked },
             { id: "crossmap", label: "Cross-Map Studio", Icon: Activity },
             { id: "audits", label: "NLP Audit Logs", Icon: Sparkles },
@@ -5227,7 +5208,6 @@ function MedicalDictionary() {
       </div>
 
       {subtab === "library" && <ValueSetLibrary />}
-      {subtab === "authoring" && <AuthoringWorkbench />}
       {subtab === "crossmap" && <CrossMapStudio />}
       {subtab === "audits" && <NlpAuditLogsPanel />}
       {subtab === "audits" && <NlpApprovalTrail />}

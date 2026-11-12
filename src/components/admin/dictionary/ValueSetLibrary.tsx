@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Plus,
   Download,
   Upload,
   Loader2,
@@ -55,7 +54,7 @@ type ValueSet = {
   codes: any[];
   intensional_rule: any | null;
   grouping_members: Array<{ valueSetId: string; valueSetName: string; oid: string | null }> | null;
-  status: "draft" | "review" | "published" | "deprecated";
+  status: "draft" | "review" | "published" | "deprecated" | "retired";
   clinical_application: string | null;
   fhir_url: string | null;
   steward: string | null;
@@ -73,6 +72,7 @@ const STATUS_STYLES: Record<string, string> = {
   review: "bg-amber-100 text-amber-800 border-amber-200",
   draft: "bg-slate-100 text-slate-700 border-slate-200",
   deprecated: "bg-rose-100 text-rose-800 border-rose-200",
+  retired: "bg-slate-50 text-slate-500 border-slate-200",
 };
 
 const TYPE_STYLES: Record<string, string> = {
@@ -326,9 +326,9 @@ export function ValueSetLibrary() {
   // Re-sync is only offered for rows whose OID was actually assigned by
   // real VSAC (via "Import from VSAC" above) — never for locally-authored
   // rows, which carry a self-assigned placeholder OID in this
-  // `2.16.840.1.113883.3.spehr.<timestamp>` namespace (see AuthoringWorkbench
-  // / the Auto Terminologist's own drafts) until a human authors the real
-  // thing in VSAC and imports it by OID.
+  // `2.16.840.1.113883.3.spehr.<timestamp>` namespace (the Auto
+  // Terminologist's own drafts) until a human authors the real thing in
+  // VSAC and imports it by OID.
   const SPEHR_PLACEHOLDER_OID_PREFIX = "2.16.840.1.113883.3.spehr.";
   const isRealVsacOid = (oid: string | null): boolean =>
     !!oid && !oid.startsWith(SPEHR_PLACEHOLDER_OID_PREFIX);
@@ -561,22 +561,11 @@ export function ValueSetLibrary() {
               📚 Value Set Library
               <InfoHint
                 className="ml-1.5"
-                text="VSAC-aligned value set repository — browse, author, and publish extensional and intensional value sets. Currently spans SNOMED CT, ICD-10-CM, LOINC, and RxNorm (CPT and MedDRA are supported vocabularies for future value sets, none published yet). Every row here has a real, resolvable FHIR OID and is what Safety Alerts, CDS, Billing, and Population Health actually query against."
+                text="VSAC-aligned value set repository — browse, import from VSAC, and publish extensional and intensional value sets. Currently spans SNOMED CT, ICD-10-CM, LOINC, and RxNorm (CPT and MedDRA are supported vocabularies for future value sets, none published yet). Every row here has a real, resolvable FHIR OID and is what Safety Alerts, CDS, Billing, and Population Health actually query against."
               />
             </h3>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                window.dispatchEvent(
-                  new CustomEvent("spehr:switch-tab", { detail: { tab: "authoring" } }),
-                )
-              }
-            >
-              <Plus className="h-3.5 w-3.5" /> New Value Set
-            </Button>
             <Button
               size="sm"
               variant="outline"
