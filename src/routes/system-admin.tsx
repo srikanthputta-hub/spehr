@@ -26,6 +26,21 @@ import {
   X,
   FileCheck2,
   ListChecks,
+  Syringe,
+  Wind,
+  LogIn,
+  Stethoscope,
+  Pill,
+  XCircle,
+  LogOut,
+  PackageCheck,
+  FileSignature,
+  FlaskConical,
+  ArrowLeftRight,
+  Send,
+  ClipboardCheck,
+  Receipt,
+  BedDouble,
 } from "lucide-react";
 import { FACILITIES, useActiveStaff, type Facility } from "@/lib/facility-context";
 import {
@@ -467,6 +482,58 @@ type Perm = {
   is_active: boolean;
 };
 
+type IconComponent = typeof ToggleRight;
+
+// Real icon per permission row, keyed by feature_key — replaces the
+// corrupted emoji that used to be baked into feature_name (see the
+// `fix_role_permissions_feature_name_double_encoding` migration). Covers
+// every feature_key currently seeded in `role_permissions` plus
+// `btn_submit_radiology_report`, which boards gate on but no seed row
+// exists for yet.
+const FEATURE_ICON_BY_KEY: Record<string, IconComponent> = {
+  btn_administer_med: Syringe,
+  btn_administer_treatment: Wind,
+  btn_admit_patient: LogIn,
+  btn_approve_transfer: CheckCircle2,
+  btn_chart_respiratory_assessment: Stethoscope,
+  btn_create_med_order: Pill,
+  btn_deny_transfer: XCircle,
+  btn_discharge_patient: LogOut,
+  btn_dispense_med: PackageCheck,
+  btn_esign_note: FileSignature,
+  btn_order_labs: FlaskConical,
+  btn_refer_patient: ArrowLeftRight,
+  btn_run_lab_sample: FlaskConical,
+  btn_submit_report: Send,
+  btn_submit_radiology_report: Send,
+  btn_triage_patient: ClipboardCheck,
+  btn_verify_med: ShieldCheck,
+  "dictionary.steward_approve": FileCheck2,
+};
+
+/**
+ * Resolves a sensible icon for any feature_key, including ones typed in
+ * through the "Assign Permission" free-entry flow that aren't in the map
+ * above — falls back to a category guess from the key's own naming
+ * convention, then to a generic toggle glyph.
+ */
+function getFeatureIcon(featureKey: string): IconComponent {
+  const known = FEATURE_ICON_BY_KEY[featureKey];
+  if (known) return known;
+  const k = featureKey.toLowerCase();
+  if (k.includes("transfer")) return ArrowLeftRight;
+  if (k.includes("lab") || k.includes("specimen")) return FlaskConical;
+  if (k.includes("report") || k.includes("note") || k.includes("sign")) return FileSignature;
+  if (k.includes("discharge")) return LogOut;
+  if (k.includes("admit")) return LogIn;
+  if (k.includes("respiratory") || k.includes("vent")) return Wind;
+  if (k.includes("med") || k.includes("drug") || k.includes("pharm")) return Pill;
+  if (k.includes("bill") || k.includes("invoice") || k.includes("charge")) return Receipt;
+  if (k.includes("bed")) return BedDouble;
+  if (k.includes("approve") || k.includes("verify")) return ShieldCheck;
+  return ToggleRight;
+}
+
 const TABS = [
   { id: "feature_controls" as const, label: "🎛️ UI & Feature Controls", icon: ToggleRight },
   { id: "users" as const, label: "👥 Users", icon: Users },
@@ -541,20 +608,61 @@ const ROLE_LABELS_FULL: Record<string, string> = {
 function RoleDefaultsSections({
   facility,
   grouped,
+  authorId,
+  onPromoted,
 }: {
   facility: string;
   grouped: Record<string, Perm[]>;
+  authorId: string;
+  /** Called after a default is successfully written to the DB, so the
+   * caller can re-fetch `perms` and move this feature into the real,
+   * DB-backed grouped list above. */
+  onPromoted: () => void;
 }) {
-  const [toggles, setToggles] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
   const tk = (role: string, key: string) => `${facility}::${role}::${key}`;
-  const isOn = (role: string, key: string) => toggles[tk(role, key)] ?? true;
-  const set = (role: string, key: string, v: boolean) =>
-    setToggles((s) => ({ ...s, [tk(role, key)]: v }));
+
+  // A default is only ever shown here until someone flips it — at that
+  // point it's promoted into a real `role_permissions` row and this list
+  // must stop claiming to control it (grouped[role] now owns that key).
+  // Previously this filtered whole ROLES out as soon as *any* row existed
+  // for them, which silently hid every other still-unpromoted default for
+  // that role; filtering per-feature instead keeps each one visible until
+  // it, specifically, has been promoted.
+  const promotedKeys = (role: string) => new Set((grouped[role] ?? []).map((p) => p.feature_key));
+
+  const promote = async (role: string, key: string, name: string, next: boolean) => {
+    const id = tk(role, key);
+    setSaving((s) => ({ ...s, [id]: true }));
+    const { error } = await supabase.from("role_permissions").insert({
+      target_role: role,
+      feature_key: key,
+      feature_name: name,
+      facility_name: facility,
+      is_active: next,
+      author_id: authorId,
+      created_by_type: "human",
+    });
+    setSaving((s) => ({ ...s, [id]: false }));
+    if (error) {
+      toast.error("Could not save permission", { description: error.message });
+      return;
+    }
+    toast.success(`'${name}' is now an explicit permission for ${role}`, {
+      description: `${next ? "Enabled" : "Disabled"} · ${facility}`,
+    });
+    onPromoted();
+  };
 
   return (
     <>
       {Object.entries(DEFAULT_ROLE_FEATURES)
-        .filter(([role]) => !grouped[role] || grouped[role].length === 0)
+        .map(([role, feats]) => {
+          const already = promotedKeys(role);
+          const remaining = feats.filter((f) => !already.has(f.key));
+          return [role, remaining] as const;
+        })
+        .filter(([, remaining]) => remaining.length > 0)
         .map(([role, feats]) => (
           <div
             key={`default-${role}`}
@@ -569,28 +677,40 @@ function RoleDefaultsSections({
                   {ROLE_LABELS_FULL[role] ?? role}
                 </div>
               </div>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Defaults
+              <span
+                className="text-[10px] font-semibold uppercase tracking-wider text-slate-400"
+                title="Not yet saved to the database — flipping one writes it as a real, persisted permission."
+              >
+                Defaults (unsaved)
               </span>
             </div>
             <ul className="divide-y divide-slate-100">
               {feats.map((f) => {
-                const on = isOn(role, f.key);
+                const id = tk(role, f.key);
+                const isSaving = !!saving[id];
+                const Icon = getFeatureIcon(f.key);
                 return (
                   <li key={f.key} className="flex items-center justify-between gap-4 px-5 py-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">{f.name}</div>
-                      <div className="text-[11px] text-slate-500 font-mono">{f.key}</div>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Icon className="h-4 w-4 text-slate-400 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-slate-900 truncate">{f.name}</div>
+                        <div className="text-[11px] text-slate-500 font-mono">{f.key}</div>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span
-                        className={`text-[10px] font-semibold uppercase tracking-wider ${
-                          on ? "text-emerald-600" : "text-slate-400"
-                        }`}
-                      >
-                        {on ? "Enabled" : "Disabled"}
-                      </span>
-                      <Switch checked={on} onCheckedChange={(v) => set(role, f.key, v)} />
+                      {isSaving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                      ) : (
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+                          Enabled
+                        </span>
+                      )}
+                      <Switch
+                        checked={true}
+                        disabled={isSaving}
+                        onCheckedChange={(v) => promote(role, f.key, f.name, v)}
+                      />
                     </div>
                   </li>
                 );
@@ -803,6 +923,84 @@ function SystemAdminPage() {
     return acc;
   }, {});
 
+  // ---- Assign new permission (feature × role, scoped to selectedFacility) ----
+  // `role_permissions.feature_key` is an open-ended space, not a fixed enum
+  // (DEFAULT_ROLE_FEATURES alone introduces keys like "vitals_entry" or
+  // "cpoe_ordering" that have never been seeded as real rows), so the
+  // picker below offers every feature_key/feature_name pair already known
+  // — from rows loaded for this facility plus DEFAULT_ROLE_FEATURES — and
+  // also lets an admin type a brand-new feature_key for a feature that
+  // doesn't exist yet anywhere.
+  const knownFeatureCatalog = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const p of perms) byKey.set(p.feature_key, p.feature_name);
+    for (const feats of Object.values(DEFAULT_ROLE_FEATURES)) {
+      for (const f of feats) if (!byKey.has(f.key)) byKey.set(f.key, f.name);
+    }
+    return Array.from(byKey.entries())
+      .map(([key, name]) => ({ key, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [perms]);
+
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignRole, setAssignRole] = useState<string>(Object.keys(ROLE_LABELS)[0]);
+  const [assignFeatureKey, setAssignFeatureKey] = useState<string>("__custom__");
+  const [assignCustomKey, setAssignCustomKey] = useState("");
+  const [assignCustomName, setAssignCustomName] = useState("");
+  const [assignActive, setAssignActive] = useState(true);
+  const [assigning, setAssigning] = useState(false);
+
+  const resetAssignForm = () => {
+    setAssignRole(Object.keys(ROLE_LABELS)[0]);
+    setAssignFeatureKey("__custom__");
+    setAssignCustomKey("");
+    setAssignCustomName("");
+    setAssignActive(true);
+  };
+
+  const isCustomFeature = assignFeatureKey === "__custom__";
+  const resolvedFeatureKey = isCustomFeature ? assignCustomKey.trim() : assignFeatureKey;
+  const resolvedFeatureName = isCustomFeature
+    ? assignCustomName.trim()
+    : (knownFeatureCatalog.find((f) => f.key === assignFeatureKey)?.name ?? assignFeatureKey);
+
+  const assignPermission = async () => {
+    if (!resolvedFeatureKey || !resolvedFeatureName) {
+      toast.error("Feature key and name are required");
+      return;
+    }
+    const duplicate = perms.some(
+      (p) => p.target_role === assignRole && p.feature_key === resolvedFeatureKey,
+    );
+    if (duplicate) {
+      toast.error("That permission already exists", {
+        description: `${assignRole} already has '${resolvedFeatureKey}' at ${selectedFacility} — toggle it in the list instead.`,
+      });
+      return;
+    }
+    setAssigning(true);
+    const { error } = await supabase.from("role_permissions").insert({
+      target_role: assignRole,
+      feature_key: resolvedFeatureKey,
+      feature_name: resolvedFeatureName,
+      facility_name: selectedFacility,
+      is_active: assignActive,
+      author_id: admin.name,
+      created_by_type: "human",
+    });
+    setAssigning(false);
+    if (error) {
+      toast.error("Could not assign permission", { description: error.message });
+      return;
+    }
+    toast.success(`Assigned '${resolvedFeatureName}' to ${assignRole}`, {
+      description: `${assignActive ? "Enabled" : "Disabled"} · ${selectedFacility}`,
+    });
+    setAssignOpen(false);
+    resetAssignForm();
+    load();
+  };
+
   return (
     <main className="min-h-screen bg-slate-50">
       <BoardHeader
@@ -922,7 +1120,7 @@ function SystemAdminPage() {
 
         {tab === "feature_controls" && (
           <div className="space-y-6">
-            <div>
+            <div className="flex items-center justify-between gap-3">
               <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-1.5">
                 🎛️ UI &amp; Feature Controls
                 <InfoHint
@@ -930,6 +1128,19 @@ function SystemAdminPage() {
                   text="Master switches for in-app actions, scoped per facility. Toggling a switch instantly changes button visibility for every user with that clinical role at the selected facility — no redeploy required."
                 />
               </h1>
+              {isAdmin && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    resetAssignForm();
+                    setAssignOpen(true);
+                  }}
+                  className="gap-1.5"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Assign Permission
+                </Button>
+              )}
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-5 py-4">
@@ -974,40 +1185,178 @@ function SystemAdminPage() {
                       </div>
                     </div>
                     <ul className="divide-y divide-slate-100">
-                      {list.map((p) => (
-                        <li
-                          key={p.id}
-                          className="flex items-center justify-between gap-4 px-5 py-3"
-                        >
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-slate-900 truncate">
-                              {p.feature_name}
+                      {list.map((p) => {
+                        const Icon = getFeatureIcon(p.feature_key);
+                        return (
+                          <li
+                            key={p.id}
+                            className="flex items-center justify-between gap-4 px-5 py-3"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <Icon className="h-4 w-4 text-slate-500 shrink-0" />
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-slate-900 truncate">
+                                  {p.feature_name}
+                                </div>
+                                <div className="text-[11px] text-slate-500 font-mono">
+                                  {p.feature_key}
+                                </div>
+                              </div>
                             </div>
-                            <div className="text-[11px] text-slate-500 font-mono">
-                              {p.feature_key}
+                            <div className="flex items-center gap-2">
+                              <StatusBadge
+                                status={p.is_active ? "success" : "neutral"}
+                                label={p.is_active ? "Enabled" : "Disabled"}
+                              />
+                              <Switch
+                                checked={p.is_active}
+                                disabled={updating === p.id}
+                                onCheckedChange={(v) => toggle(p, v)}
+                              />
                             </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <StatusBadge
-                              status={p.is_active ? "success" : "neutral"}
-                              label={p.is_active ? "Enabled" : "Disabled"}
-                            />
-                            <Switch
-                              checked={p.is_active}
-                              disabled={updating === p.id}
-                              onCheckedChange={(v) => toggle(p, v)}
-                            />
-                          </div>
-                        </li>
-                      ))}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 ))}
-                <RoleDefaultsSections facility={selectedFacility} grouped={grouped} />
+                <RoleDefaultsSections
+                  facility={selectedFacility}
+                  grouped={grouped}
+                  authorId={admin.name}
+                  onPromoted={load}
+                />
               </div>
             )}
           </div>
         )}
+
+        <Dialog
+          open={assignOpen}
+          onOpenChange={(o) => {
+            setAssignOpen(o);
+            if (!o) resetAssignForm();
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Assign Permission</DialogTitle>
+              <DialogDescription>
+                Grant any feature to any role at {selectedFacility}. This writes a new, real row
+                into <span className="font-mono">role_permissions</span> — it does not affect any
+                other facility.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Role
+                </Label>
+                <Select value={assignRole} onValueChange={setAssignRole}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(ROLE_LABELS).map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {ROLE_LABELS[r]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Feature
+                </Label>
+                <Select value={assignFeatureKey} onValueChange={setAssignFeatureKey}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__custom__">+ Custom feature (type your own key)</SelectItem>
+                    {knownFeatureCatalog.map((f) => (
+                      <SelectItem key={f.key} value={f.key}>
+                        {f.name} ({f.key})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {isCustomFeature && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                      Feature Key
+                    </Label>
+                    <Input
+                      value={assignCustomKey}
+                      onChange={(e) => setAssignCustomKey(e.target.value)}
+                      placeholder="e.g. btn_order_imaging or dictionary.steward_approve"
+                      className="font-mono text-sm"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Matches a <span className="font-mono">feature_key</span> checked elsewhere in
+                      the app (e.g. a{" "}
+                      <span className="font-mono">useRolePermissions().gate(…)</span> call on a
+                      board). Free text — there's no fixed list.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                      Display Name
+                    </Label>
+                    <Input
+                      value={assignCustomName}
+                      onChange={(e) => setAssignCustomName(e.target.value)}
+                      placeholder="e.g. Order Imaging Study"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Initial State
+                </Label>
+                <div
+                  className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
+                    assignActive
+                      ? "border-emerald-200 bg-emerald-50"
+                      : "border-slate-200 bg-slate-50"
+                  }`}
+                >
+                  <span
+                    className={`text-sm font-semibold ${
+                      assignActive ? "text-emerald-700" : "text-slate-600"
+                    }`}
+                  >
+                    {assignActive ? "Enabled" : "Disabled"}
+                  </span>
+                  <Switch checked={assignActive} onCheckedChange={setAssignActive} />
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAssignOpen(false)} disabled={assigning}>
+                Cancel
+              </Button>
+              <Button onClick={assignPermission} disabled={assigning}>
+                {assigning ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Assigning…
+                  </>
+                ) : (
+                  "Assign Permission"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {tab === "users" && <UserDirectory />}
         {tab === "audit" && <AuditLog />}
@@ -3461,7 +3810,9 @@ function FhirInteroperability({ facility }: { facility: string }) {
     };
   }, [facility]);
 
-  const statusBadge = (r: FhirEncounterRow): { status: "neutral" | "info" | "warning"; label: string } => {
+  const statusBadge = (
+    r: FhirEncounterRow,
+  ): { status: "neutral" | "info" | "warning"; label: string } => {
     const s = (r.status ?? "").toLowerCase();
     if (s === "discharged" || r.discharge_time) {
       return { status: "neutral", label: "Discharged" };
