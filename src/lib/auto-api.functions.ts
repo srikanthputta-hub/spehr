@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
-import { recommendDefinitionType } from "@/lib/value-set-registry";
+import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/value-set-registry";
 import type { Database } from "@/integrations/supabase/types";
 
 /**
@@ -711,7 +711,16 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
               }
             } else {
               const recommendation = await recommendDefinitionType(
-                { vocabulary: vocab, candidates: seedCodes },
+                {
+                  vocabulary: vocab,
+                  candidates: seedCodes,
+                  requestedName: kwRaw,
+                  justification,
+                  context: {
+                    clinicalApplication: "Population Health",
+                    requestingConsumer: "Auto Admin",
+                  },
+                },
                 sb,
               );
               await sb.from("terminology_requests" as any).insert({
@@ -725,7 +734,13 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
                 status: "pending",
                 recommended_type: recommendation.recommendedType,
                 reasoning: recommendation.reasoning,
-                suggested_root_concept: recommendation.suggestedRootConcept ?? null,
+                suggested_root_concept: suggestedRootConceptForStorage(recommendation),
+                recommended_binding_strength: recommendation.recommendedBindingStrength,
+                possible_existing_match: recommendation.possibleExistingMatch,
+                clinical_focus: recommendation.clinicalFocus,
+                data_element_scope: recommendation.dataElementScope,
+                inclusion_criteria: recommendation.inclusionCriteria,
+                exclusion_criteria: recommendation.exclusionCriteria,
               } as any);
             }
           }

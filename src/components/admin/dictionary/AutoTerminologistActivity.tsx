@@ -63,6 +63,26 @@ function formatAgo(ts: string | undefined): string {
   return hrs === 1 ? "1 hour ago" : `${hrs} hours ago`;
 }
 
+type PossibleExistingMatch = {
+  value_set_id: string;
+  name: string;
+  oid: string | null;
+  match_reason: string;
+} | null;
+
+type ComponentValueSetRef = { value_set_id: string; name: string; oid: string | null };
+
+// `suggested_root_concept` always carries {code, display} (or is null)
+// except for a "grouping" recommendation, where it also carries
+// `componentValueSets` — the published value sets to compose — a
+// documented reuse of this column's jsonb shape (see
+// suggestedRootConceptForStorage() in src/lib/value-set-registry.ts).
+type SuggestedRootConcept = {
+  code?: string;
+  display?: string;
+  componentValueSets?: ComponentValueSetRef[];
+} | null;
+
 type RequestRow = {
   id: string;
   requesting_consumer: string;
@@ -78,9 +98,15 @@ type RequestRow = {
   clinical_application?: string | null;
   request_type?: string | null;
   target_value_set_id?: string | null;
-  recommended_type?: "intensional" | "extensional" | null;
+  recommended_type?: "intensional" | "extensional" | "grouping" | null;
   reasoning?: string | null;
-  suggested_root_concept?: { code: string; display: string } | null;
+  suggested_root_concept?: SuggestedRootConcept;
+  recommended_binding_strength?: "required" | "extensible" | "preferred" | "example" | null;
+  possible_existing_match?: PossibleExistingMatch;
+  clinical_focus?: string | null;
+  data_element_scope?: string | null;
+  inclusion_criteria?: string | null;
+  exclusion_criteria?: string | null;
 };
 
 // Statuses a suggestion brief can still be actioned from — anything the
@@ -88,6 +114,23 @@ type RequestRow = {
 // the background cycle found candidate UMLS concepts worth bringing to a
 // steward's attention; it is staged, not imported.
 const ACTIONABLE_STATUSES = new Set(["pending", "umls-suggested"]);
+
+// FHIR ValueSet binding-strength badge colors, roughly by how strict the
+// recommendation is: required (strictest) through example (illustrative
+// only) — matches the severity-style badge language already used
+// elsewhere in this panel (statusBadge, actionTone above).
+function bindingStrengthBadgeClass(strength: string): string {
+  switch (strength) {
+    case "required":
+      return "border-red-200 bg-red-50 text-red-800";
+    case "extensible":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "preferred":
+      return "border-sky-200 bg-sky-50 text-sky-800";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-600"; // example
+  }
+}
 
 type DeprecationRow = {
   id: string;
@@ -256,7 +299,7 @@ export function AutoTerminologistActivity() {
       const { data } = await supabase
         .from("terminology_requests" as any)
         .select(
-          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id, recommended_type, reasoning, suggested_root_concept",
+          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id, recommended_type, reasoning, suggested_root_concept, recommended_binding_strength, possible_existing_match, clinical_focus, data_element_scope, inclusion_criteria, exclusion_criteria",
         )
         .order("requested_at", { ascending: false })
         .limit(50);
@@ -603,13 +646,15 @@ export function AutoTerminologistActivity() {
                         <span className="font-semibold text-slate-500">
                           Recommended Definition Type
                         </span>
-                        <div className="mt-0.5 flex items-start gap-2">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2">
                           {r.recommended_type ? (
                             <span
                               className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${
                                 r.recommended_type === "intensional"
                                   ? "border-violet-200 bg-violet-50 text-violet-800"
-                                  : "border-sky-200 bg-sky-50 text-sky-800"
+                                  : r.recommended_type === "grouping"
+                                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                                    : "border-sky-200 bg-sky-50 text-sky-800"
                               }`}
                             >
                               {r.recommended_type}
@@ -617,18 +662,47 @@ export function AutoTerminologistActivity() {
                           ) : (
                             <span className="text-slate-400">Not yet determined</span>
                           )}
+                          {r.recommended_binding_strength && (
+                            <span
+                              className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${bindingStrengthBadgeClass(r.recommended_binding_strength)}`}
+                              title="FHIR ValueSet binding strength — advisory, a human steward decides the real value in VSAC"
+                            >
+                              binding: {r.recommended_binding_strength}
+                            </span>
+                          )}
                         </div>
                         {r.reasoning && (
                           <div className="mt-1 text-slate-600 leading-snug">{r.reasoning}</div>
                         )}
                       </div>
+
+                      {r.possible_existing_match && (
+                        <div className="sm:col-span-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5">
+                          <div className="flex items-center gap-1.5 font-semibold text-amber-800">
+                            <AlertTriangle className="h-3 w-3" />
+                            Possible existing coverage
+                          </div>
+                          <div className="mt-0.5 text-amber-700 leading-snug">
+                            {r.possible_existing_match.match_reason}
+                            {r.possible_existing_match.oid && (
+                              <span className="font-mono">
+                                {" "}
+                                (OID {r.possible_existing_match.oid})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="sm:col-span-2">
                         <span className="font-semibold text-slate-500">
-                          {r.recommended_type === "intensional"
+                          {r.recommended_type === "intensional" || r.recommended_type === "grouping"
                             ? "Suggested Root Concept"
                             : "Candidate Codes"}
                         </span>
-                        {r.recommended_type === "intensional" && r.suggested_root_concept ? (
+                        {(r.recommended_type === "intensional" ||
+                          r.recommended_type === "grouping") &&
+                        r.suggested_root_concept?.code ? (
                           <div className="mt-0.5 font-mono text-[10px] text-slate-700">
                             {r.suggested_root_concept.code} —{" "}
                             <span className="font-sans">{r.suggested_root_concept.display}</span>
@@ -649,11 +723,66 @@ export function AutoTerminologistActivity() {
                           <div className="mt-0.5 text-slate-400">No candidate codes staged yet</div>
                         )}
                       </div>
+
+                      {r.recommended_type === "grouping" &&
+                        Array.isArray(r.suggested_root_concept?.componentValueSets) &&
+                        r.suggested_root_concept!.componentValueSets!.length > 0 && (
+                          <div className="sm:col-span-2">
+                            <span className="font-semibold text-slate-500">
+                              Compose From Published Value Sets
+                            </span>
+                            <ul className="mt-0.5 space-y-0.5">
+                              {r.suggested_root_concept!.componentValueSets!.map((cvs) => (
+                                <li key={cvs.value_set_id} className="text-slate-700">
+                                  {cvs.name}
+                                  {cvs.oid && (
+                                    <span className="ml-1 font-mono text-[10px] text-slate-500">
+                                      OID {cvs.oid}
+                                    </span>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
                       <div className="sm:col-span-2">
                         <span className="font-semibold text-slate-500">Intended Consumer</span>
                         <div className="text-slate-800">
                           {r.requesting_consumer}
                           {r.clinical_application ? ` · ${r.clinical_application}` : ""}
+                        </div>
+                      </div>
+
+                      <div className="sm:col-span-2 border-t border-slate-100 pt-2 mt-1">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                          VSAC Purpose (draft — paste into VSAC's Metadata tab)
+                        </div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="font-semibold text-slate-500">Clinical Focus</span>
+                        <div className="text-slate-800 leading-snug">{r.clinical_focus || "—"}</div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="font-semibold text-slate-500">Data Element Scope</span>
+                        <div className="text-slate-800">{r.data_element_scope || "—"}</div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="font-semibold text-slate-500">Inclusion Criteria</span>
+                        <div className="text-slate-800 leading-snug">
+                          {r.inclusion_criteria ||
+                            (r.recommended_type === "grouping"
+                              ? "(blank — inherited from component value sets)"
+                              : "—")}
+                        </div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="font-semibold text-slate-500">Exclusion Criteria</span>
+                        <div className="text-slate-800 leading-snug">
+                          {r.exclusion_criteria ||
+                            (r.recommended_type === "grouping"
+                              ? "(blank — inherited from component value sets)"
+                              : "—")}
                         </div>
                       </div>
                     </div>
