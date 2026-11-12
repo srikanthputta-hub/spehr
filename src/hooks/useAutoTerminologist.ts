@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
+import { recommendDefinitionType } from "@/lib/value-set-registry";
 
 /**
  * Auto Terminologist — autonomous clinical terminologist agent.
@@ -9,26 +10,35 @@ import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
  *   1. Scans pending `terminology_requests` filed by consumer engines
  *      (Safety Alerts, Billing, Auto Doc, etc.) — VSAC-style demand mode.
  *   2. For `request_type = 'create'`, prefers an existing real value set
- *      via UMLS; otherwise runs the quality gate and drafts / merges into
- *      `custom_value_sets`.
+ *      via UMLS (stages it as `umls-suggested` for human approval);
+ *      otherwise runs the quality gate and, once it passes, calls the same
+ *      `recommendDefinitionType()` helper the manual Suggestion Brief UI
+ *      uses (`src/lib/value-set-registry.ts`, shared — not reimplemented
+ *      here) to stamp `recommended_type` / `reasoning` /
+ *      `suggested_root_concept` onto the request row. The request stays
+ *      `pending` — this engine never creates or merges into
+ *      `custom_value_sets` and never assigns a fabricated OID; a human
+ *      steward still has to take the brief to real VSAC and either send it
+ *      or import the real OID, same as the manual path.
  *   3. For `request_type = 'deprecate'`, flags the target value set as
  *      `deprecation-suggested` for a human to act on in the Value Set
  *      Library. Never auto-publishes or auto-retires anything.
  *   4. Logs human-readable activity to `auto_terminologist_log` (full
- *      audit trail) and mirrors material events (drafted / extended /
- *      deprecation-suggested / crossmap sanity-checks) onto the shared
- *      `terminology_activity_log` bus with actor "Auto Terminologist" so
- *      the Library / Authoring / Cross-Map activity panels show live
- *      automated activity alongside human actions. A cycle summary lands
- *      in `automation_watchdog_logs`.
+ *      audit trail) and mirrors material `custom_value_sets` events
+ *      (deprecation-suggested) onto the shared `terminology_activity_log`
+ *      bus with actor "Auto Terminologist" so the Library / Authoring /
+ *      Cross-Map activity panels show live automated activity alongside
+ *      human actions. A cycle summary lands in `automation_watchdog_logs`.
  *
- *      Noise-suppression: noop / gated / rejected outcomes and
- *      UMLS-suggested-import staging are NOT mirrored to the shared bus
- *      — those stay confined to `auto_terminologist_log`.
+ *      Noise-suppression: noop / gated / rejected outcomes,
+ *      recommendation-stamping, and UMLS-suggested-import staging are NOT
+ *      mirrored to the shared bus — those stay confined to
+ *      `auto_terminologist_log` since no `custom_value_sets` row changed.
  *
- * The engine NEVER submits for review and NEVER publishes — every drafted
- * value set lands in `status: "draft"`. Promotion to review / published
- * always requires a human action in the Value Set Library.
+ * The engine NEVER drafts a value set, NEVER submits for review, and NEVER
+ * publishes. Every `custom_value_sets` write still requires a human action
+ * (the Authoring Workbench, or importing a real OID via the Value Set
+ * Library's "Import from VSAC" flow).
  */
 
 const RUN_INTERVAL_MS = 10 * 60_000;
@@ -248,263 +258,7 @@ async function logToBus(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Crosswalk sanity-check                                             */
-/*  Best-effort UMLS crosswalk on newly-drafted codes, mirroring the   */
-/*  Cross-Map Studio's use of umls-proxy `crosswalk`. Never fails the  */
-/*  draft — always caught. Logs one consolidated crossmap bus row per  */
-/*  value set (not per code).                                          */
-/* ------------------------------------------------------------------ */
-const CROSSWALK_SAB: Record<string, string> = {
-  "SNOMED CT": "SNOMEDCT_US",
-  "ICD-10": "ICD10CM",
-  RxNorm: "RXNORM",
-  LOINC: "LNC",
-  CPT: "CPT",
-};
-
-const CROSSWALK_TARGET: Record<string, string> = {
-  "SNOMED CT": "ICD-10-CM",
-  "ICD-10": "SNOMED CT",
-  RxNorm: "SNOMED CT",
-  LOINC: "CPT",
-};
-
-// Target-label → SAB (target labels use ICD-10-CM, not ICD-10)
-const TARGET_SAB: Record<string, string> = {
-  "SNOMED CT": "SNOMEDCT_US",
-  "ICD-10-CM": "ICD10CM",
-  CPT: "CPT",
-};
-
-async function runCrosswalkSanityCheck(opts: {
-  valueSetId: string | null;
-  valueSetName: string;
-  dominantVocab: string;
-  codesToCheck: Array<{ code: string }>;
-}): Promise<void> {
-  try {
-    const fromSab = CROSSWALK_SAB[opts.dominantVocab];
-    const targetVocab = CROSSWALK_TARGET[opts.dominantVocab];
-    const toSab = targetVocab ? TARGET_SAB[targetVocab] : undefined;
-    if (!fromSab || !targetVocab || !toSab) return;
-
-    const sample = opts.codesToCheck.slice(0, 3).filter((c) => c && c.code);
-    if (sample.length === 0) return;
-
-    let matches = 0;
-    for (const c of sample) {
-      try {
-        const { data, error } = await supabase.functions.invoke("umls-proxy", {
-          body: { action: "crosswalk", params: { fromSab, fromCode: c.code, toSab } },
-        });
-        if (error) continue;
-        const hit = (data as any)?.result ?? (data as any)?.matches?.[0] ?? null;
-        if (
-          hit &&
-          (hit.code || (Array.isArray((data as any)?.matches) && (data as any).matches.length > 0))
-        ) {
-          matches += 1;
-        }
-      } catch {
-        /* per-code failure ignored — sanity check is best-effort */
-      }
-    }
-
-    const msg =
-      matches > 0
-        ? `Cross-mapped ${sample.length} code(s) from '${opts.valueSetName}' (${opts.dominantVocab} → ${targetVocab}) during drafting — ${matches} equivalence(s) found.`
-        : `Cross-mapped ${sample.length} code(s) from '${opts.valueSetName}' (${opts.dominantVocab} → ${targetVocab}) during drafting — no equivalences found in UMLS.`;
-    await logToBus("crossmap", "cross-mapped", msg, opts.valueSetId);
-  } catch (e) {
-    console.warn("[auto-term] crosswalk sanity-check failed", e);
-  }
-}
-
-function clinicalApplicationFor(theme: string): string {
-  const t = theme.toLowerCase();
-  if (/(diabet|heart failure|chf|copd|renal|chronic kidney|dialysis)/.test(t)) return "Billing";
-  if (/(anticoag|antiplatelet|drug|allerg|contraindicat)/.test(t)) return "CDS";
-  return "Population Health";
-}
-
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
-/* ------------------------------------------------------------------ */
-/*  Safe upsert — never downgrade published/review value sets          */
-/* ------------------------------------------------------------------ */
-
-type ValueSetPayload = {
-  name: string;
-  system: string;
-  vocabulary: string;
-  type: string;
-  codes: Array<{ code: string; display: string; vocabulary: string }>;
-  description: string;
-  clinical_application: string;
-  fhir_url: string;
-  oid: string;
-  changeEntry: { at: string; actor: string; change: string };
-};
-
-type SafeUpsertOutcome = {
-  id: string | null;
-  mode: "created" | "merged" | "replaced-draft" | "noop";
-  addedCount: number;
-  existingStatus: string | null;
-};
-
-/**
- * Upsert a value set WITHOUT ever downgrading an existing `published` or
- * `review` row back to `draft`. Behavior by existing state:
- *   - none         → insert as new draft (original behavior).
- *   - draft        → merge incoming codes into existing codes (dedupe by
- *                    code), keep status draft, append change_history.
- *   - review/published → keep status untouched, merge new codes only,
- *                    append change_history noting extension.
- */
-async function safeUpsertValueSet(payload: ValueSetPayload): Promise<SafeUpsertOutcome> {
-  const { data: existing, error: fetchErr } = await supabase
-    .from("custom_value_sets")
-    .select("id, status, codes, change_history")
-    .eq("name", payload.name)
-    .maybeSingle();
-
-  if (fetchErr) throw fetchErr;
-
-  // No exact-name match: look for a substantively duplicate value set
-  // in the same vocabulary whose codes overlap ≥50% with the payload.
-  // If found, merge into it instead of creating a differently-named twin.
-  let overlapMatch: any = null;
-  if (!existing) {
-    const incomingCodes = new Set(
-      payload.codes.map((c) => String(c?.code ?? "").trim()).filter(Boolean),
-    );
-    if (incomingCodes.size > 0) {
-      const { data: candidates } = await supabase
-        .from("custom_value_sets")
-        .select("id, name, status, codes, change_history")
-        .eq("vocabulary", payload.vocabulary);
-      const threshold = Math.ceil(incomingCodes.size * 0.5);
-      let bestOverlap = 0;
-      for (const row of (candidates ?? []) as any[]) {
-        const rowCodes: any[] = Array.isArray(row?.codes) ? row.codes : [];
-        let overlap = 0;
-        for (const c of rowCodes) {
-          const k = String(c?.code ?? "").trim();
-          if (k && incomingCodes.has(k)) overlap += 1;
-        }
-        if (overlap >= threshold && overlap > bestOverlap) {
-          bestOverlap = overlap;
-          overlapMatch = row;
-        }
-      }
-    }
-  }
-
-  // No existing row and no code-overlap match — insert fresh draft.
-  if (!existing && !overlapMatch) {
-    const { data: inserted, error: insErr } = await supabase
-      .from("custom_value_sets")
-      .insert({
-        name: payload.name,
-        system: payload.system,
-        vocabulary: payload.vocabulary,
-        type: payload.type,
-        codes: payload.codes,
-        status: "draft",
-        description: payload.description,
-        clinical_application: payload.clinical_application,
-        fhir_url: payload.fhir_url,
-        oid: payload.oid,
-        change_history: [payload.changeEntry],
-      } as any)
-      .select("id")
-      .maybeSingle();
-    if (insErr) throw insErr;
-    return {
-      id: (inserted as any)?.id ?? null,
-      mode: "created",
-      addedCount: payload.codes.length,
-      existingStatus: null,
-    };
-  }
-
-  const matchedByOverlap = !existing && !!overlapMatch;
-  const existingRow = (existing ?? overlapMatch) as any;
-  const existingStatus: string = String(existingRow.status ?? "draft");
-  const existingCodes: Array<{
-    code?: string;
-    display?: string;
-    vocabulary?: string;
-    system?: string;
-  }> = Array.isArray(existingRow.codes) ? existingRow.codes : [];
-  const existingHistory: any[] = Array.isArray(existingRow.change_history)
-    ? existingRow.change_history
-    : [];
-
-  // Annotate the change entry when we merged via code-overlap rather than
-  // an exact name match, so reviewers can see why the request was folded
-  // into a differently-named value set.
-  const changeEntry = matchedByOverlap
-    ? {
-        ...payload.changeEntry,
-        change: `${payload.changeEntry.change} — matched by code overlap with existing value set '${String(existingRow.name ?? "")}', not exact name match`,
-      }
-    : payload.changeEntry;
-
-  // Merge codes (dedupe by trimmed `code`).
-  const haveCodes = new Set(existingCodes.map((c) => String(c?.code ?? "").trim()).filter(Boolean));
-  const additions = payload.codes.filter((c) => {
-    const k = String(c.code ?? "").trim();
-    return k && !haveCodes.has(k);
-  });
-
-  // Nothing new AND row is already published/review → don't even bump
-  // updated_at, and don't add a noisy change_history entry.
-  if (additions.length === 0 && (existingStatus === "published" || existingStatus === "review")) {
-    return {
-      id: existingRow.id ?? null,
-      mode: "noop",
-      addedCount: 0,
-      existingStatus,
-    };
-  }
-
-  const mergedCodes = additions.length > 0 ? [...existingCodes, ...additions] : existingCodes;
-  const mergedHistory = [...existingHistory, changeEntry];
-
-  const updatePatch: Record<string, unknown> = {
-    codes: mergedCodes,
-    change_history: mergedHistory,
-    updated_at: new Date().toISOString(),
-  };
-
-  // CRITICAL: never write `status` for published/review rows — that's the
-  // whole point of this helper. For drafts we also don't need to touch it
-  // (already "draft").
-  const { data: updated, error: updErr } = await supabase
-    .from("custom_value_sets")
-    .update(updatePatch as any)
-    .eq("id", existingRow.id)
-    .select("id")
-    .maybeSingle();
-  if (updErr) throw updErr;
-
-  return {
-    id: (updated as any)?.id ?? existingRow.id ?? null,
-    mode: existingStatus === "draft" ? "replaced-draft" : "merged",
-    addedCount: additions.length,
-    existingStatus,
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/*  Demand mode — terminology_requests quality gate + drafting         */
+/*  Demand mode — terminology_requests quality gate + recommendation   */
 /* ------------------------------------------------------------------ */
 
 type SeedCode = { code: string; display: string; vocabulary: string };
@@ -673,23 +427,23 @@ async function tryUmlsSuggestion(req: any): Promise<boolean> {
 }
 
 async function processPendingTerminologyRequests(): Promise<{
-  drafted: number;
+  recommended: number;
   gated: number;
   deprecationSuggested: number;
   rejected: number;
   scanned: number;
 }> {
-  let drafted = 0;
+  let recommended = 0;
   let gated = 0;
   let deprecationSuggested = 0;
   let rejected = 0;
   const { data: pending, error } = await supabase
     .from("terminology_requests" as any)
     .select(
-      "id, requesting_consumer, requested_name, justification, priority, vocabulary, seed_codes, clinical_application, related_mrn, quality_gate_notes, request_type, target_value_set_id, requested_at",
+      "id, requesting_consumer, requested_name, justification, priority, vocabulary, seed_codes, clinical_application, related_mrn, quality_gate_notes, request_type, target_value_set_id, requested_at, recommended_type",
     )
     .eq("status", "pending");
-  if (error || !pending) return { drafted, gated, deprecationSuggested, rejected, scanned: 0 };
+  if (error || !pending) return { recommended, gated, deprecationSuggested, rejected, scanned: 0 };
 
   const rows = [...(pending as any[])].sort((a, b) => {
     const dp = normalizePriority(a.priority) - normalizePriority(b.priority);
@@ -867,107 +621,59 @@ async function processPendingTerminologyRequests(): Promise<{
         continue;
       }
 
-      // Gate passed — draft as a new value set, exactly mirroring the
-      // opportunistic path's shape (status: draft, spehr OID, etc.).
+      // Gate passed. If this request hasn't been given a recommendation
+      // yet, stamp one — the same recommendDefinitionType() helper the
+      // manual Suggestion Brief UI uses (src/lib/value-set-registry.ts,
+      // shared — not reimplemented here) — onto the terminology_requests
+      // row and stop. This NEVER creates or merges into
+      // `custom_value_sets` and NEVER assigns a fabricated OID: that was
+      // exactly the "spehr invents its own value sets" pattern PR #56
+      // removed from the manual UI, and this closes the same gap for the
+      // autonomous path. The request stays `pending` — the status the
+      // Suggestion Brief UI treats as actionable — so a human steward
+      // still has to take the brief to real VSAC and either "Mark as Sent
+      // to VSAC" or import the real OID once it's authored.
+      if (req.recommended_type) {
+        // Already stamped on an earlier cycle — nothing left for this
+        // engine to do until a human acts on it via the brief.
+        requestLogTracker.delete(String(req.id));
+        continue;
+      }
+
       const dominantVocab = seedCodes[0].vocabulary;
-      const codes = seedCodes.map((s) => ({
-        code: s.code,
-        display: s.display,
-        vocabulary: s.vocabulary,
-      }));
-      const clinical_application =
-        (typeof req.clinical_application === "string" && req.clinical_application.trim()) ||
-        clinicalApplicationFor(requestedName);
       const now = new Date().toISOString();
-      const nameSlug = slugify(requestedName);
-
-      const outcome = await safeUpsertValueSet({
-        name: requestedName,
-        system: dominantVocab.replace(" ", "-"),
+      const recommendation = await recommendDefinitionType({
         vocabulary: dominantVocab,
-        type: "extensional",
-        codes,
-        description:
-          `Drafted in response to a terminology request from ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
-        clinical_application,
-        fhir_url: `http://spehr.live/fhir/ValueSet/${nameSlug}`,
-        oid: `2.16.840.1.113883.3.spehr.${Date.now()}`,
-        changeEntry: {
-          at: now,
-          actor: "Auto Terminologist",
-          change:
-            `Extended by Auto Terminologist from a terminology_requests gap by ${req.requesting_consumer}: ${req.justification ?? ""}`.trim(),
-        },
+        candidates: seedCodes.map((s) => ({
+          code: s.code,
+          display: s.display,
+          vocabulary: s.vocabulary,
+        })),
       });
-      const valueSetId = outcome.id;
 
-      // Reflect outcome on the request row.
-      const nextRequestStatus = outcome.mode === "merged" ? "extended" : "drafted";
       await supabase
         .from("terminology_requests" as any)
         .update({
-          status: nextRequestStatus,
-          value_set_id: valueSetId,
-          resolved_at: now,
-          updated_at: now,
+          recommended_type: recommendation.recommendedType,
+          reasoning: recommendation.reasoning,
+          suggested_root_concept: recommendation.suggestedRootConcept ?? null,
           quality_gate_notes: null,
+          updated_at: now,
         } as any)
         .eq("id", req.id);
 
-      let activityAction = "drafted";
-      let activityMessage =
-        `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — drafted as new value set (status: draft — awaiting human review). ${req.justification ?? ""}`.trim();
-      if (outcome.mode === "merged") {
-        activityAction = "extended";
-        activityMessage = `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} — merged ${outcome.addedCount} new code(s) into the existing value set instead of re-drafting it.`;
-      } else if (outcome.mode === "noop") {
-        activityAction = "extended";
-        activityMessage = `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' already ${outcome.existingStatus} and every requested code was already present — no changes made.`;
-      } else if (outcome.mode === "replaced-draft") {
-        activityAction = "drafted";
-        activityMessage = `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — merged ${outcome.addedCount} new code(s) into existing draft value set.`;
-      }
+      const activityMessage =
+        `${timeLabel} — Terminology request from ${req.requesting_consumer}: '${requestedName}' — quality gate passed; stamped a ${recommendation.recommendedType} recommendation for the Suggestion Brief (no value set created — awaiting human review and authoring in VSAC). ${req.justification ?? ""}`.trim();
 
       await logActivity({
-        action: activityAction,
+        action: "recommendation_stamped",
         message: activityMessage,
         theme: requestedName,
-        codes_count: codes.length,
-        value_set_id: valueSetId,
+        codes_count: seedCodes.length,
       });
 
-      // Mirror material outcomes onto the shared activity bus so
-      // Library + Authoring panels see automated activity. Skip noop.
-      if (outcome.mode === "created" || outcome.mode === "replaced-draft") {
-        await logToBus("library", "drafted", activityMessage, valueSetId);
-        await logToBus("authoring", "drafted", activityMessage, valueSetId);
-      } else if (outcome.mode === "merged") {
-        await logToBus("library", "extended", activityMessage, valueSetId);
-        await logToBus("authoring", "extended", activityMessage, valueSetId);
-      }
-
-      // Best-effort crosswalk sanity-check on newly-added codes. For
-      // "created" that's the first 3 of `codes`; for merged / replaced-
-      // draft that's the first 3 of the incoming request codes as a
-      // proxy for the actually-added set (safeUpsertValueSet already
-      // guarantees addedCount > 0 for these modes — noop is filtered
-      // above). Never blocks the draft.
-      if (
-        (outcome.mode === "created" ||
-          outcome.mode === "merged" ||
-          outcome.mode === "replaced-draft") &&
-        outcome.addedCount > 0
-      ) {
-        void runCrosswalkSanityCheck({
-          valueSetId,
-          valueSetName: requestedName,
-          dominantVocab,
-          codesToCheck: codes.slice(0, 3),
-        });
-      }
-
       requestLogTracker.delete(String(req.id));
-      drafted += 1;
+      recommended += 1;
     } catch (e) {
       console.warn("[auto-term] request processing failed", req?.id, e);
       const errorNote = `Processing error: ${e instanceof Error ? e.message : String(e)}`;
@@ -988,7 +694,7 @@ async function processPendingTerminologyRequests(): Promise<{
   }
 
   return {
-    drafted,
+    recommended,
     gated,
     deprecationSuggested,
     rejected,
@@ -1084,8 +790,8 @@ async function runAutoTerminologistCycle() {
   }
 
   // Mid-cycle lease renewal — the demand pass below is unbounded (loops
-  // over every pending request, each with its own UMLS/crosswalk/Gemini
-  // network calls) and can easily run longer than LEADER_LEASE_MS. A single
+  // over every pending request, each with its own UMLS network calls) and
+  // can easily run longer than LEADER_LEASE_MS. A single
   // heartbeatLease() call at one fixed point isn't enough to guarantee that.
   // Instead, renew on a fixed ~30s cadence for the entire lifetime of this
   // cycle, independent of what the cycle is doing, and clear it in the
@@ -1098,7 +804,7 @@ async function runAutoTerminologistCycle() {
   try {
     // Demand-mode only: fulfill pending terminology_requests. There is no
     // opportunistic scanner anymore — Auto Terminologist behaves like VSAC.
-    let demand = { drafted: 0, gated: 0, deprecationSuggested: 0, rejected: 0, scanned: 0 };
+    let demand = { recommended: 0, gated: 0, deprecationSuggested: 0, rejected: 0, scanned: 0 };
     try {
       demand = await processPendingTerminologyRequests();
     } catch (e) {
@@ -1117,24 +823,24 @@ async function runAutoTerminologistCycle() {
     }
 
     const totalActed =
-      demand.drafted + demand.gated + demand.deprecationSuggested + demand.rejected;
+      demand.recommended + demand.gated + demand.deprecationSuggested + demand.rejected;
     const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     await logActivity({
       action: totalActed === 0 ? "heartbeat" : "cycle_summary",
-      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.drafted} drafted, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}.`,
+      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.recommended} recommendation(s) stamped, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}.`,
       codes_count: 0,
     });
 
     enginesChecked["auto_terminologist"] = {
       requests_scanned: demand.scanned,
-      requests_drafted: demand.drafted,
+      requests_recommended: demand.recommended,
       requests_gated: demand.gated,
       deprecation_suggested: demand.deprecationSuggested,
       requests_rejected: demand.rejected,
       drug_allergy_pairs_linked: pairsLinked,
     };
     actions.push(
-      `auto_terminologist: demand queue — scanned ${demand.scanned}, drafted ${demand.drafted}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}.`,
+      `auto_terminologist: demand queue — scanned ${demand.scanned}, recommendation(s) stamped ${demand.recommended}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}.`,
     );
 
     await supabase.from("automation_watchdog_logs").insert({
