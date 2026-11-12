@@ -15,10 +15,14 @@ import {
   ChevronUp,
   Send,
   CheckCheck,
+  Link2,
+  Loader2,
 } from "lucide-react";
 import { Trash2 } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 import { toast } from "sonner";
+import { useRolePermissions, DISABLED_MESSAGE } from "@/hooks/useRolePermissions";
+import { buildVsacImportInsert, type VsacExpansionResult } from "@/lib/value-set-registry";
 
 type LogRow = {
   id: string;
@@ -72,6 +76,16 @@ type PossibleExistingMatch = {
 
 type ComponentValueSetRef = { value_set_id: string; name: string; oid: string | null };
 
+// Mirrors KnownVsacCandidate in src/lib/value-set-registry.ts — an
+// actively-published VSAC ValueSet from a recognized steward that
+// findKnownVsacCandidates() (Gap 1) found in VSAC's own catalog.
+type KnownVsacCandidate = {
+  oid: string;
+  name: string;
+  title: string | null;
+  publisher: string;
+};
+
 // `suggested_root_concept` always carries {code, display} (or is null)
 // except for a "grouping" recommendation, where it also carries
 // `componentValueSets` — the published value sets to compose — a
@@ -107,6 +121,17 @@ type RequestRow = {
   data_element_scope?: string | null;
   inclusion_criteria?: string | null;
   exclusion_criteria?: string | null;
+  // Gap 1: VSAC-catalog candidates found for this request (external
+  // steward-governed value sets — distinct from possible_existing_match,
+  // which is about spehr's own locally-published value sets).
+  known_vsac_candidates?: KnownVsacCandidate[] | null;
+  // Gap 2: the real VSAC OID a human steward has linked once they started
+  // authoring the recommended value set in real VSAC, plus when the
+  // background cycle last polled it and (once published) a preview of
+  // what vsacExpand returned.
+  linked_vsac_oid?: string | null;
+  last_vsac_check_at?: string | null;
+  vsac_expansion_preview?: VsacExpansionResult | null;
 };
 
 // Statuses a suggestion brief can still be actioned from — anything the
@@ -153,13 +178,21 @@ function statusBadge(status: string | null): string {
   if (s === "drafted" || s === "extended") return "text-sky-700 bg-sky-50 border-sky-200";
   if (s === "umls-suggested") return "text-indigo-700 bg-indigo-50 border-indigo-200";
   if (s === "sent_to_vsac") return "text-violet-700 bg-violet-50 border-violet-200";
+  if (s === "ready_to_import") return "text-teal-700 bg-teal-50 border-teal-200";
   if (s === "published" || s === "resolved")
     return "text-emerald-700 bg-emerald-50 border-emerald-200";
   if (s === "rejected") return "text-red-700 bg-red-50 border-red-200";
   return "text-amber-700 bg-amber-50 border-amber-200"; // pending
 }
 
+// Statuses a human can still paste a VSAC OID into via "Link VSAC OID" —
+// once a request is sent to VSAC for authoring but hasn't yet had its OID
+// linked for the background publication-detection pass (Gap 2).
+const LINKABLE_STATUSES = new Set(["pending", "sent_to_vsac"]);
+
 export function AutoTerminologistActivity() {
+  const { gate: stewardGate, can: stewardCan } = useRolePermissions();
+  const stewardAllowed = stewardCan("dictionary.steward_approve");
   const [rows, setRows] = useState<LogRow[]>([]);
   const [latest, setLatest] = useState<LogRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -172,6 +205,9 @@ export function AutoTerminologistActivity() {
   const [targetNames, setTargetNames] = useState<Record<string, string>>({});
   const [expandedBriefId, setExpandedBriefId] = useState<string | null>(null);
   const [actioningId, setActioningId] = useState<string | null>(null);
+  // Draft OID text per request row for the "Link VSAC OID" inline form.
+  const [linkOidDraft, setLinkOidDraft] = useState<Record<string, string>>({});
+  const [importingId, setImportingId] = useState<string | null>(null);
 
   /**
    * Terminology requests never auto-create a `custom_value_sets` row with a
@@ -229,6 +265,142 @@ export function AutoTerminologistActivity() {
       toast.error(`Failed to update request: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setActioningId(null);
+    }
+  };
+
+  /**
+   * Gap 2: records the real VSAC OID a human steward has started authoring
+   * this request's recommended value set under. Clears last_vsac_check_at
+   * so the background cycle (useAutoTerminologist.ts) checks it on its
+   * very next pass instead of waiting out the ~daily cadence.
+   */
+  const linkVsacOid = async (r: RequestRow, oidRaw: string) => {
+    const oid = oidRaw.trim();
+    if (!oid) return;
+    setActioningId(r.id);
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from("terminology_requests")
+        .update({ linked_vsac_oid: oid, last_vsac_check_at: null, updated_at: now })
+        .eq("id", r.id);
+      if (error) throw error;
+      setRequests((rs) =>
+        rs.map((x) =>
+          x.id === r.id ? { ...x, linked_vsac_oid: oid, last_vsac_check_at: null } : x,
+        ),
+      );
+      setLinkOidDraft((d) => {
+        const next = { ...d };
+        delete next[r.id];
+        return next;
+      });
+      toast.success(
+        `Linked VSAC OID for "${r.requested_name}" — will be checked on the next cycle`,
+      );
+    } catch (e) {
+      toast.error(`Failed to link OID: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  /**
+   * Shared tail of both "Import Now" flows below: inserts a
+   * custom_value_sets draft from a VSAC expansion (via the shared
+   * buildVsacImportInsert() helper — same shape ValueSetLibrary.tsx's
+   * "Import from VSAC" dialog uses) and resolves the terminology_requests
+   * row that triggered it. Always an explicit human click — see
+   * architecture invariant F: nothing in the background cycle ever calls
+   * this on its own.
+   */
+  const importExpansionAndResolve = async (
+    r: RequestRow,
+    expansion: VsacExpansionResult,
+    nameHint: string,
+  ) => {
+    const insert = buildVsacImportInsert(expansion, nameHint);
+    const insertQuery = supabase.from("custom_value_sets");
+    const { data, error: insErr } = await insertQuery
+      // `system` can legitimately be null (no codes yet) even though the
+      // generated Insert type marks it required — same cast
+      // ValueSetLibrary.tsx's "Import from VSAC" dialog needs for this.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .insert(insert as any)
+      .select("id")
+      .single();
+    if (insErr) throw insErr;
+    const valueSetId = String(data?.id ?? "") || null;
+    const now = new Date().toISOString();
+    const { error: updErr } = await supabase
+      .from("terminology_requests")
+      .update({
+        status: "resolved",
+        value_set_id: valueSetId,
+        resolved_at: now,
+        updated_at: now,
+      })
+      .eq("id", r.id);
+    if (updErr) throw updErr;
+    setRequests((rs) =>
+      rs.map((x) => (x.id === r.id ? { ...x, status: "resolved", resolved_at: now } : x)),
+    );
+    toast.success(
+      `Imported "${insert.name}" (${insert.codes.length} codes) from VSAC as draft — request resolved`,
+    );
+  };
+
+  /** Capability E: one-click import for a `ready_to_import` row's
+   * background-detected VSAC expansion preview. */
+  const importReadyToImport = async (r: RequestRow) => {
+    const preview = r.vsac_expansion_preview;
+    if (!preview) return;
+    setImportingId(r.id);
+    try {
+      await importExpansionAndResolve(
+        r,
+        preview,
+        preview.title || preview.name || r.requested_name,
+      );
+    } catch (e) {
+      toast.error(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setImportingId(null);
+    }
+  };
+
+  /**
+   * Capability B/C: one-click import straight from a Gap-1
+   * knownVsacCandidates hit — an already-published, steward-governed value
+   * set doesn't need the "wait for a human to author it" step, so this
+   * fetches the real expansion by OID and imports it immediately rather
+   * than requiring "Link VSAC OID" first.
+   */
+  const importKnownVsacCandidate = async (r: RequestRow, c: KnownVsacCandidate) => {
+    setImportingId(r.id);
+    try {
+      // `data` comes back implicitly typed `any` from functions.invoke, same
+      // as ValueSetLibrary.tsx's handleVsacFetch — no extra cast needed.
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: { action: "vsacExpand", params: { oid: c.oid } },
+      });
+      if (error) throw new Error(error.message ?? "Failed to reach VSAC");
+      if (data?.error) throw new Error(String(data.error));
+      const expansion: VsacExpansionResult = {
+        oid: data.oid,
+        name: data.name ?? null,
+        title: data.title ?? null,
+        total: Number(data.total ?? 0),
+        type: (data.type === "grouping" || data.type === "intensional"
+          ? data.type
+          : "extensional") as "grouping" | "intensional" | "extensional",
+        codes: Array.isArray(data.codes) ? data.codes : [],
+      };
+      await importExpansionAndResolve(r, expansion, c.title || c.name);
+    } catch (e) {
+      toast.error(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setImportingId(null);
     }
   };
 
@@ -299,7 +471,7 @@ export function AutoTerminologistActivity() {
       const { data } = await supabase
         .from("terminology_requests" as any)
         .select(
-          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id, recommended_type, reasoning, suggested_root_concept, recommended_binding_strength, possible_existing_match, clinical_focus, data_element_scope, inclusion_criteria, exclusion_criteria",
+          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id, recommended_type, reasoning, suggested_root_concept, recommended_binding_strength, possible_existing_match, clinical_focus, data_element_scope, inclusion_criteria, exclusion_criteria, known_vsac_candidates, linked_vsac_oid, last_vsac_check_at, vsac_expansion_preview",
         )
         .order("requested_at", { ascending: false })
         .limit(50);
@@ -620,6 +792,140 @@ export function AutoTerminologistActivity() {
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
+
+                {/* Gap 1: VSAC-catalog candidates found for this request — an
+                    already-published, steward-governed value set doesn't
+                    need the "wait for authoring" step, so route straight to
+                    one-click import. */}
+                {!isDeprecate &&
+                  Array.isArray(r.known_vsac_candidates) &&
+                  r.known_vsac_candidates.length > 0 && (
+                    <div className="ml-1 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-900 space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-semibold">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Found in VSAC — Consider Importing
+                      </div>
+                      {r.known_vsac_candidates.map((c) => (
+                        <div
+                          key={c.oid}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded border border-emerald-200 bg-white px-2 py-1"
+                        >
+                          <div className="min-w-0 text-emerald-900">
+                            <span className="font-semibold">{c.name}</span>{" "}
+                            <span className="text-emerald-700">· {c.publisher}</span>{" "}
+                            <span className="font-mono text-[10px] text-emerald-700">
+                              OID {c.oid}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            {...stewardGate(
+                              "dictionary.steward_approve",
+                              () => void importKnownVsacCandidate(r, c),
+                            )}
+                            disabled={!stewardAllowed || importingId === r.id}
+                            className="shrink-0 inline-flex h-6 items-center gap-1 rounded-md border border-emerald-300 bg-emerald-600 px-2 text-[10px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                            title={
+                              stewardAllowed ? "Import this VSAC value set now" : DISABLED_MESSAGE
+                            }
+                          >
+                            {importingId === r.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              "Import Now"
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                {/* Gap 2: the background cycle detected the linked OID is now
+                    published in VSAC — one-click import of the preview it
+                    staged. Never auto-imported — always this explicit click. */}
+                {!isDeprecate && r.status === "ready_to_import" && r.vsac_expansion_preview && (
+                  <div className="ml-1 rounded-md border border-teal-300 bg-teal-50 px-3 py-2 text-[11px] text-teal-900">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <CheckCheck className="h-3 w-3" />
+                          Published in VSAC — Import Now
+                        </div>
+                        <div className="mt-0.5 text-teal-800">
+                          {r.vsac_expansion_preview.title ||
+                            r.vsac_expansion_preview.name ||
+                            "Untitled"}
+                          {" · "}
+                          {r.vsac_expansion_preview.total ??
+                            r.vsac_expansion_preview.codes.length}{" "}
+                          codes
+                          {" · "}
+                          <span className="capitalize">{r.vsac_expansion_preview.type}</span>
+                          {" · OID "}
+                          <span className="font-mono">{r.vsac_expansion_preview.oid}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        {...stewardGate(
+                          "dictionary.steward_approve",
+                          () => void importReadyToImport(r),
+                        )}
+                        disabled={!stewardAllowed || importingId === r.id}
+                        className="shrink-0 inline-flex h-7 items-center gap-1 rounded-md border border-teal-400 bg-teal-600 px-2.5 text-[11px] font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                        title={stewardAllowed ? "Import this value set now" : DISABLED_MESSAGE}
+                      >
+                        {importingId === r.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          "Import Now"
+                        )}
+                      </button>
+                    </div>
+                    {!stewardAllowed && (
+                      <div className="mt-1 text-[10px] text-amber-700">{DISABLED_MESSAGE}</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Gap 2: "Link VSAC OID" — record the real OID once a human
+                    steward has started authoring this request's recommended
+                    value set in real VSAC, so the background cycle can poll
+                    it for publication. */}
+                {!isDeprecate &&
+                  !r.linked_vsac_oid &&
+                  LINKABLE_STATUSES.has(String(r.status ?? "pending")) && (
+                    <div className="ml-1 flex flex-wrap items-center gap-1.5">
+                      <Link2 className="h-3 w-3 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Paste real VSAC OID once authoring has started…"
+                        value={linkOidDraft[r.id] ?? ""}
+                        onChange={(e) => setLinkOidDraft((d) => ({ ...d, [r.id]: e.target.value }))}
+                        className="h-7 w-72 rounded-md border border-slate-200 bg-white px-2 font-mono text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"
+                      />
+                      <button
+                        type="button"
+                        disabled={!linkOidDraft[r.id]?.trim() || actioningId === r.id}
+                        onClick={() => void linkVsacOid(r, linkOidDraft[r.id] ?? "")}
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                        title="Link this OID so the background cycle checks it for publication"
+                      >
+                        Link VSAC OID
+                      </button>
+                    </div>
+                  )}
+                {!isDeprecate &&
+                  r.linked_vsac_oid &&
+                  r.status !== "ready_to_import" &&
+                  r.status !== "resolved" && (
+                    <div className="ml-1 text-[11px] text-slate-500">
+                      Linked VSAC OID{" "}
+                      <span className="font-mono text-slate-700">{r.linked_vsac_oid}</span> ·
+                      awaiting publication (checked{" "}
+                      {r.last_vsac_check_at ? formatAgo(r.last_vsac_check_at) : "not yet"})
+                    </div>
+                  )}
 
                 {!isDeprecate && isExpanded && (
                   <div className="ml-1 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-[11px] text-slate-700 space-y-2">

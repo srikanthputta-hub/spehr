@@ -1,7 +1,11 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/value-set-registry";
+import {
+  recommendDefinitionType,
+  suggestedRootConceptForStorage,
+  type VsacExpansionResult,
+} from "@/lib/value-set-registry";
 
 /**
  * Auto Terminologist — autonomous clinical terminologist agent.
@@ -23,7 +27,16 @@ import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/v
  *   3. For `request_type = 'deprecate'`, flags the target value set as
  *      `deprecation-suggested` for a human to act on in the Value Set
  *      Library. Never auto-publishes or auto-retires anything.
- *   4. Logs human-readable activity to `auto_terminologist_log` (full
+ *   4. Polls any `terminology_requests` row with a human-linked
+ *      `linked_vsac_oid` (set via "Link VSAC OID" in
+ *      AutoTerminologistActivity.tsx once a steward starts authoring the
+ *      recommended value set in real VSAC) at most ~once/day via
+ *      `vsacExpand` — matching VSAC's own daily publish cadence. Once it
+ *      resolves to a real expansion, flips the row to `ready_to_import` and
+ *      stores the expansion as a preview for a one-click "Import Now"
+ *      action. Detection only — this NEVER writes to `custom_value_sets`
+ *      itself; importing always requires an explicit human click.
+ *   5. Logs human-readable activity to `auto_terminologist_log` (full
  *      audit trail) and mirrors material `custom_value_sets` events
  *      (deprecation-suggested) onto the shared `terminology_activity_log`
  *      bus with actor "Auto Terminologist" so the Library / Authoring /
@@ -669,6 +682,10 @@ async function processPendingTerminologyRequests(): Promise<{
           data_element_scope: recommendation.dataElementScope,
           inclusion_criteria: recommendation.inclusionCriteria,
           exclusion_criteria: recommendation.exclusionCriteria,
+          known_vsac_candidates:
+            recommendation.knownVsacCandidates && recommendation.knownVsacCandidates.length > 0
+              ? recommendation.knownVsacCandidates
+              : null,
           quality_gate_notes: null,
           updated_at: now,
         } as any)
@@ -712,6 +729,125 @@ async function processPendingTerminologyRequests(): Promise<{
     rejected,
     scanned: rows.length,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Gap 2 — background VSAC-publication detection pass                 */
+/*  For every terminology_requests row with a human-linked VSAC OID,    */
+/*  poll vsacExpand at most ~once/day; once it returns codes, flip the  */
+/*  row to 'ready_to_import' and stash the expansion as a preview for   */
+/*  the one-click "Import Now" action in AutoTerminologistActivity.tsx. */
+/*  NEVER writes to custom_value_sets itself — see architecture         */
+/*  invariant F in the feature's design: detection only, import always  */
+/*  requires an explicit human click.                                  */
+/* ------------------------------------------------------------------ */
+
+// VSAC's own publish/expansion cadence is roughly daily — poll a linked OID
+// at most this often so the 10-minute background cycle doesn't hammer VSAC
+// for a value set that isn't published yet. Slightly under 24h so a check
+// that lands a little late one day still catches up the next.
+const VSAC_POLL_INTERVAL_MS = 20 * 60 * 60_000;
+
+async function runVsacPublicationPollPass(): Promise<{ checked: number; readyToImport: number }> {
+  let checked = 0;
+  let readyToImport = 0;
+  try {
+    const { data: linked, error } = await supabase
+      .from("terminology_requests")
+      .select("id, requested_name, linked_vsac_oid, last_vsac_check_at, status")
+      .not("linked_vsac_oid", "is", null)
+      .neq("status", "resolved");
+    if (error || !linked) return { checked, readyToImport };
+
+    const now = Date.now();
+    for (const row of linked) {
+      const oid = row.linked_vsac_oid;
+      if (!oid) continue; // excluded by the query above, but narrows the type
+      // Wrapped per-row so one bad/unreachable OID can never stop the rest
+      // of the loop (or the rest of the cycle) from running.
+      try {
+        const lastCheck = row.last_vsac_check_at ? new Date(row.last_vsac_check_at).getTime() : 0;
+        if (lastCheck && now - lastCheck < VSAC_POLL_INTERVAL_MS) continue;
+        checked += 1;
+        const nowIso = new Date().toISOString();
+
+        // `data` comes back implicitly typed `any` from functions.invoke,
+        // same convention as every other umls-proxy call site.
+        const { data, error: expErr } = await supabase.functions.invoke("umls-proxy", {
+          body: { action: "vsacExpand", params: { oid } },
+        });
+        // last_vsac_check_at advances regardless of outcome (success,
+        // not-yet-published, or a reachability failure) so a request that
+        // isn't published yet gets retried roughly daily, not every tick.
+        if (expErr || !data || data.error) {
+          await supabase
+            .from("terminology_requests")
+            .update({ last_vsac_check_at: nowIso })
+            .eq("id", row.id);
+          continue;
+        }
+
+        const codes: Array<{ code: string; display: string; vocabulary: string }> = Array.isArray(
+          data.codes,
+        )
+          ? data.codes
+          : [];
+        if (codes.length === 0) {
+          // Resolvable OID but no codes yet (e.g. authored but not yet
+          // expanded/published) — not ready; just record the check.
+          await supabase
+            .from("terminology_requests")
+            .update({ last_vsac_check_at: nowIso })
+            .eq("id", row.id);
+          continue;
+        }
+
+        const preview: VsacExpansionResult = {
+          oid: String(data.oid ?? oid),
+          name: data.name ?? null,
+          title: data.title ?? null,
+          total: Number(data.total ?? codes.length),
+          type: (data.type === "grouping" || data.type === "intensional"
+            ? data.type
+            : "extensional") as "grouping" | "intensional" | "extensional",
+          codes,
+        };
+        await supabase
+          .from("terminology_requests")
+          .update({
+            status: "ready_to_import",
+            vsac_expansion_preview: preview,
+            last_vsac_check_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq("id", row.id);
+        readyToImport += 1;
+
+        const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        await logActivity({
+          action: "vsac_publication_detected",
+          message: `${timeLabel} — Detected linked VSAC OID ${oid} now published for '${row.requested_name}' (${codes.length} codes) — staged for one-click import, awaiting human confirmation.`,
+          theme: row.requested_name ?? null,
+          codes_count: codes.length,
+        });
+      } catch (e) {
+        console.warn("[auto-term] vsac publication check failed for request", row?.id, e);
+        // Still best-effort stamp last_vsac_check_at so a persistently
+        // failing OID doesn't get retried every 10-minute tick either.
+        try {
+          await supabase
+            .from("terminology_requests")
+            .update({ last_vsac_check_at: new Date().toISOString() })
+            .eq("id", row.id);
+        } catch {
+          /* best-effort only */
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[auto-term] vsac publication poll pass crashed", e);
+  }
+  return { checked, readyToImport };
 }
 
 /* ------------------------------------------------------------------ */
@@ -834,12 +970,22 @@ async function runAutoTerminologistCycle() {
       console.warn("[auto-term] pair auto-link pass failed", e);
     }
 
+    // Gap 2 — poll any human-linked VSAC OIDs for publication. Detection
+    // only (flips status to ready_to_import + stores a preview); never
+    // writes to custom_value_sets.
+    let vsacPoll = { checked: 0, readyToImport: 0 };
+    try {
+      vsacPoll = await runVsacPublicationPollPass();
+    } catch (e) {
+      console.warn("[auto-term] vsac publication poll pass failed", e);
+    }
+
     const totalActed =
       demand.recommended + demand.gated + demand.deprecationSuggested + demand.rejected;
     const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     await logActivity({
       action: totalActed === 0 ? "heartbeat" : "cycle_summary",
-      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.recommended} recommendation(s) stamped, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}.`,
+      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.recommended} recommendation(s) stamped, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}. VSAC OIDs checked: ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import).`,
       codes_count: 0,
     });
 
@@ -850,9 +996,11 @@ async function runAutoTerminologistCycle() {
       deprecation_suggested: demand.deprecationSuggested,
       requests_rejected: demand.rejected,
       drug_allergy_pairs_linked: pairsLinked,
+      vsac_oids_checked: vsacPoll.checked,
+      vsac_newly_ready_to_import: vsacPoll.readyToImport,
     };
     actions.push(
-      `auto_terminologist: demand queue — scanned ${demand.scanned}, recommendation(s) stamped ${demand.recommended}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}.`,
+      `auto_terminologist: demand queue — scanned ${demand.scanned}, recommendation(s) stamped ${demand.recommended}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}; vsac OIDs checked ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import).`,
     );
 
     await supabase.from("automation_watchdog_logs").insert({

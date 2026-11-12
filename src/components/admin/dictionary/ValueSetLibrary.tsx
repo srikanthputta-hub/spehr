@@ -44,6 +44,7 @@ import { toast } from "sonner";
 import { ExpandCard } from "@/components/admin/dictionary/FhirOpCards";
 import { InfoHint } from "@/components/ui/info-hint";
 import { useRolePermissions, DISABLED_MESSAGE } from "@/hooks/useRolePermissions";
+import { buildVsacImportInsert } from "@/lib/value-set-registry";
 
 type ValueSet = {
   id: string;
@@ -276,41 +277,23 @@ export function ValueSetLibrary() {
     const name = vsacName.trim() || `VSAC ${vsacResult.oid}`;
     setVsacImporting(true);
     try {
-      // Dominant vocabulary = most-frequent among returned codes
-      const counts: Record<string, number> = {};
-      for (const c of vsacResult.codes) {
-        counts[c.vocabulary] = (counts[c.vocabulary] ?? 0) + 1;
-      }
-      const dominantVocab = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-      const s = slug(name);
-      const codes = vsacResult.codes.map((c) => ({
-        code: c.code,
-        display: c.display,
-        system: c.vocabulary,
-      }));
-      const now = new Date().toISOString();
-      const { error } = await supabase.from("custom_value_sets").insert({
-        name,
-        oid: vsacResult.oid,
-        vocabulary: dominantVocab,
-        system: dominantVocab ? dominantVocab.replace(" ", "-") : null,
-        type: vsacResult.type,
-        codes,
-        status: "draft",
-        description: "Imported from VSAC",
-        fhir_url: `http://spehr.live/fhir/ValueSet/${s}`,
-        change_history: [
-          { at: now, actor: "S.P.E.H.R. Terminology Services", change: "Imported from VSAC" },
-        ],
-      } as any);
+      // Shared with Auto Terminologist's one-click "Import Now" action —
+      // see buildVsacImportInsert() in src/lib/value-set-registry.ts.
+      const insert = buildVsacImportInsert(vsacResult, name);
+      // `system` can legitimately be null (no codes yet) even though the
+      // generated Insert type marks it required — same pre-existing gap
+      // the old inline insert object here always needed `as any` for.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await supabase.from("custom_value_sets").insert(insert as any);
       if (error) {
         setVsacError(error.message);
         return;
       }
-      toast.success(`Imported "${name}" (${codes.length} codes) as draft`);
+      const codesCount = insert.codes.length;
+      toast.success(`Imported "${insert.name}" (${codesCount} codes) as draft`);
       logActivity(
         "imported_from_vsac",
-        `Imported "${name}" from VSAC (${codes.length} codes) — OID ${vsacResult.oid}`,
+        `Imported "${insert.name}" from VSAC (${codesCount} codes) — OID ${vsacResult.oid}`,
       );
       setVsacOpen(false);
       setVsacOid("");

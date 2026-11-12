@@ -437,6 +437,142 @@ describe("recommendDefinitionType — capability 4: conservative grouping recomm
   });
 });
 
+describe("recommendDefinitionType — Gap 1: external VSAC-catalog candidates", () => {
+  it("surfaces active, steward-published vsacSearch candidates and mentions them in reasoning", async () => {
+    const client = makeClient({
+      invoke: (action, params) => {
+        if (action === "vsacSearch") {
+          expect(params.query).toBe("Penicillins");
+          return {
+            candidates: [
+              {
+                oid: "2.16.840.1.113883.3.464.1003.196.12.1001",
+                name: "Penicillins",
+                title: "Penicillins",
+                publisher: "National Committee for Quality Assurance (NCQA)",
+                status: "active",
+              },
+            ],
+          };
+        }
+        return null;
+      },
+    });
+
+    const rec = await recommendDefinitionType(
+      {
+        vocabulary: "SNOMED CT",
+        candidates: [],
+        requestedName: "Drug-Allergy coverage for Penicillins",
+      },
+      client,
+    );
+
+    expect(rec.knownVsacCandidates).toHaveLength(1);
+    expect(rec.knownVsacCandidates?.[0]).toEqual({
+      oid: "2.16.840.1.113883.3.464.1003.196.12.1001",
+      name: "Penicillins",
+      title: "Penicillins",
+      publisher: "National Committee for Quality Assurance (NCQA)",
+    });
+    expect(rec.reasoning).toContain(
+      "actively-published VSAC value set(s) from recognized steward(s)",
+    );
+    expect(rec.reasoning).toContain("NCQA");
+  });
+
+  it("filters out inactive and unpublished-by-no-steward candidates", async () => {
+    const client = makeClient({
+      invoke: (action) => {
+        if (action === "vsacSearch") {
+          return {
+            candidates: [
+              {
+                oid: "1.1",
+                name: "Retired One",
+                title: null,
+                publisher: "NCQA",
+                status: "retired",
+              },
+              { oid: "1.2", name: "No Steward", title: null, publisher: null, status: "active" },
+              {
+                oid: "1.3",
+                name: "No Steward Blank",
+                title: null,
+                publisher: "",
+                status: "active",
+              },
+            ],
+          };
+        }
+        return null;
+      },
+    });
+
+    const rec = await recommendDefinitionType(
+      { vocabulary: "SNOMED CT", candidates: [], requestedName: "Something" },
+      client,
+    );
+
+    expect(rec.knownVsacCandidates).toEqual([]);
+    expect(rec.reasoning).not.toContain("actively-published VSAC value set(s)");
+  });
+
+  it("never blocks filing when vsacSearch fails", async () => {
+    const client = makeClient({
+      invoke: (action) => {
+        if (action === "vsacSearch") throw new Error("network down");
+        return null;
+      },
+    });
+
+    const rec = await recommendDefinitionType(
+      { vocabulary: "SNOMED CT", candidates: [], requestedName: "Anything" },
+      client,
+    );
+
+    expect(rec.knownVsacCandidates).toEqual([]);
+    expect(rec.recommendedType).toBe("extensional");
+  });
+});
+
+describe("buildVsacImportInsert — shared VSAC import payload (Gap 2)", () => {
+  it("builds the same insert shape ValueSetLibrary's Import-from-VSAC dialog has always used", async () => {
+    const { buildVsacImportInsert } = await import("./value-set-registry");
+    const insert = buildVsacImportInsert(
+      {
+        oid: "2.16.1",
+        name: "Test VS",
+        title: "Test Value Set",
+        total: 2,
+        type: "extensional",
+        codes: [
+          { code: "A1", display: "a", vocabulary: "SNOMED CT" },
+          { code: "A2", display: "b", vocabulary: "SNOMED CT" },
+        ],
+      },
+      "My Imported Value Set",
+    );
+
+    expect(insert.name).toBe("My Imported Value Set");
+    expect(insert.oid).toBe("2.16.1");
+    expect(insert.vocabulary).toBe("SNOMED CT");
+    expect(insert.status).toBe("draft");
+    expect(insert.codes).toHaveLength(2);
+    expect(insert.fhir_url).toBe("http://spehr.live/fhir/ValueSet/my-imported-value-set");
+    expect(insert.change_history[0].change).toBe("Imported from VSAC");
+  });
+
+  it("falls back to a VSAC-OID-based name when no name is given", async () => {
+    const { buildVsacImportInsert } = await import("./value-set-registry");
+    const insert = buildVsacImportInsert(
+      { oid: "2.16.2", name: null, title: null, total: 0, type: "extensional", codes: [] },
+      "   ",
+    );
+    expect(insert.name).toBe("VSAC 2.16.2");
+  });
+});
+
 describe("recommendDefinitionType — never throws", () => {
   it("degrades to extensional when every UMLS call fails", async () => {
     const client = makeClient({
