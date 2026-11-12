@@ -345,7 +345,19 @@ export function buildDischargeMarkdown(
     finalDx.length > 0
       ? finalDx.charAt(0).toUpperCase() + finalDx.slice(1)
       : complaintToDiagnosis(patient.chief_complaint);
-  const admittingDx = complaintToDiagnosis(patient.chief_complaint);
+  // Admitting Diagnosis: this schema captures only ONE deduced-diagnosis
+  // field (`patient.diagnosis`) and it is written once, at admission time
+  // (see auto-doc.server.ts), never re-derived at discharge — so in this
+  // codebase it IS the admitting diagnosis, not a discharge-time revision
+  // of it. Reuse the same `dx` here rather than independently re-deriving
+  // the admitting impression from the raw chief-complaint string: the
+  // chief complaint is the patient's own words, not a clinical diagnosis,
+  // and quoting it verbatim under an "Admitting Diagnosis" heading mislabels
+  // it as one. A genuinely distinct admitting-vs-discharge diagnosis (e.g.
+  // capturing a clinician's working impression AT admission, separate from
+  // the one Auto Doc later finalizes) would need a new field captured at
+  // admission time — out of scope here; tracked as a follow-up.
+  const admittingDx = dx;
   const administered = meds.filter((m) => (m.status ?? "").toLowerCase() === "administered");
   const resulted = labs.filter((l) => {
     const s = (l.status ?? "").toLowerCase();
@@ -385,7 +397,12 @@ export function buildDischargeMarkdown(
 
   lines.push("**Admitting & Discharge Diagnoses**");
   lines.push(`- **Admitting Diagnosis:** ${admittingDx}`);
-  lines.push(`- **Discharge Diagnosis:** ${dx}, clinically stable`);
+  // No real condition-at-discharge signal (vitals/status at the time this
+  // summary is built) is threaded into this function, so don't assert
+  // "clinically stable" — that was previously hardcoded for every patient
+  // regardless of actual outcome. The dedicated "Condition at Discharge"
+  // line below already covers this in general terms.
+  lines.push(`- **Discharge Diagnosis:** ${dx}`);
   lines.push(
     `- **Condition at Discharge:** Stable, hemodynamically appropriate, tolerating oral intake, ambulating without assistance.`,
   );

@@ -10,7 +10,7 @@ import { InfoHint } from "@/components/ui/info-hint";
  * vocabulary defaults to RxNorm for drug fields; pass "SNOMED-CT" for
  * diagnosis fields, "LOINC" for lab fields, "ICD-10-CM" for ICD coding.
  */
-type Suggestion = { code: string; display: string; source: string };
+export type Suggestion = { code: string; display: string; source: string };
 
 interface Props {
   value: string;

@@ -121,7 +121,21 @@ export type PipelineResult = {
  * over Supabase reads because tables are empty at first save.
  */
 export interface AdmissionData {
-  medications?: Array<{ name: string; dose?: string; route?: string; frequency?: string }>;
+  medications?: Array<{
+    name: string;
+    dose?: string;
+    route?: string;
+    frequency?: string;
+    /**
+     * RxNorm code/display already confirmed by the admission-form picker
+     * (TerminologyCombobox) and written directly to `medication_orders` by
+     * `admitPatient()` before this pipeline ever runs. When present, Stream
+     * C MUST trust it as-is rather than re-deriving a (possibly different)
+     * code from `name` — the user already picked the real concept.
+     */
+    rxnorm_code?: string;
+    rxnorm_display?: string;
+  }>;
   vitals?: {
     bp_systolic?: number | null;
     bp_diastolic?: number | null;
@@ -137,7 +151,30 @@ export interface AdmissionData {
     flag?: string | null;
     loinc_code?: string | null;
   }>;
-  allergies?: Array<{ substance: string; reaction?: string | null; type?: string | null }>;
+  allergies?: Array<{
+    substance: string;
+    reaction?: string | null;
+    type?: string | null;
+    /**
+     * Pre-confirmed codes from the admission-form picker (drug allergies via
+     * TerminologyCombobox/RxNorm, env/food allergies via the static
+     * allergen map) — already written to `allergies` by `admitPatient()`.
+     * When either is set, Stream D must skip re-deriving the substance code
+     * and only fill in whatever it doesn't already have (e.g. reaction).
+     */
+    substance_rxcui?: string | null;
+    substance_snomed?: string | null;
+  }>;
+  /**
+   * PMH free text covering ONLY the chronic illnesses that arrived WITHOUT
+   * a confirmed code (quick-pick chips with no matching TerminologyCombobox
+   * selection). Chronic illnesses the user picked via search already have a
+   * real SNOMED code written directly to `conditions` by `admitPatient()`,
+   * so Stream B must not re-derive a (possibly different) code for them by
+   * matching the full `past_medical_history` text — it should only run its
+   * own hardcoded PMH_MAP matching against this uncoded remainder.
+   */
+  pmhUncodedText?: string;
 }
 
 function statusFor(count: number, expected: number): StreamStatus {
@@ -285,7 +322,16 @@ export async function runSixStreamPipeline(
     }
 
     // -------- Stream B: PMH -------------------------------------------
-    const pmhHits: PmhCode[] = matchPmh(patient.past_medical_history);
+    // When the admission form already ran (useForm), match only against the
+    // chronic illnesses that arrived WITHOUT a confirmed code — anything the
+    // user picked via TerminologyCombobox was already coded directly by
+    // admitPatient() and must not be re-derived here (see `pmhUncodedText`
+    // doc on AdmissionData). The sweep path (!useForm) has no such
+    // distinction available, so it keeps matching the full chart text.
+    const pmhMatchSource = useForm
+      ? (admissionData?.pmhUncodedText ?? "")
+      : patient.past_medical_history;
+    const pmhHits: PmhCode[] = matchPmh(pmhMatchSource);
     const streamB: StreamResult = { status: "coded", count: 0, items: [] };
     for (const p of pmhHits) {
       await upsertCondition({
@@ -319,6 +365,19 @@ export async function runSixStreamPipeline(
       for (const m of formMeds) {
         const drugName = String(m.name ?? "").trim();
         if (!drugName) continue;
+        if (m.rxnorm_code) {
+          // Already confirmed by the admission-form picker and written
+          // directly to medication_orders by admitPatient() — trust it
+          // as-is. Re-resolving from `drugName` here could land on a
+          // different RxNorm concept than the one the user actually chose.
+          streamC.count++;
+          streamC.items.push({
+            name: drugName,
+            rxnorm_code: m.rxnorm_code,
+            rxnorm_display: m.rxnorm_display ?? drugName,
+          });
+          continue;
+        }
         const rx = await resolveDrugSafe(drugName);
         if (!rx) continue;
         // Idempotent: skip if a row already exists for this mrn+drug
@@ -458,12 +517,22 @@ export async function runSixStreamPipeline(
           coding_source: "nlp-stream-d",
           coded_at: new Date().toISOString(),
         };
-        const envHit = lookupAllergenSnomed(substance);
-        if (envHit) {
-          patch.substance_snomed = envHit.snomed;
+        if (a.substance_snomed || a.substance_rxcui) {
+          // Already confirmed by the admission-form picker (TerminologyCombobox
+          // for drug allergies, the static allergen map for env/food) and
+          // written directly to `allergies` by admitPatient() — trust it
+          // as-is rather than re-deriving a possibly-different code.
+          if (a.substance_snomed) patch.substance_snomed = a.substance_snomed;
+          if (a.substance_rxcui) patch.substance_rxcui = a.substance_rxcui;
+          patch.coding_source = "admission-intake-picker";
         } else {
-          const rx = await resolveRxNorm(substance);
-          if (rx) patch.substance_rxcui = rx.code;
+          const envHit = lookupAllergenSnomed(substance);
+          if (envHit) {
+            patch.substance_snomed = envHit.snomed;
+          } else {
+            const rx = await resolveRxNorm(substance);
+            if (rx) patch.substance_rxcui = rx.code;
+          }
         }
         const reaction = String(a.reaction ?? "").trim();
         if (reaction) {
@@ -1118,8 +1187,14 @@ export async function runSixStreamPipeline(
   }
 }
 
-/** Idempotent conditions upsert keyed by mrn + snomed_code. */
-async function upsertCondition(row: {
+/**
+ * Idempotent conditions upsert keyed by mrn + snomed_code. Exported so
+ * `admitPatient()` can write a condition for a chronic illness the user
+ * already coded via the admission-form TerminologyCombobox, directly and
+ * synchronously, instead of waiting on (and risking divergence from) this
+ * fire-and-forget pipeline's own text-matching in Stream B.
+ */
+export async function upsertCondition(row: {
   mrn: string;
   patient_name: string | null;
   display_text: string;
@@ -1130,6 +1205,8 @@ async function upsertCondition(row: {
   category: string;
   source_section: string;
   coding_source: string;
+  /** Defaults to "auto" to preserve Streams A/B's existing behavior. */
+  created_by_type?: string;
 }) {
   const { data: existing } = await supabase
     .from("conditions")
@@ -1155,9 +1232,11 @@ async function upsertCondition(row: {
   if (existing?.id) {
     await supabase.from("conditions").update(payload).eq("id", existing.id);
   } else {
-    await supabase
-      .from("conditions")
-      .insert({ ...payload, onset_date: new Date().toISOString(), created_by_type: "auto" });
+    await supabase.from("conditions").insert({
+      ...payload,
+      onset_date: new Date().toISOString(),
+      created_by_type: row.created_by_type ?? "auto",
+    });
   }
 }
 

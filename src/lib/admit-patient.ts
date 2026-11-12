@@ -7,7 +7,9 @@ import {
 import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
 import type { CodeStatus } from "@/lib/patients";
-import { runSixStreamPipeline } from "@/lib/coding-pipeline";
+import { runSixStreamPipeline, upsertCondition } from "@/lib/coding-pipeline";
+import { crosswalkSnomedToIcd10 } from "@/lib/umls-client";
+import { lookupAllergenSnomed } from "@/lib/allergen-map";
 import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/value-set-registry";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -196,19 +198,46 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   // Bed was already atomically claimed above (before insert), so there is
   // no post-hoc "did we actually get a bed?" check needed here anymore.
 
+  // Write real codes the user already confirmed in the admission form
+  // (chronic illnesses / drug allergies / medications picked via the
+  // UMLS-backed TerminologyCombobox, plus env/food allergies matched
+  // against the static allergen map) DIRECTLY into the coded tables, here,
+  // synchronously. This must not depend on the fire-and-forget six-stream
+  // pipeline below ever running successfully — the whole point is that the
+  // concept the user explicitly picked is the one that lands, not whatever
+  // the pipeline might independently re-derive from the plain-text name.
+  const it2 = input.intake;
+  if (it2) {
+    try {
+      await writeConfirmedAdmissionCodes({
+        mrn,
+        patientName: data.name ?? null,
+        facilityName: data.facility_name ?? null,
+        intake: it2,
+      });
+    } catch (e) {
+      console.warn("[admit] writing confirmed codes failed", e);
+    }
+  }
+
   // Fire-and-forget six-stream coding pipeline. Never blocks admission.
   // Pass form-time snapshot so Streams C/D/E/F don't depend on empty tables.
-  const it2 = input.intake;
+  // Pre-coded entries above are echoed back in here (rxnorm_code /
+  // substance_rxcui / substance_snomed) so the pipeline trusts them as-is
+  // (see Streams B/C/D in coding-pipeline.ts) instead of re-resolving.
   const tempC =
     typeof payload.temp === "number"
       ? +(((payload.temp as number) - 32) * (5 / 9)).toFixed(1)
       : null;
+  const codedChronicDisplays = new Set((it2?.chronicIllnessCodes ?? []).map((c) => c.display));
   const admissionData = {
     medications: (it2?.currentMeds ?? [])
       .map((m) => ({
         name: (m.name ?? "").trim(),
         dose: (m.dose ?? "").trim() || undefined,
         frequency: (m.freq ?? "").trim() || undefined,
+        rxnorm_code: m.code?.code,
+        rxnorm_display: m.code?.display,
       }))
       .filter((m) => m.name),
     vitals: {
@@ -221,16 +250,36 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
     labs: [] as Array<{ test_name: string }>,
     allergies: [
       ...(it2?.drugAllergies ?? [])
-        .map((a) => ({
-          substance: (a.name ?? "").trim(),
-          reaction: (a.reaction ?? "").trim() || null,
-          type: "drug",
-        }))
+        .map((a) => {
+          const substance = (a.code?.display || a.name || "").trim();
+          return {
+            substance,
+            reaction: (a.reaction ?? "").trim() || null,
+            type: "drug",
+            substance_rxcui: a.code?.code ?? null,
+            substance_snomed: a.code ? (lookupAllergenSnomed(substance)?.snomed ?? null) : null,
+          };
+        })
         .filter((a) => a.substance),
       ...(it2?.envAllergies ?? [])
-        .map((s) => ({ substance: String(s ?? "").trim(), reaction: null, type: "environmental" }))
+        .map((s) => {
+          const substance = String(s ?? "").trim();
+          return {
+            substance,
+            reaction: null,
+            type: "environmental",
+            substance_rxcui: null as string | null,
+            substance_snomed: substance ? (lookupAllergenSnomed(substance)?.snomed ?? null) : null,
+          };
+        })
         .filter((a) => a.substance),
     ],
+    // Only the chronic illnesses that did NOT get a confirmed code above —
+    // Stream B's own PMH_MAP matching must stick to those (see doc on
+    // `pmhUncodedText` in coding-pipeline.ts).
+    pmhUncodedText: (it2?.chronicIllnesses ?? [])
+      .filter((name) => !codedChronicDisplays.has(name))
+      .join(", "),
   };
   void runSixStreamPipeline(mrn, admissionData).catch((e) =>
     console.warn("[admit] coding pipeline failed", e),
@@ -242,6 +291,201 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
   void requestHrrpValueSet().catch((e) => console.warn("[admit] HRRP request failed", e));
 
   return { ok: true, patient: data };
+}
+
+/**
+ * Write every code the clinician/intake staff already confirmed in the
+ * admission form directly into the coded tables, before the six-stream
+ * pipeline ever runs. See the module comment above `admitPatient()` for why:
+ * the picker already resolved a real UMLS concept, so this must land that
+ * exact code rather than leave it to be re-derived from plain text later.
+ *
+ * Environmental/Food Allergies judgement call (documented here + in the PR
+ * description): that field stays a quick-pick chip list, not a live
+ * TerminologyCombobox — it's a small, closed, fixed vocabulary (10 options:
+ * latex, iodine, peanuts, …), unlike the open-ended conditions/drug fields,
+ * so a live UMLS search would be overkill. But every one of those 10
+ * options already has an exact static SNOMED mapping in `allergen-map.ts`
+ * (used by the pipeline's own Stream D), so we use that same static map to
+ * attach a real code here at write time too, rather than leaving env
+ * allergies as the one field with literally no coding path.
+ */
+async function writeConfirmedAdmissionCodes(args: {
+  mrn: string;
+  patientName: string | null;
+  facilityName: string | null;
+  intake: IntakeRecord;
+}): Promise<void> {
+  const { mrn, patientName, facilityName, intake } = args;
+
+  // Chronic illnesses picked via TerminologyCombobox (SNOMED CT).
+  const codedIllnesses = intake.chronicIllnessCodes ?? [];
+  await Promise.all(
+    codedIllnesses.map(async (hit) => {
+      let icd10Code: string | null = null;
+      let icd10Display: string | null = null;
+      try {
+        const cw = await crosswalkSnomedToIcd10(hit.code);
+        icd10Code = cw?.code ?? null;
+        icd10Display = cw?.display ?? null;
+      } catch (e) {
+        console.warn("[admit] ICD-10 crosswalk failed for", hit.code, e);
+      }
+      try {
+        await upsertCondition({
+          mrn,
+          patient_name: patientName,
+          display_text: hit.display,
+          snomed_code: hit.code,
+          snomed_display: hit.display,
+          icd10_code: icd10Code,
+          icd10_display: icd10Display,
+          category: "medical-history",
+          source_section: "pmh",
+          coding_source: "admission-intake-picker",
+          created_by_type: "human",
+        });
+      } catch (e) {
+        console.warn("[admit] condition write failed for", hit.code, e);
+      }
+    }),
+  );
+
+  // Drug allergies picked via TerminologyCombobox (RxNorm).
+  for (const a of intake.drugAllergies ?? []) {
+    const name = (a.name ?? "").trim();
+    if (!name || !a.code) continue;
+    const substance = a.code.display || name;
+    // Also attach the drug-CLASS SNOMED code (e.g. "Penicillin" for a
+    // picked RxNorm concept like amoxicillin) when the static allergen map
+    // recognizes it — same cross-reactivity-family mapping the six-stream
+    // pipeline already attaches to every drug allergy, and the only field
+    // Stream D's own $validate-code gate checks for allergies. The real
+    // RxNorm code the user picked still lands in substance_rxcui either way.
+    const classHit = lookupAllergenSnomed(substance);
+    await upsertAllergyCode({
+      mrn,
+      substance,
+      reaction: (a.reaction ?? "").trim() || null,
+      substanceRxcui: a.code.code,
+      substanceSnomed: classHit?.snomed ?? null,
+    });
+  }
+
+  // Environmental/food allergies — closed vocabulary, static SNOMED map
+  // (see function doc above).
+  for (const s of intake.envAllergies ?? []) {
+    const substance = String(s ?? "").trim();
+    if (!substance) continue;
+    const hit = lookupAllergenSnomed(substance);
+    if (!hit) continue;
+    await upsertAllergyCode({
+      mrn,
+      substance,
+      reaction: null,
+      substanceRxcui: null,
+      substanceSnomed: hit.snomed,
+    });
+  }
+
+  // Current medications picked via TerminologyCombobox (RxNorm).
+  for (const m of intake.currentMeds ?? []) {
+    const name = (m.name ?? "").trim();
+    if (!name || !m.code) continue;
+    await upsertMedicationOrderCode({
+      mrn,
+      patientName,
+      facilityName,
+      drugName: m.code.display || name,
+      dose: (m.dose ?? "").trim() || null,
+      frequency: (m.freq ?? "").trim() || null,
+      rxnormCode: m.code.code,
+      rxnormDisplay: m.code.display,
+    });
+  }
+}
+
+/** Idempotent (mrn + substance) upsert for a pre-confirmed allergy code. */
+async function upsertAllergyCode(args: {
+  mrn: string;
+  substance: string;
+  reaction: string | null;
+  substanceRxcui: string | null;
+  substanceSnomed: string | null;
+}): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from("allergies")
+      .select("id")
+      .eq("mrn", args.mrn)
+      .eq("substance", args.substance)
+      .maybeSingle();
+    const patch: Database["public"]["Tables"]["allergies"]["Insert"] = {
+      mrn: args.mrn,
+      substance: args.substance,
+      reaction: args.reaction,
+      substance_rxcui: args.substanceRxcui,
+      substance_snomed: args.substanceSnomed,
+      status: "active",
+      coding_source: "admission-intake-picker",
+      coded_at: new Date().toISOString(),
+      created_by_type: "human",
+    };
+    if (existing?.id) {
+      await supabase.from("allergies").update(patch).eq("id", existing.id);
+    } else {
+      await supabase.from("allergies").insert(patch);
+    }
+  } catch (e) {
+    console.warn("[admit] allergy code write failed for", args.substance, e);
+  }
+}
+
+/** Idempotent (patient_mrn + medication_name) upsert for a pre-confirmed drug code. */
+async function upsertMedicationOrderCode(args: {
+  mrn: string;
+  patientName: string | null;
+  facilityName: string | null;
+  drugName: string;
+  dose: string | null;
+  frequency: string | null;
+  rxnormCode: string;
+  rxnormDisplay: string;
+}): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from("medication_orders")
+      .select("id")
+      .eq("patient_mrn", args.mrn)
+      .eq("medication_name", args.drugName)
+      .maybeSingle();
+    const row: Database["public"]["Tables"]["medication_orders"]["Insert"] = {
+      mrn: args.mrn,
+      patient_mrn: args.mrn,
+      patient_name: args.patientName,
+      facility_name: args.facilityName,
+      ordering_physician: "Admission Intake",
+      drug_name: args.drugName,
+      medication_name: args.drugName,
+      dose: args.dose,
+      route: "PO",
+      frequency: args.frequency,
+      rxnorm_code: args.rxnormCode,
+      rxnorm_display: args.rxnormDisplay,
+      coding_source: "admission-intake-picker",
+      coded_at: new Date().toISOString(),
+      term_status: "pending",
+      status: "PENDING_PHARMACY",
+      created_by_type: "human",
+    };
+    if (existing?.id) {
+      await supabase.from("medication_orders").update(row).eq("id", existing.id);
+    } else {
+      await supabase.from("medication_orders").insert(row);
+    }
+  } catch (e) {
+    console.warn("[admit] medication code write failed for", args.drugName, e);
+  }
 }
 
 const HRRP_REQUEST_NAME = "CMS Hospital Readmissions Reduction Program (HRRP) Conditions";
