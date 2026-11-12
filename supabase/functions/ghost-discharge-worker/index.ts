@@ -39,9 +39,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
   buildDischargeMarkdown,
   type NarrativeAllergy,
+  type NarrativeImaging,
   type NarrativeLab,
   type NarrativeMed,
   type NarrativePatient,
+  type NarrativeProcedure,
 } from "../_shared/discharge-narrative.ts";
 import {
   buildDischargeTransactionBundle,
@@ -286,6 +288,28 @@ async function pickCandidates(admin: any): Promise<string[]> {
  * both by `buildSummaryForMrn` (narrative markdown) and by the FHIR
  * discharge Composition push (real drug/lab names).
  */
+interface RawImagingRow {
+  exam_type: string | null;
+  modality: string | null;
+  body_part: string | null;
+  status: string | null;
+  report_text: string | null;
+  impression: string | null;
+  ordered_at: string | null;
+  resulted_at: string | null;
+  snomed_display: string | null;
+}
+
+interface RawProcedureRow {
+  display_text: string | null;
+  status: string | null;
+  performed_at: string | null;
+  cpt_code: string | null;
+  cpt_display: string | null;
+  snomed_display: string | null;
+  performed_by: string | null;
+}
+
 async function fetchClinicalContext(
   admin: any,
   mrn: string,
@@ -294,9 +318,11 @@ async function fetchClinicalContext(
   meds: any[];
   labs: any[];
   allergies: any[];
+  imaging: RawImagingRow[];
+  procedures: RawProcedureRow[];
   vitals: any | null;
 }> {
-  const [pRes, mRes, lRes, lrRes, aRes, vRes] = await Promise.all([
+  const [pRes, mRes, lRes, lrRes, aRes, vRes, radRes, procRes] = await Promise.all([
     admin.from("patients").select("*").eq("mrn", mrn).maybeSingle(),
     admin
       .from("medication_orders")
@@ -323,6 +349,23 @@ async function fetchClinicalContext(
       .order("recorded_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    // Reported imaging — same table the radiology board writes to. Needed
+    // so the auto-discharge narrative (this worker) matches the manual
+    // physician-board discharge narrative, which also now includes imaging.
+    admin
+      .from("radiology_orders")
+      .select(
+        "exam_type, modality, body_part, status, report_text, impression, ordered_at, resulted_at, snomed_display",
+      )
+      .eq("patient_mrn", mrn),
+    // Real procedures — drives "Procedures Performed" instead of a
+    // hardcoded negative claim.
+    admin
+      .from("procedures")
+      .select(
+        "display_text, status, performed_at, cpt_code, cpt_display, snomed_display, performed_by",
+      )
+      .eq("mrn", mrn),
   ]);
   const patient = (pRes as any)?.data ?? null;
   const meds = ((mRes as any)?.data ?? []) as any[];
@@ -330,6 +373,8 @@ async function fetchClinicalContext(
   const labResults = ((lrRes as any)?.data ?? []) as any[];
   const allergies = ((aRes as any)?.data ?? []) as any[];
   const vitals = (vRes as any)?.data ?? null;
+  const imaging = (radRes?.data ?? []) as RawImagingRow[];
+  const procedures = (procRes?.data ?? []) as RawProcedureRow[];
   const labs = [
     ...labOrders.map((l) => ({
       id: l.id,
@@ -354,7 +399,7 @@ async function fetchClinicalContext(
       unit: r.unit ?? null,
     })),
   ];
-  return { patient, meds, labs, allergies, vitals };
+  return { patient, meds, labs, allergies, imaging, procedures, vitals };
 }
 
 /**
@@ -373,6 +418,8 @@ async function buildSummaryForMrn(
     meds: rawMeds,
     labs: rawLabs,
     allergies: rawAllergies,
+    imaging: rawImaging,
+    procedures: rawProcedures,
   } = await fetchClinicalContext(admin, mrn);
   if (!patient) return { summary: null, patient: null };
 
@@ -407,6 +454,28 @@ async function buildSummaryForMrn(
     category: null,
   }));
 
+  const imaging: NarrativeImaging[] = rawImaging.map((i) => ({
+    exam_type: i.exam_type ?? null,
+    modality: i.modality ?? null,
+    body_part: i.body_part ?? null,
+    status: i.status ?? null,
+    report_text: i.report_text ?? null,
+    impression: i.impression ?? null,
+    ordered_at: i.ordered_at ?? null,
+    resulted_at: i.resulted_at ?? null,
+    snomed_display: i.snomed_display ?? null,
+  }));
+
+  const procedures: NarrativeProcedure[] = rawProcedures.map((p) => ({
+    display_text: p.display_text ?? null,
+    status: p.status ?? null,
+    performed_at: p.performed_at ?? null,
+    cpt_code: p.cpt_code ?? null,
+    cpt_display: p.cpt_display ?? null,
+    snomed_display: p.snomed_display ?? null,
+    performed_by: p.performed_by ?? null,
+  }));
+
   const narrativePatient: NarrativePatient = {
     first_name: patient.first_name ?? null,
     last_name: patient.last_name ?? null,
@@ -425,7 +494,14 @@ async function buildSummaryForMrn(
     primary_care_physician: patient.primary_care_physician ?? null,
   };
 
-  const summary = buildDischargeMarkdown(narrativePatient, meds, labs, allergies);
+  const summary = buildDischargeMarkdown(
+    narrativePatient,
+    meds,
+    labs,
+    allergies,
+    imaging,
+    procedures,
+  );
   return { summary, patient };
 }
 

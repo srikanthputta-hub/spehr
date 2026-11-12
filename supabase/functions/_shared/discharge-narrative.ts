@@ -1,18 +1,23 @@
 /**
  * Discharge Narrative Builder
  *
- * Turns the structured patient + meds + labs record into a clinically
- * readable 6-part discharge summary that follows real hospital format:
+ * Turns the structured patient + meds + labs + imaging + procedures record
+ * into a clinically readable discharge summary that follows real hospital
+ * format:
+ *   0. Clinical Completeness Check (safety flags, see below)
  *   1. Admitting & Discharge Diagnoses
  *   2. History of Present Illness (HPI)
  *   3. Hospital Course (assessment → plan reasoning)
- *   4. Procedures
- *   5. Pertinent Labs / Imaging (abnormal-only)
+ *   4. Procedures (derived from the real `procedures` table — never a
+ *      hardcoded negative claim)
+ *   5. Pertinent Labs / Imaging (abnormal-first labs + any reported
+ *      `radiology_orders` studies)
  *   6. Discharge Instructions & Meds
  *
- * Also performs sanity checks (high-acuity complaint vs. low-acuity
- * treatment, impossible length-of-stay) and surfaces safety flags
- * that the UI can render at the top of the summary.
+ * `computeSafetyFlags()` performs real sanity checks (high-acuity
+ * complaint vs. low-acuity treatment, implausible length-of-stay, ...) and
+ * is wired into section 0 above, so gaps actually surface to the
+ * reviewing clinician instead of being silently computed and discarded.
  */
 
 export interface NarrativeMed {
@@ -77,6 +82,40 @@ export interface NarrativeAllergy {
   reaction?: string | null;
   severity?: string | null;
   category?: string | null; // medication | environment | food
+}
+
+/**
+ * Reported imaging study, mapped 1:1 to the `radiology_orders` table.
+ * Only studies that have actually come back (status "Reported"/"Resulted",
+ * or that carry a `resulted_at`/`report_text`/`impression`) are rendered —
+ * a still-pending order is not a "finding".
+ */
+export interface NarrativeImaging {
+  exam_type?: string | null;
+  modality?: string | null;
+  body_part?: string | null;
+  status?: string | null;
+  report_text?: string | null;
+  impression?: string | null;
+  ordered_at?: string | null;
+  resulted_at?: string | null;
+  snomed_display?: string | null;
+}
+
+/**
+ * A real procedure/intervention, mapped 1:1 to the `procedures` table.
+ * This is what "Procedures Performed" is derived from — the section must
+ * NEVER print its negative claim unconditionally; it reflects whatever is
+ * (or is not) actually on file for this patient.
+ */
+export interface NarrativeProcedure {
+  display_text?: string | null;
+  status?: string | null;
+  performed_at?: string | null;
+  cpt_code?: string | null;
+  cpt_display?: string | null;
+  snomed_display?: string | null;
+  performed_by?: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -242,6 +281,34 @@ export function pickAbnormalLabs(labs: NarrativeLab[]): NarrativeLab[] {
 }
 
 /* ------------------------------------------------------------------ */
+/* Imaging / Procedures filtering                                     */
+/* ------------------------------------------------------------------ */
+
+/** Imaging studies that have actually come back with a real report. */
+export function pickReportedImaging(imaging: NarrativeImaging[]): NarrativeImaging[] {
+  return imaging.filter((i) => {
+    const s = (i.status ?? "").trim().toLowerCase();
+    return (
+      s === "reported" ||
+      s === "resulted" ||
+      s === "completed" ||
+      s === "final" ||
+      !!i.resulted_at ||
+      !!(i.impression && i.impression.trim()) ||
+      !!(i.report_text && i.report_text.trim())
+    );
+  });
+}
+
+/** Procedures actually completed/performed, as distinct from merely ordered. */
+export function pickCompletedProcedures(procedures: NarrativeProcedure[]): NarrativeProcedure[] {
+  return procedures.filter((p) => {
+    const s = (p.status ?? "").trim().toLowerCase();
+    return s === "completed" || s === "performed" || s === "final" || !!p.performed_at;
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* Diagnoses                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -267,6 +334,8 @@ export function buildDischargeMarkdown(
   meds: NarrativeMed[],
   labs: NarrativeLab[],
   allergies: NarrativeAllergy[] = [],
+  imaging: NarrativeImaging[] = [],
+  procedures: NarrativeProcedure[] = [],
 ): string {
   const intro = clinicalIntro(patient.age, patient.gender, patient.chief_complaint);
   // Final diagnosis comes from Auto Doc's clinical deduction. Fall back to
@@ -292,8 +361,27 @@ export function buildDischargeMarkdown(
     const bv = isAbnormal(b) ? 0 : 1;
     return av - bv;
   });
+  const reportedImaging = pickReportedImaging(imaging);
+  const completedProcedures = pickCompletedProcedures(procedures);
+  // Real, working sanity checks (missing expected meds/labs for a
+  // high-acuity complaint, implausible length-of-stay, ...) computed from
+  // the SAME meds/labs already gathered above — surfaced here so gaps are
+  // visible to the reviewing clinician instead of being silently dropped.
+  const safetyFlags = computeSafetyFlags(patient, meds, labs);
 
   const lines: string[] = [];
+
+  lines.push("**Clinical Completeness Check**");
+  if (safetyFlags.length === 0) {
+    lines.push(
+      "- Automated completeness check: no missing-workup or length-of-stay flags identified for this chief complaint.",
+    );
+  } else {
+    for (const f of safetyFlags) {
+      lines.push(`> ${f.severity === "critical" ? "⚠ CRITICAL" : "⚠ WARNING"} — ${f.message}`);
+    }
+  }
+  lines.push("");
 
   lines.push("**Admitting & Discharge Diagnoses**");
   lines.push(`- **Admitting Diagnosis:** ${admittingDx}`);
@@ -404,20 +492,42 @@ export function buildDischargeMarkdown(
   lines.push("");
 
   lines.push("**Procedures Performed**");
-  lines.push(
-    "- No major surgical or interventional procedures were performed during this admission.",
-  );
+  if (completedProcedures.length === 0) {
+    // Data-driven, not a hardcoded negative claim: this prints only because
+    // the `procedures` table has no completed row for this patient/encounter.
+    lines.push("- No procedures are recorded in the structured chart for this admission.");
+  } else {
+    for (const p of completedProcedures) {
+      const name = (p.display_text ?? p.cpt_display ?? p.snomed_display ?? "Procedure").trim();
+      const cpt = p.cpt_code ? ` _(CPT ${p.cpt_code})_` : "";
+      const when = p.performed_at ? ` on ${admitDate(p.performed_at)}` : "";
+      const by = (p.performed_by ?? "").trim();
+      lines.push(`- **${name}**${cpt}${when}${by ? ` — performed by ${by}` : ""}.`);
+    }
+  }
   lines.push("");
 
   lines.push("**Laboratory & Imaging Findings**");
-  if (allResultedLabs.length === 0) {
+  if (allResultedLabs.length === 0 && reportedImaging.length === 0) {
     lines.push("- All diagnostic studies within reference ranges; no critical results.");
   } else {
-    for (const l of allResultedLabs) {
-      const name = l.display_name ?? l.test_type ?? "Observation";
-      const loinc = l.loinc_code ? ` _(LOINC ${l.loinc_code})_` : "";
-      const flag = l.abnormal_flag && l.abnormal_flag !== "N" ? ` [${l.abnormal_flag}]` : "";
-      lines.push(`- **${name}**${loinc}: ${l.result_value ?? "Pending"}${flag}`);
+    if (allResultedLabs.length > 0) {
+      for (const l of allResultedLabs) {
+        const name = l.display_name ?? l.test_type ?? "Observation";
+        const loinc = l.loinc_code ? ` _(LOINC ${l.loinc_code})_` : "";
+        const flag = l.abnormal_flag && l.abnormal_flag !== "N" ? ` [${l.abnormal_flag}]` : "";
+        lines.push(`- **${name}**${loinc}: ${l.result_value ?? "Pending"}${flag}`);
+      }
+    }
+    if (reportedImaging.length > 0) {
+      for (const img of reportedImaging) {
+        const name =
+          (img.exam_type ?? [img.modality, img.body_part].filter(Boolean).join(" ")).trim() ||
+          "Imaging Study";
+        const impression = (img.impression ?? img.report_text ?? "Report pending").trim();
+        const when = img.resulted_at ? ` _(reported ${admitDate(img.resulted_at)})_` : "";
+        lines.push(`- **${name} (Imaging)**${when}: ${impression}`);
+      }
     }
   }
   lines.push("");
