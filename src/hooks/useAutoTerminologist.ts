@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getAutomationEnabled } from "@/hooks/useAutomationEnabled";
-import { recommendDefinitionType } from "@/lib/value-set-registry";
+import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/value-set-registry";
 
 /**
  * Auto Terminologist — autonomous clinical terminologist agent.
@@ -649,6 +649,12 @@ async function processPendingTerminologyRequests(): Promise<{
           display: s.display,
           vocabulary: s.vocabulary,
         })),
+        requestedName,
+        justification: req.justification,
+        context: {
+          clinicalApplication: req.clinical_application,
+          requestingConsumer: req.requesting_consumer,
+        },
       });
 
       await supabase
@@ -656,7 +662,13 @@ async function processPendingTerminologyRequests(): Promise<{
         .update({
           recommended_type: recommendation.recommendedType,
           reasoning: recommendation.reasoning,
-          suggested_root_concept: recommendation.suggestedRootConcept ?? null,
+          suggested_root_concept: suggestedRootConceptForStorage(recommendation),
+          recommended_binding_strength: recommendation.recommendedBindingStrength,
+          possible_existing_match: recommendation.possibleExistingMatch,
+          clinical_focus: recommendation.clinicalFocus,
+          data_element_scope: recommendation.dataElementScope,
+          inclusion_criteria: recommendation.inclusionCriteria,
+          exclusion_criteria: recommendation.exclusionCriteria,
           quality_gate_notes: null,
           updated_at: now,
         } as any)

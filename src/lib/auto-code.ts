@@ -9,7 +9,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveConcept, type Vocabulary } from "@/lib/terminology-resolver";
 import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
-import { recommendDefinitionType } from "@/lib/value-set-registry";
+import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/value-set-registry";
 import type { Database } from "@/integrations/supabase/types";
 
 interface AutoCodeContext {
@@ -95,14 +95,18 @@ async function requestCoverageIfMissing(args: {
       .in("status", ["pending", "drafted"])
       .limit(1);
     if (existing && existing.length > 0) return;
+    const justification = `Coding-compliance check found no governed value set covering ${vocabulary} code ${code} (${name}) assigned during note finalization for MRN ${mrn ?? "unknown"}`;
     const recommendation = await recommendDefinitionType({
       vocabulary,
       candidates: [{ code, display: name, vocabulary }],
+      requestedName: name,
+      justification,
+      context: { clinicalApplication: "CDS", requestingConsumer: "Auto Doc" },
     });
     await supabase.from("terminology_requests").insert({
       requesting_consumer: "Auto Doc",
       requested_name: name,
-      justification: `Coding-compliance check found no governed value set covering ${vocabulary} code ${code} (${name}) assigned during note finalization for MRN ${mrn ?? "unknown"}`,
+      justification,
       vocabulary,
       seed_codes: [{ code, display: name, vocabulary }],
       clinical_application: "CDS",
@@ -113,7 +117,13 @@ async function requestCoverageIfMissing(args: {
       status: "pending",
       recommended_type: recommendation.recommendedType,
       reasoning: recommendation.reasoning,
-      suggested_root_concept: recommendation.suggestedRootConcept ?? null,
+      suggested_root_concept: suggestedRootConceptForStorage(recommendation),
+      recommended_binding_strength: recommendation.recommendedBindingStrength,
+      possible_existing_match: recommendation.possibleExistingMatch,
+      clinical_focus: recommendation.clinicalFocus,
+      data_element_scope: recommendation.dataElementScope,
+      inclusion_criteria: recommendation.inclusionCriteria,
+      exclusion_criteria: recommendation.exclusionCriteria,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
   } catch (e) {

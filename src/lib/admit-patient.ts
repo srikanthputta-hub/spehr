@@ -8,7 +8,7 @@ import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
 import type { CodeStatus } from "@/lib/patients";
 import { runSixStreamPipeline } from "@/lib/coding-pipeline";
-import { recommendDefinitionType } from "@/lib/value-set-registry";
+import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/value-set-registry";
 import type { Database } from "@/integrations/supabase/types";
 
 export interface AdmitInput {
@@ -266,15 +266,19 @@ async function requestHrrpValueSet(): Promise<void> {
     { code: "Z96.641", display: "Presence of right artificial hip joint", vocabulary: "ICD-10" },
     { code: "Z96.652", display: "Presence of left artificial knee joint", vocabulary: "ICD-10" },
   ];
+  const justification =
+    "Need a governed value set of HRRP-tracked diagnoses to flag admissions for enhanced discharge planning";
   const recommendation = await recommendDefinitionType({
     vocabulary: "ICD-10",
     candidates: seedCodes,
+    requestedName: HRRP_REQUEST_NAME,
+    justification,
+    context: { clinicalApplication: "Billing", requestingConsumer: "Auto Admin" },
   });
   await supabase.from("terminology_requests").insert({
     requesting_consumer: "Auto Admin",
     requested_name: HRRP_REQUEST_NAME,
-    justification:
-      "Need a governed value set of HRRP-tracked diagnoses to flag admissions for enhanced discharge planning",
+    justification,
     vocabulary: "ICD-10",
     clinical_application: "Billing",
     priority: "high",
@@ -284,7 +288,13 @@ async function requestHrrpValueSet(): Promise<void> {
     seed_codes: seedCodes,
     recommended_type: recommendation.recommendedType,
     reasoning: recommendation.reasoning,
-    suggested_root_concept: recommendation.suggestedRootConcept ?? null,
+    suggested_root_concept: suggestedRootConceptForStorage(recommendation),
+    recommended_binding_strength: recommendation.recommendedBindingStrength,
+    possible_existing_match: recommendation.possibleExistingMatch,
+    clinical_focus: recommendation.clinicalFocus,
+    data_element_scope: recommendation.dataElementScope,
+    inclusion_criteria: recommendation.inclusionCriteria,
+    exclusion_criteria: recommendation.exclusionCriteria,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 }

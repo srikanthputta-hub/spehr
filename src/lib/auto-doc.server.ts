@@ -4,7 +4,7 @@
  */
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { recommendDefinitionType } from "@/lib/value-set-registry";
+import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/value-set-registry";
 import { templateForDepartment, type ConditionTemplate } from "./auto-doc-catalog";
 import { routeDepartment, type Department } from "./chief-complaints";
 import { buildAdmissionTransactionBundle, type AdmissionPatient } from "./fhir-admission-discharge";
@@ -427,14 +427,21 @@ export async function runAutoDocPipeline(mrn: string) {
               .eq("id", (existingReq as any).id);
           }
         } else {
+          const justification = `No published SNOMED CT value set currently covers "${tpl.condition}" — ${snomedFinal.length} concept(s) resolved for ${mrn} with no governed coverage.`;
           const recommendation = await recommendDefinitionType(
-            { vocabulary: "SNOMED CT", candidates: seedCodes },
+            {
+              vocabulary: "SNOMED CT",
+              candidates: seedCodes,
+              requestedName: tpl.condition,
+              justification,
+              context: { clinicalApplication: "CDS", requestingConsumer: "Auto Doc" },
+            },
             sb,
           );
           await sb.from("terminology_requests" as any).insert({
             requesting_consumer: "Auto Doc",
             requested_name: tpl.condition,
-            justification: `No published SNOMED CT value set currently covers "${tpl.condition}" — ${snomedFinal.length} concept(s) resolved for ${mrn} with no governed coverage.`,
+            justification,
             priority: "normal",
             vocabulary: "SNOMED CT",
             seed_codes: seedCodes,
@@ -443,7 +450,13 @@ export async function runAutoDocPipeline(mrn: string) {
             status: "pending",
             recommended_type: recommendation.recommendedType,
             reasoning: recommendation.reasoning,
-            suggested_root_concept: recommendation.suggestedRootConcept ?? null,
+            suggested_root_concept: suggestedRootConceptForStorage(recommendation),
+            recommended_binding_strength: recommendation.recommendedBindingStrength,
+            possible_existing_match: recommendation.possibleExistingMatch,
+            clinical_focus: recommendation.clinicalFocus,
+            data_element_scope: recommendation.dataElementScope,
+            inclusion_criteria: recommendation.inclusionCriteria,
+            exclusion_criteria: recommendation.exclusionCriteria,
           } as any);
         }
       }
@@ -698,7 +711,13 @@ export async function runAutoDocPipeline(mrn: string) {
           }
         } else {
           const recommendation = await recommendDefinitionType(
-            { vocabulary: "SNOMED CT", candidates: [seedCode] },
+            {
+              vocabulary: "SNOMED CT",
+              candidates: [seedCode],
+              requestedName,
+              justification,
+              context: { clinicalApplication: "CDS", requestingConsumer: "Auto Doc" },
+            },
             sb,
           );
           await sb.from("terminology_requests" as any).insert({
@@ -714,7 +733,13 @@ export async function runAutoDocPipeline(mrn: string) {
             status: "pending",
             recommended_type: recommendation.recommendedType,
             reasoning: recommendation.reasoning,
-            suggested_root_concept: recommendation.suggestedRootConcept ?? null,
+            suggested_root_concept: suggestedRootConceptForStorage(recommendation),
+            recommended_binding_strength: recommendation.recommendedBindingStrength,
+            possible_existing_match: recommendation.possibleExistingMatch,
+            clinical_focus: recommendation.clinicalFocus,
+            data_element_scope: recommendation.dataElementScope,
+            inclusion_criteria: recommendation.inclusionCriteria,
+            exclusion_criteria: recommendation.exclusionCriteria,
           } as any);
         }
       }
@@ -1263,14 +1288,21 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
           vocabulary: "ICD-10",
         }));
 
+        const billingJustification = `Invoice ${invoiceNo} for MRN-${mrn} includes ${unmatchedIcd10.length} ICD-10 diagnosis code(s) with no match in any published Billing value set — these codes are being charged without a governed coverage/risk-adjustment mapping.`;
         const recommendation = await recommendDefinitionType(
-          { vocabulary: "ICD-10", candidates: seedCodes },
+          {
+            vocabulary: "ICD-10",
+            candidates: seedCodes,
+            requestedName: "Billing Coverage Gaps",
+            justification: billingJustification,
+            context: { clinicalApplication: "Billing", requestingConsumer: "Auto Admin" },
+          },
           sb,
         );
         const { error: insertErr } = await sb.from("terminology_requests" as any).insert({
           requesting_consumer: "Auto Admin",
           requested_name: "Billing Coverage Gaps",
-          justification: `Invoice ${invoiceNo} for MRN-${mrn} includes ${unmatchedIcd10.length} ICD-10 diagnosis code(s) with no match in any published Billing value set — these codes are being charged without a governed coverage/risk-adjustment mapping.`,
+          justification: billingJustification,
           priority: "normal",
           vocabulary: "ICD-10",
           seed_codes: seedCodes,
@@ -1279,7 +1311,13 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
           status: "pending",
           recommended_type: recommendation.recommendedType,
           reasoning: recommendation.reasoning,
-          suggested_root_concept: recommendation.suggestedRootConcept ?? null,
+          suggested_root_concept: suggestedRootConceptForStorage(recommendation),
+          recommended_binding_strength: recommendation.recommendedBindingStrength,
+          possible_existing_match: recommendation.possibleExistingMatch,
+          clinical_focus: recommendation.clinicalFocus,
+          data_element_scope: recommendation.dataElementScope,
+          inclusion_criteria: recommendation.inclusionCriteria,
+          exclusion_criteria: recommendation.exclusionCriteria,
         } as any);
 
         if (!insertErr) {
