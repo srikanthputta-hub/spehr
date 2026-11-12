@@ -5,7 +5,11 @@ import { MOCK_AI_MRNS } from "@/lib/mockAiNotes";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Printer, FileText, Brain } from "lucide-react";
-import { buildDischargeMarkdown } from "@/lib/discharge-narrative";
+import {
+  buildDischargeMarkdown,
+  type NarrativeImaging,
+  type NarrativeProcedure,
+} from "@/lib/discharge-narrative";
 import { InfoHint } from "@/components/ui/info-hint";
 
 interface PatientRow {
@@ -73,6 +77,28 @@ interface AllergyRow {
   category?: string | null;
 }
 
+interface RadiologyOrderRow {
+  exam_type: string | null;
+  modality: string | null;
+  body_part: string | null;
+  status: string | null;
+  report_text: string | null;
+  impression: string | null;
+  ordered_at: string | null;
+  resulted_at: string | null;
+  snomed_display?: string | null;
+}
+
+interface ProcedureRow {
+  display_text: string | null;
+  status: string | null;
+  performed_at: string | null;
+  cpt_code: string | null;
+  cpt_display: string | null;
+  snomed_display: string | null;
+  performed_by: string | null;
+}
+
 function fmtTs(ts: string | null): string {
   if (!ts) return "-- Active --";
   const d = new Date(ts);
@@ -109,6 +135,8 @@ function DischargeSummaryModal({
   const [meds, setMeds] = useState<MedAdminRow[]>([]);
   const [labs, setLabs] = useState<LabResultRow[]>([]);
   const [allergies, setAllergies] = useState<AllergyRow[]>([]);
+  const [imaging, setImaging] = useState<RadiologyOrderRow[]>([]);
+  const [procedures, setProcedures] = useState<ProcedureRow[]>([]);
   const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
@@ -149,7 +177,15 @@ function DischargeSummaryModal({
       // of truth post-refactor). Fall back to the legacy `lab_orders` /
       // `medication_orders` rows only when no structured rows exist (older
       // encounters that ran before the relational refactor).
-      const [obsRes, medReqRes, legacyMedsRes, legacyLabsRes, allergiesRes] = await Promise.all([
+      const [
+        obsRes,
+        medReqRes,
+        legacyMedsRes,
+        legacyLabsRes,
+        allergiesRes,
+        radiologyRes,
+        proceduresRes,
+      ] = await Promise.all([
         supabase
           .from("observations")
           .select(
@@ -179,6 +215,25 @@ function DischargeSummaryModal({
           .eq("patient_mrn", mrn)
           .order("collected_at", { ascending: true }),
         supabase.from("allergies").select("substance, reaction, severity, status").eq("mrn", mrn),
+        // Reported imaging (radiology_orders) — real on-file studies for
+        // this patient must be able to show up in "Laboratory & Imaging
+        // Findings"; this table was never queried here before.
+        supabase
+          .from("radiology_orders")
+          .select(
+            "exam_type, modality, body_part, status, report_text, impression, ordered_at, resulted_at, snomed_display",
+          )
+          .eq("patient_mrn", mrn)
+          .order("ordered_at", { ascending: true }),
+        // Real procedures (distinct from imaging/labs) — drives "Procedures
+        // Performed" instead of a hardcoded negative claim.
+        supabase
+          .from("procedures")
+          .select(
+            "display_text, status, performed_at, cpt_code, cpt_display, snomed_display, performed_by",
+          )
+          .eq("mrn", mrn)
+          .order("performed_at", { ascending: true }),
       ]);
       if (cancelled) return;
 
@@ -243,6 +298,8 @@ function DischargeSummaryModal({
       setMeds(mappedMeds);
       setLabs(mappedLabs);
       setAllergies((allergiesRes.data ?? []) as AllergyRow[]);
+      setImaging((radiologyRes.data ?? []) as RadiologyOrderRow[]);
+      setProcedures((proceduresRes.data ?? []) as ProcedureRow[]);
       setChartLoading(false);
     })();
     return () => {
@@ -258,19 +315,36 @@ function DischargeSummaryModal({
   const los = durationHrs(patient.admission_time, patient.discharge_time);
   const isDischarged = !!patient.discharge_time;
 
+  // The document only earns "official"/discharge framing once the patient
+  // has actually been discharged. For a still-admitted patient this is a
+  // draft/preview built from the chart as it stands right now, and the
+  // print action must say so rather than let a draft be printed as if it
+  // were the official discharge document.
   const handlePrint = () => window.print();
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto p-0 print:max-w-full print:max-h-none print:shadow-none">
-        <DialogTitle className="sr-only">Discharge Summary for {fullName(patient)}</DialogTitle>
+        <DialogTitle className="sr-only">
+          {isDischarged ? "Discharge Summary" : "Draft Clinical Summary"} for {fullName(patient)}
+        </DialogTitle>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur px-6 py-3 print:hidden">
           <span className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
             Document ID · DS-{patient.mrn ?? "—"}
           </span>
-          <Button size="sm" variant="outline" onClick={handlePrint} className="gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handlePrint}
+            className="gap-1.5"
+            title={
+              isDischarged
+                ? "Print official discharge summary to PDF"
+                : "Patient is still admitted — this prints a draft/preview only, not the official discharge document"
+            }
+          >
             <Printer className="h-3.5 w-3.5" />
-            Print to PDF
+            {isDischarged ? "Print to PDF" : "Print Draft (Not Official)"}
           </Button>
         </div>
 
@@ -281,9 +355,21 @@ function DischargeSummaryModal({
           {/* Letterhead */}
           <div className="text-center border-b-2 border-slate-900 pb-5 mb-6">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">{facility}</h1>
-            <p className="mt-2 text-[12px] font-semibold uppercase tracking-[0.3em] text-slate-600">
-              Official Clinical Discharge Summary
-            </p>
+            {isDischarged ? (
+              <p className="mt-2 text-[12px] font-semibold uppercase tracking-[0.3em] text-slate-600">
+                Official Clinical Discharge Summary
+              </p>
+            ) : (
+              <>
+                <p className="mt-2 text-[12px] font-semibold uppercase tracking-[0.3em] text-amber-700">
+                  Draft Clinical Summary — Patient Still Admitted
+                </p>
+                <p className="mt-1 text-[11px] text-amber-600">
+                  Not an official discharge document. Generated from the chart as it stands now and
+                  will change before discharge.
+                </p>
+              </>
+            )}
           </div>
 
           {/* Demographics */}
@@ -311,7 +397,7 @@ function DischargeSummaryModal({
           <section className="mb-6">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
-                Clinical Discharge Summary
+                {isDischarged ? "Clinical Discharge Summary" : "Draft Clinical Summary"}
               </h2>
               {summaryAuthor && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-700 ring-1 ring-purple-300">
@@ -328,6 +414,8 @@ function DischargeSummaryModal({
                 meds={meds}
                 labs={labs}
                 allergies={allergies}
+                imaging={imaging}
+                procedures={procedures}
                 isDischarged={isDischarged}
                 los={los}
               />
@@ -482,6 +570,8 @@ function ClinicalNarrative({
   meds,
   labs,
   allergies,
+  imaging,
+  procedures,
   isDischarged,
   los,
 }: {
@@ -489,6 +579,8 @@ function ClinicalNarrative({
   meds: MedAdminRow[];
   labs: LabResultRow[];
   allergies: AllergyRow[];
+  imaging: RadiologyOrderRow[];
+  procedures: ProcedureRow[];
   isDischarged: boolean;
   los: string;
 }) {
@@ -506,6 +598,26 @@ function ClinicalNarrative({
       reaction: a.reaction,
       severity: a.severity,
       category: null,
+    })),
+    imaging.map((i): NarrativeImaging => ({
+      exam_type: i.exam_type,
+      modality: i.modality,
+      body_part: i.body_part,
+      status: i.status,
+      report_text: i.report_text,
+      impression: i.impression,
+      ordered_at: i.ordered_at,
+      resulted_at: i.resulted_at,
+      snomed_display: i.snomed_display,
+    })),
+    procedures.map((p): NarrativeProcedure => ({
+      display_text: p.display_text,
+      status: p.status,
+      performed_at: p.performed_at,
+      cpt_code: p.cpt_code,
+      cpt_display: p.cpt_display,
+      snomed_display: p.snomed_display,
+      performed_by: p.performed_by,
     })),
   );
   return (
