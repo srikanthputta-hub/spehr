@@ -33,7 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { SemanticAutocomplete } from "@/components/physician/SemanticAutocomplete";
+import { SemanticAutocomplete, type Suggestion } from "@/components/physician/SemanticAutocomplete";
 import { CdsHookAlert } from "@/components/physician/CdsHookAlert";
 import { InfoHint } from "@/components/ui/info-hint";
 import { OrderPanelPicker } from "@/components/physician/OrderPanelPicker";
@@ -133,6 +133,11 @@ function PhysicianBoard() {
 
   // Order form
   const [drug, setDrug] = useState("");
+  // RxNorm code the physician actually picked from SemanticAutocomplete's
+  // suggestion list, if any — cleared whenever `drug` no longer matches
+  // what was picked (manual edit), so a stale code from a prior pick can
+  // never be sent for a different drug name.
+  const [drugCode, setDrugCode] = useState<Suggestion | null>(null);
   const [dose, setDose] = useState("");
   const [route, setRoute] = useState("PO");
   const [freq, setFreq] = useState("Daily");
@@ -310,6 +315,7 @@ function PhysicianBoard() {
   useEffect(() => {
     setDdx(null);
     setDrug("");
+    setDrugCode(null);
     setDose("");
     setRoute("PO");
     setFreq("Daily");
@@ -327,6 +333,10 @@ function PhysicianBoard() {
     setSubmitting(true);
     const patientName =
       [selected.first_name, selected.last_name].filter(Boolean).join(" ") || selected.mrn;
+    // Only trust drugCode when it still matches the current drug text —
+    // it's cleared on manual edits, but this is a belt-and-suspenders check
+    // against a stale pick from a previous drug name.
+    const confirmedCode = drugCode && drugCode.display === drug.trim() ? drugCode : null;
     try {
       const { data: inserted, error } = await supabase
         .from("medication_orders")
@@ -343,11 +353,24 @@ function PhysicianBoard() {
           status: "PENDING_VERIFICATION",
           ordering_physician: md.name,
           ordered_by: md.name,
+          // Write the RxNorm code atomically at order-creation time when the
+          // physician actually picked a SemanticAutocomplete suggestion —
+          // don't leave it to the async autoCodeMedication recode below,
+          // which re-resolves from the drug name and could in principle
+          // land on a different concept than the one just picked.
+          rxnorm_code: confirmedCode?.code ?? null,
+          rxnorm_display: confirmedCode?.display ?? null,
+          coding_source: confirmedCode ? "physician-cpoe-picker" : null,
+          coded_at: confirmedCode ? new Date().toISOString() : null,
         })
         .select("id")
         .single();
       if (error) throw error;
-      if (inserted?.id) {
+      // Fallback path: only re-code in the background when the order
+      // somehow arrived without a pre-resolved code (e.g. the second,
+      // plain-text "Write Orders" entry point in the actions modal, or
+      // AUTO API being off so SemanticAutocomplete never offered picks).
+      if (inserted?.id && !confirmedCode) {
         autoCodeMedication(drug.trim(), {
           resourceId: inserted.id,
           mrn: selected.mrn,
@@ -358,6 +381,7 @@ function PhysicianBoard() {
         description: `${drug.trim()} ${dose.trim()} ${route} ${freq}`,
       });
       setDrug("");
+      setDrugCode(null);
       setDose("");
       setRoute("PO");
       setFreq("Daily");
@@ -638,7 +662,14 @@ function PhysicianBoard() {
                   <Field label="Drug Name" className="col-span-12 md:col-span-5">
                     <SemanticAutocomplete
                       value={drug}
-                      onChange={setDrug}
+                      onChange={(v) => {
+                        setDrug(v);
+                        setDrugCode((prev) => (prev && v === prev.display ? prev : null));
+                      }}
+                      onSelect={(s) => {
+                        setDrug(s.display);
+                        setDrugCode(s);
+                      }}
                       placeholder="e.g. Furosemide"
                       vocabulary="RxNorm"
                       ariaLabel="Drug Name"
@@ -1024,7 +1055,14 @@ function PhysicianBoard() {
                       <Field label="Drug Name" className="col-span-12 md:col-span-6">
                         <input
                           value={drug}
-                          onChange={(e) => setDrug(e.target.value)}
+                          onChange={(e) => {
+                            // Plain free-text entry point (no SemanticAutocomplete
+                            // here) — always clear any stale pick from the other
+                            // CPOE form so autoCodeMedication's fallback recode
+                            // below runs instead of reusing an unrelated code.
+                            setDrug(e.target.value);
+                            setDrugCode(null);
+                          }}
                           placeholder="e.g. Vancomycin"
                           aria-label="Drug Name"
                           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0c2340]/30"
