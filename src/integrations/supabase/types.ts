@@ -3054,6 +3054,15 @@ export type Database = {
           created_by_type: Database["public"]["Enums"]["provenance_origin"];
           id: string;
           justification: string;
+          // Gap 2 (VSAC-search-and-import feature): the real VSAC OID a
+          // human steward links once authoring has started, when the
+          // background cycle last polled it, and (once published) a
+          // preview of what vsacExpand returned. See the migration
+          // 20261112180000_vsac_search_and_publication_poll_fields.sql for
+          // the authoritative column docs.
+          known_vsac_candidates: Json | null;
+          last_vsac_check_at: string | null;
+          linked_vsac_oid: string | null;
           priority: string;
           quality_gate_notes: string | null;
           related_mrn: string | null;
@@ -3068,6 +3077,7 @@ export type Database = {
           updated_at: string | null;
           value_set_id: string | null;
           vocabulary: string | null;
+          vsac_expansion_preview: Json | null;
         };
         Insert: {
           author_id?: string | null;
@@ -3076,6 +3086,9 @@ export type Database = {
           created_by_type?: Database["public"]["Enums"]["provenance_origin"];
           id?: string;
           justification: string;
+          known_vsac_candidates?: Json | null;
+          last_vsac_check_at?: string | null;
+          linked_vsac_oid?: string | null;
           priority: string;
           quality_gate_notes?: string | null;
           related_mrn?: string | null;
@@ -3090,6 +3103,7 @@ export type Database = {
           updated_at?: string | null;
           value_set_id?: string | null;
           vocabulary?: string | null;
+          vsac_expansion_preview?: Json | null;
         };
         Update: {
           author_id?: string | null;
@@ -3098,6 +3112,9 @@ export type Database = {
           created_by_type?: Database["public"]["Enums"]["provenance_origin"];
           id?: string;
           justification?: string;
+          known_vsac_candidates?: Json | null;
+          last_vsac_check_at?: string | null;
+          linked_vsac_oid?: string | null;
           priority?: string;
           quality_gate_notes?: string | null;
           related_mrn?: string | null;
@@ -3112,6 +3129,7 @@ export type Database = {
           updated_at?: string | null;
           value_set_id?: string | null;
           vocabulary?: string | null;
+          vsac_expansion_preview?: Json | null;
         };
         Relationships: [];
       };

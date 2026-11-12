@@ -143,6 +143,22 @@ export type RecommendedBindingStrength = "required" | "extensible" | "preferred"
 export type ComponentValueSetRef = { value_set_id: string; name: string; oid: string | null };
 
 /**
+ * An actively-published VSAC ValueSet from a recognized national steward
+ * (NCQA, CMS, Optum, NLM, etc.) that `findKnownVsacCandidates` (capability 5
+ * below) found in VSAC's own catalog — distinct from `PossibleExistingMatch`,
+ * which checks spehr's own locally-published `custom_value_sets` rows. This
+ * is the external-catalog counterpart: a signal that a human terminologist
+ * may be able to import an already-governed value set instead of authoring
+ * a new one from scratch.
+ */
+export type KnownVsacCandidate = {
+  oid: string;
+  name: string;
+  title: string | null;
+  publisher: string;
+};
+
+/**
  * Fields every recommendation variant carries, regardless of
  * recommendedType — added on top of the original intensional/extensional
  * shape so existing call sites keep compiling unchanged.
@@ -164,6 +180,11 @@ type SharedRecommendationFields = {
   inclusionCriteria: string;
   exclusionCriteria: string;
   recommendedBindingStrength: RecommendedBindingStrength;
+  // Gap 1 (external VSAC-catalog check) — see findKnownVsacCandidates below.
+  // Optional so existing callers/tests that don't exercise this path keep
+  // compiling unchanged; `recommendDefinitionType` always sets it (to `[]`
+  // when nothing was found).
+  knownVsacCandidates?: KnownVsacCandidate[];
 };
 
 export type DefinitionTypeRecommendation =
@@ -580,6 +601,85 @@ async function maybeRecommendGrouping(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Capability 5 (Gap 1): external VSAC-catalog existing-value-set check */
+/* ------------------------------------------------------------------ */
+
+// Boilerplate phrasing a requesting consumer's auto-generated request name
+// often carries (e.g. "Drug-Allergy coverage for Penicillins") — stripped
+// down to the clinical class name itself before searching VSAC's own
+// catalog, since that's a cleaner keyword than the full generated sentence.
+// Best-effort only; falls back to the original name when nothing matches.
+const REQUEST_NAME_BOILERPLATE: RegExp[] = [
+  /^drug-allergy coverage for\s+/i,
+  /^coverage gap:?\s*/i,
+  /^terminology gap:?\s*/i,
+  /^missing coverage for\s+/i,
+  /^value set needed for\s+/i,
+];
+
+function cleanedSearchKeyword(requestedName: string): string {
+  let s = requestedName.trim();
+  for (const re of REQUEST_NAME_BOILERPLATE) s = s.replace(re, "");
+  s = s.trim();
+  return s || requestedName.trim();
+}
+
+type VsacSearchResult = {
+  candidates: Array<{
+    oid: string;
+    name: string | null;
+    title: string | null;
+    publisher: string | null;
+    status: string | null;
+  }>;
+};
+
+/**
+ * Before recommending that a human author a value set from scratch, check
+ * whether VSAC's own catalog already has one from a recognized national
+ * steward (NCQA, CMS, Optum, NLM, etc.) that might cover this request — the
+ * same thing a real VSAC terminologist does via VSAC's "Search Value Sets"
+ * tab before authoring anything new. Uses the `vsacSearch` umls-proxy
+ * action (keyword search against VSAC's FHIR ValueSet catalog). Any
+ * *active* VSAC ValueSet with a non-empty `publisher` counts as a signal of
+ * a real governed value set — deliberately no hardcoded allowlist of
+ * specific steward names, since VSAC hosts value sets from many
+ * organizations and a hardcoded list would quietly miss new ones.
+ *
+ * Informational only — this is the external-catalog counterpart to
+ * capability 1's local `possibleExistingMatch` check, and never blocks
+ * filing. Any `vsacSearch` failure (network, auth, bad response) just
+ * yields no candidates, same never-throws philosophy as the rest of this
+ * module.
+ */
+async function findKnownVsacCandidates(
+  client: MinimalUmlsClient,
+  requestedName: string,
+): Promise<KnownVsacCandidate[]> {
+  const keyword = cleanedSearchKeyword(requestedName ?? "");
+  if (!keyword) return [];
+  const result = await callUmlsProxy<VsacSearchResult>(client, "vsacSearch", {
+    query: keyword,
+    count: 10,
+  });
+  const candidates = result?.candidates ?? [];
+  const out: KnownVsacCandidate[] = [];
+  for (const c of candidates) {
+    const oid = String(c?.oid ?? "").trim();
+    const publisher = String(c?.publisher ?? "").trim();
+    const status = String(c?.status ?? "").trim();
+    if (!oid || !publisher || status !== "active") continue;
+    out.push({
+      oid,
+      name: c.name || c.title || oid,
+      title: c.title ?? null,
+      publisher,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Capability 3: inclusion/exclusion notes + binding-strength table    */
 /* ------------------------------------------------------------------ */
 
@@ -907,12 +1007,23 @@ export async function recommendDefinitionType(
     requestedName ?? "",
     seedCodes,
   );
+  // Capability 5 (Gap 1) — the external-catalog counterpart to the
+  // possible-existing-match check above: does VSAC's own catalog already
+  // have an actively-published, steward-governed value set for this?
+  const knownVsacCandidates = await findKnownVsacCandidates(client, requestedName ?? "");
 
   const core = await computeCoreRecommendation(vocabulary, effective, client, publishedSets);
   const rxnormNormalizationHappened = rxnormNormalizationNotes.length > 0;
-  const reasoning = rxnormNormalizationHappened
-    ? `${core.reasoning} ${rxnormNormalizationNotes.join(" ")}`
-    : core.reasoning;
+  const reasoningParts = [core.reasoning];
+  if (rxnormNormalizationHappened) reasoningParts.push(rxnormNormalizationNotes.join(" "));
+  if (knownVsacCandidates.length > 0) {
+    reasoningParts.push(
+      `Found ${knownVsacCandidates.length} actively-published VSAC value set(s) from recognized steward(s) (${knownVsacCandidates
+        .map((c) => `"${c.name}" — ${c.publisher}`)
+        .join("; ")}) — consider importing one of these instead of authoring a new one.`,
+    );
+  }
+  const reasoning = reasoningParts.join(" ");
   const clinicalFocus = buildClinicalFocus({
     requestedName: requestedName ?? "this request",
     vocabulary,
@@ -936,6 +1047,7 @@ export async function recommendDefinitionType(
     inclusionCriteria,
     exclusionCriteria,
     recommendedBindingStrength,
+    knownVsacCandidates,
   };
 
   if (core.recommendedType === "grouping") {
@@ -1011,6 +1123,10 @@ export async function requestTerminologyUpdate(req: {
       data_element_scope: recommendation.dataElementScope,
       inclusion_criteria: recommendation.inclusionCriteria,
       exclusion_criteria: recommendation.exclusionCriteria,
+      known_vsac_candidates:
+        recommendation.knownVsacCandidates && recommendation.knownVsacCandidates.length > 0
+          ? recommendation.knownVsacCandidates
+          : null,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
@@ -1053,4 +1169,92 @@ export async function requestTerminologyUpdate(req: {
   } catch (e) {
     console.warn("[value-set-registry] requestTerminologyUpdate failed", (e as Error)?.message);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Gap 2 — shared VSAC $expand → custom_value_sets import insert       */
+/* ------------------------------------------------------------------ */
+//
+// Extracted from ValueSetLibrary.tsx's "Import from VSAC" dialog
+// (`handleVsacImport`) so that dialog and Auto Terminologist's one-click
+// "Import Now" action (AutoTerminologistActivity.tsx — a `ready_to_import`
+// row's background-detected publication, or a `knownVsacCandidates` hit)
+// build the exact same `custom_value_sets` insert payload instead of
+// duplicating this shape in two places. Neither call site is forced to use
+// this one way — each still performs its own `.insert()` and handles its
+// own toasts/activity-logging/request-row bookkeeping in its own idiom;
+// this only owns the shared "what does the row look like" logic.
+
+/** The normalized shape every `vsacExpand` umls-proxy call returns — same
+ * shape ValueSetLibrary.tsx's `handleVsacFetch` already builds from it. */
+export type VsacExpansionResult = {
+  oid: string;
+  name: string | null;
+  title: string | null;
+  total: number;
+  type: "grouping" | "intensional" | "extensional";
+  codes: Array<{ code: string; display: string; vocabulary: string }>;
+};
+
+function slugifyValueSetName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/** What `buildVsacImportInsert` returns — a plain object shaped like a
+ * `custom_value_sets` insert row (but not imported from the generated
+ * Database types, since `system`/`vocabulary` here can be `null` ahead of
+ * dominant-vocabulary detection in a way that type doesn't model). */
+export type VsacImportInsert = {
+  name: string;
+  oid: string;
+  vocabulary: string | null;
+  system: string | null;
+  type: "grouping" | "intensional" | "extensional";
+  codes: Array<{ code: string; display: string; system: string }>;
+  status: "draft";
+  description: string;
+  fhir_url: string;
+  change_history: Array<{ at: string; actor: string; change: string }>;
+};
+
+/**
+ * Builds the `custom_value_sets` insert payload for importing a VSAC
+ * $expand result as a new draft — identical to what ValueSetLibrary.tsx's
+ * `handleVsacImport` has always inserted (dominant-vocabulary detection,
+ * auto FHIR URL, `status: "draft"`, the "Imported from VSAC" change-history
+ * entry). Pure/no I/O: callers perform the actual `.insert()` themselves so
+ * each can keep its own error handling and post-insert bookkeeping (activity
+ * log, toast, linking back to a `terminology_requests` row, etc.).
+ */
+export function buildVsacImportInsert(
+  expansion: VsacExpansionResult,
+  name: string,
+): VsacImportInsert {
+  const trimmedName = name.trim() || `VSAC ${expansion.oid}`;
+  const counts: Record<string, number> = {};
+  for (const c of expansion.codes) counts[c.vocabulary] = (counts[c.vocabulary] ?? 0) + 1;
+  const dominantVocab = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const codes = expansion.codes.map((c) => ({
+    code: c.code,
+    display: c.display,
+    system: c.vocabulary,
+  }));
+  const now = new Date().toISOString();
+  return {
+    name: trimmedName,
+    oid: expansion.oid,
+    vocabulary: dominantVocab,
+    system: dominantVocab ? dominantVocab.replace(" ", "-") : null,
+    type: expansion.type,
+    codes,
+    status: "draft",
+    description: "Imported from VSAC",
+    fhir_url: `http://spehr.live/fhir/ValueSet/${slugifyValueSetName(trimmedName)}`,
+    change_history: [
+      { at: now, actor: "S.P.E.H.R. Terminology Services", change: "Imported from VSAC" },
+    ],
+  };
 }

@@ -71,6 +71,21 @@ interface VsacValueSetResource {
   compose?: { include?: VsacInclude[] };
 }
 
+/** One entry of a FHIR `ValueSet?name:contains=...` search Bundle, trimmed
+ * to the fields `vsacSearch` reads. The VSAC FHIR terminology server uses
+ * the OID itself as the resource `id`. */
+interface VsacSearchEntryResource {
+  id?: string;
+  name?: string;
+  title?: string;
+  publisher?: string;
+  status?: string;
+}
+
+interface VsacSearchBundle {
+  entry?: Array<{ resource?: VsacSearchEntryResource }>;
+}
+
 // ─── Secret redaction ────────────────────────────────────────────────────────
 //
 // UMLS authenticates via an `apiKey` query parameter, so every upstream URL we
@@ -634,6 +649,69 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
   }
 }
 
+// ─── VSAC catalog search by keyword ──────────────────────────────────────────
+//
+// Gap 1: real terminologists check VSAC's own "Search Value Sets" catalog
+// for an already-published, steward-governed value set before authoring a
+// new one from scratch. vsacExpand above requires an exact known OID; this
+// action instead does a keyword search against the FHIR terminology
+// server's ValueSet search (GET /fhir/ValueSet?name:contains=<term>), which
+// returns a Bundle of ValueSet resources — same base URL and HTTP Basic
+// Auth pattern as vsacExpand. Never throws: any failure (network, auth, a
+// non-Bundle response) just degrades to an empty candidate list rather than
+// erroring out, same philosophy as every other action in this file.
+
+async function vsacSearch(p: Record<string, unknown>): Promise<{
+  candidates: Array<{
+    oid: string;
+    name: string | null;
+    title: string | null;
+    publisher: string | null;
+    status: string | null;
+  }>;
+}> {
+  const query = String(p.query ?? "").trim();
+  if (!query) return { candidates: [] };
+  const count = Math.max(1, Math.min(50, Number(p.count ?? 20) || 20));
+
+  try {
+    let auth: string;
+    try {
+      auth = btoa(`apikey:${UMLS_API_KEY}`);
+    } catch {
+      return { candidates: [] };
+    }
+    const qs = new URLSearchParams({ "name:contains": query, _count: String(count) });
+    const url = `https://cts.nlm.nih.gov/fhir/ValueSet?${qs}`;
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", Authorization: `Basic ${auth}` },
+    });
+    if (!res.ok) return { candidates: [] };
+
+    let bundle: VsacSearchBundle;
+    try {
+      bundle = (await res.json()) as VsacSearchBundle;
+    } catch {
+      return { candidates: [] };
+    }
+    const entries = Array.isArray(bundle?.entry) ? bundle.entry : [];
+    const candidates = entries
+      .map((e) => e?.resource)
+      .filter((r): r is VsacSearchEntryResource => !!r && !!r.id)
+      .map((r) => ({
+        oid: String(r.id),
+        name: r.name ?? null,
+        title: r.title ?? null,
+        publisher: r.publisher ?? null,
+        status: r.status ?? null,
+      }));
+    return { candidates };
+  } catch (e) {
+    console.log("[umls-proxy] vsacSearch error:", redactSecrets((e as Error).message));
+    return { candidates: [] };
+  }
+}
+
 // ─── Action type ─────────────────────────────────────────────────────────────
 
 type Action =
@@ -653,6 +731,7 @@ type Action =
   | "resolveAndValidate" // P1-A: replaces "validate" for Auto Terminologist
   | "subsumes" // P1-B: FHIR $subsumes via UMLS ancestors
   | "vsacExpand" // VSAC $expand by OID via HL7 FHIR terminology server
+  | "vsacSearch" // Gap 1: VSAC catalog keyword search (ValueSet?name:contains=)
   | "hierarchyExpand"; // P2: intensional expansion for SNOMED CT
 
 interface Body {
@@ -834,6 +913,7 @@ function buildUrl(
     case "resolveAndValidate":
     case "subsumes":
     case "vsacExpand":
+    case "vsacSearch":
     case "icd10Resolve":
     case "hierarchyExpand":
       throw new Error(`Action "${action}" must be handled before buildUrl`);
@@ -956,6 +1036,31 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      cacheSet(cacheKey, "VSAC", result).catch(() => {});
+      return new Response(JSON.stringify({ cached: false, vocabulary: "VSAC", ...result }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── vsacSearch: VSAC catalog keyword search (Gap 1) ──────────────────────
+    if (action === "vsacSearch") {
+      if (!UMLS_API_KEY) {
+        return new Response(JSON.stringify({ error: "UMLS_API_KEY not configured" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const query = String(params?.query ?? "").trim();
+      const count = Math.max(1, Math.min(50, Number(params?.count ?? 20) || 20));
+      const cacheKey = await hashKey(`vsacSearch:${query}:${count}`);
+      const cached = await cacheGet(cacheKey);
+      if (cached) {
+        return new Response(
+          JSON.stringify({ cached: true, vocabulary: "VSAC", ...(cached as object) }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const result = await vsacSearch(params ?? {});
       cacheSet(cacheKey, "VSAC", result).catch(() => {});
       return new Response(JSON.stringify({ cached: false, vocabulary: "VSAC", ...result }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
