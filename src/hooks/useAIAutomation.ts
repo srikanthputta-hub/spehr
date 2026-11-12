@@ -861,6 +861,11 @@ export async function seedAdmission(
           loinc_display: l.name,
           coding_source: "protocol",
           coded_at: new Date().toISOString(),
+          // `source` is a required column on lab_orders; previously missing
+          // here (masked by an `as any` cast on the insert), which silently
+          // failed every single auto-doc-cascade lab order via a Postgres
+          // not-null-violation that `if (error || !data) return;` swallowed.
+          source: "auto-doc-cascade",
         } as any)
         .select("id")
         .single();
