@@ -1194,6 +1194,11 @@ export type VsacExpansionResult = {
   total: number;
   type: "grouping" | "intensional" | "extensional";
   codes: Array<{ code: string; display: string; vocabulary: string }>;
+  // The FHIR ValueSet's `publisher` (e.g. "NCQA", "CMS") — the real-world
+  // steward governing this value set in VSAC. Every vsacExpand caller now
+  // carries this through from the umls-proxy response so
+  // buildVsacImportInsert() below can record it as `steward`.
+  publisher: string | null;
 };
 
 function slugifyValueSetName(name: string): string {
@@ -1218,6 +1223,11 @@ export type VsacImportInsert = {
   description: string;
   fhir_url: string;
   change_history: Array<{ at: string; actor: string; change: string }>;
+  // The VSAC ValueSet's publisher (e.g. "NCQA"), carried straight from the
+  // expansion's `publisher` — null when VSAC didn't report one. Populates
+  // `custom_value_sets.steward`, which every VSAC import path (this helper)
+  // now wires up automatically.
+  steward: string | null;
 };
 
 /**
@@ -1256,5 +1266,6 @@ export function buildVsacImportInsert(
     change_history: [
       { at: now, actor: "S.P.E.H.R. Terminology Services", change: "Imported from VSAC" },
     ],
+    steward: expansion.publisher ?? null,
   };
 }

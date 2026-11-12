@@ -69,6 +69,7 @@ interface VsacInclude {
 interface VsacValueSetResource {
   expansion?: { contains?: VsacExpansionContains[] };
   compose?: { include?: VsacInclude[] };
+  publisher?: string;
 }
 
 /** One entry of a FHIR `ValueSet?name:contains=...` search Bundle, trimmed
@@ -559,6 +560,11 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
       total: number;
       type: "grouping" | "intensional" | "extensional";
       codes: Array<{ code: string; display: string; vocabulary: string }>;
+      // The FHIR ValueSet's `publisher` field (e.g. "NCQA", "CMS") — the
+      // real-world steward governing this value set in VSAC. Surfaced so
+      // callers can record it on the imported `custom_value_sets` row (see
+      // `steward` in buildVsacImportInsert(), src/lib/value-set-registry.ts).
+      publisher: string | null;
     }
   | { error: string; status: number }
 > {
@@ -640,6 +646,7 @@ async function vsacExpand(p: Record<string, unknown>): Promise<
       total: typeof expansion.total === "number" ? expansion.total : codes.length,
       type: vsType,
       codes,
+      publisher: resource?.publisher ?? null,
     };
   } catch (e) {
     return {

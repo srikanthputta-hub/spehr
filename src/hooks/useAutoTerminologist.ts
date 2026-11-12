@@ -811,6 +811,7 @@ async function runVsacPublicationPollPass(): Promise<{ checked: number; readyToI
             ? data.type
             : "extensional") as "grouping" | "intensional" | "extensional",
           codes,
+          publisher: data.publisher ?? null,
         };
         await supabase
           .from("terminology_requests")

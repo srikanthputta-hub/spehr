@@ -82,12 +82,24 @@ const TYPE_STYLES: Record<string, string> = {
   grouping: "bg-indigo-100 text-indigo-800 border-indigo-200",
 };
 
+// Status filter chips above the list, in the order they appear. Published
+// defaults selected since that's what every real consumer queries against.
+// "deprecated" has no chip of its own — it's a brief transitional state on
+// the way to retired, not a place stewards spend time browsing.
+const STATUS_FILTER_CHIPS: Array<{ key: ValueSet["status"]; label: string }> = [
+  { key: "published", label: "Published" },
+  { key: "draft", label: "Draft" },
+  { key: "review", label: "Review" },
+  { key: "retired", label: "Retired" },
+];
+
 export function ValueSetLibrary() {
   const { gate: stewardGate, can: stewardCan } = useRolePermissions();
   const stewardAllowed = stewardCan("dictionary.steward_approve");
   const [rows, setRows] = useState<ValueSet[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ValueSet["status"]>("published");
   const [selected, setSelected] = useState<ValueSet | null>(null);
   const [publishTarget, setPublishTarget] = useState<ValueSet | null>(null);
   const [deprecateTarget, setDeprecateTarget] = useState<ValueSet | null>(null);
@@ -104,6 +116,7 @@ export function ValueSetLibrary() {
     total: number;
     type: "grouping" | "intensional" | "extensional";
     codes: Array<{ code: string; display: string; vocabulary: string }>;
+    publisher: string | null;
   } | null>(null);
   const [vsacName, setVsacName] = useState("");
   const [vsacImporting, setVsacImporting] = useState(false);
@@ -262,6 +275,7 @@ export function ValueSetLibrary() {
           ? data.type
           : "extensional") as "grouping" | "intensional" | "extensional",
         codes: Array.isArray(data.codes) ? data.codes : [],
+        publisher: data.publisher ?? null,
       };
       setVsacResult(result);
       setVsacName(result.title || result.name || `VSAC ${oid}`);
@@ -427,16 +441,26 @@ export function ValueSetLibrary() {
     }
   };
 
+  // Status filter chips above the table — client-side, since `rows` above
+  // already fetches every status unfiltered (no `status = 'published'`
+  // scoping to broaden). Defaults to "published": that's what every
+  // consumer (Safety Alerts, CDS, Billing, Population Health) actually
+  // queries against, so it's the view a steward opens this panel for most.
+  const statusFilteredRows = useMemo(
+    () => rows.filter((r) => r.status === statusFilter),
+    [rows, statusFilter],
+  );
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
-    if (!q) return rows;
-    return rows.filter(
+    if (!q) return statusFilteredRows;
+    return statusFilteredRows.filter(
       (r) =>
         r.name.toLowerCase().includes(q) ||
         (r.oid ?? "").toLowerCase().includes(q) ||
         (r.vocabulary ?? "").toLowerCase().includes(q),
     );
-  }, [rows, query]);
+  }, [statusFilteredRows, query]);
 
   const transitionStatus = async (
     row: ValueSet,
@@ -572,6 +596,34 @@ export function ValueSetLibrary() {
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+          {STATUS_FILTER_CHIPS.map((chip) => {
+            const active = statusFilter === chip.key;
+            const count = rows.filter((r) => r.status === chip.key).length;
+            return (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => setStatusFilter(chip.key)}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${
+                  active
+                    ? "border-[#0c2340] bg-[#0c2340] text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {chip.label}
+                <span
+                  className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
+                    active ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="scroll-feed rounded border border-slate-200">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 text-slate-600 sticky top-0">
@@ -607,7 +659,17 @@ export function ValueSetLibrary() {
                   className="hover:bg-slate-50 cursor-pointer"
                   onClick={() => setSelected(r)}
                 >
-                  <td className="px-3 py-2 font-semibold text-slate-900">{r.name}</td>
+                  <td className="px-3 py-2 font-semibold text-slate-900">
+                    {r.name}
+                    {r.steward && (
+                      <span
+                        className="ml-1.5 inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 align-middle"
+                        title="Steward of record, per VSAC's own publisher metadata"
+                      >
+                        Steward: {r.steward}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 font-mono text-[10px] text-slate-600">{r.oid ?? "—"}</td>
                   <td className="px-3 py-2 text-slate-700">{r.vocabulary ?? "—"}</td>
                   <td className="px-3 py-2">
@@ -914,6 +976,12 @@ export function ValueSetLibrary() {
                     <span className="font-semibold">Type:</span>{" "}
                     <span className="capitalize">{vsacResult.type}</span>
                   </div>
+                  {vsacResult.publisher && (
+                    <div>
+                      <span className="font-semibold">Publisher:</span> {vsacResult.publisher}{" "}
+                      <span className="text-slate-500">(will be recorded as steward)</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -1133,6 +1201,9 @@ function StatusBadge({
   onOpenPublish: () => void;
   onOpenDeprecate: () => void;
 }) {
+  // Labels show the next action rather than repeating the status word —
+  // the active filter chip above the table already says what status this
+  // row is, so the badge doesn't need to say it again.
   const cls = `inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize cursor-pointer ${STATUS_STYLES[row.status] ?? ""}`;
   if (row.status === "draft") {
     return (
@@ -1144,7 +1215,7 @@ function StatusBadge({
         }}
         title="Submit for review"
       >
-        draft ▸
+        Submit ▸
       </button>
     );
   }
@@ -1158,7 +1229,7 @@ function StatusBadge({
         }}
         title="Approve & publish or request changes"
       >
-        In Review ▸
+        Decide ▸
       </button>
     );
   }
@@ -1172,7 +1243,7 @@ function StatusBadge({
         }}
         title="Deprecate this value set"
       >
-        published ▸
+        Deprecate ▸
       </button>
     );
   }
