@@ -8,6 +8,7 @@ import { saveAudit, type NlpResult } from "@/lib/nlp-engine";
 import { intakeToSoap, saveIntake, type IntakeRecord } from "@/lib/intake-record";
 import type { CodeStatus } from "@/lib/patients";
 import { runSixStreamPipeline } from "@/lib/coding-pipeline";
+import { recommendDefinitionType } from "@/lib/value-set-registry";
 import type { Database } from "@/integrations/supabase/types";
 
 export interface AdmitInput {
@@ -253,6 +254,22 @@ async function requestHrrpValueSet(): Promise<void> {
     .in("status", ["pending", "drafted", "published"])
     .limit(1);
   if (existing && existing.length > 0) return;
+  const seedCodes = [
+    { code: "I50.9", display: "Heart failure, unspecified", vocabulary: "ICD-10" },
+    {
+      code: "J44.9",
+      display: "Chronic obstructive pulmonary disease, unspecified",
+      vocabulary: "ICD-10",
+    },
+    { code: "J18.9", display: "Pneumonia, unspecified organism", vocabulary: "ICD-10" },
+    { code: "I21.9", display: "Acute myocardial infarction, unspecified", vocabulary: "ICD-10" },
+    { code: "Z96.641", display: "Presence of right artificial hip joint", vocabulary: "ICD-10" },
+    { code: "Z96.652", display: "Presence of left artificial knee joint", vocabulary: "ICD-10" },
+  ];
+  const recommendation = await recommendDefinitionType({
+    vocabulary: "ICD-10",
+    candidates: seedCodes,
+  });
   await supabase.from("terminology_requests").insert({
     requesting_consumer: "Auto Admin",
     requested_name: HRRP_REQUEST_NAME,
@@ -264,19 +281,12 @@ async function requestHrrpValueSet(): Promise<void> {
     request_type: "create",
     requested_at: new Date().toISOString(),
     status: "pending",
-    seed_codes: [
-      { code: "I50.9", display: "Heart failure, unspecified", vocabulary: "ICD-10" },
-      {
-        code: "J44.9",
-        display: "Chronic obstructive pulmonary disease, unspecified",
-        vocabulary: "ICD-10",
-      },
-      { code: "J18.9", display: "Pneumonia, unspecified organism", vocabulary: "ICD-10" },
-      { code: "I21.9", display: "Acute myocardial infarction, unspecified", vocabulary: "ICD-10" },
-      { code: "Z96.641", display: "Presence of right artificial hip joint", vocabulary: "ICD-10" },
-      { code: "Z96.652", display: "Presence of left artificial knee joint", vocabulary: "ICD-10" },
-    ],
-  });
+    seed_codes: seedCodes,
+    recommended_type: recommendation.recommendedType,
+    reasoning: recommendation.reasoning,
+    suggested_root_concept: recommendation.suggestedRootConcept ?? null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
 }
 
 /**

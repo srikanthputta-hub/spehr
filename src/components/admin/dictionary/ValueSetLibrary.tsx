@@ -11,6 +11,7 @@ import {
   Check,
   Trash2,
   CloudUpload,
+  RefreshCw,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,7 @@ type ValueSet = {
   description: string | null;
   updated_at: string;
   fhir_published_at?: string | null;
+  change_history?: Array<{ at: string; actor: string; change: string }> | null;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -107,6 +109,17 @@ export function ValueSetLibrary() {
   const [log, setLog] = useState<
     Array<{ id: string; created_at: string; actor: string; message: string }>
   >([]);
+  const [resyncTarget, setResyncTarget] = useState<ValueSet | null>(null);
+  const [resyncLoading, setResyncLoading] = useState(false);
+  const [resyncError, setResyncError] = useState<string | null>(null);
+  const [resyncPreview, setResyncPreview] = useState<{
+    total: number;
+    type: "grouping" | "intensional" | "extensional";
+    codes: Array<{ code: string; display: string; vocabulary: string }>;
+    added: Array<{ code: string; display: string; vocabulary: string }>;
+    removed: Array<{ code: string; display: string; vocabulary: string }>;
+  } | null>(null);
+  const [resyncApplying, setResyncApplying] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -307,6 +320,127 @@ export function ValueSetLibrary() {
       await refreshRows();
     } finally {
       setVsacImporting(false);
+    }
+  };
+
+  // Re-sync is only offered for rows whose OID was actually assigned by
+  // real VSAC (via "Import from VSAC" above) — never for locally-authored
+  // rows, which carry a self-assigned placeholder OID in this
+  // `2.16.840.1.113883.3.spehr.<timestamp>` namespace (see AuthoringWorkbench
+  // / the Auto Terminologist's own drafts) until a human authors the real
+  // thing in VSAC and imports it by OID.
+  const SPEHR_PLACEHOLDER_OID_PREFIX = "2.16.840.1.113883.3.spehr.";
+  const isRealVsacOid = (oid: string | null): boolean =>
+    !!oid && !oid.startsWith(SPEHR_PLACEHOLDER_OID_PREFIX);
+
+  const openResync = async (row: ValueSet) => {
+    if (!row.oid) return;
+    setResyncTarget(row);
+    setResyncError(null);
+    setResyncPreview(null);
+    setResyncLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("umls-proxy", {
+        body: { action: "vsacExpand", params: { oid: row.oid } },
+      });
+      if (error) {
+        let detail = error.message ?? "Failed to reach VSAC";
+        try {
+          const ctx = error.context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            if (body?.error) detail = body.error;
+          }
+        } catch {
+          // ignore — fall back to generic message
+        }
+        setResyncError(detail);
+        return;
+      }
+      if (data?.error) {
+        setResyncError(String(data.error));
+        return;
+      }
+      const freshCodes: Array<{ code: string; display: string; vocabulary: string }> =
+        Array.isArray(data.codes) ? data.codes : [];
+      const existingCodes: Array<{ code?: string; display?: string; system?: string }> =
+        Array.isArray(row.codes) ? row.codes : [];
+      const existingByCode = new Map(existingCodes.map((c) => [String(c?.code ?? "").trim(), c]));
+      const freshByCode = new Map(freshCodes.map((c) => [c.code, c]));
+      const added = freshCodes.filter((c) => !existingByCode.has(c.code));
+      const removed = existingCodes
+        .filter((c) => {
+          const code = String(c?.code ?? "").trim();
+          return code && !freshByCode.has(code);
+        })
+        .map((c) => ({
+          code: String(c?.code ?? ""),
+          display: String(c?.display ?? ""),
+          vocabulary: String(c?.system ?? ""),
+        }));
+      setResyncPreview({
+        total: Number(data.total ?? freshCodes.length),
+        type: (data.type === "grouping" || data.type === "intensional"
+          ? data.type
+          : "extensional") as "grouping" | "intensional" | "extensional",
+        codes: freshCodes,
+        added,
+        removed,
+      });
+    } catch (e) {
+      setResyncError((e as Error).message ?? "Fetch failed");
+    } finally {
+      setResyncLoading(false);
+    }
+  };
+
+  const confirmResync = async () => {
+    if (!resyncTarget || !resyncPreview) return;
+    setResyncApplying(true);
+    try {
+      const prevCount = Array.isArray(resyncTarget.codes) ? resyncTarget.codes.length : 0;
+      const nextCount = resyncPreview.codes.length;
+      const history = Array.isArray(resyncTarget.change_history) ? resyncTarget.change_history : [];
+      const now = new Date().toISOString();
+      const codes = resyncPreview.codes.map((c) => ({
+        code: c.code,
+        display: c.display,
+        system: c.vocabulary,
+      }));
+      const { error } = await supabase
+        .from("custom_value_sets")
+        .update({
+          codes,
+          type: resyncPreview.type,
+          change_history: [
+            ...history,
+            {
+              at: now,
+              actor: "S.P.E.H.R. Terminology Services",
+              change: `Re-synced from VSAC — ${nextCount} codes, was ${prevCount} (${resyncPreview.added.length} added, ${resyncPreview.removed.length} removed)`,
+            },
+          ],
+          updated_at: now,
+        })
+        .eq("id", resyncTarget.id);
+      if (error) {
+        toast.error(`Re-sync failed: ${error.message}`);
+        return;
+      }
+      toast.success(
+        `Re-synced "${resyncTarget.name}" from VSAC — ${nextCount} codes (was ${prevCount})`,
+      );
+      logActivity(
+        "resynced_from_vsac",
+        `Re-synced "${resyncTarget.name}" from VSAC (OID ${resyncTarget.oid}) — ${nextCount} codes, was ${prevCount}`,
+        resyncTarget.id,
+      );
+      setResyncTarget(null);
+      setResyncPreview(null);
+      setResyncError(null);
+      await refreshRows();
+    } finally {
+      setResyncApplying(false);
     }
   };
 
@@ -567,6 +701,23 @@ export function ValueSetLibrary() {
                           ) : (
                             <CloudUpload className="h-3.5 w-3.5" />
                           )}
+                        </Button>
+                      )}
+                      {isRealVsacOid(r.oid) && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          {...stewardGate("dictionary.steward_approve", (e) => {
+                            e.stopPropagation();
+                            void openResync(r);
+                          })}
+                          title={
+                            stewardAllowed
+                              ? "Re-sync from VSAC — re-fetch this OID and preview what changed"
+                              : DISABLED_MESSAGE
+                          }
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
                         </Button>
                       )}
                       <Button
@@ -847,6 +998,141 @@ export function ValueSetLibrary() {
               Import as Draft
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!resyncTarget}
+        onOpenChange={(o) => {
+          if (!o) {
+            setResyncTarget(null);
+            setResyncError(null);
+            setResyncPreview(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Re-sync "{resyncTarget?.name}" from VSAC</DialogTitle>
+            <DialogDescription>
+              Re-fetches OID <span className="font-mono text-[11px]">{resyncTarget?.oid}</span> from
+              the NLM Value Set Authority Center and previews what changed since this value set was
+              last imported.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {resyncLoading && (
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching current expansion from
+                VSAC…
+              </div>
+            )}
+
+            {resyncError && (
+              <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                {resyncError}
+              </div>
+            )}
+
+            {resyncPreview && resyncTarget && (
+              <div className="space-y-2">
+                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                  <div>
+                    <span className="font-semibold">Codes now:</span>{" "}
+                    {Array.isArray(resyncTarget.codes) ? resyncTarget.codes.length : 0}
+                    {" → "}
+                    <span className="font-semibold">after re-sync:</span>{" "}
+                    {resyncPreview.codes.length}
+                  </div>
+                  <div>
+                    <span className="font-semibold text-emerald-700">
+                      +{resyncPreview.added.length} added
+                    </span>
+                    {"  ·  "}
+                    <span className="font-semibold text-rose-700">
+                      -{resyncPreview.removed.length} removed
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Type:</span>{" "}
+                    <span className="capitalize">{resyncPreview.type}</span>
+                    {resyncPreview.type !== resyncTarget.type && (
+                      <span className="text-slate-500"> (was {resyncTarget.type})</span>
+                    )}
+                  </div>
+                </div>
+
+                {resyncPreview.added.length === 0 && resyncPreview.removed.length === 0 ? (
+                  <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                    No changes — this value set is already up to date with VSAC.
+                  </div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <div className="text-xs font-semibold text-emerald-700 mb-1">
+                        Added ({resyncPreview.added.length})
+                      </div>
+                      <div className="max-h-40 overflow-auto rounded border border-slate-200">
+                        {resyncPreview.added.length === 0 ? (
+                          <div className="px-2 py-1.5 text-[11px] text-slate-400">None</div>
+                        ) : (
+                          <ul className="divide-y divide-slate-100">
+                            {resyncPreview.added.slice(0, 50).map((c, i) => (
+                              <li key={i} className="px-2 py-1 text-[11px]">
+                                <span className="font-mono text-slate-700">{c.code}</span>{" "}
+                                <span className="text-slate-600">{c.display}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-rose-700 mb-1">
+                        Removed ({resyncPreview.removed.length})
+                      </div>
+                      <div className="max-h-40 overflow-auto rounded border border-slate-200">
+                        {resyncPreview.removed.length === 0 ? (
+                          <div className="px-2 py-1.5 text-[11px] text-slate-400">None</div>
+                        ) : (
+                          <ul className="divide-y divide-slate-100">
+                            {resyncPreview.removed.slice(0, 50).map((c, i) => (
+                              <li key={i} className="px-2 py-1 text-[11px]">
+                                <span className="font-mono text-slate-700">{c.code}</span>{" "}
+                                <span className="text-slate-600">{c.display}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setResyncTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+              {...stewardGate("dictionary.steward_approve", () => void confirmResync())}
+              disabled={!stewardAllowed || !resyncPreview || resyncApplying || resyncLoading}
+            >
+              {resyncApplying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Apply Re-sync
+            </Button>
+          </DialogFooter>
+          {!stewardAllowed && (
+            <div className="text-[10px] text-amber-700 mt-1">{DISABLED_MESSAGE}</div>
+          )}
         </DialogContent>
       </Dialog>
 

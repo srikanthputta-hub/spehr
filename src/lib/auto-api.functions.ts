@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
+import { recommendDefinitionType } from "@/lib/value-set-registry";
 import type { Database } from "@/integrations/supabase/types";
 
 /**
@@ -709,6 +710,10 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
                   .eq("id", (existingReq as any).id);
               }
             } else {
+              const recommendation = await recommendDefinitionType(
+                { vocabulary: vocab, candidates: seedCodes },
+                sb,
+              );
               await sb.from("terminology_requests" as any).insert({
                 requesting_consumer: "Auto Admin",
                 requested_name: kwRaw,
@@ -718,6 +723,9 @@ export const runPopulationQuery = createServerFn({ method: "POST" })
                 seed_codes: seedCodes,
                 clinical_application: "Population Health",
                 status: "pending",
+                recommended_type: recommendation.recommendedType,
+                reasoning: recommendation.reasoning,
+                suggested_root_concept: recommendation.suggestedRootConcept ?? null,
               } as any);
             }
           }

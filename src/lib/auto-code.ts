@@ -9,6 +9,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveConcept, type Vocabulary } from "@/lib/terminology-resolver";
 import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
+import { recommendDefinitionType } from "@/lib/value-set-registry";
 import type { Database } from "@/integrations/supabase/types";
 
 interface AutoCodeContext {
@@ -94,6 +95,10 @@ async function requestCoverageIfMissing(args: {
       .in("status", ["pending", "drafted"])
       .limit(1);
     if (existing && existing.length > 0) return;
+    const recommendation = await recommendDefinitionType({
+      vocabulary,
+      candidates: [{ code, display: name, vocabulary }],
+    });
     await supabase.from("terminology_requests").insert({
       requesting_consumer: "Auto Doc",
       requested_name: name,
@@ -106,7 +111,11 @@ async function requestCoverageIfMissing(args: {
       request_type: "create",
       requested_at: new Date().toISOString(),
       status: "pending",
-    });
+      recommended_type: recommendation.recommendedType,
+      reasoning: recommendation.reasoning,
+      suggested_root_concept: recommendation.suggestedRootConcept ?? null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
   } catch (e) {
     console.warn("[auto-code] coverage-request failed", e);
   }
