@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { CardSkeleton, TableSkeleton } from "@/components/common/LoadingSkeleton";
@@ -1037,7 +1038,30 @@ type StaffMember = {
   role: string;
   facility: string;
   status: "Active" | "Suspended";
+  avatarUrl: string | null;
+  hourlyRate: number | null;
+  assignedPatients: number | null;
+  maxCapacity: number | null;
+  createdAt: string;
 };
+
+function staffInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatJoined(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatHourlyRate(rate: number | null): string {
+  if (rate == null) return "—";
+  return `$${rate.toFixed(2)}/hr`;
+}
 
 function UserDirectory() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -1050,7 +1074,9 @@ function UserDirectory() {
     setLoading(true);
     const { data, error } = await supabase
       .from("hospital_staff")
-      .select("id, name, role, facility_name, status")
+      .select(
+        "id, name, role, facility_name, status, avatar_url, hourly_rate, assigned_patients, max_capacity, created_at",
+      )
       .order("name");
     if (error) {
       toast.error("Failed to load staff directory", { description: error.message });
@@ -1064,6 +1090,11 @@ function UserDirectory() {
         role: r.role,
         facility: r.facility_name ?? "—",
         status: r.status === "Suspended" ? "Suspended" : "Active",
+        avatarUrl: r.avatar_url ?? null,
+        hourlyRate: r.hourly_rate ?? null,
+        assignedPatients: r.assigned_patients ?? null,
+        maxCapacity: r.max_capacity ?? null,
+        createdAt: r.created_at,
       })),
     );
     setLoading(false);
@@ -1107,7 +1138,7 @@ function UserDirectory() {
           👥 User Directory
           <InfoHint
             className="ml-1.5"
-            text="Network-wide staff directory with each person's clinical role, primary facility, and access status. Use Edit Access to suspend or reinstate an account."
+            text="Network-wide staff directory with each person's clinical role, primary facility, current patient workload, hourly rate, tenure, and access status. Use Edit Access to suspend or reinstate an account."
           />
         </h1>
       </div>
@@ -1125,6 +1156,15 @@ function UserDirectory() {
                 Primary Facility
               </th>
               <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
+                Workload
+              </th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
+                Rate
+              </th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
+                Joined
+              </th>
+              <th className="text-left font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
                 Status
               </th>
               <th className="text-right font-semibold uppercase tracking-wider text-[10px] px-5 py-3">
@@ -1135,41 +1175,81 @@ function UserDirectory() {
           <tbody className="divide-y divide-slate-100">
             {loading && staff.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-3">
-                  <TableSkeleton rows={6} columns={5} />
+                <td colSpan={8} className="px-4 py-3">
+                  <TableSkeleton rows={6} columns={8} />
                 </td>
               </tr>
             )}
             {!loading && staff.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10">
+                <td colSpan={8} className="px-4 py-10">
                   <EmptyState description="No staff on record yet." />
                 </td>
               </tr>
             )}
-            {staff.map((s, idx) => (
-              <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
-                <td className="px-5 py-3 font-medium text-slate-900">{s.name}</td>
-                <td className="px-5 py-3 text-slate-700">{s.role}</td>
-                <td className="px-5 py-3 text-slate-700">{s.facility}</td>
-                <td className="px-5 py-3">
-                  <StatusBadge
-                    status={s.status === "Active" ? "success" : "critical"}
-                    label={s.status}
-                  />
-                </td>
-                <td className="px-5 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(idx)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-[#2d8a9e] hover:text-[#0c2340] hover:bg-slate-50 cursor-pointer transition"
-                  >
-                    <Pencil className="h-3 w-3" />
-                    Edit Access
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {staff.map((s, idx) => {
+              const hasCapacity = typeof s.maxCapacity === "number" && s.maxCapacity > 0;
+              const assigned = s.assignedPatients ?? 0;
+              const pct = hasCapacity
+                ? Math.min(100, Math.round((assigned / (s.maxCapacity as number)) * 100))
+                : 0;
+              const loadCls =
+                pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500";
+              return (
+                <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <Avatar className="h-8 w-8 border border-slate-200">
+                        {s.avatarUrl && <AvatarImage src={s.avatarUrl} alt={s.name} />}
+                        <AvatarFallback className="bg-slate-100 text-[11px] font-semibold text-slate-600">
+                          {staffInitials(s.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="font-medium text-slate-900">{s.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 text-slate-700">{s.role}</td>
+                  <td className="px-5 py-3 text-slate-700">{s.facility}</td>
+                  <td className="px-5 py-3">
+                    {hasCapacity ? (
+                      <div className="w-28">
+                        <div className="text-[11px] font-mono text-slate-600">
+                          {assigned}/{s.maxCapacity} patients
+                        </div>
+                        <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${loadCls}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-slate-700 font-mono text-xs">
+                    {formatHourlyRate(s.hourlyRate)}
+                  </td>
+                  <td className="px-5 py-3 text-slate-500 text-xs">{formatJoined(s.createdAt)}</td>
+                  <td className="px-5 py-3">
+                    <StatusBadge
+                      status={s.status === "Active" ? "success" : "critical"}
+                      label={s.status}
+                    />
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(idx)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-[#2d8a9e] hover:text-[#0c2340] hover:bg-slate-50 cursor-pointer transition"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      Edit Access
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

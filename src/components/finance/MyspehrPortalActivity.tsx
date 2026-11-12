@@ -1,31 +1,15 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { CalendarClock, Wallet, RefreshCw, Smartphone } from "lucide-react";
+import { Wallet, RefreshCw, Smartphone } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 
 /**
- * MySPEHR Portal Activity feed. Renders the most recent Appointment and
- * PaymentNotice rows that were pushed IN to spehr by the patient portal
- * via the fhir-inbound-webhook. Mirrors the style of CdsOverridesFeed:
- * quiet list, colored decision-style badge, expandable rows for the raw
- * detail. Facility-scoped so it matches the finance board's filter.
+ * MySPEHR Portal Activity feed. Renders the most recent PaymentNotice rows
+ * that were pushed IN to spehr by the patient portal via the
+ * fhir-inbound-webhook. Mirrors the style of CdsOverridesFeed: quiet list,
+ * colored decision-style badge, expandable rows for the raw detail.
+ * Facility-scoped so it matches the finance board's filter.
  */
-
-type Appt = {
-  id: string;
-  fhir_id: string | null;
-  facility_name: string;
-  patient_mrn: string | null;
-  patient_name: string;
-  practitioner_name: string | null;
-  service_type: string | null;
-  description: string | null;
-  start_time: string;
-  end_time: string;
-  status: string;
-  comment: string | null;
-  created_at: string;
-};
 
 type Payment = {
   id: string;
@@ -52,7 +36,6 @@ function fmt(ts: string | null) {
 }
 
 export function MyspehrPortalActivity({ facility }: { facility: string }) {
-  const [appts, setAppts] = useState<Appt[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
@@ -61,29 +44,13 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
     let cancelled = false;
     async function run() {
       setLoading(true);
-      // Every row now carries a `fhir_id` (backfilled for pre-existing
-      // reception-booked rows too), so `.not("fhir_id", "is", null)` would
-      // show everything, not just portal-originated appointments. Filter
-      // on `origin` instead.
-      let apptQ = supabase
-        .from("fhir_appointments")
-        .select("*")
-        .eq("origin", "myspehr")
+      const pRes = await supabase
+        .from("fhir_payment_notices")
+        .select("*, fhir_invoices!inner(invoice_no, facility_name)")
+        .in("payment_origin", ["patient-portal", "auto-pay-timeout"])
         .order("created_at", { ascending: false })
         .limit(15);
-      if (facility && facility !== "all") apptQ = apptQ.eq("facility_name", facility);
-
-      const [aRes, pRes] = await Promise.all([
-        apptQ,
-        supabase
-          .from("fhir_payment_notices")
-          .select("*, fhir_invoices!inner(invoice_no, facility_name)")
-          .in("payment_origin", ["patient-portal", "auto-pay-timeout"])
-          .order("created_at", { ascending: false })
-          .limit(15),
-      ]);
       if (cancelled) return;
-      setAppts((aRes.data ?? []) as Appt[]);
       type PaymentJoinRow = Payment & {
         fhir_invoices?: { invoice_no?: string | null; facility_name?: string | null } | null;
       };
@@ -107,11 +74,6 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
       .channel("myspehr-portal-activity")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "fhir_appointments" },
-        () => setNonce((n) => n + 1),
-      )
-      .on(
-        "postgres_changes",
         { event: "INSERT", schema: "public", table: "fhir_payment_notices" },
         () => setNonce((n) => n + 1),
       )
@@ -121,7 +83,7 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
     };
   }, []);
 
-  const isEmpty = !loading && appts.length === 0 && payments.length === 0;
+  const isEmpty = !loading && payments.length === 0;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -133,7 +95,7 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
               MySPEHR Portal Activity
               <InfoHint
                 className="ml-1"
-                text="Appointments booked through the MySPEHR portal, plus invoice payments — either paid by the patient through the portal, or auto-paid on file after a 3-hour no-response timeout. Delivered here in real time via FHIR Subscription/DB update."
+                text="Invoice payments from the MySPEHR portal — either paid by the patient through the portal, or auto-paid on file after a 3-hour no-response timeout. Delivered here in real time via FHIR Subscription/DB update."
               />
             </h2>
           </div>
@@ -151,41 +113,11 @@ export function MyspehrPortalActivity({ facility }: { facility: string }) {
         <div className="px-5 py-8 text-center text-xs text-slate-500">Loading…</div>
       ) : isEmpty ? (
         <div className="px-5 py-8 text-center text-xs text-slate-500">
-          No portal activity yet. Once a MySPEHR patient books an appointment or pays an invoice, it
-          lands here in real time.
+          No portal activity yet. Once a MySPEHR patient pays an invoice, it lands here in real
+          time.
         </div>
       ) : (
-        <div className="grid gap-4 px-5 py-4 md:grid-cols-2">
-          <ActivityColumn
-            title="Appointments from MySPEHR"
-            icon={<CalendarClock className="h-3.5 w-3.5 text-emerald-700" />}
-            empty="No portal-booked appointments."
-          >
-            {appts.map((a) => (
-              <li
-                key={a.id}
-                className="rounded-md border border-slate-200 bg-slate-50/50 p-2.5 text-xs"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-semibold text-slate-900 truncate">
-                    {a.patient_name}
-                    <span className="ml-2 font-normal text-slate-500">{a.patient_mrn ?? "—"}</span>
-                  </div>
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                    {a.status}
-                  </span>
-                </div>
-                <div className="mt-1 text-slate-700">
-                  {a.service_type ?? a.description ?? "Appointment"}
-                </div>
-                <div className="mt-0.5 text-slate-500">
-                  {fmt(a.start_time)} · {a.facility_name}
-                  {a.practitioner_name ? ` · ${a.practitioner_name}` : ""}
-                </div>
-              </li>
-            ))}
-          </ActivityColumn>
-
+        <div className="px-5 py-4">
           <ActivityColumn
             title="Payments from MySPEHR"
             icon={<Wallet className="h-3.5 w-3.5 text-amber-700" />}
@@ -259,7 +191,7 @@ function ActivityColumn({
           {empty}
         </div>
       ) : (
-        <ul className="space-y-2">{filtered}</ul>
+        <ul className="grid gap-2 sm:grid-cols-2">{filtered}</ul>
       )}
     </div>
   );

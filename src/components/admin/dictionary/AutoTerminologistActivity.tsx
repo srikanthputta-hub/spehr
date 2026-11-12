@@ -2,10 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Bot,
-  RefreshCw,
   CheckCircle2,
   AlertTriangle,
-  Pause,
   Clock,
   Inbox,
   Archive,
@@ -35,27 +33,6 @@ type LogRow = {
   theme: string | null;
   codes_count: number | null;
 };
-
-function actionTone(action: string | null) {
-  switch (action) {
-    case "drafted_for_review":
-      return { Icon: CheckCircle2, cls: "text-emerald-700 bg-emerald-50 border-emerald-200" };
-    case "drafted":
-      return { Icon: CheckCircle2, cls: "text-sky-700 bg-sky-50 border-sky-200" };
-    case "requested":
-      return { Icon: Clock, cls: "text-amber-700 bg-amber-50 border-amber-200" };
-    case "touched":
-      return { Icon: RefreshCw, cls: "text-slate-600 bg-slate-50 border-slate-200" };
-    case "skipped":
-      return { Icon: Pause, cls: "text-amber-700 bg-amber-50 border-amber-200" };
-    case "no_gaps":
-      return { Icon: CheckCircle2, cls: "text-slate-600 bg-slate-50 border-slate-200" };
-    case "heartbeat":
-      return { Icon: RefreshCw, cls: "text-slate-500 bg-slate-50 border-slate-200" };
-    default:
-      return { Icon: AlertTriangle, cls: "text-slate-600 bg-slate-50 border-slate-200" };
-  }
-}
 
 function formatAgo(ts: string | undefined): string {
   if (!ts) return "never";
@@ -148,7 +125,7 @@ const ACTIONABLE_STATUSES = new Set(["pending", "umls-suggested"]);
 // FHIR ValueSet binding-strength badge colors, roughly by how strict the
 // recommendation is: required (strictest) through example (illustrative
 // only) — matches the severity-style badge language already used
-// elsewhere in this panel (statusBadge, actionTone above).
+// elsewhere in this panel (statusBadge above).
 function bindingStrengthBadgeClass(strength: string): string {
   switch (strength) {
     case "required":
@@ -237,14 +214,11 @@ function requestTimeLabel(iso: string): { time: string; ago: string } {
 export function AutoTerminologistActivity() {
   const { gate: stewardGate, can: stewardCan } = useRolePermissions();
   const stewardAllowed = stewardCan("dictionary.steward_approve");
-  const [rows, setRows] = useState<LogRow[]>([]);
   const [latest, setLatest] = useState<LogRow | null>(null);
-  const [loading, setLoading] = useState(true);
   const [nowTick, setNowTick] = useState(0);
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [requestQuery, setRequestQuery] = useState("");
   const [consumerFilter, setConsumerFilter] = useState<string>("All");
-  const [draftedQuery, setDraftedQuery] = useState("");
   const [deprecations, setDeprecations] = useState<DeprecationRow[]>([]);
   const [targetNames, setTargetNames] = useState<Record<string, string>>({});
   const [expandedBriefId, setExpandedBriefId] = useState<string | null>(null);
@@ -508,16 +482,6 @@ export function AutoTerminologistActivity() {
     return ["All", ...Array.from(set).sort()];
   }, [requests]);
 
-  const filteredDrafted = useMemo(() => {
-    const q = draftedQuery.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) =>
-        (r.message ?? "").toLowerCase().includes(q) ||
-        (r.theme ?? "").toLowerCase().includes(q) ||
-        (r.action ?? "").toLowerCase().includes(q),
-    );
-  }, [rows, draftedQuery]);
   // Recompute "X minutes ago" every 30s
   useEffect(() => {
     const id = setInterval(() => setNowTick((n) => n + 1), 30_000);
@@ -528,24 +492,14 @@ export function AutoTerminologistActivity() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [latestRes, draftedRes] = await Promise.all([
-        supabase
-          .from("auto_terminologist_log" as any)
-          .select("id, run_at, message, value_set_id, confidence, action, theme, codes_count")
-          .order("run_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from("auto_terminologist_log" as any)
-          .select("id, run_at, message, value_set_id, confidence, action, theme, codes_count")
-          .eq("action", "drafted")
-          .order("run_at", { ascending: false })
-          .limit(50),
-      ]);
+      const latestRes = await supabase
+        .from("auto_terminologist_log" as any)
+        .select("id, run_at, message, value_set_id, confidence, action, theme, codes_count")
+        .order("run_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
       if (!cancelled) {
         setLatest(((latestRes as any).data as any) ?? null);
-        setRows(((draftedRes as any).data as any) ?? []);
-        setLoading(false);
       }
     };
     load();
@@ -578,9 +532,6 @@ export function AutoTerminologistActivity() {
         (payload) => {
           const row = payload.new as any as LogRow;
           setLatest(row);
-          if (row.action === "drafted") {
-            setRows((r) => [row, ...r].slice(0, 50));
-          }
         },
       )
       .subscribe();
@@ -879,72 +830,6 @@ export function AutoTerminologistActivity() {
                     Copy OID
                   </button>
                 )}
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-          Value Sets Drafted
-        </div>
-        <input
-          type="text"
-          placeholder="Search drafts…"
-          value={draftedQuery}
-          onChange={(e) => setDraftedQuery(e.target.value)}
-          className="h-7 w-56 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"
-        />
-      </div>
-      <div className="scroll-feed rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
-        {loading ? (
-          <div className="px-4 py-6 text-sm text-slate-500">Loading activity…</div>
-        ) : filteredDrafted.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-slate-500">
-            {rows.length === 0 ? "No value sets drafted yet." : "No matches for your search."}
-          </div>
-        ) : (
-          filteredDrafted.map((r) => {
-            const { Icon, cls } = actionTone(r.action);
-            const time = new Date(r.run_at).toLocaleString([], {
-              month: "short",
-              day: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-            return (
-              <div key={r.id} className="flex items-start gap-3 px-4 py-3">
-                <span
-                  className={`mt-0.5 inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold ${cls}`}
-                >
-                  <Icon className="h-3 w-3" />
-                  {(r.action ?? "log").replace(/_/g, " ")}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-slate-800 leading-snug">{r.message}</p>
-                  <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                    <span>{time}</span>
-                    {r.theme && (
-                      <span>
-                        theme: <span className="font-medium text-slate-700">{r.theme}</span>
-                      </span>
-                    )}
-                    {typeof r.confidence === "number" && (
-                      <span>
-                        confidence:{" "}
-                        <span className="font-medium text-slate-700">
-                          {r.confidence.toFixed(2)}
-                        </span>
-                      </span>
-                    )}
-                    {typeof r.codes_count === "number" && r.codes_count > 0 && (
-                      <span>
-                        {r.codes_count} code{r.codes_count === 1 ? "" : "s"}
-                      </span>
-                    )}
-                  </div>
-                </div>
               </div>
             );
           })
