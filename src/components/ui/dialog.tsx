@@ -21,7 +21,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      "fixed inset-0 z-50 bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 print:hidden",
       className,
     )}
     {...props}
@@ -38,7 +38,21 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
+        // Base (screen): a centered modal pinned to the viewport via fixed
+        // positioning + a translate-based center trick.
+        //
+        // Print: `position: fixed` content is re-anchored to *every* printed
+        // page's own containing block, and doesn't contribute to the
+        // in-flow height the print engine uses to decide how many pages to
+        // lay out. For a dialog taller than one page, that combination
+        // causes real content loss / overlap at page breaks — e.g. a
+        // letterhead header "fixed" at top:50% translated gets clipped or
+        // repainted over body content instead of the dialog flowing
+        // normally across pages. Printable dialogs (see
+        // DischargeSummaryModal, BillModal) rely on this print: override to
+        // paginate correctly, so every Dialog gets it for free here rather
+        // than each call site re-deriving it.
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg print:static print:left-auto print:top-auto print:z-auto print:w-auto print:max-w-none print:translate-x-0 print:translate-y-0 print:transform-none print:overflow-visible print:border-0 print:shadow-none",
         className,
       )}
       {...props}
