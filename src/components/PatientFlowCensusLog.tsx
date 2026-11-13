@@ -279,7 +279,7 @@ function DischargeSummaryModal({
           style={{ fontFamily: '"Times New Roman", Times, serif' }}
         >
           {/* Letterhead */}
-          <div className="text-center border-b-2 border-slate-900 pb-5 mb-6">
+          <div className="text-center border-b-2 border-slate-900 pb-5 mb-6 print:break-inside-avoid">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">{facility}</h1>
             <p className="mt-2 text-[12px] font-semibold uppercase tracking-[0.3em] text-slate-600">
               Official Clinical Discharge Summary

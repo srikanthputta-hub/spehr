@@ -692,7 +692,7 @@ function BillModal({
 
         <div className="px-10 py-8 font-sans text-slate-800 print:px-12 print:py-10">
           {/* Letterhead */}
-          <div className="flex items-start justify-between border-b-2 border-slate-900 pb-5 mb-6">
+          <div className="flex items-start justify-between border-b-2 border-slate-900 pb-5 mb-6 print:break-inside-avoid">
             <div>
               <h1 className="font-serif text-3xl font-bold tracking-tight text-slate-900">
                 {facility}
@@ -810,7 +810,7 @@ function BillModal({
               </section>
 
               {/* Totals */}
-              <section className="flex justify-end">
+              <section className="flex justify-end print:break-inside-avoid">
                 <div className="w-full md:w-80 text-sm">
                   <div className="flex justify-between py-1.5 border-b border-slate-200">
                     <span className="text-slate-600">Subtotal</span>
