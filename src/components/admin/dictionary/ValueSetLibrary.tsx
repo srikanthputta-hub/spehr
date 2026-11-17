@@ -44,7 +44,12 @@ import { toast } from "sonner";
 import { ExpandCard } from "@/components/admin/dictionary/FhirOpCards";
 import { InfoHint } from "@/components/ui/info-hint";
 import { useRolePermissions, DISABLED_MESSAGE } from "@/hooks/useRolePermissions";
-import { buildVsacImportInsert } from "@/lib/value-set-registry";
+import {
+  buildVsacImportInsert,
+  linkPendingDependencies,
+  formatDependencyLinkedMessages,
+  summarizeLinkedDependenciesForToast,
+} from "@/lib/value-set-registry";
 
 type ValueSet = {
   id: string;
@@ -297,18 +302,37 @@ export function ValueSetLibrary() {
       // `system` can legitimately be null (no codes yet) even though the
       // generated Insert type marks it required — same pre-existing gap
       // the old inline insert object here always needed `as any` for.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await supabase.from("custom_value_sets").insert(insert as any);
+      const { data, error } = await supabase
+        .from("custom_value_sets")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .insert(insert as any)
+        .select("id")
+        .single();
       if (error) {
         setVsacError(error.message);
         return;
       }
       const codesCount = insert.codes.length;
-      toast.success(`Imported "${insert.name}" (${codesCount} codes) as draft`);
+      const valueSetId = String((data as { id?: string } | null)?.id ?? "");
+      // Close the loop: wire up any value_set_dependencies row that was
+      // waiting on exactly this value set's name (see linkPendingDependencies
+      // in src/lib/value-set-registry.ts) and surface it to the reviewer
+      // instead of leaving the dependency silently dangling.
+      const linked = valueSetId ? await linkPendingDependencies(insert.name, valueSetId) : [];
+      // `buildVsacImportInsert` always returns "draft" today — this check is
+      // defensive/future-proof so the confirmation never overclaims "active"
+      // if that ever changes, rather than hardcoding false.
+      const isPublished = (insert.status as string) === "published";
+      toast.success(
+        `Imported "${insert.name}" (${codesCount} codes) as draft${summarizeLinkedDependenciesForToast(linked, isPublished)}`,
+      );
       logActivity(
         "imported_from_vsac",
         `Imported "${insert.name}" from VSAC (${codesCount} codes) — OID ${vsacResult.oid}`,
       );
+      for (const msg of formatDependencyLinkedMessages(insert.name, linked, isPublished)) {
+        logActivity("dependency_linked", msg, valueSetId || null);
+      }
       setVsacOpen(false);
       setVsacOid("");
       setVsacResult(null);

@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { recommendDefinitionType, suggestedRootConceptForStorage } from "./value-set-registry";
+import {
+  recommendDefinitionType,
+  suggestedRootConceptForStorage,
+  linkPendingDependencies,
+  describeLinkedDependency,
+  formatDependencyLinkedMessages,
+  summarizeLinkedDependenciesForToast,
+  type LinkedDependency,
+} from "./value-set-registry";
 
 /**
  * Tests for the 4 capabilities layered onto recommendDefinitionType():
@@ -613,6 +621,262 @@ describe("buildVsacImportInsert — shared VSAC import payload (Gap 2)", () => {
       "No Publisher",
     );
     expect(insert.steward).toBeNull();
+  });
+});
+
+/**
+ * Tests for Gap 3 (close-the-loop): linkPendingDependencies and the
+ * human-readable confirmation helpers built on top of it.
+ *
+ * A fake `value_set_dependencies` table is modeled directly as
+ * `.select().eq().is()` / `.update().eq().is()` chains — the exact shape
+ * linkPendingDependencies calls — so these never touch a real Supabase
+ * project.
+ */
+type DepRow = {
+  id: string;
+  consumer: string;
+  purpose: string;
+  lookup_mode: string | null;
+  value_set_name: string;
+  value_set_id: string | null;
+};
+
+function makeDependencyClient(opts: { rows: DepRow[]; selectError?: Error; updateError?: Error }) {
+  const rows = opts.rows;
+  return {
+    from: vi.fn((table: string) => {
+      if (table !== "value_set_dependencies") {
+        throw new Error(`unexpected table: ${table}`);
+      }
+      return {
+        select: vi.fn(() => ({
+          eq: vi.fn((col: keyof DepRow, val: string) => ({
+            is: vi.fn((col2: keyof DepRow, val2: unknown) => {
+              if (opts.selectError) return Promise.resolve({ data: null, error: opts.selectError });
+              const matched = rows.filter((r) => r[col] === val && r[col2] === val2);
+              return Promise.resolve({
+                data: matched.map(({ id, consumer, purpose, lookup_mode }) => ({
+                  id,
+                  consumer,
+                  purpose,
+                  lookup_mode,
+                })),
+                error: null,
+              });
+            }),
+          })),
+        })),
+        update: vi.fn((patch: Partial<DepRow>) => ({
+          eq: vi.fn((col: keyof DepRow, val: string) => ({
+            is: vi.fn((col2: keyof DepRow, val2: unknown) => {
+              if (opts.updateError) return Promise.resolve({ error: opts.updateError });
+              const row = rows.find((r) => r[col] === val);
+              // Mirrors a real `UPDATE ... WHERE id = :val AND value_set_id IS NULL`
+              // — only actually writes (and only counts as success) when the
+              // guard still holds, same race-safety linkPendingDependencies relies on.
+              if (row && row[col2] === val2) {
+                Object.assign(row, patch);
+              }
+              return Promise.resolve({ error: null });
+            }),
+          })),
+        })),
+      };
+    }),
+    // Same test-double convention `makeClient` above uses for its `from` —
+    // the real `SupabaseClient["from"]` return type is a deep generic
+    // PostgrestQueryBuilder chain that a plain object double can't satisfy
+    // structurally, so this is cast rather than widened production-side.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+}
+
+describe("linkPendingDependencies — Gap 3: close the loop on import", () => {
+  it("links a single pending dependency row matching the imported name exactly", async () => {
+    const rows: DepRow[] = [
+      {
+        id: "dep-1",
+        consumer: "Safety Alerts Engine",
+        purpose: "rule3-high-acuity",
+        lookup_mode: "by_name",
+        value_set_name: "High-Acuity ED Presentations",
+        value_set_id: null,
+      },
+    ];
+    const client = makeDependencyClient({ rows });
+
+    const linked = await linkPendingDependencies(
+      "High-Acuity ED Presentations",
+      "vs-new-1",
+      client,
+    );
+
+    expect(linked).toEqual([
+      {
+        id: "dep-1",
+        consumer: "Safety Alerts Engine",
+        purpose: "rule3-high-acuity",
+        lookup_mode: "by_name",
+      },
+    ]);
+    expect(rows[0].value_set_id).toBe("vs-new-1");
+  });
+
+  it("links every row when more than one dependency names the same value set", async () => {
+    const rows: DepRow[] = [
+      {
+        id: "dep-a",
+        consumer: "Safety Alerts Engine · Drug-Allergy",
+        purpose: "penicillin",
+        lookup_mode: "drug",
+        value_set_name: "Penicillin Class Drugs",
+        value_set_id: null,
+      },
+      {
+        id: "dep-b",
+        consumer: "Safety Alerts Engine",
+        purpose: "rule1-drug-allergy",
+        lookup_mode: "by_name",
+        value_set_name: "Penicillin Class Drugs",
+        value_set_id: null,
+      },
+    ];
+    const client = makeDependencyClient({ rows });
+
+    const linked = await linkPendingDependencies("Penicillin Class Drugs", "vs-pen", client);
+
+    expect(linked.map((l) => l.id).sort()).toEqual(["dep-a", "dep-b"]);
+    expect(rows.every((r) => r.value_set_id === "vs-pen")).toBe(true);
+  });
+
+  it("is an exact, case-sensitive match — a differently-cased or partial name is never linked", async () => {
+    const rows: DepRow[] = [
+      {
+        id: "dep-1",
+        consumer: "Safety Alerts Engine",
+        purpose: "rule4-sepsis",
+        lookup_mode: "by_name",
+        value_set_name: "Sepsis Indicators",
+        value_set_id: null,
+      },
+    ];
+    const client = makeDependencyClient({ rows });
+
+    const linked = await linkPendingDependencies("sepsis indicators", "vs-x", client);
+
+    expect(linked).toEqual([]);
+    expect(rows[0].value_set_id).toBeNull();
+  });
+
+  it("never touches a dependency row that is already linked", async () => {
+    const rows: DepRow[] = [
+      {
+        id: "dep-1",
+        consumer: "Safety Alerts Engine",
+        purpose: "rule2-anticoag-bleed",
+        lookup_mode: "by_name",
+        value_set_name: "Anticoagulants",
+        value_set_id: "already-linked",
+      },
+    ];
+    const client = makeDependencyClient({ rows });
+
+    const linked = await linkPendingDependencies("Anticoagulants", "vs-new", client);
+
+    expect(linked).toEqual([]); // the .is("value_set_id", null) select filter excludes it
+    expect(rows[0].value_set_id).toBe("already-linked");
+  });
+
+  it("returns an empty list (never throws) when no dependency names this value set", async () => {
+    const client = makeDependencyClient({ rows: [] });
+    const linked = await linkPendingDependencies("Some Brand New Value Set", "vs-1", client);
+    expect(linked).toEqual([]);
+  });
+
+  it("degrades gracefully (empty list, no throw) when the select fails", async () => {
+    const client = makeDependencyClient({ rows: [], selectError: new Error("db down") });
+    const linked = await linkPendingDependencies("Anything", "vs-1", client);
+    expect(linked).toEqual([]);
+  });
+
+  it("skips (but doesn't throw for) a row whose update fails", async () => {
+    const rows: DepRow[] = [
+      {
+        id: "dep-1",
+        consumer: "Safety Alerts Engine",
+        purpose: "rule2-anticoag-bleed",
+        lookup_mode: "by_name",
+        value_set_name: "NSAIDs",
+        value_set_id: null,
+      },
+    ];
+    const client = makeDependencyClient({ rows, updateError: new Error("rls denied") });
+    const linked = await linkPendingDependencies("NSAIDs", "vs-1", client);
+    expect(linked).toEqual([]);
+  });
+
+  it("is a no-op for an empty/blank imported name", async () => {
+    const client = makeDependencyClient({ rows: [] });
+    const linked = await linkPendingDependencies("   ", "vs-1", client);
+    expect(linked).toEqual([]);
+    expect(client.from).not.toHaveBeenCalled();
+  });
+});
+
+describe("describeLinkedDependency / formatDependencyLinkedMessages / summarizeLinkedDependenciesForToast", () => {
+  const dep: LinkedDependency = {
+    id: "dep-1",
+    consumer: "Safety Alerts Engine",
+    purpose: "rule3-high-acuity",
+    lookup_mode: null,
+  };
+  const pairDep: LinkedDependency = {
+    id: "dep-2",
+    consumer: "Safety Alerts Engine · Drug-Allergy",
+    purpose: "penicillin",
+    lookup_mode: "allergen",
+  };
+
+  it("describeLinkedDependency omits the lookup_mode suffix when there is none", () => {
+    expect(describeLinkedDependency(dep)).toBe("Safety Alerts Engine / rule3-high-acuity");
+  });
+
+  it("describeLinkedDependency includes the lookup_mode suffix for a Drug-Allergy side", () => {
+    expect(describeLinkedDependency(pairDep)).toBe(
+      "Safety Alerts Engine · Drug-Allergy / penicillin (allergen)",
+    );
+  });
+
+  it("formatDependencyLinkedMessages produces one line per dependency, never overclaiming 'active' for a draft import", () => {
+    const lines = formatDependencyLinkedMessages(
+      "High-Acuity ED Presentations",
+      [dep, pairDep],
+      false,
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(
+      '"High-Acuity ED Presentations" imported and linked — Safety Alerts Engine / rule3-high-acuity is now linked — will activate once this value set is published.',
+    );
+    expect(lines[1]).toContain("Safety Alerts Engine · Drug-Allergy / penicillin (allergen)");
+    for (const line of lines) expect(line).not.toContain("is now active");
+  });
+
+  it("formatDependencyLinkedMessages says 'is now active' once the import is already published", () => {
+    const lines = formatDependencyLinkedMessages("X", [dep], true);
+    expect(lines[0]).toContain("is now active");
+    expect(lines[0]).not.toContain("will activate");
+  });
+
+  it("summarizeLinkedDependenciesForToast is empty when nothing was linked", () => {
+    expect(summarizeLinkedDependenciesForToast([], false)).toBe("");
+  });
+
+  it("summarizeLinkedDependenciesForToast names every satisfied dependency", () => {
+    const summary = summarizeLinkedDependenciesForToast([dep, pairDep], false);
+    expect(summary).toContain("now linked");
+    expect(summary).toContain("Safety Alerts Engine / rule3-high-acuity");
+    expect(summary).toContain("Safety Alerts Engine · Drug-Allergy / penicillin (allergen)");
   });
 });
 
