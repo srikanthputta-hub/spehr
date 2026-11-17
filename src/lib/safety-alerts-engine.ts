@@ -19,6 +19,11 @@ import {
   loadPublishedValueSetsForConsumer,
   requestTerminologyUpdate,
 } from "@/lib/value-set-registry";
+import {
+  classTokens,
+  extensionalContains,
+  substanceMatchesClass,
+} from "../../supabase/functions/_shared/safety-alerts-matching";
 
 /* ------------------------------------------------------------------ */
 /*  Value-set cache                                                    */
@@ -108,72 +113,14 @@ export async function loadAllPublishedValueSets(): Promise<VsRow[]> {
   return allVsCache;
 }
 
-/**
- * Extract meaningful allergy-class tokens from a value set name. Stopwords
- * describe the container (allergy, allergen, drugs, class, vocabulary
- * suffixes) rather than the clinical class itself.
- */
-const VS_NAME_STOPWORDS = new Set([
-  "allergy",
-  "allergies",
-  "allergen",
-  "allergens",
-  "hypersensitivity",
-  "class",
-  "drug",
-  "drugs",
-  "medication",
-  "medications",
-  "agents",
-  "agent",
-  "rxnorm",
-  "snomed",
-  "loinc",
-  "optum",
-  "spehr",
-  "auto",
-  "and",
-  "or",
-  "the",
-  "of",
-  "for",
-  "with",
-  "to",
-]);
-
-function classTokens(name: string): string[] {
-  const cleaned = name
-    .replace(/\([^)]*\)/g, " ") // drop parenthetical vocabulary tags
-    .replace(/[^A-Za-z]+/g, " ")
-    .toLowerCase();
-  const out: string[] = [];
-  for (const raw of cleaned.split(/\s+/)) {
-    if (raw.length < 4) continue;
-    if (VS_NAME_STOPWORDS.has(raw)) continue;
-    out.push(raw);
-  }
-  return out;
-}
-
-function substanceMatchesClass(substance: string, tokens: string[]): boolean {
-  const s = substance.toLowerCase();
-  if (!s) return false;
-  for (const t of tokens) {
-    if (s.includes(t)) return true;
-  }
-  return false;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Membership checks                                                  */
+/*  classTokens / substanceMatchesClass / extensionalContains now live  */
+/*  in supabase/functions/_shared/safety-alerts-matching.ts (imported   */
+/*  above) so Auto Terminologist's proactive sweep — which runs this    */
+/*  exact matching logic server-side, over standing chart data — shares */
+/*  one implementation with Rule 1 instead of forking a copy.           */
 /* ------------------------------------------------------------------ */
-
-function extensionalContains(vs: VsRow | undefined, code: string): boolean {
-  if (!vs || !Array.isArray(vs.codes)) return false;
-  const c = String(code).trim();
-  if (!c) return false;
-  return vs.codes.some((r) => String(r?.code ?? "").trim() === c);
-}
 
 function anyContains(sets: VsRow[], code: string): boolean {
   return sets.some((s) => extensionalContains(s, code));
