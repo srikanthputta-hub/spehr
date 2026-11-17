@@ -1108,6 +1108,14 @@ export async function recommendDefinitionType(
  * mirrors the real-world "change request" pattern where a terminologist
  * consolidates repeat asks rather than processing the same ask twice.
  *
+ * Every duplicate hit also increments `occurrence_count` — a real signal
+ * for "how many times has this exact gap actually been hit," distinct from
+ * `seed_codes.length` (which only grows when a *new* code is seen, and
+ * plateaus once the same handful of codes keep re-triggering the same
+ * request). Starts at 1 on first insert; the human triage queue
+ * (AutoTerminologistActivity.tsx's "Needs Your Review" section) sorts by
+ * this descending so the highest-impact gaps surface first.
+ *
  * Files a suggestion brief only: `recommendDefinitionType` decides and
  * records recommended_type/reasoning/suggested_root_concept on the row, but
  * nothing here ever creates a `custom_value_sets` row — that only happens
@@ -1165,6 +1173,9 @@ export async function requestTerminologyUpdate(
         recommendation.knownVsacCandidates && recommendation.knownVsacCandidates.length > 0
           ? recommendation.knownVsacCandidates
           : null,
+      // First real hit for this (consumer, name) gap — see the merge branch
+      // below for how repeat hits bump this.
+      occurrence_count: 1,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
@@ -1178,10 +1189,16 @@ export async function requestTerminologyUpdate(
     }
 
     // Unique-violation: a pending request for this (consumer, name) already
-    // exists — merge our seed codes into it instead of creating a duplicate.
+    // exists — merge our seed codes into it instead of creating a
+    // duplicate, and bump occurrence_count regardless of whether any seed
+    // code was actually new: hitting this branch at all means the exact
+    // same gap (requesting_consumer + requested_name) was triggered again,
+    // which is itself the real-world occurrence this counter tracks (e.g.
+    // the same MRN re-triggering the identical seed code is still one more
+    // occurrence, even though seed_codes.length doesn't grow).
     const { data: existing } = await client
       .from("terminology_requests")
-      .select("id, seed_codes")
+      .select("id, seed_codes, occurrence_count")
       .eq("requesting_consumer", req.requesting_consumer)
       .eq("requested_name", req.requested_name)
       .eq("status", "pending")
@@ -1199,11 +1216,20 @@ export async function requestTerminologyUpdate(
       seen.add(code);
       merged.push(c);
     }
-    if (merged.length === prevCodes.length) return; // nothing new to add
-    await client
-      .from("terminology_requests")
-      .update({ seed_codes: merged, updated_at: new Date().toISOString() })
-      .eq("id", existing.id);
+    // Pre-migration / defensive: a row read before this column existed (or
+    // never backfilled for some other reason) reads back as null — treat
+    // that as "1 occurrence so far" rather than propagating NaN.
+    const prevOccurrenceCount = Number(existing.occurrence_count) || 1;
+    const update: {
+      occurrence_count: number;
+      updated_at: string;
+      seed_codes?: Array<{ code: string; display?: string }>;
+    } = {
+      occurrence_count: prevOccurrenceCount + 1,
+      updated_at: new Date().toISOString(),
+    };
+    if (merged.length !== prevCodes.length) update.seed_codes = merged;
+    await client.from("terminology_requests").update(update).eq("id", existing.id);
   } catch (e) {
     console.warn("[value-set-registry] requestTerminologyUpdate failed", (e as Error)?.message);
   }

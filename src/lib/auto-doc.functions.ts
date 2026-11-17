@@ -2,9 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 
 /**
  * Headless Auto Doc entry point. Called by:
- *   - the in-app Live Automation Loop after admitting a new patient,
- *   - the public hook `/api/public/hooks/auto-doc` triggered by the DB
- *     `patients_auto_doc_after_insert` trigger.
+ *   - the in-app Live Automation Loop after admitting a new patient
+ *     (requires a browser tab with the app open),
+ *   - the public hook `/api/public/hooks/auto-doc?all=1`, the pg_cron
+ *     backfill target that makes this reliable with no tab open (see
+ *     backfillMissingAutoDocRuns() in auto-doc.server.ts — the DB trigger
+ *     this comment used to name here was dropped long ago and never
+ *     recreated).
  * Idempotent: short-circuits if the patient's run is already complete.
  */
 export const runAutoDoc = createServerFn({ method: "POST" })

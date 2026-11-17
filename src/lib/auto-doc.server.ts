@@ -142,6 +142,70 @@ export async function umlsCodes(term: string, vocab: keyof typeof VOCAB_MAP): Pr
 
 /* ---------------- Pipeline ---------------- */
 
+const HRRP_REQUEST_NAME = "CMS Hospital Readmissions Reduction Program (HRRP) Conditions";
+
+// Server-side counterpart of admit-patient.ts's client-only
+// requestHrrpValueSet(). Same request name / seed codes / dedup rule, so
+// the two call sites can never produce duplicate terminology_requests
+// rows — only which admission path reaches it first.
+async function requestHrrpValueSet(sb: typeof supabaseAdmin): Promise<void> {
+  const { data: existing } = await sb
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .from("terminology_requests" as any)
+    .select("id")
+    .eq("requested_name", HRRP_REQUEST_NAME)
+    .in("status", ["pending", "drafted", "published"])
+    .limit(1);
+  if (existing && existing.length > 0) return;
+  const seedCodes = [
+    { code: "I50.9", display: "Heart failure, unspecified", vocabulary: "ICD-10" },
+    {
+      code: "J44.9",
+      display: "Chronic obstructive pulmonary disease, unspecified",
+      vocabulary: "ICD-10",
+    },
+    { code: "J18.9", display: "Pneumonia, unspecified organism", vocabulary: "ICD-10" },
+    { code: "I21.9", display: "Acute myocardial infarction, unspecified", vocabulary: "ICD-10" },
+    { code: "Z96.641", display: "Presence of right artificial hip joint", vocabulary: "ICD-10" },
+    { code: "Z96.652", display: "Presence of left artificial knee joint", vocabulary: "ICD-10" },
+  ];
+  const justification =
+    "Need a governed value set of HRRP-tracked diagnoses to flag admissions for enhanced discharge planning";
+  const recommendation = await recommendDefinitionType(
+    {
+      vocabulary: "ICD-10",
+      candidates: seedCodes,
+      requestedName: HRRP_REQUEST_NAME,
+      justification,
+      context: { clinicalApplication: "Billing", requestingConsumer: "Auto Admin" },
+    },
+    sb,
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await sb.from("terminology_requests" as any).insert({
+    requesting_consumer: "Auto Admin",
+    requested_name: HRRP_REQUEST_NAME,
+    justification,
+    vocabulary: "ICD-10",
+    clinical_application: "Billing",
+    priority: "high",
+    request_type: "create",
+    requested_at: new Date().toISOString(),
+    status: "pending",
+    seed_codes: seedCodes,
+    recommended_type: recommendation.recommendedType,
+    reasoning: recommendation.reasoning,
+    suggested_root_concept: suggestedRootConceptForStorage(recommendation),
+    recommended_binding_strength: recommendation.recommendedBindingStrength,
+    possible_existing_match: recommendation.possibleExistingMatch,
+    clinical_focus: recommendation.clinicalFocus,
+    data_element_scope: recommendation.dataElementScope,
+    inclusion_criteria: recommendation.inclusionCriteria,
+    exclusion_criteria: recommendation.exclusionCriteria,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+}
+
 export async function runAutoDocPipeline(mrn: string) {
   const sb = admin();
 
@@ -764,6 +828,26 @@ export async function runAutoDocPipeline(mrn: string) {
     );
   }
 
+  // Auto Admin → Auto Terminologist: request an HRRP tracked-conditions
+  // value set. This used to run ONLY client-side, from the manual "Admit
+  // Patient" modal (`requestHrrpValueSet()` in admit-patient.ts) — fine
+  // while that modal was the only admission path, but it is not anymore.
+  // `auto_admit_due_appointments` (pg_cron, every minute) now admits most
+  // patients straight from booked appointments via
+  // `admit_patient_from_appointment()`, a plpgsql function that inserts
+  // into `patients` directly and never touches admit-patient.ts, so the
+  // HRRP request silently never got filed for that path. Running the same
+  // check here — inside the genuinely server-executed Auto Doc pipeline,
+  // which every admission now reaches (see backfillMissingAutoDocRuns
+  // below) — covers every admission path. Dedup is by requested_name, so
+  // this and the client-side call (left in place for instant UX on the
+  // manual flow) can never double-file.
+  try {
+    await requestHrrpValueSet(sb);
+  } catch (e) {
+    console.warn("[auto-doc] HRRP coverage-request failed", (e as Error).message);
+  }
+
   await setRunStage(mrn, "complete");
   await log(mrn, "complete", `Auto Doc episode complete for MRN-${mrn} (${tpl.condition})`);
 
@@ -1017,6 +1101,119 @@ async function orderImagingForMrn(
     results.push({ examType: img.examType, svcId, pushed: pushed.ok, status: pushed.status });
   }
   return { results, inserted, errors };
+}
+
+/* ------------------------------------------------------------------
+ * Auto Doc pipeline backfill.
+ *
+ * Why this exists: runAutoDocPipeline() above is genuinely server-side
+ * (service-role client, no RLS, no browser involved) once it is actually
+ * invoked — but for a long time the only thing that invoked it per
+ * admission was the Postgres trigger `patients_auto_doc_after_insert`
+ * (AFTER INSERT ON public.patients -> net.http_post -> this pipeline's own
+ * public hook). That trigger was permanently dropped in migration
+ * 20260619161440_03dbef44-07f1-426d-8f02-3f87c9a27052.sql (for an
+ * unrelated reason — it was bulk-inserting duplicate "Administered" med
+ * rows) and never recreated; confirmed live on the deployed project
+ * (qxyvmvtecnnwqeqaouzh): `patients` carries no such trigger today, only
+ * trg_patients_auto_code_ins/upd, trg_set_target_discharge_at and
+ * trg_touch_updated_at. The code comments in
+ * src/routes/api/public/hooks/auto-doc.ts and auto-doc.functions.ts still
+ * described that trigger as the live mechanism — they were stale.
+ *
+ * Since then, the ONLY thing left calling runAutoDoc() per admission has
+ * been the in-app client: useAIAutomation's `admission-randomizer` realtime
+ * channel (fires on INSERT only while some browser tab has the app open)
+ * plus a once-per-tab-mount `reconcileActiveAdmissions()` sweep. Both
+ * require a tab to be open — the exact same reliability class as the bug
+ * just fixed for the Safety Alerts Engine's realtime watcher
+ * (useSafetyAlertsWatcher.ts). Every admission path that bypasses the
+ * in-app client entirely — most importantly `auto_admit_due_appointments`
+ * (pg_cron, every minute) -> `admit_patient_from_appointment()`, which
+ * inserts into `patients` directly from plpgsql — gets NO Auto Doc run at
+ * all (no notes, no UMLS coding, no FHIR, and none of the terminology-gap
+ * filing this pipeline does for both Auto Doc and, as of the HRRP check
+ * added above, Auto Admin) until some tab happens to open and either
+ * catches the realtime event (it won't — the row already exists) or the
+ * once-per-mount reconcile sweep happens to run.
+ *
+ * This function + the `?all=1` cron target on the public hook restores a
+ * genuine, tab-independent guarantee, the same way backfillMissingInvoices
+ * / generate-invoice?all=1 already does for billing. It does NOT touch or
+ * duplicate the client-side staged med/lab cascade (seedAdmission) —
+ * runAutoDocPipeline never inserts those rows itself.
+ * ------------------------------------------------------------------ */
+export async function backfillMissingAutoDocRuns(): Promise<{
+  ok: true;
+  processed: number;
+  skipped: number;
+  errors: string[];
+}> {
+  const sb = admin();
+  // Bounded scan, newest admissions first, same shape as the client's own
+  // reconcileActiveAdmissions() — the admitted/recently-admitted census is
+  // inherently bounded, so no RPC is needed.
+  const { data: patientsList } = await sb
+    .from("patients")
+    .select("mrn, admission_time")
+    .not("mrn", "is", null)
+    .order("admission_time", { ascending: false })
+    .limit(300);
+  const mrns = Array.from(
+    new Set(
+      ((patientsList ?? []) as Array<{ mrn: string | null }>).map((p) => p.mrn).filter(Boolean),
+    ),
+  ) as string[];
+
+  let processed = 0;
+  let skipped = 0;
+  const errorCounts = new Map<string, number>();
+  if (mrns.length === 0) return { ok: true, processed, skipped, errors: [] };
+
+  const { data: runs } = await sb.from("auto_doc_runs").select("mrn, status").in("mrn", mrns);
+  const completed = new Set(
+    ((runs ?? []) as Array<{ mrn: string; status: string | null }>)
+      .filter((r) => r.status === "complete")
+      .map((r) => r.mrn),
+  );
+
+  // Small per-invocation batch (matches backfillMissingInvoices' reasoning):
+  // runAutoDocPipeline does many sequential round-trips per patient, and
+  // this is both a cron target and a request-scoped handler — keep each
+  // invocation reliably fast, let the next cron tick pick up the rest.
+  const BATCH_LIMIT = 15;
+  let taken = 0;
+  for (const mrn of mrns) {
+    if (completed.has(mrn)) {
+      skipped++;
+      continue;
+    }
+    if (taken >= BATCH_LIMIT) {
+      skipped++;
+      continue;
+    }
+    taken++;
+    try {
+      const res = await runAutoDocPipeline(mrn);
+      if (res.ok) {
+        processed++;
+      } else {
+        skipped++;
+        const msg = (res as { error?: string }).error ?? "pipeline failed";
+        errorCounts.set(msg, (errorCounts.get(msg) ?? 0) + 1);
+      }
+    } catch (e) {
+      skipped++;
+      const msg = (e as Error)?.message ?? "unknown error";
+      errorCounts.set(msg, (errorCounts.get(msg) ?? 0) + 1);
+      await log(mrn, "error", `Auto Doc pipeline backfill failed: ${msg}`, null, "error");
+    }
+  }
+  const errors = [...errorCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([msg, n]) => `(${n}x) ${msg}`);
+  return { ok: true, processed, skipped, errors };
 }
 
 /* ---------------- Radiology backfill ---------------- */
