@@ -21,7 +21,13 @@ import { Trash2 } from "lucide-react";
 import { InfoHint } from "@/components/ui/info-hint";
 import { toast } from "sonner";
 import { useRolePermissions, DISABLED_MESSAGE } from "@/hooks/useRolePermissions";
-import { buildVsacImportInsert, type VsacExpansionResult } from "@/lib/value-set-registry";
+import {
+  buildVsacImportInsert,
+  linkPendingDependencies,
+  formatDependencyLinkedMessages,
+  summarizeLinkedDependenciesForToast,
+  type VsacExpansionResult,
+} from "@/lib/value-set-registry";
 
 type LogRow = {
   id: string;
@@ -374,8 +380,47 @@ export function AutoTerminologistActivity() {
     setRequests((rs) =>
       rs.map((x) => (x.id === r.id ? { ...x, status: "resolved", resolved_at: now } : x)),
     );
+
+    // Close the loop: wire up any value_set_dependencies row that was
+    // waiting on exactly this value set's name (see linkPendingDependencies
+    // in src/lib/value-set-registry.ts) — shared tail for both one-click
+    // "Import Now" flows below, so this covers each of them.
+    const linked = valueSetId ? await linkPendingDependencies(insert.name, valueSetId) : [];
+    // `buildVsacImportInsert` always returns "draft" today — this check is
+    // defensive/future-proof so the confirmation never overclaims "active"
+    // if that ever changes, rather than hardcoding false.
+    const isPublished = (insert.status as string) === "published";
+    if (linked.length > 0) {
+      for (const msg of formatDependencyLinkedMessages(insert.name, linked, isPublished)) {
+        // Mirrors useAutoTerminologist.ts's own logActivity/logToBus
+        // pattern (auto_terminologist_log + the shared terminology_activity_log
+        // bus) — that hook isn't imported from here, so this writes the same
+        // two rows directly rather than duplicating its background-cycle code.
+        try {
+          await supabase.from("auto_terminologist_log").insert({
+            message: msg,
+            value_set_id: valueSetId,
+            action: "dependency_linked",
+          });
+        } catch (e) {
+          console.warn("[auto-term] dependency-linked log failed", e);
+        }
+        try {
+          await supabase.from("terminology_activity_log").insert({
+            feature: "library",
+            actor: "Auto Terminologist",
+            action: "dependency_linked",
+            message: msg,
+            ref_id: valueSetId,
+          });
+        } catch (e) {
+          console.warn("[auto-term] dependency-linked bus log failed", e);
+        }
+      }
+    }
+
     toast.success(
-      `Imported "${insert.name}" (${insert.codes.length} codes) from VSAC as draft — request resolved`,
+      `Imported "${insert.name}" (${insert.codes.length} codes) from VSAC as draft — request resolved${summarizeLinkedDependenciesForToast(linked, isPublished)}`,
     );
   };
 
