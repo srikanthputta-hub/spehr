@@ -3063,6 +3063,14 @@ export type Database = {
           known_vsac_candidates: Json | null;
           last_vsac_check_at: string | null;
           linked_vsac_oid: string | null;
+          // How many times this exact (requesting_consumer, requested_name)
+          // gap has actually been hit — starts at 1 on insert and is
+          // incremented by requestTerminologyUpdate()'s merge path
+          // (src/lib/value-set-registry.ts) on every duplicate-pending
+          // detection, distinct from seed_codes.length. See the migration
+          // 20261117010000_terminology_requests_occurrence_count.sql for
+          // the authoritative column docs.
+          occurrence_count: number | null;
           priority: string;
           quality_gate_notes: string | null;
           related_mrn: string | null;
@@ -3089,6 +3097,7 @@ export type Database = {
           known_vsac_candidates?: Json | null;
           last_vsac_check_at?: string | null;
           linked_vsac_oid?: string | null;
+          occurrence_count?: number | null;
           priority: string;
           quality_gate_notes?: string | null;
           related_mrn?: string | null;
@@ -3115,6 +3124,7 @@ export type Database = {
           known_vsac_candidates?: Json | null;
           last_vsac_check_at?: string | null;
           linked_vsac_oid?: string | null;
+          occurrence_count?: number | null;
           priority?: string;
           quality_gate_notes?: string | null;
           related_mrn?: string | null;
