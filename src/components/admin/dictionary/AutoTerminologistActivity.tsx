@@ -15,6 +15,7 @@ import {
   CheckCheck,
   Link2,
   Loader2,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import { Trash2 } from "lucide-react";
@@ -114,6 +115,13 @@ type RequestRow = {
   linked_vsac_oid?: string | null;
   last_vsac_check_at?: string | null;
   vsac_expansion_preview?: VsacExpansionResult | null;
+  // How many times this exact (requesting_consumer, requested_name) gap
+  // has actually been hit — incremented by requestTerminologyUpdate()'s
+  // merge path (src/lib/value-set-registry.ts) every time a duplicate
+  // pending request comes in, distinct from seed_codes.length. Drives the
+  // "Needs Your Review" section's impact sort below. Null for rows read
+  // before the column existed; treated as 1 everywhere it's used.
+  occurrence_count?: number | null;
 };
 
 // Statuses a suggestion brief can still be actioned from — anything the
@@ -167,6 +175,14 @@ function statusBadge(status: string | null): string {
   return "text-amber-700 bg-amber-50 border-amber-200"; // pending
 }
 
+// A published value set with no review_due/needs_review column of its own
+// yet (checked the live custom_value_sets schema before adding this — see
+// the health-summary effect below) counts as "due for review" once it's
+// been this many days since publish without a steward revisiting it: a
+// reasonable default annual terminology-governance cadence, consistent
+// with the kind of review-due flag a parallel effort would likely add.
+const STALE_VALUE_SET_DAYS = 365;
+
 // Statuses a human can still paste a VSAC OID into via "Link VSAC OID" —
 // once a request is sent to VSAC for authoring but hasn't yet had its OID
 // linked for the background publication-detection pass (Gap 2).
@@ -201,6 +217,20 @@ function sectionOf(r: RequestRow): RequestSection {
   return "review";
 }
 
+// Rank used to sort "Needs Your Review" by impact: occurrence_count first
+// (see RequestRow.occurrence_count doc comment above), priority as the
+// tiebreaker — a real terminologist triages the gap hit most often first,
+// then the most clinically urgent one among ties, not whichever arrived
+// most recently.
+const PRIORITY_RANK: Record<string, number> = { urgent: 3, high: 2, normal: 1, low: 0 };
+
+function reviewImpactRank(r: RequestRow): { occurrenceCount: number; priorityRank: number } {
+  return {
+    occurrenceCount: Number(r.occurrence_count) || 1,
+    priorityRank: PRIORITY_RANK[String(r.priority ?? "normal").toLowerCase()] ?? 1,
+  };
+}
+
 function requestTimeLabel(iso: string): { time: string; ago: string } {
   const time = new Date(iso).toLocaleString([], {
     month: "short",
@@ -220,6 +250,12 @@ export function AutoTerminologistActivity() {
   const [requestQuery, setRequestQuery] = useState("");
   const [consumerFilter, setConsumerFilter] = useState<string>("All");
   const [deprecations, setDeprecations] = useState<DeprecationRow[]>([]);
+  // Terminology health summary — see loadHealth() below for what each of
+  // these three signals means and where it comes from.
+  const [dormantConsumerRules, setDormantConsumerRules] = useState<
+    Array<{ consumer: string; count: number }>
+  >([]);
+  const [staleValueSetCount, setStaleValueSetCount] = useState<number | null>(null);
   const [targetNames, setTargetNames] = useState<Record<string, string>>({});
   const [expandedBriefId, setExpandedBriefId] = useState<string | null>(null);
   const [actioningId, setActioningId] = useState<string | null>(null);
@@ -473,6 +509,19 @@ export function AutoTerminologistActivity() {
       resolved: [],
     };
     for (const r of filteredRequests) buckets[sectionOf(r)].push(r);
+    // "Needs Your Review" is triaged by impact, not arrival order: highest
+    // occurrence_count (how many times this exact gap has actually been
+    // hit) first, then priority as a tiebreaker. The other 3 sections keep
+    // their original requested_at-desc order — "Ready to Import" is "click
+    // to resolve" regardless of impact, "Awaiting" and "Resolved" are
+    // status-driven, not triage queues. Array.sort is stable, so rows tied
+    // on both keys keep their requested_at-desc order.
+    buckets.review.sort((a, b) => {
+      const ra = reviewImpactRank(a);
+      const rb = reviewImpactRank(b);
+      if (rb.occurrenceCount !== ra.occurrenceCount) return rb.occurrenceCount - ra.occurrenceCount;
+      return rb.priorityRank - ra.priorityRank;
+    });
     return buckets;
   }, [filteredRequests]);
 
@@ -481,6 +530,37 @@ export function AutoTerminologistActivity() {
     for (const r of requests) if (r.requesting_consumer) set.add(r.requesting_consumer);
     return ["All", ...Array.from(set).sort()];
   }, [requests]);
+
+  // Terminology health summary, part 1: open (not-yet-resolved) gaps
+  // bucketed by age, plus the subset carrying an elevated priority — real
+  // signals of how much is piling up and how urgent it is, derived from
+  // the same `requests` state the 4 lifecycle sections already render
+  // from (not a separate query). Deliberately a plain per-render
+  // computation, not a useMemo keyed on `requests` alone — same reasoning
+  // as the per-row "ago" labels below: the component already re-renders
+  // every 30s via the nowTick clock, and recomputing from Date.now() on
+  // each of those renders is what lets "open < 24h" roll into "open 1–7
+  // days" as time passes, without needing a fresh fetch.
+  const openGapHealth = (() => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const buckets = { under24h: 0, oneTo7Days: 0, over7Days: 0 };
+    const byPriority: Record<string, number> = {};
+    const now = Date.now();
+    for (const r of requests) {
+      if (String(r.status ?? "pending") === "resolved") continue;
+      const ageMs = now - new Date(r.requested_at).getTime();
+      if (ageMs < DAY_MS) buckets.under24h++;
+      else if (ageMs <= 7 * DAY_MS) buckets.oneTo7Days++;
+      else buckets.over7Days++;
+      const p = String(r.priority ?? "normal").toLowerCase();
+      byPriority[p] = (byPriority[p] ?? 0) + 1;
+    }
+    return {
+      buckets,
+      byPriority,
+      total: buckets.under24h + buckets.oneTo7Days + buckets.over7Days,
+    };
+  })();
 
   // Recompute "X minutes ago" every 30s
   useEffect(() => {
@@ -507,7 +587,7 @@ export function AutoTerminologistActivity() {
       const { data } = await supabase
         .from("terminology_requests" as any)
         .select(
-          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id, value_set_id, recommended_type, reasoning, suggested_root_concept, recommended_binding_strength, possible_existing_match, clinical_focus, data_element_scope, inclusion_criteria, exclusion_criteria, known_vsac_candidates, linked_vsac_oid, last_vsac_check_at, vsac_expansion_preview",
+          "id, requesting_consumer, requested_name, justification, priority, status, quality_gate_notes, requested_at, resolved_at, seed_codes, vocabulary, clinical_application, request_type, target_value_set_id, value_set_id, recommended_type, reasoning, suggested_root_concept, recommended_binding_strength, possible_existing_match, clinical_focus, data_element_scope, inclusion_criteria, exclusion_criteria, known_vsac_candidates, linked_vsac_oid, last_vsac_check_at, vsac_expansion_preview, occurrence_count",
         )
         .order("requested_at", { ascending: false })
         .limit(50);
@@ -588,6 +668,61 @@ export function AutoTerminologistActivity() {
     };
   }, []);
 
+  // Terminology health summary, part 2: dormant consumer-rule count and
+  // stale-value-set count. Both are read-only against tables this panel
+  // doesn't otherwise own (value_set_dependencies, custom_value_sets) —
+  // never written here.
+  useEffect(() => {
+    let cancelled = false;
+    const loadHealth = async () => {
+      // Dormant consumer rules: value_set_dependencies rows a consumer
+      // registered but that still resolve to no published value set
+      // (value_set_id IS NULL) — exactly how much of each consumer's
+      // clinical automation (e.g. the Safety Alerts Engine's rule set) is
+      // still blocked on a human authoring the real VSAC value set.
+      const { data: dormantRows } = await supabase
+        .from("value_set_dependencies")
+        .select("consumer")
+        .is("value_set_id", null);
+      if (!cancelled) {
+        const counts = new Map<string, number>();
+        for (const row of (dormantRows ?? []) as Array<{ consumer: string | null }>) {
+          const key = row.consumer || "Unlabeled consumer";
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+        setDormantConsumerRules(
+          Array.from(counts.entries())
+            .map(([consumer, count]) => ({ consumer, count }))
+            .sort((a, b) => b.count - a.count),
+        );
+      }
+
+      // Stale value sets: custom_value_sets has no review_due/needs_review
+      // column (checked the live schema before writing this — a parallel
+      // effort may add one later), so staleness is computed inline from
+      // published_at age instead: a published value set that hasn't been
+      // revisited in over a year is overdue for a steward to re-review it
+      // against current VSAC/UMLS content. A null published_at can't be
+      // aged, so those rows are left out rather than guessed at.
+      const staleCutoffIso = new Date(
+        Date.now() - STALE_VALUE_SET_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      const { count: staleCount } = await supabase
+        .from("custom_value_sets")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "published")
+        .not("published_at", "is", null)
+        .lt("published_at", staleCutoffIso);
+      if (!cancelled) setStaleValueSetCount(staleCount ?? 0);
+    };
+    loadHealth();
+    const id = setInterval(loadHealth, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
   // Resolve target_value_set_id -> name for any deprecation-request rows in view.
   useEffect(() => {
     const ids = Array.from(
@@ -657,6 +792,89 @@ export function AutoTerminologistActivity() {
           <span className="font-semibold text-slate-700">Safety Alerts Engine</span>
           <span className="ml-1 text-slate-500">→ medication/allergy safety</span>
         </span>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
+        <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <Activity className="h-3.5 w-3.5" />
+          Terminology Health
+          <InfoHint
+            className="ml-0.5"
+            text="Read-only signals, computed from terminology_requests, value_set_dependencies and custom_value_sets — nothing on this panel ever writes to those tables. Open-gap age/priority is already-filed demand still waiting on a steward; dormant consumer rules are registered dependencies (value_set_dependencies) with no published value set behind them yet — exactly how much of each consumer's clinical automation is blocked on authoring. Stale value sets are flagged by published_at age since custom_value_sets doesn't carry its own review-due column yet."
+          />
+        </div>
+        <div className="grid gap-3 text-[11px] sm:grid-cols-3">
+          <div className="flex items-start gap-2">
+            <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <div>
+              <div className="font-semibold text-slate-700">Open Gaps by Age</div>
+              <div className="mt-0.5 text-slate-600">
+                <span className="font-semibold text-emerald-700">
+                  {openGapHealth.buckets.under24h}
+                </span>{" "}
+                open &lt; 24h
+                {" · "}
+                <span className="font-semibold text-amber-700">
+                  {openGapHealth.buckets.oneTo7Days}
+                </span>{" "}
+                open 1–7 days
+                {" · "}
+                <span className="font-semibold text-red-700">
+                  {openGapHealth.buckets.over7Days}
+                </span>{" "}
+                open &gt; 7 days
+              </div>
+              {(openGapHealth.byPriority.urgent || openGapHealth.byPriority.high) && (
+                <div className="mt-0.5 text-slate-500">
+                  {["urgent", "high"]
+                    .filter((p) => openGapHealth.byPriority[p])
+                    .map((p) => `${openGapHealth.byPriority[p]} ${p} priority`)
+                    .join(" · ")}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <Archive className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <div>
+              <div className="font-semibold text-slate-700">Dormant Consumer Rules</div>
+              {dormantConsumerRules.length === 0 ? (
+                <div className="mt-0.5 text-slate-400">
+                  None — every registered rule resolves to a published value set.
+                </div>
+              ) : (
+                <div className="mt-0.5 space-y-0.5 text-slate-600">
+                  {dormantConsumerRules.map((d) => (
+                    <div key={d.consumer}>
+                      <span className="font-semibold text-slate-700">{d.consumer}</span>: {d.count}{" "}
+                      rule{d.count === 1 ? "" : "s"} still blocked
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <div>
+              <div className="font-semibold text-slate-700">Stale Value Sets</div>
+              <div className="mt-0.5 text-slate-600">
+                {staleValueSetCount == null ? (
+                  <span className="text-slate-400">loading…</span>
+                ) : staleValueSetCount === 0 ? (
+                  <span className="text-slate-400">
+                    None published over {STALE_VALUE_SET_DAYS} days ago.
+                  </span>
+                ) : (
+                  <>
+                    <span className="font-semibold text-amber-700">{staleValueSetCount}</span>{" "}
+                    published over {STALE_VALUE_SET_DAYS} days ago — due for review
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-3 pt-1">
@@ -1125,6 +1343,14 @@ function ReviewRow({
             {r.priority && r.priority !== "normal" && (
               <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
                 priority: {r.priority}
+              </span>
+            )}
+            {!isDeprecate && Number(r.occurrence_count) > 1 && (
+              <span
+                className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700"
+                title="How many times this exact gap (same requesting consumer + requested name) has actually been hit — not just how many distinct seed codes were merged into it. This section is sorted by this, highest first."
+              >
+                Hit {r.occurrence_count}×
               </span>
             )}
           </div>
