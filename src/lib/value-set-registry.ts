@@ -104,6 +104,12 @@ export async function requestTerminologyUpdate(
     seed_codes: Array<{ code: string; display?: string }>;
     clinical_application?: string;
     related_mrn?: string | null;
+    // "deprecate" (+ target_value_set_id) files the demand queue's other
+    // half — a request asking a steward to retire an EXISTING published
+    // value set — instead of the default "create" (author a new one). See
+    // the full doc comment on the shared implementation.
+    request_type?: "create" | "deprecate";
+    target_value_set_id?: string | null;
   },
   client: MinimalUmlsClient = supabase,
 ): Promise<void> {

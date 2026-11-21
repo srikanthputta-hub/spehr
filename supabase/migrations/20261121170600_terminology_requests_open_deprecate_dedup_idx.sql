@@ -1,0 +1,31 @@
+-- Mirrors terminology_requests_pending_dedup_idx (migration
+-- 20261112162643), but for the deprecate side of the demand queue.
+--
+-- The create-path's unique index is scoped `WHERE status = 'pending'`
+-- because a filed create request STAYS 'pending' through quality-gate
+-- failures and recommendation-stamping, right up until a human resolves
+-- it — so "pending" alone is a safe proxy for "still open."
+--
+-- A filed deprecate request does NOT behave that way: as soon as the
+-- demand pass (processPendingTerminologyRequests in
+-- auto-terminologist-cycle.ts) processes one whose target is published,
+-- it flips the request's status straight to 'drafted' (and flags the
+-- target value set "deprecation-suggested") well before a human steward
+-- resolves it via Approve/Dismiss in AutoTerminologistActivity.tsx. A
+-- `WHERE status = 'pending'` index would stop protecting a deprecate
+-- request the moment that happens, letting every later dormancy-sweep
+-- cycle (or a racing manual "Deprecate" click) file a second, third, ...
+-- duplicate request against the exact same value set while the first is
+-- still sitting unresolved in "Needs Your Review."
+--
+-- fileDeprecationRequest() (supabase/functions/_shared/value-set-registry.ts)
+-- already pre-checks for an open (non-resolved) deprecate request against
+-- the same target_value_set_id before inserting, but that check-then-insert
+-- is not atomic on its own — this index is the hard guarantee, exactly
+-- like the create-path's own unique index backs up
+-- requestTerminologyUpdate()'s pending-row check. A 23505 hit here is
+-- already handled as a harmless no-op (same `insertErr.code !== "23505"`
+-- branch the create path uses), not an error path that needs new code.
+CREATE UNIQUE INDEX terminology_requests_open_deprecate_dedup_idx
+  ON public.terminology_requests (target_value_set_id)
+  WHERE request_type = 'deprecate' AND status <> 'resolved';

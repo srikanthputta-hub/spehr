@@ -49,6 +49,7 @@ import {
   linkPendingDependencies,
   formatDependencyLinkedMessages,
   summarizeLinkedDependenciesForToast,
+  requestTerminologyUpdate,
 } from "@/lib/value-set-registry";
 
 type ValueSet = {
@@ -108,6 +109,7 @@ export function ValueSetLibrary() {
   const [selected, setSelected] = useState<ValueSet | null>(null);
   const [publishTarget, setPublishTarget] = useState<ValueSet | null>(null);
   const [deprecateTarget, setDeprecateTarget] = useState<ValueSet | null>(null);
+  const [deprecateSubmitting, setDeprecateSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ValueSet | null>(null);
   const [fhirPublishing, setFhirPublishing] = useState<string | null>(null);
   const [vsacOpen, setVsacOpen] = useState(false);
@@ -530,6 +532,50 @@ export function ValueSetLibrary() {
     setSelected((s) => (s && s.id === row.id ? { ...s, status: next, ...(extra as any) } : s));
   };
 
+  /**
+   * The "Deprecate" button no longer mutates `custom_value_sets.status`
+   * directly (that used to bypass the demand queue entirely — an instant,
+   * unreviewed status flip with no audit trail). It now files a governed
+   * `request_type: 'deprecate'` terminology_requests row via the shared
+   * requestTerminologyUpdate() — the exact same path the automated
+   * dormancy sweep in auto-terminologist-cycle.ts uses — so a
+   * human-initiated deprecation goes through the same review step
+   * (Auto Terminologist Activity's "Needs Your Review" → Approve/Dismiss)
+   * as an automated one, with the same audit trail. The demand pass picks
+   * this up on its next 10-minute cycle and flags the target
+   * "deprecation-suggested"; nothing here touches custom_value_sets.
+   */
+  const requestDeprecation = async (row: ValueSet) => {
+    setDeprecateSubmitting(true);
+    try {
+      await requestTerminologyUpdate({
+        requesting_consumer: "Value Set Library · Manual Deprecation Request",
+        requested_name: row.name,
+        justification: `Steward-initiated deprecation request for "${row.name}" via the Value Set Library's "Deprecate" action.`,
+        priority: "normal",
+        vocabulary: row.vocabulary ?? undefined,
+        seed_codes: [],
+        clinical_application: "Terminology Governance",
+        request_type: "deprecate",
+        target_value_set_id: row.id,
+      });
+      toast.success(
+        `Deprecation requested for "${row.name}" — review it in Auto Terminologist's "Needs Your Review" queue once the next cycle flags it.`,
+      );
+      logActivity(
+        "deprecation_requested",
+        `Deprecation requested for "${row.name}" — awaiting Auto Terminologist review`,
+        row.id,
+      );
+    } catch (e) {
+      toast.error(
+        `Failed to file deprecation request: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      setDeprecateSubmitting(false);
+    }
+  };
+
   // How many live consumers reference this value set, across every table
   // that stores a `custom_value_sets.id` FK-by-convention (there is no real
   // FK — see value_set_dependencies/cross_reactivity_rules/drug_interaction_rules
@@ -886,10 +932,14 @@ export function ValueSetLibrary() {
       <Dialog open={!!deprecateTarget} onOpenChange={(o) => !o && setDeprecateTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Deprecate this value set?</DialogTitle>
+            <DialogTitle>Request deprecation of this value set?</DialogTitle>
             <DialogDescription>
-              <span className="font-semibold">{deprecateTarget?.name}</span> will be marked inactive
-              in the registry. Existing references remain but new bindings are discouraged.
+              This files a governed deprecation request for{" "}
+              <span className="font-semibold">{deprecateTarget?.name}</span> — the same
+              propose-then-review workflow as creating a value set. It won't be marked inactive yet:
+              Auto Terminologist's next cycle flags it "deprecation-suggested," and a steward then
+              approves or dismisses the request from "Needs Your Review" in Auto Terminologist
+              Activity.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
@@ -898,14 +948,19 @@ export function ValueSetLibrary() {
             </Button>
             <Button
               className="bg-rose-600 hover:bg-rose-700 text-white"
+              disabled={deprecateSubmitting}
               onClick={async () => {
                 const t = deprecateTarget;
                 if (!t) return;
                 setDeprecateTarget(null);
-                await transitionStatus(t, "deprecated", null, "Deprecated");
+                await requestDeprecation(t);
               }}
             >
-              Confirm Deprecate
+              {deprecateSubmitting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                "Submit Deprecation Request"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1265,9 +1320,9 @@ function StatusBadge({
           e.stopPropagation();
           onOpenDeprecate();
         }}
-        title="Deprecate this value set"
+        title="Request deprecation of this value set — files a governed request for a steward to review, same as authoring a new one"
       >
-        Deprecate ▸
+        Request Deprecation ▸
       </button>
     );
   }
@@ -1614,7 +1669,7 @@ function ValueSetDrawer({
               <button
                 className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize cursor-pointer hover:ring-2 hover:ring-rose-300 ${STATUS_STYLES[vs.status]}`}
                 onClick={() => onDeprecate(vs)}
-                title="Deprecate this value set"
+                title="Request deprecation of this value set — files a governed request for a steward to review"
               >
                 published ▸
               </button>
