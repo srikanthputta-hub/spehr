@@ -1100,6 +1100,90 @@ export async function recommendDefinitionType(
   return { recommendedType: "extensional", ...shared };
 }
 
+/* ------------------------------------------------------------------ */
+/*  Deprecate requests — the demand queue's OTHER half                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `requestTerminologyUpdate`'s deprecate-type branch. Deliberately separate
+ * from the create-type insert below it: a deprecate request has no
+ * vocabulary/candidate-code/UMLS question for `recommendDefinitionType` to
+ * answer (it's asking a steward to retire something that already exists,
+ * not author something new), and its dedup rule is different — see the
+ * `request_type` doc comment on `requestTerminologyUpdate` above for why
+ * the create-path's `(requesting_consumer, requested_name) WHERE
+ * status = 'pending'` unique index doesn't cover this case.
+ *
+ * Never throws (same never-blocks-the-caller philosophy as the rest of
+ * this module) — any failure here just means the dormancy/manual trigger
+ * that called this didn't get its request filed this time; the next sweep
+ * (or a retried manual click) tries again.
+ */
+async function fileDeprecationRequest(
+  req: {
+    requesting_consumer: string;
+    requested_name: string;
+    justification: string;
+    priority?: "low" | "normal" | "high" | "urgent";
+    vocabulary?: string;
+    seed_codes: Array<{ code: string; display?: string }>;
+    clinical_application?: string;
+    related_mrn?: string | null;
+    target_value_set_id?: string | null;
+  },
+  client: MinimalUmlsClient,
+): Promise<void> {
+  const targetId = req.target_value_set_id ?? null;
+  try {
+    if (targetId) {
+      // Already an open (not yet resolved) deprecate request against this
+      // exact value set — pending (not yet picked up by the demand pass),
+      // drafted (picked up — the target is already flagged
+      // "deprecation-suggested" and waiting on a steward's Approve/Dismiss),
+      // or sent_to_vsac/rejected (shouldn't normally apply to a deprecate
+      // row, but excluded defensively too). Skip re-filing a duplicate
+      // rather than piling up redundant rows a steward would have to
+      // triage one-by-one for the same value set.
+      const { data: existingOpen } = await client
+        .from("terminology_requests")
+        .select("id")
+        .eq("request_type", "deprecate")
+        .eq("target_value_set_id", targetId)
+        .neq("status", "resolved")
+        .limit(1)
+        .maybeSingle();
+      if (existingOpen) return;
+    }
+
+    const { error: insertErr } = await client.from("terminology_requests").insert({
+      requesting_consumer: req.requesting_consumer,
+      requested_name: req.requested_name,
+      justification: req.justification,
+      priority: req.priority ?? "normal",
+      vocabulary: req.vocabulary ?? null,
+      seed_codes: req.seed_codes ?? [],
+      clinical_application: req.clinical_application ?? null,
+      related_mrn: req.related_mrn ?? null,
+      status: "pending",
+      request_type: "deprecate",
+      target_value_set_id: targetId,
+      requested_at: new Date().toISOString(),
+      occurrence_count: 1,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    if (insertErr && insertErr.code !== "23505") {
+      console.warn("[value-set-registry] fileDeprecationRequest insert failed", insertErr.message);
+    }
+    // A 23505 here means two callers raced on the exact same
+    // (requesting_consumer, requested_name) while both still "pending" —
+    // the pre-check above already covers the far more likely race (a
+    // different-named duplicate for the same target_value_set_id), so this
+    // is just a harmless no-op rather than something to merge into.
+  } catch (e) {
+    console.warn("[value-set-registry] fileDeprecationRequest failed", (e as Error)?.message);
+  }
+}
+
 /**
  * File (or extend) a governed change request against the Auto Terminologist
  * demand queue (`terminology_requests`). If a PENDING request already exists
@@ -1120,6 +1204,22 @@ export async function recommendDefinitionType(
  * records recommended_type/reasoning/suggested_root_concept on the row, but
  * nothing here ever creates a `custom_value_sets` row — that only happens
  * once a human authors the value set in real VSAC and imports it by OID.
+ *
+ * `request_type` defaults to `"create"` (every pre-existing call site keeps
+ * compiling/behaving unchanged). Passing `"deprecate"` + `target_value_set_id`
+ * files the OTHER half of the demand queue instead — a request asking a
+ * human steward to retire an EXISTING published value set (filed by the
+ * value-set dormancy pass in auto-terminologist-cycle.ts, or by a human via
+ * ValueSetLibrary.tsx's "Deprecate" button) rather than author a new one.
+ * A deprecate request skips `recommendDefinitionType` entirely — there is
+ * no vocabulary/UMLS-hierarchy question to answer about retiring something
+ * that already exists — and is deduped by a direct check for an existing
+ * NOT-YET-RESOLVED deprecate request against the same `target_value_set_id`
+ * (the pending-only unique index below doesn't cover this case: the demand
+ * pass flips a filed deprecate request's status to `"drafted"` as soon as
+ * it processes it — see `processPendingTerminologyRequests` — so it stops
+ * being `"pending"` long before a human resolves it, and would otherwise be
+ * re-filed by every later sweep in the meantime).
  */
 export async function requestTerminologyUpdate(
   req: {
@@ -1131,9 +1231,17 @@ export async function requestTerminologyUpdate(
     seed_codes: Array<{ code: string; display?: string }>;
     clinical_application?: string;
     related_mrn?: string | null;
+    request_type?: "create" | "deprecate";
+    // Required (ignored otherwise) when request_type is "deprecate" — the
+    // `custom_value_sets.id` a steward is being asked to retire.
+    target_value_set_id?: string | null;
   },
   client: MinimalUmlsClient,
 ): Promise<void> {
+  if (req.request_type === "deprecate") {
+    await fileDeprecationRequest(req, client);
+    return;
+  }
   try {
     const recommendation = await recommendDefinitionType(
       {

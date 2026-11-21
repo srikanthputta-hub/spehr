@@ -48,6 +48,15 @@
  *   5. NEW — Value-set staleness: flags published `custom_value_sets`
  *      rows that haven't been published or re-synced from VSAC in over
  *      ~6 months as due for a human review (never auto-re-syncs).
+ *   6. NEW — Value-set dormancy: the real producer behind the "N
+ *      deprecation(s) suggested" UI counter. Files a governed
+ *      `request_type: 'deprecate'` row (via the same requestTerminologyUpdate()
+ *      every other producer uses) for a published value set with zero
+ *      registered `value_set_dependencies` consumers, sustained over the
+ *      same ~6-month governance cadence as step 5 — never deprecates
+ *      anything itself; step 1's demand pass is what flags the target
+ *      "deprecation-suggested" once filed, and only a human steward's
+ *      explicit Approve (AutoTerminologistActivity.tsx) ever retires it.
  *
  * The engine NEVER drafts a value set, NEVER submits for review, and NEVER
  * publishes. Every `custom_value_sets` write still requires a human action
@@ -1133,6 +1142,118 @@ export async function runValueSetStalenessPass(
 }
 
 /* ------------------------------------------------------------------ */
+/*  NEW — Value-set dormancy (the automated deprecation producer)      */
+/*  The UI has always shown an "N deprecation(s) suggested" counter    */
+/*  and the demand pass above has always known how to ACT on a         */
+/*  `request_type: 'deprecate'` row — but nothing ever FILED one.      */
+/*  Every real insert into `terminology_requests` hardcoded "create",  */
+/*  and the only way to deprecate a value set was ValueSetLibrary.tsx's */
+/*  manual button, which bypassed the demand queue entirely (direct    */
+/*  `custom_value_sets.status` mutation, no review step, no audit      */
+/*  trail). This pass is the real producer: it detects published value */
+/*  sets that look genuinely dormant and files a governed deprecate    */
+/*  request for each one via the existing requestTerminologyUpdate()   */
+/*  (never a hand-rolled insert), so deprecation goes through the same */
+/*  propose-then-review workflow as creation.                         */
+/*                                                                      */
+/*  Dormancy signal: zero `value_set_dependencies` rows reference the  */
+/*  value set (checked against the live schema — that table has no    */
+/*  soft-delete/active flag, so "a row exists pointing at this id" IS  */
+/*  "has an active consumer"; `required` only distinguishes a hard vs. */
+/*  soft binding, not whether the row itself is live) AND it's been    */
+/*  published for a SUSTAINED period (VALUE_SET_DORMANCY_GRACE_MS)      */
+/*  with that still true — not a single-cycle blip. A freshly-published */
+/*  value set legitimately has no consumers yet; only once it's been   */
+/*  sitting unused for a real governance cadence does that become a    */
+/*  genuine signal. The other candidate signal the task brief raised — */
+/*  "explicitly superseded by a newer VSAC OID/version" — isn't        */
+/*  something the live schema can express today (no                   */
+/*  superseded-by/replacement-OID column on custom_value_sets), so it's */
+/*  deliberately NOT implemented here rather than inventing a new      */
+/*  column speculatively; disuse alone is a legitimate, real-world-    */
+/*  plausible dormancy signal on its own.                               */
+/*                                                                      */
+/*  NEVER touches custom_value_sets — exactly like every other producer */
+/*  pass above, this only files the request; the demand pass is what   */
+/*  flags the target "deprecation-suggested" once a human reviews it,  */
+/*  and only an explicit Approve in AutoTerminologistActivity.tsx ever  */
+/*  flips it to "deprecated".                                          */
+/* ------------------------------------------------------------------ */
+
+// Mirrors VALUE_SET_REVIEW_DUE_MS's defensible 6-month governance cadence
+// (see that constant's doc comment above) rather than picking an unrelated
+// number — a value set published less than this long ago with zero
+// consumers yet isn't "dormant," it's just new.
+const VALUE_SET_DORMANCY_GRACE_MS = VALUE_SET_REVIEW_DUE_MS;
+
+const DORMANCY_CONSUMER = "Auto Terminologist · Dormancy Sweep";
+
+export async function runValueSetDormancyPass(
+  client: MinimalUmlsClient,
+  publishedVs: SweepValueSetRow[],
+): Promise<{ checked: number; dormancyFlagged: number }> {
+  let dormancyFlagged = 0;
+  if (publishedVs.length === 0) return { checked: 0, dormancyFlagged };
+  try {
+    // One query for every published value set's consumer references,
+    // instead of one round-trip per row.
+    const { data: depRows, error } = await client
+      .from("value_set_dependencies")
+      .select("value_set_id")
+      .not("value_set_id", "is", null);
+    if (error) {
+      console.warn("[auto-term] dormancy dependency lookup failed", error);
+      return { checked: publishedVs.length, dormancyFlagged };
+    }
+    const referenced = new Set<string>();
+    for (const row of (depRows ?? []) as Array<{ value_set_id: string | null }>) {
+      if (row.value_set_id) referenced.add(row.value_set_id);
+    }
+
+    const now = Date.now();
+    for (const vs of publishedVs) {
+      try {
+        if (referenced.has(vs.id)) continue; // at least one registered consumer — not dormant
+        const publishedAt = vs.published_at ? new Date(vs.published_at).getTime() : 0;
+        // No published_at at all means there's nothing to measure a
+        // "sustained period" against — skip rather than guess.
+        if (!publishedAt) continue;
+        if (now - publishedAt < VALUE_SET_DORMANCY_GRACE_MS) continue; // too new to call dormant
+
+        const months = Math.floor((now - publishedAt) / (30 * 24 * 60 * 60_000));
+        // requestTerminologyUpdate() (not a hand-rolled insert) owns the
+        // dedup check against this exact target_value_set_id — see
+        // fileDeprecationRequest() in value-set-registry.ts — so a value
+        // set that already has an open deprecate request just no-ops here
+        // every cycle until that request is resolved one way or the other.
+        await requestTerminologyUpdate(
+          {
+            requesting_consumer: DORMANCY_CONSUMER,
+            requested_name: vs.name,
+            justification: `Published ~${months} month(s) ago and still has zero registered consumers in value_set_dependencies — no Safety Alerts/CDS/Billing/Population-Health rule has ever bound to it. Flagged by the dormancy sweep as a deprecation candidate rather than left indefinitely in the Published library with no consumer.`,
+            // Governance housekeeping, not a clinical coverage gap — lower
+            // default priority than the "normal" the create-path producers
+            // use for actual gaps found in patient data.
+            priority: "low",
+            seed_codes: [],
+            clinical_application: "Terminology Governance",
+            request_type: "deprecate",
+            target_value_set_id: vs.id,
+          },
+          client,
+        );
+        dormancyFlagged += 1;
+      } catch (e) {
+        console.warn("[auto-term] dormancy check failed for value set", vs?.id, e);
+      }
+    }
+  } catch (e) {
+    console.warn("[auto-term] dormancy pass crashed", e);
+  }
+  return { checked: publishedVs.length, dormancyFlagged };
+}
+
+/* ------------------------------------------------------------------ */
 /*  Cycle orchestration                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -1150,6 +1271,7 @@ export type CycleSummary = {
   vsacPoll?: { checked: number; readyToImport: number };
   proactiveSweep?: { patientsChecked: number; gapsFiled: number };
   staleness?: { checked: number; dueForReview: number };
+  dormancy?: { checked: number; dormancyFlagged: number };
 };
 
 async function isAutomationEnabled(client: MinimalUmlsClient): Promise<boolean> {
@@ -1243,12 +1365,19 @@ export async function runAutoTerminologistCycle(
       console.warn("[auto-term] staleness pass failed", e);
     }
 
+    let dormancy = { checked: 0, dormancyFlagged: 0 };
+    try {
+      dormancy = await runValueSetDormancyPass(client, publishedVs);
+    } catch (e) {
+      console.warn("[auto-term] dormancy pass failed", e);
+    }
+
     const totalActed =
       demand.recommended + demand.gated + demand.deprecationSuggested + demand.rejected;
     const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     await logActivity(client, {
       action: totalActed === 0 ? "heartbeat" : "cycle_summary",
-      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.recommended} recommendation(s) stamped, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}. VSAC OIDs checked: ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import). Proactive sweep: ${proactiveSweep.patientsChecked} patient(s) checked, ${proactiveSweep.gapsFiled} gap(s) filed. Value sets due for review: ${staleness.dueForReview}/${staleness.checked}.`,
+      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.recommended} recommendation(s) stamped, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}. VSAC OIDs checked: ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import). Proactive sweep: ${proactiveSweep.patientsChecked} patient(s) checked, ${proactiveSweep.gapsFiled} gap(s) filed. Value sets due for review: ${staleness.dueForReview}/${staleness.checked}. Dormancy sweep: ${dormancy.dormancyFlagged} new deprecation request(s) filed (${dormancy.checked} published value set(s) checked).`,
       codes_count: 0,
     });
 
@@ -1264,9 +1393,11 @@ export async function runAutoTerminologistCycle(
       proactive_sweep_patients_checked: proactiveSweep.patientsChecked,
       proactive_sweep_gaps_filed: proactiveSweep.gapsFiled,
       value_sets_due_for_review: staleness.dueForReview,
+      dormancy_checked: dormancy.checked,
+      dormancy_deprecation_requests_filed: dormancy.dormancyFlagged,
     };
     actions.push(
-      `auto_terminologist: demand queue — scanned ${demand.scanned}, recommendation(s) stamped ${demand.recommended}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}; vsac OIDs checked ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import); proactive sweep ${proactiveSweep.patientsChecked} patient(s)/${proactiveSweep.gapsFiled} gap(s); ${staleness.dueForReview} value set(s) due for review.`,
+      `auto_terminologist: demand queue — scanned ${demand.scanned}, recommendation(s) stamped ${demand.recommended}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}; vsac OIDs checked ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import); proactive sweep ${proactiveSweep.patientsChecked} patient(s)/${proactiveSweep.gapsFiled} gap(s); ${staleness.dueForReview} value set(s) due for review; dormancy sweep filed ${dormancy.dormancyFlagged} new deprecation request(s).`,
     );
 
     await client.from("automation_watchdog_logs").insert({
@@ -1277,7 +1408,7 @@ export async function runAutoTerminologistCycle(
       healed_engines: [],
     });
 
-    return { ran: true, demand, pairsLinked, vsacPoll, proactiveSweep, staleness };
+    return { ran: true, demand, pairsLinked, vsacPoll, proactiveSweep, staleness, dormancy };
   } finally {
     clearInterval(heartbeatIntervalId);
   }

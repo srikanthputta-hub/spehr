@@ -162,6 +162,22 @@ type DeprecationRow = {
   updated_at?: string | null;
 };
 
+type ChangeHistoryEntry = { at: string; actor: string; change: string };
+
+// The minimal `custom_value_sets` shape approveDeprecation()/dismissDeprecation()
+// below read before writing a new status + change_history entry onto it.
+type DeprecationTargetRow = {
+  id: string;
+  name: string;
+  change_history: ChangeHistoryEntry[] | null;
+};
+
+type DeprecationTargetUpdate = {
+  status: "deprecated" | "published";
+  change_history: ChangeHistoryEntry[];
+  updated_at: string;
+};
+
 function latestChange(history: any[] | null): string | null {
   if (!Array.isArray(history) || history.length === 0) return null;
   // Assume history is chronological; last entry is most recent.
@@ -204,17 +220,23 @@ type RequestSection = "ready" | "review" | "awaiting" | "resolved";
 
 /**
  * Buckets one terminology_requests row into the section it belongs in.
- * Priority, in order: `resolved` always wins (nothing left to do); a
- * ready-to-act VSAC signal — either the background poll's staged
- * `ready_to_import` preview, or a Gap-1 known-catalog candidate hit — is
- * the most actionable state and comes next; a human-linked OID still
- * awaiting VSAC's own publish cycle is next; everything else (including
- * deprecation requests, which never carry a suggestion brief of their own)
- * still needs a human look, so it lands in `review`.
+ * Priority, in order: `resolved` always wins (nothing left to do) — and so
+ * does `rejected` (the quality gate or the deprecate branch's own
+ * auto-reject already disposed of it with no human action possible, e.g.
+ * "target is a draft" or "target not found"; it's terminal, just under a
+ * different status word than "resolved"); a ready-to-act VSAC signal —
+ * either the background poll's staged `ready_to_import` preview, or a
+ * Gap-1 known-catalog candidate hit — is the most actionable state and
+ * comes next; a human-linked OID still awaiting VSAC's own publish cycle
+ * is next; everything else — including a `pending` deprecate request not
+ * yet picked up by the demand pass, and a `drafted` one that HAS been
+ * picked up and is now waiting on a steward's Approve/Dismiss (see
+ * ReviewRow below) — still needs a human look (or just a wait), so it
+ * lands in `review`.
  */
 function sectionOf(r: RequestRow): RequestSection {
   const status = String(r.status ?? "pending");
-  if (status === "resolved") return "resolved";
+  if (status === "resolved" || status === "rejected") return "resolved";
   const isDeprecate = r.request_type === "deprecate";
   const hasKnownCandidates =
     !isDeprecate && Array.isArray(r.known_vsac_candidates) && r.known_vsac_candidates.length > 0;
@@ -334,6 +356,150 @@ export function AutoTerminologistActivity() {
       toast.success(`Marked "${r.requested_name}" resolved`);
     } catch (e) {
       toast.error(`Failed to update request: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  /**
+   * Closes the loop for a `request_type: 'deprecate'` request once the
+   * demand pass has flagged its target `"deprecation-suggested"` (status
+   * `"drafted"` — see processPendingTerminologyRequests in
+   * auto-terminologist-cycle.ts). This is the ONE place anything flips a
+   * `custom_value_sets` row to `"deprecated"` — the automated dormancy
+   * sweep and the manual "Deprecate" button in ValueSetLibrary.tsx both
+   * only ever FILE a request (via requestTerminologyUpdate), never mutate
+   * status directly; approving or dismissing it here is the human action
+   * that actually happens, mirroring how "Approve & Publish" is the one
+   * place a create-type recommendation's draft gets promoted.
+   */
+  const approveDeprecation = async (r: RequestRow) => {
+    const targetId = r.target_value_set_id;
+    if (!targetId) return;
+    const label = targetNames[targetId] ?? r.requested_name;
+    if (
+      !confirm(
+        `Deprecate "${label}"? It will be marked inactive — existing references remain but new bindings should not use it.`,
+      )
+    )
+      return;
+    setActioningId(r.id);
+    try {
+      const { data, error: targetErr } = await supabase
+        .from("custom_value_sets")
+        .select("id, name, change_history")
+        .eq("id", targetId)
+        .maybeSingle();
+      if (targetErr) throw targetErr;
+      if (!data) throw new Error("Target value set not found");
+      const target = data as DeprecationTargetRow;
+      const now = new Date().toISOString();
+      const history = Array.isArray(target.change_history) ? target.change_history : [];
+      const { error: vsErr } = await supabase
+        .from("custom_value_sets")
+        .update({
+          status: "deprecated",
+          change_history: [
+            ...history,
+            {
+              at: now,
+              actor: "S.P.E.H.R. Terminology Services",
+              change: `Deprecation approved — requested by ${r.requesting_consumer}.`,
+            },
+          ],
+          updated_at: now,
+        } as DeprecationTargetUpdate)
+        .eq("id", targetId);
+      if (vsErr) throw vsErr;
+      const { error: reqErr } = await supabase
+        .from("terminology_requests")
+        .update({
+          status: "resolved",
+          resolved_at: now,
+          updated_at: now,
+          quality_gate_notes: null,
+        })
+        .eq("id", r.id);
+      if (reqErr) throw reqErr;
+      setRequests((rs) =>
+        rs.map((x) =>
+          x.id === r.id
+            ? { ...x, status: "resolved", resolved_at: now, quality_gate_notes: null }
+            : x,
+        ),
+      );
+      toast.success(`Deprecated "${target.name ?? label}"`);
+    } catch (e) {
+      toast.error(`Failed to approve deprecation: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  /**
+   * Dismisses a flagged deprecation suggestion without deprecating
+   * anything: resolves the request and returns the target to
+   * `"published"`. Always restores to `"published"` specifically —
+   * every real path that can reach `"deprecation-suggested"` (the
+   * dormancy sweep, and the manual "Deprecate" button, which is only
+   * ever shown for a published row) only ever targets a currently-
+   * published value set, so there's no other prior status to restore.
+   */
+  const dismissDeprecation = async (r: RequestRow) => {
+    const targetId = r.target_value_set_id;
+    if (!targetId) return;
+    setActioningId(r.id);
+    try {
+      const { data, error: targetErr } = await supabase
+        .from("custom_value_sets")
+        .select("id, name, change_history")
+        .eq("id", targetId)
+        .maybeSingle();
+      if (targetErr) throw targetErr;
+      const target = data as DeprecationTargetRow | null;
+      const now = new Date().toISOString();
+      const history = target && Array.isArray(target.change_history) ? target.change_history : [];
+      if (target) {
+        const { error: vsErr } = await supabase
+          .from("custom_value_sets")
+          .update({
+            status: "published",
+            change_history: [
+              ...history,
+              {
+                at: now,
+                actor: "S.P.E.H.R. Terminology Services",
+                change: "Deprecation suggestion dismissed — kept published.",
+              },
+            ],
+            updated_at: now,
+          } as DeprecationTargetUpdate)
+          .eq("id", targetId);
+        if (vsErr) throw vsErr;
+      }
+      const dismissNote = "Dismissed by steward — value set kept published.";
+      const { error: reqErr } = await supabase
+        .from("terminology_requests")
+        .update({
+          status: "resolved",
+          resolved_at: now,
+          updated_at: now,
+          quality_gate_notes: dismissNote,
+        })
+        .eq("id", r.id);
+      if (reqErr) throw reqErr;
+      setRequests((rs) =>
+        rs.map((x) =>
+          x.id === r.id
+            ? { ...x, status: "resolved", resolved_at: now, quality_gate_notes: dismissNote }
+            : x,
+        ),
+      );
+      toast.success(
+        `Dismissed deprecation suggestion for "${target?.name ?? r.requested_name}" — kept published`,
+      );
+    } catch (e) {
+      toast.error(`Failed to dismiss: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setActioningId(null);
     }
@@ -1007,6 +1173,10 @@ export function AutoTerminologistActivity() {
                     ? (targetNames[r.target_value_set_id] ?? null)
                     : null
                 }
+                stewardGate={stewardGate}
+                stewardAllowed={stewardAllowed}
+                approveDeprecation={approveDeprecation}
+                dismissDeprecation={dismissDeprecation}
                 onDelete={deleteRequest}
               />
             )}
@@ -1335,6 +1505,10 @@ function ReviewRow({
   linkOidDraftValue,
   setLinkOidDraft,
   targetName,
+  stewardGate,
+  stewardAllowed,
+  approveDeprecation,
+  dismissDeprecation,
   onDelete,
 }: {
   r: RequestRow;
@@ -1347,11 +1521,21 @@ function ReviewRow({
   linkOidDraftValue: string;
   setLinkOidDraft: (value: string) => void;
   targetName: string | null;
+  stewardGate: ReturnType<typeof useRolePermissions>["gate"];
+  stewardAllowed: boolean;
+  approveDeprecation: (r: RequestRow) => void;
+  dismissDeprecation: (r: RequestRow) => void;
   onDelete: (r: RequestRow) => void;
 }) {
   const { time, ago } = requestTimeLabel(r.requested_at);
   const isDeprecate = r.request_type === "deprecate";
   const actionable = !isDeprecate && ACTIONABLE_STATUSES.has(String(r.status ?? "pending"));
+  // "drafted" is the status the demand pass sets once it has flagged the
+  // target value set "deprecation-suggested" (see
+  // processPendingTerminologyRequests) — that's the point a steward can
+  // actually decide, not "pending" (still waiting on the next cycle to
+  // pick it up).
+  const deprecateReadyForDecision = isDeprecate && r.status === "drafted";
   const seedCodes: Array<{ code?: string; display?: string; vocabulary?: string }> = Array.isArray(
     r.seed_codes,
   )
@@ -1405,6 +1589,18 @@ function ReviewRow({
                 "Awaiting Auto Terminologist analysis — check back after the next cycle."}
             </p>
           )}
+          {isDeprecate && r.status === "pending" && (
+            <p className="mt-1 text-[11px] text-slate-500 leading-snug">
+              Filed — the next cycle will flag the target value set "deprecation-suggested" for your
+              decision.
+            </p>
+          )}
+          {deprecateReadyForDecision && (
+            <p className="mt-1 text-[11px] text-amber-700 leading-snug">
+              Target flagged "deprecation-suggested" — Approve to retire it, or Dismiss to keep it
+              published.
+            </p>
+          )}
           {r.justification && (
             <p className="mt-1 text-xs text-slate-600 leading-snug">{r.justification}</p>
           )}
@@ -1453,6 +1649,29 @@ function ReviewRow({
             <CheckCheck className="h-3 w-3" />
             Mark Resolved
           </button>
+        )}
+        {deprecateReadyForDecision && (
+          <>
+            <button
+              type="button"
+              {...stewardGate("dictionary.steward_approve", () => void dismissDeprecation(r))}
+              disabled={!stewardAllowed || actioningId === r.id}
+              className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              title={stewardAllowed ? "Keep this value set published" : DISABLED_MESSAGE}
+            >
+              Dismiss
+            </button>
+            <button
+              type="button"
+              {...stewardGate("dictionary.steward_approve", () => void approveDeprecation(r))}
+              disabled={!stewardAllowed || actioningId === r.id}
+              className="ml-1 inline-flex h-7 items-center gap-1 rounded-md border border-rose-300 bg-rose-600 px-2 text-[11px] font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
+              title={stewardAllowed ? "Deprecate this value set" : DISABLED_MESSAGE}
+            >
+              <Archive className="h-3 w-3" />
+              Approve Deprecation
+            </button>
+          </>
         )}
         <DeleteRequestButton r={r} onDelete={onDelete} />
       </div>
@@ -1694,20 +1913,40 @@ function ResolvedRow({
   onDelete: (r: RequestRow) => void;
 }) {
   const isDeprecate = r.request_type === "deprecate";
+  const isRejected = r.status === "rejected";
   const label = isDeprecate
     ? targetName
       ? `Target: ${targetName}`
       : r.requested_name
     : r.requested_name;
-  const how = r.value_set_id ? "imported" : "marked resolved";
+  // Deprecate-type resolutions are told apart by quality_gate_notes rather
+  // than value_set_id: that column is set as soon as the demand pass flags
+  // the target "deprecation-suggested" (see processPendingTerminologyRequests
+  // in auto-terminologist-cycle.ts) and stays set whether a steward later
+  // Approves or Dismisses it, so it can't tell those two outcomes apart on
+  // its own. approveDeprecation() below clears quality_gate_notes;
+  // dismissDeprecation() sets it to a human-readable "dismissed" note.
+  const how = isRejected
+    ? r.quality_gate_notes || "rejected"
+    : isDeprecate
+      ? r.quality_gate_notes || "deprecated"
+      : r.value_set_id
+        ? "imported"
+        : "marked resolved";
   return (
     <div className="flex items-center gap-3 px-4 py-2 text-xs">
-      <span className="shrink-0 inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+      <span
+        className={`shrink-0 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${
+          isRejected
+            ? "border-red-200 bg-red-50 text-red-700"
+            : "border-emerald-200 bg-emerald-50 text-emerald-700"
+        }`}
+      >
         <CheckCircle2 className="h-3 w-3" />
-        resolved
+        {isRejected ? "rejected" : "resolved"}
       </span>
       <span className="flex-1 min-w-0 truncate text-slate-700">{label}</span>
-      <span className="shrink-0 text-slate-400">
+      <span className="shrink-0 truncate max-w-[40%] text-slate-400" title={how}>
         {how} · {r.resolved_at ? formatAgo(r.resolved_at) : "—"}
       </span>
       <DeleteRequestButton r={r} onDelete={onDelete} />
