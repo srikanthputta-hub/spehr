@@ -60,7 +60,7 @@ type ValueSet = {
   codes: any[];
   intensional_rule: any | null;
   grouping_members: Array<{ valueSetId: string; valueSetName: string; oid: string | null }> | null;
-  status: "draft" | "review" | "published" | "deprecated" | "retired";
+  status: "draft" | "review" | "published" | "deprecation-suggested" | "deprecated" | "retired";
   clinical_application: string | null;
   fhir_url: string | null;
   steward: string | null;
@@ -77,6 +77,7 @@ const STATUS_STYLES: Record<string, string> = {
   published: "bg-emerald-100 text-emerald-800 border-emerald-200",
   review: "bg-amber-100 text-amber-800 border-amber-200",
   draft: "bg-slate-100 text-slate-700 border-slate-200",
+  "deprecation-suggested": "bg-amber-50 text-amber-800 border-amber-300",
   deprecated: "bg-rose-100 text-rose-800 border-rose-200",
   retired: "bg-slate-50 text-slate-500 border-slate-200",
 };
@@ -91,8 +92,15 @@ const TYPE_STYLES: Record<string, string> = {
 // defaults selected since that's what every real consumer queries against.
 // "deprecated" has no chip of its own — it's a brief transitional state on
 // the way to retired, not a place stewards spend time browsing.
+// "deprecation-suggested" DOES get a chip: unlike "deprecated", it's a
+// steward-facing queue that sits there until a human confirms or rejects
+// it (Auto Terminologist's unused-value-set detector files these but never
+// resolves them itself) — without a chip, a flagged row becomes
+// unreachable from this screen entirely, since statusFilteredRows below
+// only ever shows rows matching one of these keys.
 const STATUS_FILTER_CHIPS: Array<{ key: ValueSet["status"]; label: string }> = [
   { key: "published", label: "Published" },
+  { key: "deprecation-suggested", label: "Flagged for Deprecation" },
   { key: "draft", label: "Draft" },
   { key: "review", label: "Review" },
   { key: "retired", label: "Retired" },
@@ -886,16 +894,46 @@ export function ValueSetLibrary() {
       <Dialog open={!!deprecateTarget} onOpenChange={(o) => !o && setDeprecateTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Deprecate this value set?</DialogTitle>
+            <DialogTitle>
+              {deprecateTarget?.status === "deprecation-suggested"
+                ? "Auto Terminologist flagged this value set for deprecation"
+                : "Deprecate this value set?"}
+            </DialogTitle>
             <DialogDescription>
-              <span className="font-semibold">{deprecateTarget?.name}</span> will be marked inactive
-              in the registry. Existing references remain but new bindings are discouraged.
+              {deprecateTarget?.status === "deprecation-suggested" ? (
+                <>
+                  <span className="font-semibold">{deprecateTarget?.name}</span> was flagged by the
+                  Auto Terminologist (see its change history below) rather than deprecated directly
+                  by a steward. Confirm to retire it, or restore it to published if the flag was a
+                  false positive.
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">{deprecateTarget?.name}</span> will be marked
+                  inactive in the registry. Existing references remain but new bindings are
+                  discouraged.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDeprecateTarget(null)}>
               Cancel
             </Button>
+            {deprecateTarget?.status === "deprecation-suggested" && (
+              <Button
+                variant="outline"
+                className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                onClick={async () => {
+                  const t = deprecateTarget;
+                  if (!t) return;
+                  setDeprecateTarget(null);
+                  await transitionStatus(t, "published", null, "Restored to published");
+                }}
+              >
+                Restore to Published
+              </Button>
+            )}
             <Button
               className="bg-rose-600 hover:bg-rose-700 text-white"
               onClick={async () => {
@@ -1271,6 +1309,20 @@ function StatusBadge({
       </button>
     );
   }
+  if (row.status === "deprecation-suggested") {
+    return (
+      <button
+        className={`${cls} hover:ring-2 hover:ring-amber-300`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenDeprecate();
+        }}
+        title="Review the Auto Terminologist's deprecation flag"
+      >
+        Flagged ▸ review
+      </button>
+    );
+  }
   return <span className={cls}>{row.status}</span>;
 }
 
@@ -1617,6 +1669,14 @@ function ValueSetDrawer({
                 title="Deprecate this value set"
               >
                 published ▸
+              </button>
+            ) : vs.status === "deprecation-suggested" ? (
+              <button
+                className={`text-[10px] px-2 py-0.5 rounded border font-semibold capitalize cursor-pointer hover:ring-2 hover:ring-amber-300 ${STATUS_STYLES[vs.status]}`}
+                onClick={() => onDeprecate(vs)}
+                title="Review the Auto Terminologist's deprecation flag"
+              >
+                flagged ▸ review
               </button>
             ) : (
               <span

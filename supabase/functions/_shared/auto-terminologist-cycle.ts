@@ -48,6 +48,17 @@
  *   5. NEW — Value-set staleness: flags published `custom_value_sets`
  *      rows that haven't been published or re-synced from VSAC in over
  *      ~6 months as due for a human review (never auto-re-syncs).
+ *   6. NEW — Unused value-set deprecation detector: files a governed
+ *      `request_type: "deprecate"` row (via the same
+ *      `terminology_requests` queue, processed by step 1's demand pass)
+ *      against a published value set with zero real consumers across
+ *      every table that references one by convention, once it's been
+ *      published long enough that a real consumer would normally have
+ *      shown up by now. This is the demand queue's FIRST real producer
+ *      of `request_type: "deprecate"` rows — every INSERT into
+ *      `terminology_requests` elsewhere in the app hardcodes
+ *      `request_type: "create"`, so step 1's deprecation branch was
+ *      correct but unreachable dead code until this pass existed.
  *
  * The engine NEVER drafts a value set, NEVER submits for review, and NEVER
  * publishes. Every `custom_value_sets` write still requires a human action
@@ -1133,6 +1144,121 @@ export async function runValueSetStalenessPass(
 }
 
 /* ------------------------------------------------------------------ */
+/*  NEW — Unused published value-set deprecation detector               */
+/*  Every `request_type: 'deprecate'` row in `terminology_requests` was  */
+/*  previously filed by... nothing — `processPendingTerminologyRequests`*/
+/*  handles the branch correctly, but no producer anywhere in the app   */
+/*  ever inserted one, so it was dead code (confirmed: every insert     */
+/*  into `terminology_requests` hardcoded `request_type: "create"`).    */
+/*  This is the first real producer.                                    */
+/*                                                                       */
+/*  "Looks obsolete" is judged the exact same way                       */
+/*  ValueSetLibrary.tsx's manual delete-guard                           */
+/*  (`countValueSetDependents`) already judges "in use" — zero rows     */
+/*  across every table that stores a `custom_value_sets.id`             */
+/*  FK-by-convention (value_set_dependencies, cross_reactivity_rules,    */
+/*  drug_interaction_rules). A published value set with zero real        */
+/*  consumers, left alone long enough that a newly-published one would  */
+/*  normally have been wired up by now, is a genuine "never adopted or  */
+/*  superseded" signal. This NEVER mutates `custom_value_sets` itself —  */
+/*  it only files a governed request; `processPendingTerminologyRequests`*/
+/*  is what actually flips status to 'deprecation-suggested', same as   */
+/*  every other write path in this module.                              */
+/* ------------------------------------------------------------------ */
+
+const UNUSED_DETECTOR_CONSUMER = "Auto Terminologist · Unused Value-Set Detector";
+
+// Grace period after publish before a zero-consumer value set is flagged —
+// long enough that a consumer which was always going to register a
+// dependency has had time to do so, short enough that genuinely unused
+// value sets don't linger unflagged for a year.
+const UNUSED_GRACE_MS = 90 * 24 * 60 * 60_000;
+
+async function countRealConsumers(client: MinimalUmlsClient, valueSetId: string): Promise<number> {
+  try {
+    const [deps, cross, drug] = await Promise.all([
+      client
+        .from("value_set_dependencies")
+        .select("id", { count: "exact", head: true })
+        .eq("value_set_id", valueSetId),
+      client
+        .from("cross_reactivity_rules")
+        .select("id", { count: "exact", head: true })
+        .or(`allergy_value_set_id.eq.${valueSetId},drug_value_set_id.eq.${valueSetId}`),
+      client
+        .from("drug_interaction_rules")
+        .select("id", { count: "exact", head: true })
+        .or(`drug_a_value_set_id.eq.${valueSetId},drug_b_value_set_id.eq.${valueSetId}`),
+    ]);
+    if (deps.error || cross.error || drug.error) return -1;
+    return (deps.count ?? 0) + (cross.count ?? 0) + (drug.count ?? 0);
+  } catch (e) {
+    console.warn("[auto-term] countRealConsumers failed for", valueSetId, e);
+    return -1;
+  }
+}
+
+export async function runUnusedValueSetDeprecationPass(
+  client: MinimalUmlsClient,
+  publishedVs: SweepValueSetRow[],
+): Promise<{ checked: number; deprecationsFiled: number }> {
+  let checked = 0;
+  let deprecationsFiled = 0;
+  const now = Date.now();
+  for (const vs of publishedVs) {
+    try {
+      const publishedAt = vs.published_at ? new Date(vs.published_at).getTime() : 0;
+      // No published_at at all, or published too recently to judge fairly —
+      // give a newly-published value set time to get wired up.
+      if (!publishedAt || now - publishedAt < UNUSED_GRACE_MS) continue;
+      checked += 1;
+
+      // -1 means the consumer-count query itself failed — fail closed and
+      // never flag on an unverifiable count, same posture as the delete
+      // guard this mirrors.
+      const consumers = await countRealConsumers(client, vs.id);
+      if (consumers !== 0) continue;
+
+      // Already flagged once (pending, or previously resolved one way or
+      // another) — don't re-file every cycle for the same value set.
+      const { data: existing, error: existingErr } = await client
+        .from("terminology_requests")
+        .select("id")
+        .eq("target_value_set_id", vs.id)
+        .eq("request_type", "deprecate")
+        .limit(1);
+      if (existingErr) continue; // can't verify — skip rather than risk a duplicate
+      if (Array.isArray(existing) && existing.length > 0) continue;
+
+      const nowIso = new Date().toISOString();
+      const months = Math.floor((now - publishedAt) / (30 * 24 * 60 * 60_000));
+      const { error: insertErr } = await client.from("terminology_requests").insert({
+        requesting_consumer: UNUSED_DETECTOR_CONSUMER,
+        requested_name: vs.name,
+        justification: `"${vs.name}" has been published for ~${months} month(s) with zero registered consumers (value_set_dependencies, cross_reactivity_rules, drug_interaction_rules all empty) — looks unused or superseded. Flagging for a steward to confirm retirement.`,
+        priority: "low",
+        vocabulary: null,
+        seed_codes: [],
+        clinical_application: null,
+        status: "pending",
+        request_type: "deprecate",
+        target_value_set_id: vs.id,
+        requested_at: nowIso,
+        occurrence_count: 1,
+      });
+      if (insertErr) {
+        console.warn("[auto-term] unused-value-set deprecation insert failed", vs.id, insertErr);
+        continue;
+      }
+      deprecationsFiled += 1;
+    } catch (e) {
+      console.warn("[auto-term] unused value-set check failed for", vs?.id, e);
+    }
+  }
+  return { checked, deprecationsFiled };
+}
+
+/* ------------------------------------------------------------------ */
 /*  Cycle orchestration                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -1150,6 +1276,7 @@ export type CycleSummary = {
   vsacPoll?: { checked: number; readyToImport: number };
   proactiveSweep?: { patientsChecked: number; gapsFiled: number };
   staleness?: { checked: number; dueForReview: number };
+  unusedDeprecation?: { checked: number; deprecationsFiled: number };
 };
 
 async function isAutomationEnabled(client: MinimalUmlsClient): Promise<boolean> {
@@ -1243,12 +1370,19 @@ export async function runAutoTerminologistCycle(
       console.warn("[auto-term] staleness pass failed", e);
     }
 
+    let unusedDeprecation = { checked: 0, deprecationsFiled: 0 };
+    try {
+      unusedDeprecation = await runUnusedValueSetDeprecationPass(client, publishedVs);
+    } catch (e) {
+      console.warn("[auto-term] unused value-set deprecation pass failed", e);
+    }
+
     const totalActed =
       demand.recommended + demand.gated + demand.deprecationSuggested + demand.rejected;
     const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     await logActivity(client, {
       action: totalActed === 0 ? "heartbeat" : "cycle_summary",
-      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.recommended} recommendation(s) stamped, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}. VSAC OIDs checked: ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import). Proactive sweep: ${proactiveSweep.patientsChecked} patient(s) checked, ${proactiveSweep.gapsFiled} gap(s) filed. Value sets due for review: ${staleness.dueForReview}/${staleness.checked}.`,
+      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.recommended} recommendation(s) stamped, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}. VSAC OIDs checked: ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import). Proactive sweep: ${proactiveSweep.patientsChecked} patient(s) checked, ${proactiveSweep.gapsFiled} gap(s) filed. Value sets due for review: ${staleness.dueForReview}/${staleness.checked}. Unused value sets flagged for deprecation: ${unusedDeprecation.deprecationsFiled}/${unusedDeprecation.checked} checked.`,
       codes_count: 0,
     });
 
@@ -1264,9 +1398,10 @@ export async function runAutoTerminologistCycle(
       proactive_sweep_patients_checked: proactiveSweep.patientsChecked,
       proactive_sweep_gaps_filed: proactiveSweep.gapsFiled,
       value_sets_due_for_review: staleness.dueForReview,
+      unused_value_sets_flagged: unusedDeprecation.deprecationsFiled,
     };
     actions.push(
-      `auto_terminologist: demand queue — scanned ${demand.scanned}, recommendation(s) stamped ${demand.recommended}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}; vsac OIDs checked ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import); proactive sweep ${proactiveSweep.patientsChecked} patient(s)/${proactiveSweep.gapsFiled} gap(s); ${staleness.dueForReview} value set(s) due for review.`,
+      `auto_terminologist: demand queue — scanned ${demand.scanned}, recommendation(s) stamped ${demand.recommended}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}; vsac OIDs checked ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import); proactive sweep ${proactiveSweep.patientsChecked} patient(s)/${proactiveSweep.gapsFiled} gap(s); ${staleness.dueForReview} value set(s) due for review; ${unusedDeprecation.deprecationsFiled} unused value set(s) flagged for deprecation.`,
     );
 
     await client.from("automation_watchdog_logs").insert({
@@ -1277,7 +1412,15 @@ export async function runAutoTerminologistCycle(
       healed_engines: [],
     });
 
-    return { ran: true, demand, pairsLinked, vsacPoll, proactiveSweep, staleness };
+    return {
+      ran: true,
+      demand,
+      pairsLinked,
+      vsacPoll,
+      proactiveSweep,
+      staleness,
+      unusedDeprecation,
+    };
   } finally {
     clearInterval(heartbeatIntervalId);
   }
