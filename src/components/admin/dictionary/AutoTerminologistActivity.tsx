@@ -27,6 +27,7 @@ import {
   linkPendingDependencies,
   formatDependencyLinkedMessages,
   summarizeLinkedDependenciesForToast,
+  isValidVsacOid,
   type VsacExpansionResult,
 } from "@/lib/value-set-registry";
 
@@ -275,6 +276,17 @@ export function AutoTerminologistActivity() {
   const [latest, setLatest] = useState<LogRow | null>(null);
   const [nowTick, setNowTick] = useState(0);
   const [requests, setRequests] = useState<RequestRow[]>([]);
+  // L18: the "Open Gaps by Age" health summary used to derive its counts
+  // from `requests` above, which is capped at the 50 most-recently-
+  // requested rows for display. With more than 50 open requests (138 in
+  // production at last check: 137 pending + 1 sent_to_vsac), that cap
+  // silently dropped the OLDEST ones from the health summary — exactly
+  // the "over 7 days"/urgent gaps the summary exists to surface — making
+  // a real, sizeable backlog look small or absent. This is a separate,
+  // uncapped, 3-column fetch just for the health summary's counts.
+  const [openGapRows, setOpenGapRows] = useState<
+    Array<{ id: string; status: string | null; requested_at: string; priority: string | null }>
+  >([]);
   const [requestQuery, setRequestQuery] = useState("");
   const [consumerFilter, setConsumerFilter] = useState<string>("All");
   const [deprecations, setDeprecations] = useState<DeprecationRow[]>([]);
@@ -514,6 +526,19 @@ export function AutoTerminologistActivity() {
   const linkVsacOid = async (r: RequestRow, oidRaw: string) => {
     const oid = oidRaw.trim();
     if (!oid) return;
+    // H16: this used to accept any non-empty string (e.g. "not-a-valid-
+    // oid"), write it straight to `linked_vsac_oid`, and move the request
+    // into the "awaiting" bucket — dropping it out of the review queue's
+    // count with nothing actually linked, no indication anything was
+    // wrong, and no real OID the next background cycle could ever expand.
+    // Reject anything that isn't a real dot-separated numeric OID before
+    // writing it anywhere.
+    if (!isValidVsacOid(oid)) {
+      toast.error(
+        `"${oid}" doesn't look like a VSAC OID — expected dot-separated numbers, e.g. 2.16.840.1.113883.3.464.1003.103.12.1001`,
+      );
+      return;
+    }
     setActioningId(r.id);
     try {
       const now = new Date().toISOString();
@@ -556,6 +581,26 @@ export function AutoTerminologistActivity() {
     expansion: VsacExpansionResult,
     nameHint: string,
   ) => {
+    // H16: same silent-no-op risk as ValueSetLibrary.tsx's manual "Import
+    // from VSAC" dialog — these one-click imports shared the exact same
+    // `buildVsacImportInsert()` path with no check for a local value set
+    // already existing under this OID. Surface it with a clear, actionable
+    // message (caught by this function's callers' existing try/catch,
+    // which already renders `Import failed: ${message}`) instead of either
+    // creating a confusing duplicate or leaving the request stuck with no
+    // explanation.
+    const { data: existingForOid } = await supabase
+      .from("custom_value_sets")
+      .select("id, name, status")
+      .eq("oid", expansion.oid)
+      .limit(1);
+    const existing = existingForOid?.[0] as
+      { id: string; name: string; status: string } | undefined;
+    if (existing) {
+      throw new Error(
+        `A value set already exists for this OID — "${existing.name}" (${existing.status}). View, re-sync, or import it as a new version from Value Set Library instead of creating a duplicate.`,
+      );
+    }
     const insert = buildVsacImportInsert(expansion, nameHint);
     const insertQuery = supabase.from("custom_value_sets");
     const { data, error: insErr } = await insertQuery
@@ -757,7 +802,7 @@ export function AutoTerminologistActivity() {
     const buckets = { under24h: 0, oneTo7Days: 0, over7Days: 0 };
     const byPriority: Record<string, number> = {};
     const now = Date.now();
-    for (const r of requests) {
+    for (const r of openGapRows) {
       if (String(r.status ?? "pending") === "resolved") continue;
       const ageMs = now - new Date(r.requested_at).getTime();
       if (ageMs < DAY_MS) buckets.under24h++;
@@ -805,6 +850,18 @@ export function AutoTerminologistActivity() {
       if (!cancelled) setRequests(((data as any) ?? []) as RequestRow[]);
     };
     loadRequests();
+    // L18: uncapped (just 3 narrow columns, so a few hundred rows is
+    // cheap) — see openGapRows' declaration above for why this can't
+    // reuse the display-limited `requests` fetch above.
+    const loadOpenGapRows = async () => {
+      const { data } = await supabase
+        .from("terminology_requests")
+        .select("id, status, requested_at, priority")
+        .neq("status", "resolved")
+        .limit(1000);
+      if (!cancelled) setOpenGapRows(data ?? []);
+    };
+    loadOpenGapRows();
     const loadDeprecations = async () => {
       const { data } = await supabase
         .from("custom_value_sets")
@@ -834,6 +891,19 @@ export function AutoTerminologistActivity() {
         (payload) => {
           const row = payload.new as any as RequestRow;
           setRequests((r) => [row, ...r.filter((x) => x.id !== row.id)].slice(0, 50));
+          // L18: keep the uncapped open-gap health counts (see openGapRows
+          // above) live too, not just the 50-row display list.
+          if (String(row.status ?? "pending") !== "resolved") {
+            setOpenGapRows((r) => [
+              ...r.filter((x) => x.id !== row.id),
+              {
+                id: row.id,
+                status: row.status,
+                requested_at: row.requested_at,
+                priority: row.priority,
+              },
+            ]);
+          }
         },
       )
       .on(
@@ -842,6 +912,19 @@ export function AutoTerminologistActivity() {
         (payload) => {
           const row = payload.new as any as RequestRow;
           setRequests((r) => r.map((x) => (x.id === row.id ? row : x)));
+          setOpenGapRows((r) => {
+            const withoutThis = r.filter((x) => x.id !== row.id);
+            if (String(row.status ?? "pending") === "resolved") return withoutThis;
+            return [
+              ...withoutThis,
+              {
+                id: row.id,
+                status: row.status,
+                requested_at: row.requested_at,
+                priority: row.priority,
+              },
+            ];
+          });
         },
       )
       .on(
@@ -850,6 +933,7 @@ export function AutoTerminologistActivity() {
         (payload) => {
           const oldRow = payload.old as any as { id?: string };
           if (oldRow?.id) setRequests((r) => r.filter((x) => x.id !== oldRow.id));
+          if (oldRow?.id) setOpenGapRows((r) => r.filter((x) => x.id !== oldRow.id));
         },
       )
       .subscribe();
@@ -1685,7 +1769,16 @@ function ReviewRow({
             <Link2 className="h-3 w-3 text-slate-400" />
             <input
               type="text"
-              placeholder="Paste real VSAC OID once authoring has started…"
+              // L13: the full sentence ("Paste real VSAC OID once
+              // authoring has started…") doesn't fit this input at its
+              // width/font size and rendered visibly truncated
+              // mid-word ("...has sta") with no ellipsis, since browsers
+              // don't apply text-overflow to native placeholder text.
+              // Shortened it to something that reliably fits at w-72, and
+              // moved the full guidance + a real OID example into the
+              // tooltip, which doesn't have that constraint.
+              placeholder="Paste the real VSAC OID…"
+              title="Paste the real VSAC OID once authoring has started in VSAC, e.g. 2.16.840.1.113883.3.464.1003.103.12.1001"
               value={linkOidDraftValue}
               onChange={(e) => setLinkOidDraft(e.target.value)}
               className="h-7 w-72 rounded-md border border-slate-200 bg-white px-2 font-mono text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"

@@ -535,8 +535,29 @@ function SchedulingTab({ facility }: { facility: string }) {
     toast.success("Appointment rescheduled");
   };
 
+  // L16: nothing on this tab ever said what timezone Start/End actually
+  // are — every time here is rendered via the browser's own local clock
+  // (new Date(iso).toLocaleTimeString()-style formatting, implicitly
+  // local), with no per-facility timezone stored anywhere to compare
+  // against. For a multi-facility app, two staff viewing the same
+  // appointment from different timezones would see different clock times
+  // with nothing telling either of them that's happening. Name the one
+  // timezone that's actually in play (the viewer's own) rather than
+  // leaving it unstated.
+  const viewerTz = (() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return null;
+    }
+  })();
+
   return (
     <div className="space-y-4">
+      <div className="text-[11px] text-slate-500">
+        All times below are shown in your browser's local timezone
+        {viewerTz ? ` (${viewerTz})` : ""} — not necessarily {facility}'s own local time.
+      </div>
       <section className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="flex items-center justify-between px-5 h-12 border-b border-border bg-secondary/40">
           <div className="flex items-center gap-2">
@@ -550,6 +571,19 @@ function SchedulingTab({ facility }: { facility: string }) {
             <Plus className="h-3.5 w-3.5" /> Book Appointment
           </button>
         </div>
+        {/*
+          L16: unpaginated — this list silently caps at 200 rows (see the
+          query above) with nothing telling the user if there's more.
+          Flagging it honestly instead of fixing the cap itself: real
+          cursor-based pagination here needs its own careful pass (sort
+          stability across the live realtime-triggered reloads above), out
+          of scope for this change.
+        */}
+        {upcomingRows.length >= 200 && (
+          <div className="px-5 py-1.5 text-[11px] text-amber-700 bg-amber-50 border-b border-amber-200">
+            Showing the first 200 upcoming appointments — there may be more not shown here.
+          </div>
+        )}
         <AppointmentTable
           rows={upcomingRows}
           loading={loading}
@@ -564,6 +598,11 @@ function SchedulingTab({ facility }: { facility: string }) {
           <CheckCircle2 className="h-4 w-4 text-slate-500 mr-2" />
           <h2 className="text-sm font-semibold">Completed / Cancelled</h2>
         </div>
+        {historyRows.length >= 50 && (
+          <div className="px-5 py-1.5 text-[11px] text-amber-700 bg-amber-50 border-b border-amber-200">
+            Showing the 50 most recent — there may be more not shown here.
+          </div>
+        )}
         <AppointmentTable
           rows={historyRows}
           loading={loading}

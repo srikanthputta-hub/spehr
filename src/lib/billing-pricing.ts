@@ -44,35 +44,59 @@ export const TARIFF = {
 
 /**
  * RxNorm → unit price (USD per dose). Falls back to MED_DEFAULT.
- * Curated from a public-hospital tariff sheet — IV agents are pricier
- * than oral, controlled substances pricier than common antibiotics.
+ *
+ * L17: this map used to be keyed by RxNorm codes that didn't match what
+ * Auto Doc's own ghost-patient pipeline actually writes to
+ * medication_orders.rxnorm_code — e.g. this map's "29046" was labeled
+ * "Albuterol", but 29046 is Lisinopril's real RxNorm code (confirmed
+ * against live medication_orders: 357 Lisinopril administrations all
+ * carry rxnorm_code='29046'), and several commonly-ordered drugs
+ * (Amoxicillin, Azithromycin, Clopidogrel, Amoxicillin-Clavulanate) had
+ * no entry at all — on a real synthetic patient whose administered meds
+ * happened to be e.g. all Amoxicillin, EVERY line item fell through to
+ * MED_DEFAULT, which read as "every drug is billed the same flat price"
+ * even though the lookup mechanism itself was fine. Every key below is
+ * a real rxnorm_code value verified live against medication_orders
+ * (`select distinct medication_name, rxnorm_code from medication_orders`)
+ * — not re-derived from memory.
  */
 const MED_PRICE_BY_RXNORM: Record<string, number> = {
+  "29046": 14, // Lisinopril
+  "83367": 20, // Atorvastatin
+  "1191": 8, // Aspirin
+  "1364430": 58, // Apixaban
+  "723": 16, // Amoxicillin
+  "7646": 15, // Omeprazole
+  "6809": 12, // Metformin
+  "236991": 42, // Clopidogrel
+  "161": 10, // Acetaminophen
+  "2191": 24, // Amoxicillin-Clavulanate
+  "1298839": 30, // Azithromycin
+  "203191": 16, // Metoprolol Tartrate
+  "40790": 18, // Pantoprazole
+  // Not seen in live medication_orders data as of this fix, but kept for
+  // drugs the demo/seed data may introduce later (IV agents genuinely
+  // priced higher than oral meds above).
   "7052": 62, // Morphine
-  "161": 18, // Acetaminophen
-  "5640": 22, // Ibuprofen
-  "243670": 14, // Aspirin
-  "83367": 28, // Atorvastatin
-  "866924": 24, // Metoprolol
-  "6809": 26, // Metformin
-  "11124": 32, // Lisinopril
-  "10582": 34, // Levothyroxine
-  "2670": 38, // Codeine
-  "1191": 16, // Aspirin (alt code)
   "203150": 110, // Vancomycin IV
   "18631": 88, // Ceftriaxone IV
   "7980": 64, // Piperacillin
   "3640": 26, // Furosemide
-  "8163": 18, // Omeprazole
-  "29046": 22, // Albuterol
-  "8787": 14, // Pantoprazole
   "4815": 96, // Heparin
-  "11289": 58, // Apixaban
   "9863": 12, // Ondansetron
+  "5640": 22, // Ibuprofen
+  "10582": 34, // Levothyroxine
 };
 const MED_DEFAULT = 38;
 
-/** Name-based fallback when RxNorm code is missing on the row. */
+/**
+ * Name-based fallback when RxNorm code is missing on the row.
+ * L17: Amoxicillin, Azithromycin, Clopidogrel and Amoxicillin-Clavulanate
+ * had no pattern here either, so a row missing rxnorm_code for any of
+ * these fell straight to MED_DEFAULT on top of also missing from the
+ * RxNorm map above — added so this fallback can't silently flatten them
+ * the same way again.
+ */
 const MED_PRICE_BY_NAME: Array<[RegExp, number]> = [
   [/morphine/i, 62],
   [/fentanyl/i, 72],
@@ -84,14 +108,18 @@ const MED_PRICE_BY_NAME: Array<[RegExp, number]> = [
   [/apixaban|eliquis|rivaroxaban|xarelto/i, 58],
   [/insulin/i, 44],
   [/nitroglycerin|nitro/i, 36],
-  [/aspirin/i, 14],
-  [/acetaminophen|tylenol|paracetamol/i, 18],
+  [/amoxicillin.*clavulanate|augmentin/i, 24],
+  [/amoxicillin/i, 16],
+  [/azithromycin|zithromax|z-pak/i, 30],
+  [/clopidogrel|plavix/i, 42],
+  [/aspirin/i, 8],
+  [/acetaminophen|tylenol|paracetamol/i, 10],
   [/ibuprofen|advil/i, 22],
-  [/atorvastatin|lipitor|simvastatin|rosuvastatin/i, 28],
-  [/metoprolol|carvedilol|propranolol/i, 24],
-  [/metformin/i, 26],
-  [/lisinopril|losartan|enalapril/i, 32],
-  [/omeprazole|pantoprazole|esomeprazole/i, 18],
+  [/atorvastatin|lipitor|simvastatin|rosuvastatin/i, 20],
+  [/metoprolol|carvedilol|propranolol/i, 16],
+  [/metformin/i, 12],
+  [/lisinopril|losartan|enalapril/i, 14],
+  [/omeprazole|pantoprazole|esomeprazole/i, 15],
   [/albuterol/i, 22],
   [/ondansetron|zofran/i, 12],
   [/furosemide|lasix/i, 26],
@@ -185,6 +213,39 @@ export function lengthOfStayDays(admit?: string | null, discharge?: string | nul
   const ms = end - new Date(admit).getTime();
   if (!isFinite(ms) || ms <= 0) return 1;
   return Math.max(1, Math.ceil(ms / 86_400_000));
+}
+
+/** Bill per-day tariffs in quarter-day (6h) increments. */
+const BILLABLE_DAY_INCREMENT = 0.25;
+
+/**
+ * Precise, prorated length of stay for BILLING per-day tariffs (room &
+ * board, nursing, attending rounding) — distinct from lengthOfStayDays()
+ * above, which rounds up to a whole number of days purely for
+ * human-readable display ("Length of Stay: N day(s)").
+ *
+ * L17: composeCharges() used to multiply every per-day tariff by
+ * lengthOfStayDays()'s whole-day, minimum-1 value, so a genuine 12-minute
+ * encounter (ghost-admit/discharge cycles can be this short) was billed a
+ * full 24-hour day of room & board/nursing/physician rounding — the same
+ * $1,420 (850+220+350) as a patient who actually stayed 23 hours. Prorate
+ * instead, rounding up to the nearest quarter-day (6h) so a same-day stay
+ * still carries a realistic minimum facility charge rather than either a
+ * full day or an unrealistically tiny fraction of one.
+ */
+export function lengthOfStayFractionalDays(
+  admit?: string | null,
+  discharge?: string | null,
+): number {
+  if (!admit) return 1;
+  const end = discharge ? new Date(discharge).getTime() : Date.now();
+  const ms = end - new Date(admit).getTime();
+  if (!isFinite(ms) || ms <= 0) return BILLABLE_DAY_INCREMENT;
+  const days = ms / 86_400_000;
+  return Math.max(
+    BILLABLE_DAY_INCREMENT,
+    Math.ceil(days / BILLABLE_DAY_INCREMENT) * BILLABLE_DAY_INCREMENT,
+  );
 }
 
 /* ---------------- FHIR R4 builders ---------------- */
@@ -551,11 +612,20 @@ export function matchBillingValueSets(
  * a list of priced FHIR ChargeItems.
  */
 export function composeCharges(input: BuildChargesInput): PricedCharge[] {
-  const los = lengthOfStayDays(input.admissionTime, input.dischargeTime);
+  // L17: per-day tariffs (room/board, nursing, physician rounding) now
+  // bill on the prorated fractional LOS, not the whole-day/minimum-1
+  // lengthOfStayDays() value used for display — see
+  // lengthOfStayFractionalDays() above for why.
+  const los = lengthOfStayFractionalDays(input.admissionTime, input.dischargeTime);
   const out: PricedCharge[] = [];
   const cm = input.chargeMaster;
 
-  // Room & Board (LOS-driven)
+  // Round to cents: `los` is a quarter-day fraction, so los * tariff can
+  // land on a fractional cent (e.g. 0.25 * 220 = 55 exactly, but charge
+  // master overrides or future tariff changes aren't guaranteed to).
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  // Room & Board (LOS-driven, prorated)
   out.push(
     applyChargeMaster(
       {
@@ -565,14 +635,14 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
         category: "room",
         quantity: los,
         unitPrice: TARIFF.bed_per_day,
-        amount: los * TARIFF.bed_per_day,
+        amount: round2(los * TARIFF.bed_per_day),
       },
       cm,
       "room_board",
     ),
   );
 
-  // Nursing
+  // Nursing (prorated)
   out.push(
     applyChargeMaster(
       {
@@ -582,14 +652,14 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
         category: "nursing",
         quantity: los,
         unitPrice: TARIFF.nursing_per_day,
-        amount: los * TARIFF.nursing_per_day,
+        amount: round2(los * TARIFF.nursing_per_day),
       },
       cm,
       "nursing",
     ),
   );
 
-  // Consultant rounding (daily attending fee)
+  // Consultant rounding (daily attending fee, prorated)
   out.push(
     applyChargeMaster(
       {
@@ -599,7 +669,7 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
         category: "consultation",
         quantity: los,
         unitPrice: TARIFF.consultant_per_day,
-        amount: los * TARIFF.consultant_per_day,
+        amount: round2(los * TARIFF.consultant_per_day),
       },
       cm,
       "physician_consult",
@@ -611,8 +681,13 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
     const codedUnit = m.rxnorm ? MED_PRICE_BY_RXNORM[String(m.rxnorm).trim()] : undefined;
     const unit = codedUnit ?? priceForMedByName(m.name);
     out.push({
-      code: String(m.rxnorm ?? "RX-000"),
-      codeSystem: "RxNorm",
+      // L17: the fallback "RX-000" used to be labeled codeSystem "RxNorm"
+      // regardless of whether there was a real RxNorm code at all — same
+      // "fake real-world code" bug as the LOINC one below. A real RxNorm
+      // code only ever gets the RxNorm system; the internal placeholder
+      // is honestly marked "internal".
+      code: m.rxnorm ? String(m.rxnorm) : "RX-000",
+      codeSystem: m.rxnorm ? "RxNorm" : "internal",
       description: `Medication · ${m.name ?? "Drug"}`,
       category: "medication",
       quantity: 1,
@@ -642,8 +717,13 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
             serviceDate: l.collected_at ?? undefined,
           }
         : {
-            code: String(l.loinc ?? "LAB-000"),
-            codeSystem: "LOINC",
+            // L17: this rendered as "LOINC:LAB-000" on the invoice — a
+            // made-up placeholder code presented as if it were a real
+            // LOINC code. Only tag codeSystem "LOINC" when there's an
+            // actual LOINC code on the order; the internal fallback is
+            // now honestly "internal", matching the medication fix above.
+            code: l.loinc ? String(l.loinc) : "LAB-000",
+            codeSystem: l.loinc ? "LOINC" : "internal",
             description: `Laboratory · ${l.name ?? "Diagnostic"}`,
             category: "lab",
             quantity: 1,

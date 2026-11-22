@@ -26,10 +26,21 @@ type Payment = {
   invoice_no?: string | null;
 };
 
+// L18: `toLocaleString()` with no explicit locale/options renders using
+// whatever the viewer's browser/OS locale happens to be — DD/MM/YYYY in
+// most non-US locales, MM/DD/YYYY in en-US. Meanwhile finance-board.tsx's
+// own `fmtTs()` (used for every other date on this same page: Issued,
+// Admitted, Discharged) hardcodes MM/DD/YYYY regardless of locale. Two
+// different date formats could land on the exact same Finance board view
+// depending purely on the viewer's locale — mirror fmtTs()'s explicit,
+// locale-independent format here so this page is consistent no matter
+// who's viewing it.
 function fmt(ts: string | null) {
   if (!ts) return "—";
   try {
-    return new Date(ts).toLocaleString();
+    const d = new Date(ts);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   } catch {
     return ts;
   }

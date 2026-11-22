@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { useFacility, useActiveStaff } from "@/lib/facility-context";
 import { useServerFn } from "@tanstack/react-start";
 import { backfillInvoices, generateInvoiceForMrn } from "@/lib/auto-doc.functions";
-import { fetchWithTimeout } from "@/lib/async-timeout";
+import { fetchWithTimeout, DEFAULT_FETCH_TIMEOUT_MS } from "@/lib/async-timeout";
 import { MyspehrPortalActivity } from "@/components/finance/MyspehrPortalActivity";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { KpiTile } from "@/components/common/KpiTile";
@@ -73,12 +73,26 @@ function fmtTs(ts: string | null) {
   return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function lengthOfStayDays(admit: string | null, discharge: string | null) {
-  if (!admit) return 1;
+// L17: the invoice dialog showed "Length of Stay: 1 day(s)" for a genuine
+// 12-minute encounter — the old helper here rounded up to a whole day
+// regardless of actual duration, which is misleading as a literal
+// duration on a bill. This is for display only (billing itself is now
+// prorated server-side — see lengthOfStayFractionalDays() in
+// src/lib/billing-pricing.ts) and shows hours/minutes under one day.
+function formatLengthOfStay(admit: string | null, discharge: string | null): string {
+  if (!admit) return "—";
   const end = discharge ? new Date(discharge).getTime() : Date.now();
   const ms = end - new Date(admit).getTime();
-  if (!isFinite(ms) || ms <= 0) return 1;
-  return Math.max(1, Math.ceil(ms / 86_400_000));
+  if (!isFinite(ms) || ms <= 0) return "—";
+  const totalMinutes = Math.round(ms / 60_000);
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  if (totalMinutes < 24 * 60) {
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    return mins > 0 ? `${hours} hr ${mins} min` : `${hours} hr`;
+  }
+  const days = Math.ceil(ms / 86_400_000);
+  return `${days} day(s)`;
 }
 
 function money(n: number) {
@@ -102,8 +116,22 @@ function FinanceBoard() {
   const initialLoadRef = useRef(true);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const refresh = async () => {
-    if (initialLoadRef.current) setLoading(true);
+  const refresh = async (opts?: { longTimeout?: boolean; isRetry?: boolean }) => {
+    const isInitialLoad = initialLoadRef.current;
+    if (isInitialLoad) setLoading(true);
+    // The very first fetch on a fresh tab (and its one retry, see below)
+    // pay for cold Supabase client setup (auth bootstrap, Realtime WS
+    // handshake racing the same network) on top of the actual query, so
+    // the default 5s budget (fine for every later refresh) was tight
+    // enough to time out and silently fall back to `{ data: [] }` —
+    // `error` stays null, so no toast fires either, and the board
+    // confidently renders "No invoices in this facility yet" even though
+    // `backfill-invoices-every-30min` (see CLAUDE.md) has already kept
+    // fhir_invoices fully current server-side. That's H15: not a
+    // missing-data problem, a connection-reliability one. Keyed on `opts`
+    // rather than `initialLoadRef` directly, since that ref already flips
+    // to false by the time a scheduled retry actually runs.
+    const longTimeout = opts?.longTimeout ?? isInitialLoad;
     const { data, error } = await fetchWithTimeout(
       async () => {
         const res = await supabase
@@ -115,6 +143,7 @@ function FinanceBoard() {
         return { data: res.data, error: res.error };
       },
       { data: [], error: null },
+      longTimeout ? 12_000 : DEFAULT_FETCH_TIMEOUT_MS,
     );
     if (error) toast.error(`Unable to load invoices: ${error.message}`);
     else {
@@ -162,6 +191,21 @@ function FinanceBoard() {
         return bi - ai;
       });
       setInvoices(sorted);
+      // H15: don't trust a completely-empty FIRST read at face value. The
+      // cron-driven backfill keeps fhir_invoices current server-side
+      // independent of anyone opening this page (confirmed: `generated: 0`
+      // steady-state in auto_terminologist-style logs — see
+      // backfill-invoices-every-30min), so a real facility with zero
+      // invoices is rare; far more often, zero rows on the *first* read of
+      // a fresh tab means the cold-start race above still lost. Retry the
+      // read exactly once, cheaply (no backfill re-run) — this is the
+      // "fix the connection" half of H15, as opposed to re-running the
+      // whole sync pipeline redundantly on every page load.
+      if (isInitialLoad && rows.length === 0 && !opts?.isRetry) {
+        setTimeout(() => {
+          refresh({ longTimeout: true, isRetry: true });
+        }, 1200);
+      }
     }
     setLoading(false);
     initialLoadRef.current = false;
@@ -176,13 +220,19 @@ function FinanceBoard() {
   };
 
   useEffect(() => {
+    // H15: this used to also fire `backfill()` (the full
+    // backfillMissingInvoices() pipeline) on every single mount, in every
+    // tab, on top of the `backfill-invoices-every-30min` pg_cron job that
+    // already runs the exact same function server-side on a schedule.
+    // Confirmed live: that cron job is healthy and returns `generated: 0`
+    // in steady state (nothing ever left for a page-load to "catch"), so
+    // the old `if (res?.generated > 0) refresh()` guard was effectively
+    // dead code — it could never fire in practice, which is exactly why
+    // this bug could persist even though "auto-backfill" was already
+    // wired up here. Removed the redundant resync; see the retry-on-empty
+    // logic in refresh() above for the actual fix (reading the cron's
+    // already-correct data reliably, not redoing its work).
     refresh();
-    // Auto-backfill any missing invoices on first mount.
-    backfill()
-      .then((res) => {
-        if (res?.generated > 0) refresh();
-      })
-      .catch(() => {});
     const channel = supabase
       .channel("finance-invoices")
       .on("postgres_changes", { event: "*", schema: "public", table: "fhir_invoices" }, () =>
@@ -229,12 +279,47 @@ function FinanceBoard() {
     );
   }, [issued, balanced, search, tab]);
 
+  // L16: this table used to hard-cap at `filtered.slice(0, 150)` with no
+  // paging and no indication that a facility with more than 150
+  // issued/balanced invoices was missing rows entirely — a facility doing
+  // steady volume crosses that within days. Real pagination instead of a
+  // silent cutoff.
+  const INVOICE_PAGE_SIZE = 50;
+  const [invoicePage, setInvoicePage] = useState(1);
+  useEffect(() => {
+    setInvoicePage(1);
+  }, [tab, search]);
+  const invoiceTotalPages = Math.max(1, Math.ceil(filtered.length / INVOICE_PAGE_SIZE));
+  const invoicePageClamped = Math.min(invoicePage, invoiceTotalPages);
+  const pagedInvoices = useMemo(
+    () =>
+      filtered.slice(
+        (invoicePageClamped - 1) * INVOICE_PAGE_SIZE,
+        invoicePageClamped * INVOICE_PAGE_SIZE,
+      ),
+    [filtered, invoicePageClamped],
+  );
+
   const totalRevenue = useMemo(
     () => facilityInvoices.reduce((s, i) => s + Number(i.total ?? 0), 0),
     [facilityInvoices],
   );
   const collected = useMemo(
     () => balanced.reduce((s, i) => s + Number(i.total ?? 0), 0),
+    [balanced],
+  );
+  // L18: "Collected" blends real MySPEHR portal payments with invoices
+  // that auto-paid themselves after a 3-hour no-response timeout — the
+  // latter has no actual payment method on file anywhere (it's a status
+  // flip, not a transaction), so a figure that's mostly or entirely
+  // auto-paid can look like real cash collected with nothing on the
+  // board calling that out beyond a small per-row badge. Surface the
+  // simulated share explicitly next to the KPI itself.
+  const autoPaidCollected = useMemo(
+    () =>
+      balanced
+        .filter((i) => i.payment_origin === "auto-pay-timeout")
+        .reduce((s, i) => s + Number(i.total ?? 0), 0),
     [balanced],
   );
 
@@ -291,8 +376,17 @@ function FinanceBoard() {
           <KpiTile value={money(collected)} label="Collected (Paid)" className="pr-10" />
           <InfoHint
             className="absolute top-4 right-4"
-            text="Sum of only FHIR Invoices with status = balanced at this facility — money actually collected, either paid by the patient via the MySPEHR portal, or auto-paid on file after a 3-hour no-response timeout (FHIR PaymentNotice either way)."
+            text="Sum of only FHIR Invoices with status = balanced at this facility — money actually collected, either paid by the patient via the MySPEHR portal, or auto-paid on file after a 3-hour no-response timeout. The auto-paid share is simulated: no real payment method is ever captured for it, it's a status flip, not a transaction."
           />
+          {autoPaidCollected > 0 && (
+            <div
+              className="mt-1 px-4 text-[11px] font-medium text-amber-700"
+              title="These invoices have no real payment method on file anywhere — auto-pay-on-timeout only flips the invoice's status to balanced, it never collects anything"
+            >
+              ⚠ {money(autoPaidCollected)} of this is simulated auto-pay — no real payment on file
+              {autoPaidCollected === collected ? " (all of it)" : ""}
+            </div>
+          )}
         </div>
       </section>
 
@@ -378,7 +472,7 @@ function FinanceBoard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filtered.slice(0, 150).map((i) => (
+                  {pagedInvoices.map((i) => (
                     <tr key={i.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3 font-mono text-xs text-slate-700">{i.invoice_no}</td>
                       <td className="px-4 py-3 font-mono text-xs text-slate-700">{i.mrn}</td>
@@ -406,7 +500,7 @@ function FinanceBoard() {
                               <StatusBadge
                                 status="warning"
                                 label="Auto-paid"
-                                title="No portal payment within 3h of discharge — auto-paid on file"
+                                title="Simulated — no real payment method on file. No portal payment within 3h of discharge, so the invoice's status was flipped to balanced automatically; no transaction actually occurred."
                               />
                             ) : i.payment_origin === "patient-portal" ? (
                               <StatusBadge status="info" label="Portal" />
@@ -446,6 +540,38 @@ function FinanceBoard() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {!loading && filtered.length > 0 && (
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-2 text-xs text-slate-600">
+              <span>
+                Showing {(invoicePageClamped - 1) * INVOICE_PAGE_SIZE + 1}–
+                {Math.min(invoicePageClamped * INVOICE_PAGE_SIZE, filtered.length)} of{" "}
+                {filtered.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  disabled={invoicePageClamped <= 1}
+                  onClick={() => setInvoicePage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="font-mono">
+                  {invoicePageClamped} / {invoiceTotalPages}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  disabled={invoicePageClamped >= invoiceTotalPages}
+                  onClick={() => setInvoicePage((p) => Math.min(invoiceTotalPages, p + 1))}
+                >
+                  Next
+                </Button>
+              </div>
             </div>
           )}
         </div>
@@ -552,7 +678,19 @@ function RiskAdjustmentGaps({ facility, invoices }: { facility: string; invoices
             <TableSkeleton rows={3} columns={4} />
           </div>
         ) : gaps.length === 0 ? (
-          <EmptyState description="No coverage gaps detected in this facility." />
+          // L18: this check is narrow and correct for what it actually
+          // measures (discharged, chronic-diagnosis patients at this
+          // facility whose CURRENT invoice has no ICD-10 risk-adjustment
+          // line) — it was never wrong about that. The wording was: "No
+          // coverage gaps" reads as a system-wide, unqualified claim, and
+          // the Auto Terminologist review queue can simultaneously have a
+          // real, large backlog of open terminology gaps for entirely
+          // different consumers (Safety Alerts, HRRP, Drug-Allergy pairs,
+          // ...) that this panel never touches. Scope the message
+          // explicitly so it can't be read as "the system has no open
+          // terminology work" when it's really "this one invoice-level
+          // check passed."
+          <EmptyState description="No risk-adjustment coverage gaps on currently-displayed invoices in this facility. This checks only ICD-10-vs-published-Billing-value-set coverage on these invoices — it is not a count of all open Auto Terminologist requests system-wide (see Medical Dictionary → Auto Terminologist Activity for those)." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -600,6 +738,20 @@ function RiskAdjustmentGaps({ facility, invoices }: { facility: string; invoices
         )}
       </div>
     </section>
+  );
+}
+
+function PatientFieldSkeleton({ rows = 2 }: { rows?: number }) {
+  return (
+    <div className="mt-1.5 space-y-1.5" aria-label="Loading patient details">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          className="h-2.5 animate-pulse rounded bg-slate-200"
+          style={{ width: `${70 - i * 8}%` }}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -663,7 +815,9 @@ function BillModal({
   const tax = Number(invoice.tax);
   const total = Number(invoice.total);
   const invoiceNo = invoice.invoice_no;
-  const los = patient ? lengthOfStayDays(patient.admission_time, patient.discharge_time) : 1;
+  const losDisplay = patient
+    ? formatLengthOfStay(patient.admission_time, patient.discharge_time)
+    : "—";
 
   const handlePrint = () => window.print();
 
@@ -721,6 +875,18 @@ function BillModal({
             </div>
           </div>
 
+          {/*
+            L17: everything below that depends on `patient` used to render
+            with `patient` still null for the first ~5s (the same
+            cold-client-connection pattern as H15, here on the dialog's own
+            fetch) — not blank, but confidently WRONG: "Room: —",
+            "Length of Stay: 1 day(s)" (now "—", see formatLengthOfStay)
+            for a patient who may have had a 10+ day stay. A skeleton that
+            visibly says "loading" is honest; a dash that looks like a
+            real, already-loaded value is not. Gate every patient-derived
+            field on `loading` instead of letting optional-chaining
+            fallbacks stand in for real data.
+          */}
           {/* Bill To */}
           <section className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div className="rounded-md border border-slate-200 bg-slate-50/60 p-4 text-sm">
@@ -731,38 +897,50 @@ function BillModal({
               <div className="text-xs text-slate-600 mt-1">
                 MRN: <span className="font-mono">{invoice.mrn}</span>
               </div>
-              <div className="text-xs text-slate-600">
-                {patient?.age ? `${patient.age} yrs · ` : ""}
-                {patient?.gender ?? ""}
-              </div>
-              <div className="text-xs text-slate-600 mt-1">Room: {patient?.room ?? "—"}</div>
+              {loading ? (
+                <PatientFieldSkeleton />
+              ) : (
+                <>
+                  <div className="text-xs text-slate-600">
+                    {patient?.age ? `${patient.age} yrs · ` : ""}
+                    {patient?.gender ?? ""}
+                  </div>
+                  <div className="text-xs text-slate-600 mt-1">Room: {patient?.room ?? "—"}</div>
+                </>
+              )}
             </div>
             <div className="rounded-md border border-slate-200 bg-slate-50/60 p-4 text-sm">
               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">
                 Encounter
               </div>
-              <div className="text-xs">
-                <span className="text-slate-500">Chief Complaint: </span>
-                <span className="text-slate-900 font-medium">
-                  {patient?.chief_complaint ?? "—"}
-                </span>
-              </div>
-              <div className="text-xs mt-1">
-                <span className="text-slate-500">Diagnosis: </span>
-                <span className="text-slate-900">{patient?.diagnosis ?? "—"}</span>
-              </div>
-              <div className="text-xs mt-1 font-mono">
-                <span className="text-slate-500">Admitted: </span>
-                {fmtTs(patient?.admission_time ?? null)}
-              </div>
-              <div className="text-xs font-mono">
-                <span className="text-slate-500">Discharged: </span>
-                {fmtTs(patient?.discharge_time ?? null)}
-              </div>
-              <div className="text-xs mt-1">
-                <span className="text-slate-500">Length of Stay: </span>
-                <strong>{los} day(s)</strong>
-              </div>
+              {loading ? (
+                <PatientFieldSkeleton rows={5} />
+              ) : (
+                <>
+                  <div className="text-xs">
+                    <span className="text-slate-500">Chief Complaint: </span>
+                    <span className="text-slate-900 font-medium">
+                      {patient?.chief_complaint ?? "—"}
+                    </span>
+                  </div>
+                  <div className="text-xs mt-1">
+                    <span className="text-slate-500">Diagnosis: </span>
+                    <span className="text-slate-900">{patient?.diagnosis ?? "—"}</span>
+                  </div>
+                  <div className="text-xs mt-1 font-mono">
+                    <span className="text-slate-500">Admitted: </span>
+                    {fmtTs(patient?.admission_time ?? null)}
+                  </div>
+                  <div className="text-xs font-mono">
+                    <span className="text-slate-500">Discharged: </span>
+                    {fmtTs(patient?.discharge_time ?? null)}
+                  </div>
+                  <div className="text-xs mt-1">
+                    <span className="text-slate-500">Length of Stay: </span>
+                    <strong>{losDisplay}</strong>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
@@ -817,7 +995,25 @@ function BillModal({
                     <span className="font-mono">{money(subtotal)}</span>
                   </div>
                   <div className="flex justify-between py-1.5 border-b border-slate-200">
-                    <span className="text-slate-600">Tax / GST</span>
+                    {/*
+                      L17: "GST" (Goods and Services Tax) isn't a US tax
+                      term — this is a flat facility surcharge applied to
+                      every invoice at this US-facility hospital, not a
+                      government sales/goods tax, so labeling it "Tax /
+                      GST" was simply the wrong term, not a sign the
+                      underlying charge itself needs to change. Renamed to
+                      what it actually is; the FHIR Invoice resource's
+                      underlying priceComponent.type stays "tax" (a fixed,
+                      correct enum value from the FHIR spec) — only this
+                      user-facing label changes.
+                    */}
+                    <span
+                      className="text-slate-600"
+                      title="A flat facility & administrative surcharge applied to every invoice — not a government sales or goods/services tax"
+                    >
+                      Facility & Administrative Fee
+                      {subtotal > 0 && ` (${((tax / subtotal) * 100).toFixed(0)}%)`}
+                    </span>
                     <span className="font-mono">{money(tax)}</span>
                   </div>
                   <div className="flex justify-between py-2 mt-1 bg-slate-900 text-white px-3 rounded-md">

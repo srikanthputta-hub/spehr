@@ -1402,6 +1402,24 @@ export type VsacImportInsert = {
   steward: string | null;
 };
 
+// A VSAC/HL7 OID is a dot-separated sequence of non-negative integers with
+// no leading zeros on a multi-digit segment (e.g.
+// 2.16.840.1.113883.3.464.1003.103.12.1001) — at least two arcs, since a
+// bare number isn't a real OID. This intentionally rejects things like
+// "not-a-valid-oid" (H16): "Link VSAC OID" and "Import from VSAC" used to
+// accept any non-empty string, silently move the request out of the
+// review queue, and never actually resolve to anything in VSAC.
+const VSAC_OID_RE = /^[0-9]+(\.[0-9]+)+$/;
+
+export function isValidVsacOid(oid: string): boolean {
+  const trimmed = oid.trim();
+  if (!trimmed || !VSAC_OID_RE.test(trimmed)) return false;
+  // Reject a segment like "01" (leading zero on a multi-digit arc) — not a
+  // real OID arc, even though the plain digit/dot regex above would accept
+  // it.
+  return trimmed.split(".").every((seg) => seg === "0" || !seg.startsWith("0"));
+}
+
 /**
  * Builds the `custom_value_sets` insert payload for importing a VSAC
  * $expand result as a new draft — identical to what ValueSetLibrary.tsx's
