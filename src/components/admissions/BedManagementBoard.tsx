@@ -162,7 +162,26 @@ export function BedManagementBoard({
     cancelledRef.current = false;
     load();
     let ch: ReturnType<typeof supabase.channel> | null = null;
+    // Guards against tearing the same channel down twice. removeChannel()
+    // calls unsubscribe() -> leave(), which asynchronously re-invokes this
+    // same subscribe() callback with status "CLOSED" once the server acks
+    // the leave. Without this guard, reacting to CLOSED by calling
+    // removeChannel() again re-entered that same unsubscribe/leave/CLOSED
+    // chain indefinitely — a RangeError: Maximum call stack size exceeded
+    // that reproduced specifically when quickly opening/closing this board
+    // (mount immediately followed by the cleanup's own removeChannel call).
+    let tornDown = false;
+    const teardown = (channel: ReturnType<typeof supabase.channel>) => {
+      if (tornDown) return;
+      tornDown = true;
+      try {
+        supabase.removeChannel(channel);
+      } catch {
+        /* ignore */
+      }
+    };
     const buildChannel = () => {
+      tornDown = false;
       const channel = supabase
         .channel(`bed-board-${facility}-${Date.now()}`)
         .on(
@@ -186,13 +205,14 @@ export function BedManagementBoard({
           () => load(),
         )
         .subscribe((status) => {
-          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-            // Realtime dropped — tear down and rebuild so the board self-heals.
-            try {
-              supabase.removeChannel(channel);
-            } catch {
-              /* ignore */
-            }
+          // CLOSED is the terminal state reached both after a genuine
+          // realtime failure AND after our own teardown()/effect-cleanup
+          // intentionally closes the channel (e.g. on unmount). It must
+          // NOT trigger another teardown+rebuild here — doing so is what
+          // caused the infinite recursion above. Only CHANNEL_ERROR and
+          // TIMED_OUT are real, unprompted failures worth self-healing.
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            teardown(channel);
             if (ch === channel && !cancelledRef.current) {
               ch = buildChannel();
               // Also do an immediate catch-up fetch in case we missed events.
@@ -209,7 +229,7 @@ export function BedManagementBoard({
     const poll = setInterval(load, 15_000);
     return () => {
       cancelledRef.current = true;
-      if (ch) supabase.removeChannel(ch);
+      if (ch) teardown(ch);
       clearInterval(poll);
     };
   }, [facility, load]);

@@ -9,6 +9,7 @@ import {
   buildChargeItemResource,
   buildRealAppointmentResource,
   type EncounterAllergy,
+  type RadiologyOrderRow,
   type FhirQuality,
 } from "@/lib/fhir-bundle";
 import { useAutoApiEnabled } from "@/hooks/useAutomationEnabled";
@@ -193,50 +194,66 @@ async function flagSafetyAlert(mrn: string, quality: FhirQuality) {
 }
 
 async function buildBundleForMrn(r: Row) {
-  const [patientRes, labsRes, medsRes, notesRes, condsRes, allergiesRes, reactionsRes] =
-    await Promise.all([
-      supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
-      supabase
-        .from("lab_orders")
-        .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
-        .eq("patient_mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("medication_orders")
-        .select(
-          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
-        )
-        .eq("patient_mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(200),
-      supabase
-        .from("clinical_notes")
-        .select("id, note_type, author, content, created_at")
-        .eq("mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(20),
-      supabase
-        .from("conditions")
-        .select(
-          "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at",
-        )
-        .eq("mrn", r.mrn)
-        .order("coded_at", { ascending: false })
-        .limit(20),
-      supabase
-        .from("allergies")
-        .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
-        .eq("mrn", r.mrn)
-        .limit(40),
-      supabase
-        .from("allergy_reactions")
-        .select(
-          "allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display",
-        )
-        .eq("mrn", r.mrn)
-        .limit(80),
-    ]);
+  const [
+    patientRes,
+    labsRes,
+    medsRes,
+    notesRes,
+    condsRes,
+    allergiesRes,
+    reactionsRes,
+    radiologyRes,
+  ] = await Promise.all([
+    supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
+    supabase
+      .from("lab_orders")
+      .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
+      .eq("patient_mrn", r.mrn)
+      .order("created_at", { ascending: false })
+      .limit(40),
+    supabase
+      .from("medication_orders")
+      .select(
+        "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at, rxnorm_code, rxnorm_display",
+      )
+      .eq("patient_mrn", r.mrn)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    supabase
+      .from("clinical_notes")
+      .select("id, note_type, author, content, created_at")
+      .eq("mrn", r.mrn)
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("conditions")
+      .select(
+        "display_text, snomed_code, snomed_display, icd10_code, icd10_display, verification_status, clinical_status, coded_at",
+      )
+      .eq("mrn", r.mrn)
+      .order("coded_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("allergies")
+      .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
+      .eq("mrn", r.mrn)
+      .limit(40),
+    supabase
+      .from("allergy_reactions")
+      .select(
+        "allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display",
+      )
+      .eq("mrn", r.mrn)
+      .limit(80),
+    supabase
+      .from("radiology_orders")
+      .select(
+        "id, exam_type, modality, body_part, clinical_indication, snomed_code, snomed_display, report_text, impression, requested_by, ordered_at, resulted_at, created_at",
+      )
+      .eq("patient_mrn", r.mrn)
+      .order("created_at", { ascending: false })
+      .limit(50),
+  ]);
   const p = (patientRes.data ?? {}) as any;
   const reactionsByAllergy = new Map<string, any[]>();
   for (const rx of ((reactionsRes as any)?.data ?? []) as any[]) {
@@ -284,6 +301,7 @@ async function buildBundleForMrn(r: Row) {
     notes: (notesRes.data ?? []) as any[],
     conditions: (condsRes.data ?? []) as any[],
     allergies,
+    radiologyOrders: (radiologyRes.data ?? []) as RadiologyOrderRow[],
   }).then(async (bundle) => {
     // ---- Part A: append Invoice / ChargeItem / real Appointment
     // resources for this MRN so billing + booking round-trip to
@@ -544,6 +562,14 @@ export function useBackgroundFhirSync() {
         "postgres_changes",
         { event: "*", schema: "public", table: "medication_orders" },
         (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "radiology_orders" },
+        (p: any) => requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "allergies" }, (p: any) =>
+        requeueByMrn(p?.new?.mrn ?? p?.old?.mrn),
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "vitals" }, (p: any) =>
         requeueByMrn(p?.new?.patient_mrn ?? p?.old?.patient_mrn ?? p?.new?.mrn ?? p?.old?.mrn),

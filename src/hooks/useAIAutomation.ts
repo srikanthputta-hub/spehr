@@ -11,6 +11,8 @@ import { runAutoDoc } from "@/lib/auto-doc.functions";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
 import { resolveConcept } from "@/lib/terminology-resolver";
+import { LAB_CATALOG } from "@/constants/clinical-catalog";
+import { mockLabValue, seededHash } from "@/lib/fallback-labs";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -1175,7 +1177,48 @@ export function useAIAutomation() {
                 } as any)
                 .eq("id", o.id);
             }
-            await cascadeLab(mrn, o.id, `${testType}: resulted`);
+            // No condition-specific LabTemplate matched above. Rather than
+            // writing the literal word "resulted" with no unit/reference
+            // range (H5 — that string leaked verbatim into the Lab Board,
+            // the chart, the discharge summary and myspehr's Lab Reports),
+            // fall back to the same master lab catalog + deterministic
+            // value generator the patient chart's "Recent Labs" widget
+            // uses (fallback-labs.ts), so any catalog-known test type still
+            // gets a real numeric value, a real unit and a real reference
+            // range. Seeded off the order id so re-renders are stable.
+            const catalogHit = LAB_CATALOG.find(
+              (l) => l.name.trim().toLowerCase() === testType.trim().toLowerCase(),
+            );
+            if (catalogHit) {
+              const seed = seededHash("lab-order:" + o.id);
+              const valueStr = mockLabValue(catalogHit, seed);
+              const numericValue = Number.parseFloat(valueStr);
+              const unitSuffix = catalogHit.unit ? ` ${catalogHit.unit}` : "";
+              if (!Number.isNaN(numericValue)) {
+                const summary = `${catalogHit.name}: ${valueStr}${unitSuffix} [NORMAL] (ref ${catalogHit.referenceRange}${unitSuffix})`;
+                await cascadeLab(mrn, o.id, summary, {
+                  name: catalogHit.name,
+                  unit: catalogHit.unit,
+                  referenceRange: catalogHit.referenceRange,
+                  resultExample: `${valueStr}${unitSuffix} [NORMAL]`,
+                  numericValue,
+                  flagCode: "N",
+                });
+              } else {
+                // Qualitative result (e.g. "Negative") — no numeric flag.
+                await cascadeLab(
+                  mrn,
+                  o.id,
+                  `${catalogHit.name}: ${valueStr} (ref ${catalogHit.referenceRange})`,
+                );
+              }
+              return;
+            }
+            // Truly unrecognized free-text test type — no catalog or
+            // protocol entry anywhere to draw a plausible value/unit/range
+            // from. Keep a clearly-labeled pending state instead of a bare
+            // "resulted" (which reads like a fabricated result value).
+            await cascadeLab(mrn, o.id, `${testType}: pending manual review (no reference data)`);
           })().catch((e) => console.warn("[order-cascadeLab] failed", e));
         },
       )

@@ -3912,30 +3912,66 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setOpenMrn(r.mrn);
     setBundle(null);
     setBundleLoading(true);
-    const [patientRes, labsRes, medsRes, notesRes] = await Promise.all([
-      supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
-      supabase
-        .from("lab_orders")
-        .select("id, test_type, result_value, status, collected_at, created_at")
-        .eq("patient_mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("medication_orders")
-        .select(
-          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
-        )
-        .eq("patient_mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("clinical_notes")
-        .select("id, note_type, author, content, created_at")
-        .eq("mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(20),
-    ]);
+    const [patientRes, labsRes, medsRes, notesRes, allergiesRes, reactionsRes, radiologyRes] =
+      await Promise.all([
+        supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
+        supabase
+          .from("lab_orders")
+          .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
+          .eq("patient_mrn", r.mrn)
+          .order("created_at", { ascending: false })
+          .limit(40),
+        supabase
+          .from("medication_orders")
+          .select(
+            "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+          )
+          .eq("patient_mrn", r.mrn)
+          .order("created_at", { ascending: false })
+          .limit(40),
+        supabase
+          .from("clinical_notes")
+          .select("id, note_type, author, content, created_at")
+          .eq("mrn", r.mrn)
+          .order("created_at", { ascending: false })
+          .limit(20),
+        supabase
+          .from("allergies")
+          .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
+          .eq("mrn", r.mrn)
+          .limit(40),
+        supabase
+          .from("allergy_reactions")
+          .select(
+            "allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display",
+          )
+          .eq("mrn", r.mrn)
+          .limit(80),
+        supabase
+          .from("radiology_orders")
+          .select(
+            "id, exam_type, modality, body_part, clinical_indication, snomed_code, snomed_display, report_text, impression, requested_by, ordered_at, resulted_at, created_at",
+          )
+          .eq("patient_mrn", r.mrn)
+          .order("created_at", { ascending: false })
+          .limit(50),
+      ]);
     const p = (patientRes.data ?? {}) as any;
+    const reactionsByAllergy = new Map<string, any[]>();
+    for (const rx of ((reactionsRes.data ?? []) as any[]) ?? []) {
+      const arr = reactionsByAllergy.get(rx.allergy_id) ?? [];
+      arr.push(rx);
+      reactionsByAllergy.set(rx.allergy_id, arr);
+    }
+    const allergies = ((allergiesRes.data ?? []) as any[]).map((a) => ({
+      id: a.id,
+      substance: a.substance,
+      reaction: a.reaction,
+      severity: a.severity,
+      substance_rxcui: a.substance_rxcui,
+      substance_snomed: a.substance_snomed,
+      reactions: reactionsByAllergy.get(a.id) ?? [],
+    }));
     const b = buildEncounterBundle({
       patient: {
         mrn: r.mrn,
@@ -3964,6 +4000,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
       labs: (labsRes.data ?? []) as any[],
       meds: (medsRes.data ?? []) as any[],
       notes: (notesRes.data ?? []) as any[],
+      allergies,
+      radiologyOrders: (radiologyRes.data ?? []) as any[],
     });
     setBundle(b);
     setBundleLoading(false);
@@ -4085,6 +4123,14 @@ function FhirInteroperability({ facility }: { facility: string }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "clinical_notes" }, (p: any) =>
         requeue(p?.new?.mrn ?? p?.old?.mrn),
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "radiology_orders" },
+        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "allergies" }, (p: any) =>
+        requeue(p?.new?.mrn ?? p?.old?.mrn),
+      )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -4113,7 +4159,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
             FHIR Interoperability
             <InfoHint
               className="ml-1.5"
-              text="Final staging area for the unified FHIR R4 encounter Bundle. Each row is one admission encounter — opening the JSON shows the complete longitudinal record (Patient, Encounter, Observations, MedicationRequest/Administration, DocumentReference, CarePlan, Appointment) exactly as pushed to the external Medblocks FHIR server, with deterministic idempotent IDs so re-syncing a patient never creates duplicates."
+              text="Final staging area for the unified FHIR R4 encounter Bundle. Each row is one admission encounter — opening the JSON shows the complete longitudinal record (Patient, Encounter, Observations, AllergyIntolerance, MedicationRequest/Administration, ServiceRequest/DiagnosticReport for labs + imaging, DocumentReference, CarePlan, Appointment) exactly as pushed to the external Medblocks FHIR server, with deterministic idempotent IDs so re-syncing a patient never creates duplicates."
             />
           </h2>
         </div>
@@ -4196,8 +4242,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
             <DialogDescription>
               Strict FHIR R4 <span className="font-mono">Bundle</span> (type=
               <span className="font-mono">transaction</span>) containing the Composition, Patient,
-              Encounter, Observations (vitals + labs), MedicationRequest, MedicationAdministration,
-              DocumentReference, CarePlan, and follow-up Appointment. Every entry uses
+              Encounter, Observations (vitals + labs), AllergyIntolerance, MedicationRequest,
+              MedicationAdministration, ServiceRequest (labs + imaging), DiagnosticReport (reported
+              imaging studies), DocumentReference, CarePlan, and follow-up Appointment. Every entry
+              uses
               <span className="font-mono"> PUT /{`{ResourceType}/{stableId}`}</span> with a
               deterministic stable id derived from MRN + clinical content, so every push is an
               idempotent UPSERT — re-syncing the same patient can never create duplicate resources

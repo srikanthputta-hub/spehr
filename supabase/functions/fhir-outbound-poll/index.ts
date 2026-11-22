@@ -376,6 +376,7 @@ const stableIds = {
   condition: (type: string, mrn: string) =>
     `cond-${slugify(type).slice(0, 30) || "unknown"}-${mrn}`,
   docRef: (mrn: string) => `docref-${mrn}`,
+  allergy: (substance: string, mrn: string) => `allergy-${slugify(substance)}-${mrn}`,
 };
 
 const noteStableIds = {
@@ -384,11 +385,20 @@ const noteStableIds = {
 };
 
 function radStableId(r: any, mrn: string): string {
-  const seed = r.snomed_code
-    ? String(r.snomed_code)
+  // Keyed by the ORDER's own row id, not exam type / SNOMED code — a
+  // patient can have multiple distinct orders for the same study, and
+  // keying on snomed_code/exam_type alone made every same-type study
+  // collide onto one FHIR id (the second order's PUT silently clobbered
+  // the first order's ServiceRequest on the Medblocks server).
+  const seed = r.id
+    ? String(r.id)
         .replace(/[^A-Za-z0-9\-\.]/g, "")
-        .slice(0, 20)
-    : slugify(r.exam_type ?? r.id ?? "exam");
+        .slice(0, 40)
+    : r.snomed_code
+      ? String(r.snomed_code)
+          .replace(/[^A-Za-z0-9\-\.]/g, "")
+          .slice(0, 20)
+      : slugify(r.exam_type ?? "exam");
   return `svcreq-rad-${seed || "exam"}-${mrn}`;
 }
 
@@ -726,6 +736,86 @@ function buildCondition(
     subject: { reference: `Patient/${mrn}` },
     encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
     recordedDate: opts.recordedDate ?? c.coded_at ?? c.created_at ?? undefined,
+  });
+}
+
+// AllergyIntolerance — one per `allergies` row, with its linked
+// `allergy_reactions` rows (if any) as `reaction[].manifestation`. This
+// server-side poll previously never built this resource type at all, so a
+// documented allergy only round-tripped to Medblocks if the client-side
+// `useBackgroundFhirSync` hook happened to be running in an open browser
+// tab — the same "open-tab-only" reliability gap already fixed for other
+// resource types in this pipeline.
+function buildAllergyIntolerance(mrn: string, a: any, reactions: any[]) {
+  const reactionEntries = reactions
+    .filter((rx) => !!rx?.manifestation)
+    .map((rx) => ({
+      manifestation: [
+        rx.snomed_code
+          ? {
+              coding: [
+                {
+                  system: "http://snomed.info/sct",
+                  code: rx.snomed_code,
+                  display: rx.snomed_display ?? rx.manifestation,
+                },
+              ],
+              text: rx.manifestation,
+            }
+          : { text: rx.manifestation },
+      ],
+      severity:
+        String(a.severity ?? "").toLowerCase() === "severe"
+          ? "severe"
+          : String(a.severity ?? "").toLowerCase() === "mild"
+            ? "mild"
+            : "moderate",
+    }));
+  const reactionList =
+    reactionEntries.length > 0
+      ? reactionEntries
+      : a.reaction
+        ? [{ manifestation: [{ text: a.reaction }], severity: "moderate" }]
+        : [];
+  return tagged({
+    resourceType: "AllergyIntolerance",
+    id: stableIds.allergy(a.substance, mrn),
+    clinicalStatus: {
+      coding: [
+        { system: "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical", code: "active" },
+      ],
+    },
+    verificationStatus: {
+      coding: [
+        {
+          system: "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification",
+          code: "confirmed",
+        },
+      ],
+    },
+    type: "allergy",
+    criticality: String(a.severity ?? "").toLowerCase() === "severe" ? "high" : "low",
+    code: a.substance_snomed
+      ? {
+          coding: [
+            { system: "http://snomed.info/sct", code: a.substance_snomed, display: a.substance },
+          ],
+          text: a.substance,
+        }
+      : a.substance_rxcui
+        ? {
+            coding: [
+              {
+                system: "http://www.nlm.nih.gov/research/umls/rxnorm",
+                code: a.substance_rxcui,
+                display: a.substance,
+              },
+            ],
+            text: a.substance,
+          }
+        : { text: a.substance },
+    patient: { reference: `Patient/${mrn}` },
+    reaction: reactionList.length > 0 ? reactionList : undefined,
   });
 }
 
@@ -1182,7 +1272,7 @@ async function collectChangedMrns(
   };
 
   const since = cursor.ts;
-  const [meds, labs, rads, results, notes, conds, pats] = await Promise.all([
+  const [meds, labs, rads, results, notes, conds, pats, allergies] = await Promise.all([
     admin
       .from("medication_orders")
       .select("patient_mrn, updated_at")
@@ -1225,6 +1315,12 @@ async function collectChangedMrns(
       .gte("updated_at", since)
       .order("updated_at", { ascending: true })
       .limit(CLINICAL_SCAN_LIMIT),
+    admin
+      .from("allergies")
+      .select("mrn, updated_at")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: true })
+      .limit(CLINICAL_SCAN_LIMIT),
   ]);
 
   if (meds.error) throw new Error(`meds change scan: ${meds.error.message}`);
@@ -1234,6 +1330,7 @@ async function collectChangedMrns(
   if (notes.error) throw new Error(`notes change scan: ${notes.error.message}`);
   if (conds.error) throw new Error(`conditions change scan: ${conds.error.message}`);
   if (pats.error) throw new Error(`patients change scan: ${pats.error.message}`);
+  if (allergies.error) throw new Error(`allergies change scan: ${allergies.error.message}`);
 
   bump((meds.data ?? []) as any[]);
   bump((labs.data ?? []) as any[]);
@@ -1242,6 +1339,7 @@ async function collectChangedMrns(
   bump((notes.data ?? []) as any[]);
   bump((conds.data ?? []) as any[]);
   bump((pats.data ?? []) as any[]);
+  bump((allergies.data ?? []) as any[]);
 
   // provider_notes / shift_notes use patient_mrn — bump() handles both keys.
   const [provNotes, shiftNotes] = await Promise.all([
@@ -1296,6 +1394,8 @@ async function buildEntriesForMrn(
     condsRes,
     provNotesRes,
     shiftNotesRes,
+    allergiesRes,
+    allergyReactionsRes,
   ] = await Promise.all([
     admin
       .from("patients")
@@ -1362,6 +1462,16 @@ async function buildEntriesForMrn(
       .eq("patient_mrn", mrn)
       .order("created_at", { ascending: false })
       .limit(50),
+    admin
+      .from("allergies")
+      .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
+      .eq("mrn", mrn)
+      .limit(40),
+    admin
+      .from("allergy_reactions")
+      .select("allergy_id, manifestation, severity, snomed_code, snomed_display")
+      .eq("mrn", mrn)
+      .limit(80),
   ]);
 
   const patient = (patientRes as any)?.data;
@@ -1415,6 +1525,21 @@ async function buildEntriesForMrn(
     );
   }
 
+  // Allergies: one AllergyIntolerance per `allergies` row, with any linked
+  // `allergy_reactions` rows folded in as reaction.manifestation.
+  const reactionsByAllergyId = new Map<string, any[]>();
+  for (const rx of ((allergyReactionsRes as any)?.data ?? []) as any[]) {
+    const arr = reactionsByAllergyId.get(rx.allergy_id) ?? [];
+    arr.push(rx);
+    reactionsByAllergyId.set(rx.allergy_id, arr);
+  }
+  for (const a of ((allergiesRes as any)?.data ?? []) as any[]) {
+    if (!a?.substance) continue;
+    entries.push(
+      entryFor(buildAllergyIntolerance(mrn, a, reactionsByAllergyId.get(a.id) ?? [])),
+    );
+  }
+
   // Medications: emit BOTH MedicationRequest (order intent) AND
   // MedicationAdministration (for rows that reached "Administered"). Dedupe
   // by drug+dose to avoid two identical Requests when the same admission
@@ -1452,9 +1577,13 @@ async function buildEntriesForMrn(
   }
 
   // Radiology — placer ServiceRequest per row (imaging category, SNOMED code).
+  // Each row is its own distinct order (a patient can have two chest
+  // X-rays for two different clinical questions), so dedup by the row's
+  // OWN id, not by exam_type/snomed_code — deduping on the latter silently
+  // dropped every repeat study of the same exam type.
   const seenRad = new Set<string>();
   for (const r of ((radsRes as any)?.data ?? []) as any[]) {
-    const key = `${(r.exam_type ?? "").toLowerCase()}|${r.snomed_code ?? ""}`;
+    const key = String(r.id ?? `${(r.exam_type ?? "").toLowerCase()}|${r.snomed_code ?? ""}`);
     if (seenRad.has(key)) continue;
     seenRad.add(key);
     entries.push(entryFor(buildRadiologyServiceRequest(mrn, r)));

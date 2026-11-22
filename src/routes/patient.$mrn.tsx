@@ -230,6 +230,7 @@ interface PatientRecord {
   first_name: string | null;
   last_name: string | null;
   age: number | null;
+  dob: string | null;
   gender: string | null;
   room: string | null;
   code_status: string | null;
@@ -272,12 +273,18 @@ function mockAgeFromName(first: string | null | undefined, fallback: number | nu
   return 28 + (h % 60); // 28 – 87
 }
 
-function mockDobFromAge(age: number): string {
-  const year = new Date().getFullYear() - age;
-  // Stable deterministic month/day from age
-  const m = ((age * 7) % 12) + 1;
-  const d = ((age * 13) % 27) + 1;
-  return `${String(m).padStart(2, "0")}/${String(d).padStart(2, "0")}/${year}`;
+/**
+ * Single source of truth for displaying DOB: the `patients.dob` column
+ * (same column the Admit form writes via `safeDob()`, the FHIR Patient
+ * resource's `birthDate` reads, and myspehr's Profile page reads). This
+ * used to be `mockDobFromAge()`, a deterministic value derived from the
+ * patient's `age` field that had no relationship to the real DOB — it
+ * made the chart banner disagree with every other view of the same
+ * patient. Never synthesize a DOB here; show "—" when it is genuinely
+ * absent so a missing value is visibly missing rather than invented.
+ */
+function formatDob(dob: string | null | undefined): string {
+  return dob && dob.trim() ? dob : "—";
 }
 
 /**
@@ -1721,7 +1728,7 @@ function HistoryProblemsView({ patient }: { patient: PatientRecord }) {
 function AdministrativeView({ patient }: { patient: PatientRecord }) {
   const fullName = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown";
   const age = mockAgeFromName(patient.first_name, patient.age);
-  const dob = mockDobFromAge(age);
+  const dob = formatDob(patient.dob);
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <section className={widgetBox}>
@@ -2181,7 +2188,7 @@ function PatientChart() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name, allergies, environmental_allergies, past_medical_history, past_surgical_history, family_history, current_medications, admission_source",
+          "id, mrn, first_name, last_name, age, dob, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name, allergies, environmental_allergies, past_medical_history, past_surgical_history, family_history, current_medications, admission_source",
         )
         .eq("mrn", mrn)
         .maybeSingle();
@@ -2226,7 +2233,7 @@ function PatientChart() {
   const fullName =
     `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown Patient";
   const age = mockAgeFromName(patient.first_name, patient.age);
-  const dob = mockDobFromAge(age);
+  const dob = formatDob(patient.dob);
   const codeStatus = (patient.code_status ?? "").trim() || "Full Code";
   const isFullCode = /full/i.test(codeStatus);
   const drugAllergy = parseDrugAllergy(patient.allergies);

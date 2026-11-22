@@ -19,7 +19,17 @@
 // CLAUDE.md's Product topology section) — NOT because those domains are offline. They're still
 // live, just no longer actively maintained or designed around from this repo, so they no longer
 // need cross-origin access to these routes.
-const ALLOWED_ORIGINS = new Set(["https://spehr.live", "https://www.spehr.live"]);
+//
+// myspehr.live / www.myspehr.live added 2026-11-22: the patient portal's Book Appointment
+// dialog calls this repo's /api/public/directory route directly from the browser to populate
+// its Location/Provider pickers, and was silently stuck empty because its origin was never
+// added here (flagged by an independent QA sweep, traced to this allowlist by the fix for it).
+const ALLOWED_ORIGINS = new Set([
+  "https://spehr.live",
+  "https://www.spehr.live",
+  "https://myspehr.live",
+  "https://www.myspehr.live",
+]);
 
 // Matches the Vite dev server port (vite.config.ts: server.port = 8080) on
 // localhost/127.0.0.1/[::1], any port scheme, for local development only.
