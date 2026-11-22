@@ -81,6 +81,7 @@ interface DispensedRow {
   created_at: string | null;
   ordering_physician: string | null;
   facility_name: string | null;
+  verified_by: string | null;
 }
 
 interface DispensedFeedRow {
@@ -324,7 +325,7 @@ function PharmacyQueue() {
       const { data } = await supabase
         .from("medication_orders")
         .select(
-          "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, updated_at, administered_at, created_at, ordering_physician, facility_name",
+          "id, mrn, patient_mrn, patient_name, drug_name, medication_name, dose, route, frequency, status, updated_at, administered_at, created_at, ordering_physician, facility_name, verified_by",
         )
         .eq("facility_name", facility)
         .in("status", ["Administered", "ADMINISTERED", "REJECTED", "REJECTED_SAFETY_ALERT"])
@@ -398,8 +399,12 @@ function PharmacyQueue() {
   // Real medication_orders rows win; otherwise fall back to the same
   // deterministic per-MRN panel the admission randomizer would have seeded.
   const recentDispensed: DispensedFeedRow[] = useMemo(() => {
-    const pharmacistName = pharm?.name ? `${pharm.name}, PharmD` : "Auto-Dispense, PharmD";
-
+    // Real, per-row verification actor — a real PharmD's name for a manual
+    // approval, or the honestly-labeled automated-verification string
+    // cascadeMed() stamps after the Safety Alerts Engine check clears (see
+    // `medication_orders.verified_by`). NEVER fabricate a pharmacist
+    // credential for a row nobody/nothing actually verified: say so
+    // plainly instead.
     const rows: DispensedFeedRow[] = [];
     for (const o of dispensed) {
       if ((o.facility_name ?? facility) !== facility) continue;
@@ -417,7 +422,7 @@ function PharmacyQueue() {
         route: o.route,
         frequency: o.frequency,
         status: o.status ?? "Administered",
-        pharmacist: pharmacistName,
+        pharmacist: o.verified_by ?? "Not recorded",
       });
     }
 
@@ -427,7 +432,7 @@ function PharmacyQueue() {
       return tb - ta;
     });
     return rows.slice(0, 150);
-  }, [dispensed, facility, pharm?.name]);
+  }, [dispensed, facility]);
 
   const selected = useMemo(
     () => visibleOrders.find((o) => o.id === selectedId) ?? null,
@@ -479,7 +484,13 @@ function PharmacyQueue() {
       .from("medication_orders")
       .update(
         newStatus === "Approved"
-          ? { status: newStatus, approved_at: new Date().toISOString() }
+          ? ({
+              status: newStatus,
+              approved_at: new Date().toISOString(),
+              // Real verification record — the actual logged-in PharmD who
+              // reviewed this order, not a fabricated name.
+              verified_by: pharm?.name ? `${pharm.name}, PharmD` : null,
+            } as any)
           : { status: newStatus },
       )
       .eq("id", id);

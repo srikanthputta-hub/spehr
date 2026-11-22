@@ -26,6 +26,52 @@ function refIdOf(ref: string | undefined | null): string | null {
   return parts[parts.length - 1] || null;
 }
 
+// Appointment.participant actor-type checks, by reference prefix (the only
+// signal either writer actually populates today) or by `actor.type` (FHIR's
+// Reference.type, carried even on a display-only actor) when a resource
+// does happen to set it. Used to EXCLUDE the Patient/Location participant
+// rather than trying to positively match "the practitioner one" — see
+// findProviderParticipant below for why that distinction matters.
+function actorRef(p: any): string {
+  return p?.actor?.reference ?? "";
+}
+function actorType(p: any): string {
+  return p?.actor?.type ?? "";
+}
+function isPatientParticipant(p: any): boolean {
+  return actorRef(p).startsWith("Patient/") || actorType(p) === "Patient";
+}
+function isLocationParticipant(p: any): boolean {
+  return actorRef(p).startsWith("Location/") || actorType(p) === "Location";
+}
+
+// Finds the practitioner participant's display name. Mirrors the
+// myspehr-side `findProviderParticipant()` fix: explicitly SKIP
+// Patient/Location participants rather than a loose
+// `reference?.startsWith("Practitioner/") || display` match, which falls
+// through to "whatever's first" — and the patient is always listed first,
+// in both myspehr's writes and spehr's own `buildAppointment`
+// (fhir-outbound-poll/index.ts), so a naive "first participant with a
+// display" match always picks the patient, not the provider.
+//
+// Both writers currently put the practitioner in a participant with NO
+// `reference` at all (display-only), so a positive `Practitioner/` prefix
+// match alone isn't enough — we fall back to "first non-Patient,
+// non-Location participant with a display" only after that positive match
+// fails.
+function findProviderParticipant(participants: any[]): string | null {
+  for (const p of participants) {
+    if (actorRef(p).startsWith("Practitioner/") || actorType(p) === "Practitioner") {
+      return p?.actor?.display ?? null;
+    }
+  }
+  for (const p of participants) {
+    if (isPatientParticipant(p) || isLocationParticipant(p)) continue;
+    if (p?.actor?.display) return p.actor.display;
+  }
+  return null;
+}
+
 function tagCode(resource: any, system: string): string | null {
   const tags = resource?.meta?.tag;
   if (!Array.isArray(tags)) return null;
@@ -106,18 +152,17 @@ async function handleAppointment(admin: any, resource: any): Promise<IngestOutco
 
   let patientMrn: string | null = null;
   let patientName: string | null = null;
-  let practitionerName: string | null = null;
-  for (const p of (resource?.participant ?? []) as any[]) {
-    const ref: string = p?.actor?.reference ?? "";
-    if (ref.startsWith("Patient/") && !patientMrn) {
-      patientMrn = refIdOf(ref);
+  const participants = (resource?.participant ?? []) as any[];
+  for (const p of participants) {
+    if (isPatientParticipant(p) && !patientMrn) {
+      patientMrn = refIdOf(actorRef(p));
       patientName = p?.actor?.display ?? patientName;
-    } else if (ref.startsWith("Practitioner/") && !practitionerName) {
-      practitionerName = p?.actor?.display ?? null;
-    } else if (!ref && p?.actor?.display && !practitionerName) {
-      practitionerName = p?.actor?.display;
     }
   }
+  // Practitioner lookup runs over the FULL participant list, in its own
+  // pass, so patient/location ordering never affects it — see
+  // findProviderParticipant's doc comment.
+  const practitionerName = findProviderParticipant(participants);
 
   const start = resource?.start ?? null;
   const end = resource?.end ?? resource?.start ?? null;

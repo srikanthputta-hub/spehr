@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Activity,
@@ -41,6 +41,7 @@ import { RadiologyOrderPanel } from "@/components/physician/RadiologyOrderPanel"
 import { PatientSafetyAlertQueue } from "@/components/physician/PatientSafetyAlertQueue";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { fetchWithTimeout } from "@/lib/async-timeout";
+import { confirmDuplicateOrder, findRecentDuplicateOrder } from "@/lib/duplicate-order-guard";
 import CohortCountsStrip from "@/components/analytics/CohortCountsStrip";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { TableSkeleton, CardSkeleton } from "@/components/common/LoadingSkeleton";
@@ -142,6 +143,11 @@ function PhysicianBoard() {
   const [route, setRoute] = useState("PO");
   const [freq, setFreq] = useState("Daily");
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy lock (H2 QA fix) — see RadiologyOrderPanel for
+  // why this must be a ref, not the `submitting` state: a second click
+  // fired before React re-renders the disabled button would still read a
+  // stale `submitting === false` closure.
+  const submitOrderLockRef = useRef(false);
 
   // AI DDx
   const [ddxLoading, setDdxLoading] = useState(false);
@@ -325,11 +331,13 @@ function PhysicianBoard() {
 
   const submitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitOrderLockRef.current) return;
     if (!selected) return;
     if (!drug.trim() || !dose.trim()) {
       toast.error("Drug name and dose are required");
       return;
     }
+    submitOrderLockRef.current = true;
     setSubmitting(true);
     const patientName =
       [selected.first_name, selected.last_name].filter(Boolean).join(" ") || selected.mrn;
@@ -338,6 +346,22 @@ function PhysicianBoard() {
     // against a stale pick from a previous drug name.
     const confirmedCode = drugCode && drugCode.display === drug.trim() ? drugCode : null;
     try {
+      // Duplicate-order guard (H2 QA fix): same patient + same drug/dose/
+      // route/frequency within a short window almost certainly means a
+      // double-click/double-submit, not two genuinely separate orders.
+      const dup = await findRecentDuplicateOrder({
+        mrn: selected.mrn,
+        table: "medication_orders",
+        matchColumns: {
+          drug_name: drug.trim(),
+          dose: dose.trim(),
+          route,
+          frequency: freq,
+        },
+      });
+      if (dup.isDuplicate && !confirmDuplicateOrder(dup.ageSeconds ?? 0)) {
+        return;
+      }
       const { data: inserted, error } = await supabase
         .from("medication_orders")
         .insert({
@@ -391,6 +415,7 @@ function PhysicianBoard() {
         description: err instanceof Error ? err.message : "Unknown error",
       });
     } finally {
+      submitOrderLockRef.current = false;
       setSubmitting(false);
     }
   };

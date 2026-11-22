@@ -299,15 +299,26 @@ export type RadiologyOrderRow = {
   impression?: string | null;
   requested_by?: string | null;
   ordered_at?: string | null;
+  resulted_at?: string | null;
   created_at?: string | null;
 };
 
 export function radiologyStableId(r: RadiologyOrderRow, mrn: string): string {
-  const seed = r.snomed_code
-    ? String(r.snomed_code)
+  // Keyed by the ORDER's own row id, not exam type / SNOMED code: a
+  // patient can have multiple distinct orders for the same study (e.g.
+  // two separate chest X-rays for two different clinical questions), and
+  // each is its own clinical fact. Keying on snomed_code/exam_type alone
+  // made every same-type study collide onto one FHIR id, so the second
+  // order's PUT silently clobbered the first order's ServiceRequest.
+  const seed = r.id
+    ? String(r.id)
         .replace(/[^A-Za-z0-9\-\.]/g, "")
-        .slice(0, 20)
-    : slugify(r.exam_type ?? r.id ?? "exam");
+        .slice(0, 40)
+    : r.snomed_code
+      ? String(r.snomed_code)
+          .replace(/[^A-Za-z0-9\-\.]/g, "")
+          .slice(0, 20)
+      : slugify(r.exam_type ?? "exam");
   return `svcreq-rad-${seed || "exam"}-${mrn}`;
 }
 
@@ -343,6 +354,70 @@ export function buildRadiologyServiceRequest(mrn: string, r: RadiologyOrderRow) 
     ...(r.clinical_indication ? { reasonCode: [{ text: r.clinical_indication }] } : {}),
     ...(r.requested_by ? { requester: { display: r.requested_by } } : {}),
   });
+}
+
+/**
+ * DiagnosticReport for a radiology order that has come back with a report
+ * (report_text and/or impression populated). `basedOn` keys back to the
+ * ServiceRequest built above via the SAME stable id, so a FHIR consumer can
+ * line up the order and its result. Only built for orders that actually
+ * have a report — an order with no report yet is "Ordered — pending read"
+ * and gets no DiagnosticReport (never fabricate a result that doesn't
+ * exist).
+ */
+export function buildRadiologyDiagnosticReport(mrn: string, r: RadiologyOrderRow) {
+  const srId = radiologyStableId(r, mrn);
+  const id = srId.replace(/^svcreq-rad-/, "diagrep-rad-");
+  return withSpehrSource({
+    resourceType: "DiagnosticReport",
+    id,
+    status: "final",
+    category: [
+      {
+        coding: [
+          {
+            system: "http://terminology.hl7.org/CodeSystem/v2-0074",
+            code: "RAD",
+            display: "Radiology",
+          },
+        ],
+      },
+    ],
+    code: r.snomed_code
+      ? {
+          coding: [
+            {
+              system: "http://snomed.info/sct",
+              code: r.snomed_code,
+              display: r.snomed_display ?? r.exam_type,
+            },
+          ],
+          text: r.exam_type ?? r.snomed_display ?? "Imaging exam",
+        }
+      : { text: r.exam_type ?? "Imaging exam" },
+    subject: { reference: `Patient/${mrn}` },
+    encounter: { reference: `Encounter/${stableIds.encounter(mrn)}` },
+    basedOn: [{ reference: `ServiceRequest/${srId}` }],
+    effectiveDateTime: r.ordered_at ?? r.created_at ?? undefined,
+    issued: r.resulted_at ?? r.created_at ?? undefined,
+    conclusion: r.impression ?? undefined,
+    presentedForm: r.report_text
+      ? [
+          {
+            contentType: "text/plain",
+            data:
+              typeof globalThis.btoa === "function"
+                ? globalThis.btoa(unescape(encodeURIComponent(r.report_text)))
+                : undefined,
+            title: r.exam_type ?? "Imaging report",
+          },
+        ]
+      : undefined,
+  });
+}
+
+function hasRadiologyReport(r: RadiologyOrderRow): boolean {
+  return !!(r.report_text || r.impression);
 }
 
 /* ------------------------------------------------------------------ */
@@ -895,16 +970,28 @@ function loincForLabName(name: string | null | undefined): string | null {
 
 /**
  * Block hallucinated lab entries from reaching the FHIR bundle. A real
- * ordered lab always has either a short clinical name or an explicit LOINC
- * code; sprawling 60+ char names like "Conditions related to mental
- * retardation and developmental..." originate from the NLP pipeline and
- * have no business in the patient's record.
+ * ordered lab always has either a short clinical name, an explicit LOINC
+ * code, or a standard LOINC "Long Common Name" (the
+ * `<Analyte> [<Property>] in <System> by <Method>` grammar, e.g.
+ * "Procalcitonin [Mass/volume] in Serum or Plasma by Immunoassay" — a real,
+ * correctly-ordered test that just happens to be long); sprawling 60+ char
+ * free-text SENTENCES like "Conditions related to mental retardation and
+ * developmental..." originate from the NLP pipeline and have no business in
+ * the patient's record. A flat length cutoff conflated the two: it let the
+ * short NLP junk through plenty of room while dropping real, correctly
+ * ordered tests whose official LOINC name is simply long (e.g. a verified
+ * procalcitonin order was silently dropped from the FHIR export). Matching
+ * the LOINC long-common-name grammar lets long-but-real names through while
+ * still blocking free-text sentences that don't follow it.
  */
+const LOINC_LONG_COMMON_NAME_RE = /\[[^[\]]+\]\s+in\s+.+\s+by\s+.+/i;
 function isPlausibleLab(l: EncounterLab): boolean {
   const loinc = l.loinc_code ?? loincForLabName(l.test_type);
   if (loinc) return true;
   const name = (l.test_type ?? "").trim();
-  return name.length > 0 && name.length <= 40;
+  if (!name) return false;
+  if (name.length <= 40) return true;
+  return LOINC_LONG_COMMON_NAME_RE.test(name);
 }
 
 function labObservation(mrn: string, l: EncounterLab) {
@@ -1119,6 +1206,105 @@ function followUpAppointment(p: EncounterPatient) {
 }
 
 /**
+ * Build an AllergyIntolerance resource synchronously, with whatever
+ * substance/reaction coding has already been resolved and stored on the
+ * `allergies` / `allergy_reactions` rows (substance_rxcui, substance_snomed,
+ * reaction snomed/meddra). Used by the fast, non-async `buildEncounterBundle`
+ * path (e.g. the FHIR Interoperability "View / Export JSON" dialog) so a
+ * documented allergy always appears without waiting on a live UMLS call.
+ * `buildEncounterBundleAsync` additionally re-resolves any still-uncoded
+ * substance/reaction via UMLS and overwrites this resource with the fuller
+ * version (same stable id), so nothing here is ever fabricated — only
+ * already-real, already-stored codes are used.
+ */
+function encounterAllergyIntolerance(mrn: string, a: EncounterAllergy): any {
+  const category = inferAllergyCategory(a.category, a.substance);
+  const reactionList =
+    a.reactions && a.reactions.length > 0
+      ? a.reactions
+      : a.reaction
+        ? [{ manifestation: a.reaction }]
+        : [];
+  const reactionEntries = reactionList
+    .filter((rx) => !!rx?.manifestation)
+    .map((rx) => ({
+      manifestation: [
+        rx.snomed_code
+          ? {
+              coding: [
+                {
+                  system: FHIR_SYSTEM_URI["SNOMED CT"],
+                  code: rx.snomed_code,
+                  display: rx.snomed_display ?? rx.manifestation,
+                },
+              ],
+              text: rx.manifestation,
+            }
+          : { text: rx.manifestation },
+      ],
+      severity:
+        (a.severity ?? "").toLowerCase() === "severe"
+          ? "severe"
+          : (a.severity ?? "").toLowerCase() === "mild"
+            ? "mild"
+            : "moderate",
+    }));
+  return {
+    resourceType: "AllergyIntolerance",
+    id: stableIds.allergy(a.substance, mrn),
+    clinicalStatus: {
+      coding: [
+        {
+          system: "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+          code: "active",
+        },
+      ],
+    },
+    verificationStatus: {
+      coding: [
+        {
+          system: "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification",
+          code: "confirmed",
+        },
+      ],
+    },
+    type: "allergy",
+    category:
+      category === "medication"
+        ? ["medication"]
+        : category === "food"
+          ? ["food"]
+          : category === "environment"
+            ? ["environment"]
+            : category === "biologic"
+              ? ["biologic"]
+              : undefined,
+    criticality: (a.severity ?? "").toLowerCase() === "severe" ? "high" : "low",
+    code: a.substance_snomed
+      ? {
+          coding: [
+            {
+              system: FHIR_SYSTEM_URI["SNOMED CT"],
+              code: a.substance_snomed,
+              display: a.substance,
+            },
+          ],
+          text: a.substance,
+        }
+      : a.substance_rxcui
+        ? {
+            coding: [
+              { system: FHIR_SYSTEM_URI.RxNorm, code: a.substance_rxcui, display: a.substance },
+            ],
+            text: a.substance,
+          }
+        : { text: a.substance },
+    patient: { reference: `Patient/${mrn}` },
+    reaction: reactionEntries.length > 0 ? reactionEntries : undefined,
+  };
+}
+
+/**
  * Build the encounter-level Condition resources. The admitting working
  * diagnosis (chief complaint at intake) is recorded as `provisional`. On
  * discharge the final working diagnosis is recorded as a separate
@@ -1238,6 +1424,8 @@ export function buildEncounterBundle(opts: {
   meds?: EncounterMed[];
   notes?: EncounterNote[];
   conditions?: EncounterCondition[];
+  allergies?: EncounterAllergy[];
+  radiologyOrders?: RadiologyOrderRow[];
 }) {
   const { patient } = opts;
   const patientRes = fullPatient(patient);
@@ -1316,6 +1504,27 @@ export function buildEncounterBundle(opts: {
     "clinical note",
     patient.mrn,
   );
+  const allergies = safeMap(
+    (opts.allergies ?? []).filter((a) => !!a?.substance),
+    (a) => encounterAllergyIntolerance(patient.mrn, a),
+    "allergy",
+    patient.mrn,
+  );
+  // Imaging: every radiology_orders row gets a ServiceRequest (placer
+  // intent); rows that have actually come back with a report additionally
+  // get a DiagnosticReport that `basedOn`s that ServiceRequest.
+  const radiologyRequests = safeMap(
+    opts.radiologyOrders ?? [],
+    (r) => buildRadiologyServiceRequest(patient.mrn, r),
+    "radiology service request",
+    patient.mrn,
+  );
+  const radiologyReports = safeMap(
+    (opts.radiologyOrders ?? []).filter(hasRadiologyReport),
+    (r) => buildRadiologyDiagnosticReport(patient.mrn, r),
+    "radiology diagnostic report",
+    patient.mrn,
+  );
   const carePlan = carePlanFromDischarge(patient);
   const appt = followUpAppointment(patient);
 
@@ -1357,6 +1566,14 @@ export function buildEncounterBundle(opts: {
       },
       { title: "Vital Signs", entry: vitals.map((o) => ({ reference: `Observation/${o.id}` })) },
       { title: "Laboratory", entry: labs.map((o) => ({ reference: `Observation/${o.id}` })) },
+      ...(allergies.length
+        ? [
+            {
+              title: "Allergies",
+              entry: allergies.map((a: any) => ({ reference: `AllergyIntolerance/${a.id}` })),
+            },
+          ]
+        : []),
       {
         title: "Medication Orders",
         entry: medReqs.map((m) => ({ reference: `MedicationRequest/${m.id}` })),
@@ -1365,6 +1582,17 @@ export function buildEncounterBundle(opts: {
         title: "Medication Administrations",
         entry: medAdms.map((m) => ({ reference: `MedicationAdministration/${m.id}` })),
       },
+      ...(radiologyRequests.length
+        ? [
+            {
+              title: "Diagnostic Imaging",
+              entry: [
+                ...radiologyRequests.map((r: any) => ({ reference: `ServiceRequest/${r.id}` })),
+                ...radiologyReports.map((d: any) => ({ reference: `DiagnosticReport/${d.id}` })),
+              ],
+            },
+          ]
+        : []),
       {
         title: "Clinical Notes",
         entry: docs.map((d) => ({ reference: `DocumentReference/${d.id}` })),
@@ -1390,10 +1618,13 @@ export function buildEncounterBundle(opts: {
     encounterRes,
     ...conditions,
     ...vitals,
+    ...allergies,
     ...labRequests,
     ...labs,
     ...medReqs,
     ...medAdms,
+    ...radiologyRequests,
+    ...radiologyReports,
     ...docs,
     ...(carePlan ? [carePlan] : []),
     ...(appt ? [appt] : []),
@@ -1615,6 +1846,7 @@ export async function buildEncounterBundleAsync(opts: {
   notes?: EncounterNote[];
   conditions?: EncounterCondition[];
   allergies?: EncounterAllergy[];
+  radiologyOrders?: RadiologyOrderRow[];
 }): Promise<any> {
   // Lazy import to avoid a circular module load order with umls-client
   // (which imports the supabase client, which only exists in the browser).
@@ -1633,6 +1865,8 @@ export async function buildEncounterBundleAsync(opts: {
     meds: opts.meds,
     notes: opts.notes,
     conditions: opts.conditions,
+    allergies: opts.allergies,
+    radiologyOrders: opts.radiologyOrders,
   });
   const entries: any[] = Array.isArray(bundle.entry) ? bundle.entry : [];
   const mrn = opts.patient.mrn;

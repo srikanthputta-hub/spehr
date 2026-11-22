@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { autoCodeLab, autoCodeMedication } from "@/lib/auto-code";
+import { confirmDuplicateOrder, findRecentDuplicateOrder } from "@/lib/duplicate-order-guard";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import {
   ArrowLeft,
@@ -229,6 +230,7 @@ interface PatientRecord {
   first_name: string | null;
   last_name: string | null;
   age: number | null;
+  dob: string | null;
   gender: string | null;
   room: string | null;
   code_status: string | null;
@@ -271,12 +273,18 @@ function mockAgeFromName(first: string | null | undefined, fallback: number | nu
   return 28 + (h % 60); // 28 – 87
 }
 
-function mockDobFromAge(age: number): string {
-  const year = new Date().getFullYear() - age;
-  // Stable deterministic month/day from age
-  const m = ((age * 7) % 12) + 1;
-  const d = ((age * 13) % 27) + 1;
-  return `${String(m).padStart(2, "0")}/${String(d).padStart(2, "0")}/${year}`;
+/**
+ * Single source of truth for displaying DOB: the `patients.dob` column
+ * (same column the Admit form writes via `safeDob()`, the FHIR Patient
+ * resource's `birthDate` reads, and myspehr's Profile page reads). This
+ * used to be `mockDobFromAge()`, a deterministic value derived from the
+ * patient's `age` field that had no relationship to the real DOB — it
+ * made the chart banner disagree with every other view of the same
+ * patient. Never synthesize a DOB here; show "—" when it is genuinely
+ * absent so a missing value is visibly missing rather than invented.
+ */
+function formatDob(dob: string | null | undefined): string {
+  return dob && dob.trim() ? dob : "—";
 }
 
 /**
@@ -1720,7 +1728,7 @@ function HistoryProblemsView({ patient }: { patient: PatientRecord }) {
 function AdministrativeView({ patient }: { patient: PatientRecord }) {
   const fullName = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown";
   const age = mockAgeFromName(patient.first_name, patient.age);
-  const dob = mockDobFromAge(age);
+  const dob = formatDob(patient.dob);
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <section className={widgetBox}>
@@ -2180,7 +2188,7 @@ function PatientChart() {
       const { data, error } = await supabase
         .from("patients")
         .select(
-          "id, mrn, first_name, last_name, age, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name, allergies, environmental_allergies, past_medical_history, past_surgical_history, family_history, current_medications, admission_source",
+          "id, mrn, first_name, last_name, age, dob, gender, room, code_status, chief_complaint, diagnosis, hr, bp_systolic, bp_diastolic, spo2, admission_time, facility_name, allergies, environmental_allergies, past_medical_history, past_surgical_history, family_history, current_medications, admission_source",
         )
         .eq("mrn", mrn)
         .maybeSingle();
@@ -2225,7 +2233,7 @@ function PatientChart() {
   const fullName =
     `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown Patient";
   const age = mockAgeFromName(patient.first_name, patient.age);
-  const dob = mockDobFromAge(age);
+  const dob = formatDob(patient.dob);
   const codeStatus = (patient.code_status ?? "").trim() || "Full Code";
   const isFullCode = /full/i.test(codeStatus);
   const drugAllergy = parseDrugAllergy(patient.allergies);
@@ -2835,12 +2843,28 @@ function OrdersDialog({
   const [testType, setTestType] = useState("");
   const [drug, setDrug] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy lock (H2 QA fix) — a ref, not the `submitting`
+  // state, so a near-simultaneous second click can't slip through before
+  // React re-renders the disabled button.
+  const submitLockRef = useRef(false);
   const patientName = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown";
 
   const submit = async () => {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setSubmitting(true);
     try {
       if (kind === "lab") {
+        // Duplicate-order guard (H2 QA fix): same patient + same test type
+        // within a short window almost certainly means a double-submit.
+        const dup = await findRecentDuplicateOrder({
+          mrn: patient.mrn,
+          table: "lab_orders",
+          matchColumns: { test_type: testType },
+        });
+        if (dup.isDuplicate && !confirmDuplicateOrder(dup.ageSeconds ?? 0)) {
+          return;
+        }
         const { data: inserted, error } = await supabase
           .from("lab_orders")
           .insert({
@@ -2867,6 +2891,18 @@ function OrdersDialog({
         toast.success(`Lab ordered: ${testType} (sent to live lab queue)`);
       } else {
         const [name, ...rest] = drug.split(" ");
+        const dose = rest.slice(0, 2).join(" ");
+        // Duplicate-order guard (H2 QA fix): same patient + same drug/dose/
+        // route/frequency within a short window almost certainly means a
+        // double-submit, not two genuinely separate orders.
+        const dup = await findRecentDuplicateOrder({
+          mrn: patient.mrn,
+          table: "medication_orders",
+          matchColumns: { drug_name: name, dose, route: "PO", frequency: "Q6H PRN" },
+        });
+        if (dup.isDuplicate && !confirmDuplicateOrder(dup.ageSeconds ?? 0)) {
+          return;
+        }
         const { data: inserted, error } = await supabase
           .from("medication_orders")
           .insert({
@@ -2879,7 +2915,7 @@ function OrdersDialog({
             medication: drug,
             medication_name: drug,
             name: drug,
-            dose: rest.slice(0, 2).join(" "),
+            dose,
             route: "PO",
             frequency: "Q6H PRN",
             status: "Ordered",
@@ -2903,6 +2939,7 @@ function OrdersDialog({
     } catch (e: any) {
       toast.error(e.message ?? "Failed to submit order");
     } finally {
+      submitLockRef.current = false;
       setSubmitting(false);
     }
   };
@@ -2963,7 +3000,7 @@ function OrdersDialog({
             className={`text-[11px] rounded px-2 py-1.5 border ${automationEnabled ? "bg-success-soft border-success/30 text-success" : "bg-warning-soft border-warning/30 text-warning"}`}
           >
             {automationEnabled
-              ? "Automation ON — order will be auto-approved."
+              ? "Automation ON — order runs the allergy/interaction safety check and auto-approves only if it's clear; a conflict holds it for pharmacist verification."
               : "Manual mode — order will go to verification queue."}
           </div>
         </div>

@@ -39,6 +39,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
   buildDischargeMarkdown,
   pickCompletedProcedures,
+  DEFAULT_FOLLOW_UP_DAYS,
+  parseFollowUpDays,
   type MatchableValueSet,
   type NarrativeAllergy,
   type NarrativeImaging,
@@ -84,22 +86,25 @@ async function fetchPublishedValueSets(admin: any): Promise<MatchableValueSet[]>
 // Phase D: recall/follow-up appointment settings, read fresh per discharge
 // (cheap single-row lookup) rather than cached, since an operator may flip
 // `recall_enabled`/`recall_rate` between worker invocations.
+//
+// `recall_offset_min_hours`/`recall_offset_max_hours` still exist as
+// columns but are intentionally NOT read here any more: they used to drive
+// a random offset for the recall's scheduled date, completely unrelated to
+// whatever the discharge note itself told the patient ("follow up in 7
+// days"). `maybeScheduleRecall` below now derives the date directly from
+// the discharge note's own stated interval instead (see `followUpDays`).
 async function fetchRecallSettings(admin: any): Promise<{
   recall_enabled: boolean;
   recall_rate: number;
-  recall_offset_min_hours: number;
-  recall_offset_max_hours: number;
 }> {
   const { data } = await admin
     .from("system_settings")
-    .select("recall_enabled, recall_rate, recall_offset_min_hours, recall_offset_max_hours")
+    .select("recall_enabled, recall_rate")
     .eq("id", 1)
     .maybeSingle();
   return {
     recall_enabled: !!(data as any)?.recall_enabled,
     recall_rate: Number((data as any)?.recall_rate ?? 0.3),
-    recall_offset_min_hours: Number((data as any)?.recall_offset_min_hours ?? 26),
-    recall_offset_max_hours: Number((data as any)?.recall_offset_max_hours ?? 32),
   };
 }
 
@@ -122,6 +127,15 @@ function roundToNearest15Min(d: Date): Date {
  * try). Returns the id + timing to pass into `buildDischargeTransactionBundle`,
  * or null when no recall was scheduled. Never throws — any failure here is
  * logged and swallowed so it can never block the actual discharge.
+ *
+ * `followUpDays` is the SAME number quoted in the discharge note's own
+ * "Follow-Up Care" section (parsed from the clinician's text, or
+ * `DEFAULT_FOLLOW_UP_DAYS` — see discharge-narrative.ts) — the actual
+ * appointment date is derived from it directly. It used to be a random
+ * offset from `system_settings.recall_offset_min/max_hours` with no
+ * relationship to what the note told the patient, so a discharge that said
+ * "follow up in 7 days" could land its real appointment a week or two away
+ * from that.
  */
 async function maybeScheduleRecall(
   admin: any,
@@ -129,6 +143,7 @@ async function maybeScheduleRecall(
   patient: any,
   dischargeTimeMs: number,
   compositionId: string | undefined,
+  followUpDays: number = DEFAULT_FOLLOW_UP_DAYS,
 ): Promise<{
   id: string;
   start: string;
@@ -147,10 +162,7 @@ async function maybeScheduleRecall(
     const facility = patient.facility_name as string | null;
     if (!facility) return null;
 
-    const minH = settings.recall_offset_min_hours;
-    const maxH = settings.recall_offset_max_hours;
-    const offsetHours = minH + Math.random() * Math.max(0, maxH - minH);
-    const start = roundToNearest15Min(new Date(dischargeTimeMs + offsetHours * 3_600_000));
+    const start = roundToNearest15Min(new Date(dischargeTimeMs + followUpDays * 24 * 3_600_000));
     const end = new Date(start.getTime() + 30 * 60_000);
 
     const id = sanitizeFhirId(`recall-${mrn}-${Math.floor(dischargeTimeMs / 1000)}`);
@@ -427,7 +439,11 @@ async function fetchClinicalContext(
 async function buildSummaryForMrn(
   admin: any,
   mrn: string,
-  opts: { clinicianNote?: string | null; publishedValueSets?: MatchableValueSet[] } = {},
+  opts: {
+    clinicianNote?: string | null;
+    publishedValueSets?: MatchableValueSet[];
+    followUpDays?: number;
+  } = {},
 ): Promise<{
   summary: string | null;
   patient: any | null;
@@ -553,6 +569,7 @@ async function buildSummaryForMrn(
     opts.clinicianNote ?? null,
     vitals,
     opts.publishedValueSets ?? [],
+    opts.followUpDays ?? DEFAULT_FOLLOW_UP_DAYS,
   );
   return { summary, patient, meds, labs, allergies, imaging, procedures, vitals };
 }
@@ -577,8 +594,17 @@ async function processMrn(
   // now threaded INTO `buildDischargeMarkdown` as its own verbatim section
   // — never discarded, and never silently replacing the structured, real
   // chart data sections around it.
+  //
+  // Parsed BEFORE building the auto-narrative so the stated follow-up
+  // interval ("Follow up with PCP in 7 days" — the DischargeDialog's own
+  // default text) can drive both the narrative's own wording AND the
+  // actual recall-appointment date below, instead of the two drifting
+  // apart (narrative said "7 days", the recall used to land on whatever
+  // `system_settings.recall_offset_min/max_hours` happened to be, with no
+  // connection to that number at all).
   const override =
     typeof (opts as any).override === "string" ? String((opts as any).override).trim() : "";
+  const followUpDays = parseFollowUpDays(override) ?? DEFAULT_FOLLOW_UP_DAYS;
   const publishedValueSets = await fetchPublishedValueSets(admin);
   const {
     summary: autoSummary,
@@ -590,6 +616,7 @@ async function processMrn(
   } = await buildSummaryForMrn(admin, mrn, {
     clinicianNote: override.length > 0 ? override : null,
     publishedValueSets,
+    followUpDays,
   });
   if (!patient) return { mrn, ok: false, reason: "no_patient_row" };
   if (!autoSummary) return { mrn, ok: false, reason: "summary_build_failed" };
@@ -650,7 +677,14 @@ async function processMrn(
     // appointment. Never blocks/fails the discharge (all errors swallowed
     // inside maybeScheduleRecall).
     const dischargeTimeMs = new Date(patientUpdate.discharge_time as string).getTime();
-    recallAppt = await maybeScheduleRecall(admin, mrn, patient, dischargeTimeMs, undefined);
+    recallAppt = await maybeScheduleRecall(
+      admin,
+      mrn,
+      patient,
+      dischargeTimeMs,
+      undefined,
+      followUpDays,
+    );
 
     await admin
       .from("bed_management")

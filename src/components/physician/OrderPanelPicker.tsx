@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FlaskConical, Loader2, Send, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { listValueSets } from "@/lib/auto-api.functions";
@@ -37,6 +37,10 @@ export function OrderPanelPicker({ mrn, patientName, facility, diagnosis, physic
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  // Synchronous re-entrancy lock (H2 QA fix) — a ref, not the
+  // `submittingId` state, so a near-simultaneous second click on the same
+  // panel can't slip through before React re-renders the disabled button.
+  const submitLockRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!open || sets.length > 0) return;
@@ -61,6 +65,8 @@ export function OrderPanelPicker({ mrn, patientName, facility, diagnosis, physic
   }, [open, sets.length]);
 
   const submitPanel = async (panel: ValueSet) => {
+    if (submitLockRef.current.has(panel.id)) return;
+    submitLockRef.current.add(panel.id);
     setSubmittingId(panel.id);
     let okCount = 0;
     try {
@@ -92,6 +98,7 @@ export function OrderPanelPicker({ mrn, patientName, facility, diagnosis, physic
         description: e instanceof Error ? e.message : undefined,
       });
     } finally {
+      submitLockRef.current.delete(panel.id);
       setSubmittingId(null);
     }
   };

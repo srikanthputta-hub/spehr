@@ -159,6 +159,48 @@ export interface NarrativeVitals {
 }
 
 /* ------------------------------------------------------------------ */
+/* Follow-up interval                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Default follow-up window quoted in the auto-generated "Follow-Up Care"
+ * section below, and the fallback used by ghost-discharge-worker's recall
+ * scheduler when no explicit interval can be parsed out of the discharge
+ * note. Kept as a single named constant so the narrative text and the
+ * actual scheduled recall date can never drift apart the way they used to
+ * (narrative hardcoded "7 days", recall scheduling used a random,
+ * unrelated offset from `system_settings.recall_offset_min/max_hours`).
+ */
+export const DEFAULT_FOLLOW_UP_DAYS = 7;
+
+// Matches "follow up ... in/within N day(s)/week(s)/hour(s)", e.g. the
+// DischargeDialog's own default text "Follow up with PCP in 7 days." —
+// the up-to-40-chars gap tolerates "with Dr. X" / "with PCP" etc. between
+// "follow up" and the stated interval.
+const FOLLOW_UP_INTERVAL_RE =
+  /\bfollow[\s-]?up\b[^.\n]{0,40}?\b(?:in|within)\s+(\d{1,3})\s*(day|days|week|weeks|hour|hours)\b/i;
+
+/**
+ * Parses a stated follow-up interval ("follow up ... in 7 days", "...
+ * within 2 weeks", "... in 48 hours") out of free text — the clinician's
+ * own discharge-note wording, when present — and returns it in whole days
+ * (rounded up for an hours-denominated interval). Returns null when no
+ * such phrase is found, so callers can fall back to
+ * `DEFAULT_FOLLOW_UP_DAYS`.
+ */
+export function parseFollowUpDays(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const m = FOLLOW_UP_INTERVAL_RE.exec(text);
+  if (!m) return null;
+  const n = Number.parseInt(m[1], 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const unit = m[2].toLowerCase();
+  if (unit.startsWith("week")) return n * 7;
+  if (unit.startsWith("hour")) return Math.max(1, Math.ceil(n / 24));
+  return n;
+}
+
+/* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -561,6 +603,10 @@ export function buildDischargeMarkdown(
   vitals?: NarrativeVitals | null,
   /** Published `custom_value_sets` rows, for the Rule-1-style allergy check. */
   publishedValueSets: MatchableValueSet[] = [],
+  /** Days quoted in "Follow-Up Care" below — see `DEFAULT_FOLLOW_UP_DAYS`.
+   * Also the value ghost-discharge-worker's recall scheduler uses for the
+   * actual appointment date, so the two stay in sync. */
+  followUpDays: number = DEFAULT_FOLLOW_UP_DAYS,
 ): string {
   const intro = clinicalIntro(patient.age, patient.gender, patient.chief_complaint);
   // Final diagnosis comes from Auto Doc's clinical deduction. Fall back to
@@ -876,8 +922,8 @@ export function buildDischargeMarkdown(
     const pcp = (patient.primary_care_physician ?? "").trim();
     lines.push(
       pcp
-        ? `- Schedule follow-up with **${pcp}** within 7 days of discharge.`
-        : "- Schedule follow-up with **Primary Care Provider within 7 days** of discharge.",
+        ? `- Schedule follow-up with **${pcp}** within ${followUpDays} days of discharge.`
+        : `- Schedule follow-up with **Primary Care Provider within ${followUpDays} days** of discharge.`,
     );
   }
   lines.push(

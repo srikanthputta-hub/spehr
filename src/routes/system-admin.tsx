@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { BoardHeader } from "@/components/BoardShell";
-import { useEffect, useMemo, useState, memo } from "react";
+import { useEffect, useMemo, useRef, useState, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -3912,30 +3912,66 @@ function FhirInteroperability({ facility }: { facility: string }) {
     setOpenMrn(r.mrn);
     setBundle(null);
     setBundleLoading(true);
-    const [patientRes, labsRes, medsRes, notesRes] = await Promise.all([
-      supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
-      supabase
-        .from("lab_orders")
-        .select("id, test_type, result_value, status, collected_at, created_at")
-        .eq("patient_mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("medication_orders")
-        .select(
-          "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
-        )
-        .eq("patient_mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("clinical_notes")
-        .select("id, note_type, author, content, created_at")
-        .eq("mrn", r.mrn)
-        .order("created_at", { ascending: false })
-        .limit(20),
-    ]);
+    const [patientRes, labsRes, medsRes, notesRes, allergiesRes, reactionsRes, radiologyRes] =
+      await Promise.all([
+        supabase.from("patients").select("*").eq("mrn", r.mrn).maybeSingle(),
+        supabase
+          .from("lab_orders")
+          .select("id, test_type, result_value, status, collected_at, created_at, loinc_code")
+          .eq("patient_mrn", r.mrn)
+          .order("created_at", { ascending: false })
+          .limit(40),
+        supabase
+          .from("medication_orders")
+          .select(
+            "id, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+          )
+          .eq("patient_mrn", r.mrn)
+          .order("created_at", { ascending: false })
+          .limit(40),
+        supabase
+          .from("clinical_notes")
+          .select("id, note_type, author, content, created_at")
+          .eq("mrn", r.mrn)
+          .order("created_at", { ascending: false })
+          .limit(20),
+        supabase
+          .from("allergies")
+          .select("id, substance, reaction, severity, substance_rxcui, substance_snomed")
+          .eq("mrn", r.mrn)
+          .limit(40),
+        supabase
+          .from("allergy_reactions")
+          .select(
+            "allergy_id, manifestation, severity, snomed_code, snomed_display, meddra_code, meddra_display",
+          )
+          .eq("mrn", r.mrn)
+          .limit(80),
+        supabase
+          .from("radiology_orders")
+          .select(
+            "id, exam_type, modality, body_part, clinical_indication, snomed_code, snomed_display, report_text, impression, requested_by, ordered_at, resulted_at, created_at",
+          )
+          .eq("patient_mrn", r.mrn)
+          .order("created_at", { ascending: false })
+          .limit(50),
+      ]);
     const p = (patientRes.data ?? {}) as any;
+    const reactionsByAllergy = new Map<string, any[]>();
+    for (const rx of ((reactionsRes.data ?? []) as any[]) ?? []) {
+      const arr = reactionsByAllergy.get(rx.allergy_id) ?? [];
+      arr.push(rx);
+      reactionsByAllergy.set(rx.allergy_id, arr);
+    }
+    const allergies = ((allergiesRes.data ?? []) as any[]).map((a) => ({
+      id: a.id,
+      substance: a.substance,
+      reaction: a.reaction,
+      severity: a.severity,
+      substance_rxcui: a.substance_rxcui,
+      substance_snomed: a.substance_snomed,
+      reactions: reactionsByAllergy.get(a.id) ?? [],
+    }));
     const b = buildEncounterBundle({
       patient: {
         mrn: r.mrn,
@@ -3964,6 +4000,8 @@ function FhirInteroperability({ facility }: { facility: string }) {
       labs: (labsRes.data ?? []) as any[],
       meds: (medsRes.data ?? []) as any[],
       notes: (notesRes.data ?? []) as any[],
+      allergies,
+      radiologyOrders: (radiologyRes.data ?? []) as any[],
     });
     setBundle(b);
     setBundleLoading(false);
@@ -4085,6 +4123,14 @@ function FhirInteroperability({ facility }: { facility: string }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "clinical_notes" }, (p: any) =>
         requeue(p?.new?.mrn ?? p?.old?.mrn),
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "radiology_orders" },
+        (p: any) => requeue(p?.new?.patient_mrn ?? p?.old?.patient_mrn),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "allergies" }, (p: any) =>
+        requeue(p?.new?.mrn ?? p?.old?.mrn),
+      )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -4113,7 +4159,7 @@ function FhirInteroperability({ facility }: { facility: string }) {
             FHIR Interoperability
             <InfoHint
               className="ml-1.5"
-              text="Final staging area for the unified FHIR R4 encounter Bundle. Each row is one admission encounter — opening the JSON shows the complete longitudinal record (Patient, Encounter, Observations, MedicationRequest/Administration, DocumentReference, CarePlan, Appointment) exactly as pushed to the external Medblocks FHIR server, with deterministic idempotent IDs so re-syncing a patient never creates duplicates."
+              text="Final staging area for the unified FHIR R4 encounter Bundle. Each row is one admission encounter — opening the JSON shows the complete longitudinal record (Patient, Encounter, Observations, AllergyIntolerance, MedicationRequest/Administration, ServiceRequest/DiagnosticReport for labs + imaging, DocumentReference, CarePlan, Appointment) exactly as pushed to the external Medblocks FHIR server, with deterministic idempotent IDs so re-syncing a patient never creates duplicates."
             />
           </h2>
         </div>
@@ -4196,8 +4242,10 @@ function FhirInteroperability({ facility }: { facility: string }) {
             <DialogDescription>
               Strict FHIR R4 <span className="font-mono">Bundle</span> (type=
               <span className="font-mono">transaction</span>) containing the Composition, Patient,
-              Encounter, Observations (vitals + labs), MedicationRequest, MedicationAdministration,
-              DocumentReference, CarePlan, and follow-up Appointment. Every entry uses
+              Encounter, Observations (vitals + labs), AllergyIntolerance, MedicationRequest,
+              MedicationAdministration, ServiceRequest (labs + imaging), DiagnosticReport (reported
+              imaging studies), DocumentReference, CarePlan, and follow-up Appointment. Every entry
+              uses
               <span className="font-mono"> PUT /{`{ResourceType}/{stableId}`}</span> with a
               deterministic stable id derived from MRN + clinical content, so every push is an
               idempotent UPSERT — re-syncing the same patient can never create duplicate resources
@@ -4486,71 +4534,203 @@ const CATEGORY_STYLES: Record<AuditCategory, string> = {
   SYSTEM: "bg-slate-900/10 text-slate-700 border-slate-300",
 };
 
+// A patient's `mrn` column already carries the "MRN-" prefix (see
+// genMRN() in admit-patient.ts, e.g. "MRN-658927") — these log-detail
+// builders must use it as-is. Concatenating another "MRN-" prefix onto it
+// is exactly the "MRN-MRN-658927" doubled-prefix display bug reported
+// against this view; `mrnLabel()` is the one place that formats an MRN for
+// a detail string so this can't regress per call site.
+function mrnLabel(mrn: string | null | undefined): string {
+  const s = String(mrn ?? "").trim();
+  if (!s) return "?";
+  return /^MRN-/i.test(s) ? s : `MRN-${s}`;
+}
+
 function AuditLog() {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  // `load()` is only ever (re)created by the mount effect below (empty dep
+  // array) so it can be shared with the realtime subscription without
+  // resubscribing on every keystroke — it reads the live filter text out
+  // of this ref instead of closing over the `query` state.
+  const queryRef = useRef("");
+  useEffect(() => {
+    queryRef.current = query;
+    void load();
+  }, [query]);
 
   const load = async () => {
-    const [patientsRes, labsRes, medsRes, permsRes, settingsRes] = await fetchWithTimeout(
-      () =>
-        Promise.all([
-          supabase
-            .from("patients")
-            .select(
-              "mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint",
-            )
-            .order("admission_time", { ascending: false })
-            .limit(60),
-          supabase
-            .from("lab_orders")
-            .select(
-              "id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at",
-            )
-            .order("created_at", { ascending: false })
-            .limit(60),
-          supabase
-            .from("medication_orders")
-            .select(
-              "id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
-            )
-            .order("created_at", { ascending: false })
-            .limit(60),
-          supabase
-            .from("role_permissions")
-            .select(
-              "id, facility_name, target_role, feature_key, feature_name, is_active, updated_at, author_id",
-            )
-            .order("updated_at", { ascending: false })
-            .limit(30),
-          supabase
-            .from("system_settings")
-            .select("automation_enabled, author_id")
-            .eq("id", 1)
-            .maybeSingle(),
-        ]),
-      [
-        { data: [], error: null },
-        { data: [], error: null },
-        { data: [], error: null },
-        { data: [], error: null },
-        { data: null, error: null },
-      ] as any,
-    );
+    // The feed below is intentionally capped to the ~60 most recent rows
+    // PER TABLE, system-wide — fine for "what just happened across the
+    // network", but when a user filters down to one patient's MRN that cap
+    // can silently exclude every one of that patient's real events if other
+    // patients have had more recent activity (the actual reported bug: a
+    // patient's Ordered/Administered/allergy rows were real but outside the
+    // global top-60 window). When the filter box holds something that looks
+    // like an MRN, also run a second, per-patient pass with no such cap so a
+    // specific-patient lookup is always complete regardless of global noise.
+    const filterMrn = queryRef.current.trim();
+    const isMrnLookup = /^MRN-?\d{4,}$/i.test(filterMrn);
+    const mrnForQuery = isMrnLookup
+      ? filterMrn.toUpperCase().startsWith("MRN-")
+        ? filterMrn.toUpperCase()
+        : `MRN-${filterMrn}`
+      : null;
+
+    const [patientsRes, labsRes, medsRes, radRes, allergiesRes, permsRes, settingsRes] =
+      await fetchWithTimeout(
+        () =>
+          Promise.all([
+            supabase
+              .from("patients")
+              .select(
+                "mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint, admission_source",
+              )
+              .order("admission_time", { ascending: false })
+              .limit(60),
+            supabase
+              .from("lab_orders")
+              .select(
+                "id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at",
+              )
+              .order("created_at", { ascending: false })
+              .limit(60),
+            supabase
+              .from("medication_orders")
+              .select(
+                "id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+              )
+              .order("created_at", { ascending: false })
+              .limit(60),
+            supabase
+              .from("radiology_orders")
+              .select(
+                "id, patient_mrn, patient_name, facility_name, exam_type, modality, status, requested_by, created_at, updated_at",
+              )
+              .order("created_at", { ascending: false })
+              .limit(60),
+            supabase
+              .from("allergies")
+              .select("id, mrn, substance, reaction, status, coding_source, created_at")
+              .order("created_at", { ascending: false })
+              .limit(60),
+            supabase
+              .from("role_permissions")
+              .select(
+                "id, facility_name, target_role, feature_key, feature_name, is_active, updated_at, author_id",
+              )
+              .order("updated_at", { ascending: false })
+              .limit(30),
+            supabase
+              .from("system_settings")
+              .select("automation_enabled, author_id")
+              .eq("id", 1)
+              .maybeSingle(),
+          ]),
+        [
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: null, error: null },
+        ] as any,
+      );
+
+    // Targeted, uncapped-by-global-noise second pass for a specific MRN.
+    let mrnPatients: any[] = [];
+    let mrnLabs: any[] = [];
+    let mrnMeds: any[] = [];
+    let mrnRad: any[] = [];
+    let mrnAllergies: any[] = [];
+    if (mrnForQuery) {
+      const [pr, lr, mr, rr, ar] = await Promise.all([
+        supabase
+          .from("patients")
+          .select(
+            "mrn, name, facility_name, admission_time, discharge_time, status, chief_complaint, admission_source",
+          )
+          .eq("mrn", mrnForQuery)
+          .limit(5),
+        supabase
+          .from("lab_orders")
+          .select(
+            "id, patient_mrn, patient_name, facility_name, test_type, status, result_value, ordered_by, requested_by, collected_at, created_at",
+          )
+          .eq("patient_mrn", mrnForQuery)
+          .order("created_at", { ascending: false })
+          .limit(200),
+        supabase
+          .from("medication_orders")
+          .select(
+            "id, patient_mrn, mrn, patient_name, facility_name, drug_name, drug, medication_name, dose, route, status, ordering_physician, ordered_by, administered_at, approved_at, created_at",
+          )
+          .eq("patient_mrn", mrnForQuery)
+          .order("created_at", { ascending: false })
+          .limit(200),
+        supabase
+          .from("radiology_orders")
+          .select(
+            "id, patient_mrn, patient_name, facility_name, exam_type, modality, status, requested_by, created_at, updated_at",
+          )
+          .eq("patient_mrn", mrnForQuery)
+          .order("created_at", { ascending: false })
+          .limit(200),
+        supabase
+          .from("allergies")
+          .select("id, mrn, substance, reaction, status, coding_source, created_at")
+          .eq("mrn", mrnForQuery)
+          .order("created_at", { ascending: false })
+          .limit(200),
+      ]);
+      mrnPatients = pr.data ?? [];
+      mrnLabs = lr.data ?? [];
+      mrnMeds = mr.data ?? [];
+      mrnRad = rr.data ?? [];
+      mrnAllergies = ar.data ?? [];
+    }
+
+    const dedupeById = <T extends { id?: unknown; mrn?: unknown }>(
+      rows: T[],
+      key: "id" | "mrn",
+    ): T[] => {
+      const seen = new Set<unknown>();
+      const result: T[] = [];
+      for (const row of rows) {
+        const k = row[key];
+        if (seen.has(k)) continue;
+        seen.add(k);
+        result.push(row);
+      }
+      return result;
+    };
 
     const out: AuditEvent[] = [];
 
-    for (const p of (patientsRes.data ?? []) as any[]) {
+    const allPatients = dedupeById([...mrnPatients, ...((patientsRes.data ?? []) as any[])], "mrn");
+    for (const p of allPatients) {
+      // `admission_source` is only ever stamped by the automated/ghost
+      // admit paths (appointment recall, ghost-triage cron — see
+      // isAutoGeneratedAdmission() in patient.$mrn.tsx); a real, human
+      // admission through admit-patient.ts leaves it null. Previously this
+      // view hardcoded "Ghost AI (System)" / "Auto-admitted" for every
+      // admission regardless of who actually admitted the patient.
+      const isAutoAdmission =
+        p.admission_source === "appointment" ||
+        p.admission_source === "recall" ||
+        p.admission_source === "ghost-triage";
       if (p.admission_time) {
         const d = new Date(p.admission_time);
         out.push({
           key: `adm-${p.mrn}`,
           tsMs: d.getTime(),
           ts: fmtTs(d),
-          category: "AUTOMATION",
-          actor: "Ghost AI (System)",
+          category: isAutoAdmission ? "AUTOMATION" : "CLINICAL",
+          actor: isAutoAdmission ? "Ghost AI (System)" : "Admitting Provider",
           facility: p.facility_name ?? "Global Network",
-          details: `Auto-admitted patient MRN-${p.mrn} (${p.chief_complaint ?? p.name ?? "New admission"})`,
+          details: `${isAutoAdmission ? "Auto-admitted" : "Admitted"} patient ${mrnLabel(p.mrn)} (${p.chief_complaint ?? p.name ?? "New admission"})`,
         });
       }
       if (p.discharge_time && (p.status === "Discharged" || p.status === "discharged")) {
@@ -4559,56 +4739,159 @@ function AuditLog() {
           key: `dis-${p.mrn}`,
           tsMs: d.getTime(),
           ts: fmtTs(d),
-          category: "AUTOMATION",
-          actor: "Ghost AI (System)",
+          category: isAutoAdmission ? "AUTOMATION" : "CLINICAL",
+          actor: isAutoAdmission ? "Ghost AI (System)" : "Attending Physician",
           facility: p.facility_name ?? "Global Network",
-          details: `Auto-discharged patient MRN-${p.mrn} (${p.name ?? ""})`,
+          details: `${isAutoAdmission ? "Auto-discharged" : "Discharged"} patient ${mrnLabel(p.mrn)} (${p.name ?? ""})`,
         });
       }
     }
 
-    for (const l of (labsRes.data ?? []) as any[]) {
-      const tsRaw = l.collected_at ?? l.created_at;
-      if (!tsRaw) continue;
-      const d = new Date(tsRaw);
+    const allLabs = dedupeById([...mrnLabs, ...((labsRes.data ?? []) as any[])], "id");
+    for (const l of allLabs) {
       const actor = l.ordered_by ?? l.requested_by ?? "Ghost AI (System)";
+      const catFor = (verb: string): AuditCategory =>
+        isGhost(actor) || verb === "Auto-resulted" ? "AUTOMATION" : "CLINICAL";
+      // Emit the Ordered event AND, separately, the Resulted event once it
+      // exists — previously only ONE row per lab order ever appeared (keyed
+      // off whichever timestamp was latest), so an order that had already
+      // resulted lost its own "Ordered" history entirely.
+      if (l.created_at) {
+        const d = new Date(l.created_at);
+        out.push({
+          key: `lab-${l.id}-Ordered`,
+          tsMs: d.getTime(),
+          ts: fmtTs(d),
+          category: catFor("Ordered"),
+          actor: isGhost(actor) ? "Ghost AI (System)" : actor,
+          facility: l.facility_name ?? "Global Network",
+          details: `Ordered ${l.test_type ?? "lab"} for ${mrnLabel(l.patient_mrn)}`,
+        });
+      }
       const isResulted = (l.status ?? "").toLowerCase() === "resulted" || !!l.result_value;
-      const verb = isResulted ? "Auto-resulted" : "Ordered";
-      const cat: AuditCategory = isGhost(actor) ? "AUTOMATION" : "CLINICAL";
-      const tail = l.result_value ? ` (${l.result_value})` : "";
-      out.push({
-        key: `lab-${l.id}`,
-        tsMs: d.getTime(),
-        ts: fmtTs(d),
-        category: cat,
-        actor: isGhost(actor) ? "Ghost AI (System)" : actor,
-        facility: l.facility_name ?? "Global Network",
-        details: `${verb} ${l.test_type ?? "lab"} for MRN-${l.patient_mrn ?? "?"}${tail}`,
-      });
+      if (isResulted && l.collected_at) {
+        const d = new Date(l.collected_at);
+        const tail = l.result_value ? ` (${l.result_value})` : "";
+        out.push({
+          key: `lab-${l.id}-Resulted`,
+          tsMs: d.getTime(),
+          ts: fmtTs(d),
+          category: catFor("Auto-resulted"),
+          actor: isGhost(actor) ? "Ghost AI (System)" : actor,
+          facility: l.facility_name ?? "Global Network",
+          details: `Resulted ${l.test_type ?? "lab"} for ${mrnLabel(l.patient_mrn)}${tail}`,
+        });
+      }
     }
 
-    for (const m of (medsRes.data ?? []) as any[]) {
-      const tsRaw = m.administered_at ?? m.approved_at ?? m.created_at;
-      if (!tsRaw) continue;
-      const d = new Date(tsRaw);
+    const allMeds = dedupeById([...mrnMeds, ...((medsRes.data ?? []) as any[])], "id");
+    for (const m of allMeds) {
       const drug = m.drug_name ?? m.drug ?? m.medication_name ?? "medication";
       const dose = m.dose ?? "";
       const route = m.route ?? "";
       const mrn = m.patient_mrn ?? m.mrn ?? "?";
-      const actor = m.ordering_physician ?? m.ordered_by ?? "Ghost AI (System)";
-      let verb = "Ordered";
-      const status = (m.status ?? "").toLowerCase();
-      if (m.administered_at) verb = "Administered";
-      else if (m.approved_at || status === "approved") verb = "Approved";
-      const cat: AuditCategory = isGhost(actor) || verb === "Approved" ? "AUTOMATION" : "CLINICAL";
+      // The physician/system that placed the order, and — separately — the
+      // actor for whatever later verification/administration step ran.
+      // Previously these were conflated into one `actor` for one collapsed
+      // row, so an automation auto-administration could read as if the
+      // ordering physician had personally administered it.
+      const orderingActor = m.ordering_physician ?? m.ordered_by ?? "Ghost AI (System)";
+      // Emit the Ordered event — always, anchored at created_at — so a
+      // medication order's placement is never lost once it progresses.
+      if (m.created_at) {
+        const d = new Date(m.created_at);
+        out.push({
+          key: `med-${m.id}-Ordered`,
+          tsMs: d.getTime(),
+          ts: fmtTs(d),
+          category: isGhost(orderingActor) ? "AUTOMATION" : "CLINICAL",
+          actor: isGhost(orderingActor) ? "Ghost AI (System)" : orderingActor,
+          facility: m.facility_name ?? "Global Network",
+          details: `Ordered ${drug} ${dose} ${route} for ${mrnLabel(mrn)}`
+            .replace(/\s+/g, " ")
+            .trim(),
+        });
+      }
+      // Separately, emit whichever later-stage event actually happened —
+      // these are automation/pharmacy-verification actions, never the
+      // ordering physician in person, regardless of what `ordering_physician`
+      // says (that field only ever records who ORDERED it).
+      if (m.administered_at) {
+        const d = new Date(m.administered_at);
+        out.push({
+          key: `med-${m.id}-Administered`,
+          tsMs: d.getTime(),
+          ts: fmtTs(d),
+          category: "CLINICAL",
+          actor: "Nursing Staff",
+          facility: m.facility_name ?? "Global Network",
+          details: `Administered ${drug} ${dose} ${route} for ${mrnLabel(mrn)}`
+            .replace(/\s+/g, " ")
+            .trim(),
+        });
+      } else if (m.approved_at || (m.status ?? "").toLowerCase() === "approved") {
+        const d = new Date(m.approved_at ?? m.created_at);
+        out.push({
+          key: `med-${m.id}-Approved`,
+          tsMs: d.getTime(),
+          ts: fmtTs(d),
+          category: "AUTOMATION",
+          actor: "Ghost AI (System)",
+          facility: m.facility_name ?? "Global Network",
+          details: `Approved ${drug} ${dose} ${route} for ${mrnLabel(mrn)}`
+            .replace(/\s+/g, " ")
+            .trim(),
+        });
+      }
+    }
+
+    const allRad = dedupeById([...mrnRad, ...((radRes.data ?? []) as any[])], "id");
+    for (const r of allRad) {
+      const actor = r.requested_by ?? "Ghost AI (System)";
+      if (r.created_at) {
+        const d = new Date(r.created_at);
+        out.push({
+          key: `rad-${r.id}-Ordered`,
+          tsMs: d.getTime(),
+          ts: fmtTs(d),
+          category: isGhost(actor) ? "AUTOMATION" : "CLINICAL",
+          actor: isGhost(actor) ? "Ghost AI (System)" : actor,
+          facility: r.facility_name ?? "Global Network",
+          details: `Ordered ${r.exam_type ?? r.modality ?? "imaging study"} for ${mrnLabel(r.patient_mrn)}`,
+        });
+      }
+      const status = (r.status ?? "").toLowerCase();
+      if (status === "reported" && r.updated_at) {
+        const d = new Date(r.updated_at);
+        out.push({
+          key: `rad-${r.id}-Reported`,
+          tsMs: d.getTime(),
+          ts: fmtTs(d),
+          category: "CLINICAL",
+          actor: "Radiologist",
+          facility: r.facility_name ?? "Global Network",
+          details: `Reported ${r.exam_type ?? r.modality ?? "imaging study"} for ${mrnLabel(r.patient_mrn)}`,
+        });
+      }
+    }
+
+    const allAllergies = dedupeById(
+      [...mrnAllergies, ...((allergiesRes.data ?? []) as any[])],
+      "id",
+    );
+    for (const a of allAllergies) {
+      if (!a.created_at || !a.substance) continue;
+      const d = new Date(a.created_at);
+      const isAuto = String(a.coding_source ?? "").startsWith("nlp-") || isGhost(a.coding_source);
+      const tail = a.reaction ? ` (reaction: ${a.reaction})` : "";
       out.push({
-        key: `med-${m.id}-${verb}`,
+        key: `allergy-${a.id}`,
         tsMs: d.getTime(),
         ts: fmtTs(d),
-        category: cat,
-        actor: isGhost(actor) ? "Ghost AI (System)" : actor,
-        facility: m.facility_name ?? "Global Network",
-        details: `${verb} ${drug} ${dose} ${route} for MRN-${mrn}`.replace(/\s+/g, " ").trim(),
+        category: isAuto ? "AUTOMATION" : "CLINICAL",
+        actor: isAuto ? "Ghost AI (System)" : "Admitting Provider",
+        facility: "Global Network",
+        details: `Allergy documented: ${a.substance}${tail} for ${mrnLabel(a.mrn)}`,
       });
     }
 
@@ -4650,7 +4933,11 @@ function AuditLog() {
   };
 
   useEffect(() => {
-    load();
+    // Initial load (and reload on query change) is already handled by the
+    // `[query]` effect above — this effect only owns the realtime
+    // subscription, now also covering radiology_orders and allergies so an
+    // imaging order or a newly-documented allergy shows up live, same as
+    // labs/meds always have.
     const channel = supabase
       .channel("audit-log-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, () => load())
@@ -4658,6 +4945,10 @@ function AuditLog() {
       .on("postgres_changes", { event: "*", schema: "public", table: "medication_orders" }, () =>
         load(),
       )
+      .on("postgres_changes", { event: "*", schema: "public", table: "radiology_orders" }, () =>
+        load(),
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "allergies" }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "role_permissions" }, () =>
         load(),
       )
