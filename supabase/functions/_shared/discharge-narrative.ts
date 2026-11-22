@@ -6,19 +6,43 @@
  * format:
  *   0. Clinical Completeness Check (safety flags, see below)
  *   1. Admitting & Discharge Diagnoses
- *   2. History of Present Illness (HPI)
- *   3. Hospital Course (assessment → plan reasoning)
- *   4. Procedures (derived from the real `procedures` table — never a
+ *   2. Clinician's Discharge Note (verbatim, when the discharging clinician
+ *      typed one — see H7: this must never be discarded)
+ *   3. History of Present Illness (HPI)
+ *   4. Hospital Course (assessment → plan reasoning, real data only)
+ *   5. Procedures (derived from the real `procedures` table — never a
  *      hardcoded negative claim)
- *   5. Pertinent Labs / Imaging (abnormal-first labs + any reported
+ *   6. Pertinent Labs / Imaging (abnormal-first labs + any reported
  *      `radiology_orders` studies)
- *   6. Discharge Instructions & Meds
+ *   7. Discharge Instructions & Meds (each medication carries an explicit
+ *      continue/stop decision; stop is forced on a documented allergy
+ *      conflict)
+ *
+ * HARD RULE (post C4/C3 fabrication fixes): this module may only ever print
+ * a documented fact. There is no structured "physical exam" table in this
+ * schema, so the exam section is driven strictly off the last recorded
+ * `vitals` row and says "not documented" when there is none — it must NEVER
+ * synthesize organ-system findings ("Pulmonary: Clear to auscultation...")
+ * that no one examined. Likewise "Condition at Discharge" and "Hospital
+ * Course" must not assert anything (afebrile, ambulating, pain controlled,
+ * ...) that isn't backed by a real row.
  *
  * `computeSafetyFlags()` performs real sanity checks (high-acuity
- * complaint vs. low-acuity treatment, implausible length-of-stay, ...) and
- * is wired into section 0 above, so gaps actually surface to the
+ * complaint vs. low-acuity treatment, implausible length-of-stay, discharge
+ * medication vs. documented allergy conflicts — reusing Safety Alerts
+ * Engine's Rule 1 matching helpers, see `safety-alerts-matching.ts` — ...)
+ * and is wired into section 0 above, so gaps actually surface to the
  * reviewing clinician instead of being silently computed and discarded.
  */
+
+import {
+  classTokens,
+  extensionalContains,
+  substanceMatchesClass,
+  type MatchableValueSet,
+} from "./safety-alerts-matching.ts";
+
+export type { MatchableValueSet };
 
 export interface NarrativeMed {
   medication_name?: string | null;
@@ -118,9 +142,177 @@ export interface NarrativeProcedure {
   performed_by?: string | null;
 }
 
+/**
+ * The last recorded `vitals` row at/before discharge. This schema has no
+ * structured "physical exam" table, so this is the ONLY real signal the
+ * "Physical Examination on Admission" section may cite — it must say "not
+ * documented" rather than invent organ-system findings when this is absent.
+ */
+export interface NarrativeVitals {
+  hr?: number | string | null;
+  bp_systolic?: number | string | null;
+  bp_diastolic?: number | string | null;
+  spo2?: number | string | null;
+  temp_c?: number | string | null;
+  rr?: number | string | null;
+  recorded_at?: string | null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
+
+/**
+ * `result_value` sometimes already embeds its own test-name prefix (e.g. a
+ * manually-finalized lab row stored as "Hemoglobin: 14.6 g/dL" — see
+ * lab-board.tsx's `submitReport`). Rendering `**{label}**: {value}` on top of
+ * that double-prints the label ("Hemoglobin: Hemoglobin: 14.6 g/dL" — L19).
+ * Strip a leading "{label}[:,-]" from the value before rendering it next to
+ * its own bolded label.
+ */
+export function stripDuplicateLabel(label: string, value: string): string {
+  const cleanLabel = (label ?? "").trim();
+  const v = (value ?? "").trim();
+  if (!cleanLabel || !v) return v;
+  if (!v.toLowerCase().startsWith(cleanLabel.toLowerCase())) return v;
+  const rest = v
+    .slice(cleanLabel.length)
+    .replace(/^\s*[:\-–—]\s*/, "")
+    .trim();
+  return rest.length > 0 ? rest : v;
+}
+
+function hasAnyVital(v: NarrativeVitals | null | undefined): boolean {
+  if (!v) return false;
+  return (
+    v.hr != null ||
+    v.bp_systolic != null ||
+    v.bp_diastolic != null ||
+    v.spo2 != null ||
+    v.temp_c != null ||
+    v.rr != null
+  );
+}
+
+/** Real, recorded vitals only — never an examiner's narrative claim. */
+function formatVitalsOnly(v: NarrativeVitals | null | undefined): string[] {
+  if (!hasAnyVital(v)) return [];
+  const bits = [
+    v!.hr != null && `HR ${v!.hr}/min`,
+    v!.bp_systolic != null &&
+      v!.bp_diastolic != null &&
+      `BP ${v!.bp_systolic}/${v!.bp_diastolic} mmHg`,
+    v!.spo2 != null && `SpO2 ${v!.spo2}%`,
+    v!.temp_c != null && `Temp ${v!.temp_c}°C`,
+    v!.rr != null && `RR ${v!.rr}/min`,
+  ].filter(Boolean) as string[];
+  return bits;
+}
+
+/**
+ * Reconciliation decision for one discharge medication. `STOP` is forced
+ * when the drug's RxNorm code sits in a published value set whose name
+ * token-matches a documented allergy substance — the exact Rule 1 logic
+ * Safety Alerts Engine uses for its live Drug-Allergy Conflict alert (see
+ * `safety-alerts-matching.ts`), reused here (not reimplemented) so the two
+ * checks can never silently diverge.
+ */
+export interface MedReconciliation {
+  med: NarrativeMed;
+  decision: "CONTINUE" | "STOP";
+  reason: string;
+}
+
+function findAllergyConflict(
+  rxnormCode: string,
+  chartAllergies: string[],
+  publishedValueSets: MatchableValueSet[],
+): { allergyName: string; valueSetName: string } | null {
+  if (!rxnormCode || chartAllergies.length === 0 || publishedValueSets.length === 0) return null;
+  type Match = { vs: MatchableValueSet; allergyName: string; specificity: number };
+  const matches: Match[] = [];
+  for (const vs of publishedValueSets) {
+    if (!extensionalContains(vs, rxnormCode)) continue;
+    const tokens = classTokens(vs.name);
+    if (tokens.length === 0) continue;
+    const hit = chartAllergies.find((s) => substanceMatchesClass(s, tokens));
+    if (!hit) continue;
+    matches.push({
+      vs,
+      allergyName: hit,
+      specificity: Array.isArray(vs.codes) ? vs.codes.length : Number.MAX_SAFE_INTEGER,
+    });
+  }
+  if (matches.length === 0) return null;
+  matches.sort((a, b) => a.specificity - b.specificity || a.vs.name.localeCompare(b.vs.name));
+  const best = matches[0]!;
+  return { allergyName: best.allergyName, valueSetName: best.vs.name };
+}
+
+/**
+ * Reconcile the final discharge medication list against documented
+ * allergies — every medication carries an explicit CONTINUE/STOP decision
+ * rather than being auto-republished unchanged (C3). A documented allergy
+ * conflict forces STOP; everything else defaults to CONTINUE (there is no
+ * structured "new medication at discharge" signal in this schema, so no
+ * medication is ever silently invented as NEW here).
+ */
+export function reconcileDischargeMedications(
+  dischargeMeds: NarrativeMed[],
+  allergies: NarrativeAllergy[],
+  publishedValueSets: MatchableValueSet[],
+): MedReconciliation[] {
+  const chartAllergies = allergies.map((a) => (a.substance ?? "").trim()).filter(Boolean);
+  return dischargeMeds.map((med) => {
+    const code = (med.rxnorm_code ?? "").trim();
+    const conflict = findAllergyConflict(code, chartAllergies, publishedValueSets);
+    if (conflict) {
+      return {
+        med,
+        decision: "STOP",
+        reason: `Contraindicated — matches documented "${conflict.allergyName}" allergy (value set: ${conflict.valueSetName}). Do not continue without clinician review.`,
+      };
+    }
+    return {
+      med,
+      decision: "CONTINUE",
+      reason: "No documented allergy or contraindication identified against this medication.",
+    };
+  });
+}
+
+/**
+ * Hard, visible safety flags for every discharge medication that conflicts
+ * with a documented allergy — reuses the same Rule 1 matching helpers as
+ * Safety Alerts Engine (never reimplemented) so a drug-allergy conflict can
+ * never silently pass the "Clinical Completeness Check" the way the
+ * Penicillin/Amoxicillin case did (C3).
+ */
+export function checkDischargeMedAllergyConflicts(
+  dischargeMeds: NarrativeMed[],
+  allergies: NarrativeAllergy[],
+  publishedValueSets: MatchableValueSet[],
+): SafetyFlag[] {
+  const chartAllergies = allergies.map((a) => (a.substance ?? "").trim()).filter(Boolean);
+  if (chartAllergies.length === 0 || publishedValueSets.length === 0) return [];
+  const flags: SafetyFlag[] = [];
+  const seen = new Set<string>();
+  for (const med of dischargeMeds) {
+    const code = (med.rxnorm_code ?? "").trim();
+    if (!code) continue;
+    const conflict = findAllergyConflict(code, chartAllergies, publishedValueSets);
+    if (!conflict) continue;
+    const key = `${code}|${conflict.allergyName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const name = (med.display_name ?? med.medication_name ?? med.drug_name ?? code).trim();
+    flags.push({
+      severity: "critical",
+      message: `Discharge Medication Allergy Conflict — ${name} matches documented "${conflict.allergyName}" allergy (value set: ${conflict.valueSetName}). This medication must be stopped or the conflict explicitly acknowledged by the discharging clinician before this patient leaves with it on their list.`,
+    });
+  }
+  return flags;
+}
 
 function genderWord(g: string | null | undefined): string {
   const v = (g ?? "").trim().toLowerCase();
@@ -182,6 +374,9 @@ export function computeSafetyFlags(
   patient: NarrativePatient,
   meds: NarrativeMed[],
   labs: NarrativeLab[],
+  allergies: NarrativeAllergy[] = [],
+  dischargeMeds: NarrativeMed[] = [],
+  publishedValueSets: MatchableValueSet[] = [],
 ): SafetyFlag[] {
   const flags: SafetyFlag[] = [];
   const cc = patient.chief_complaint ?? "";
@@ -189,6 +384,7 @@ export function computeSafetyFlags(
     .map((m) => `${m.medication_name ?? m.drug_name ?? ""}`.toLowerCase())
     .join(" | ");
   const labNames = labs.map((l) => `${l.test_type ?? ""}`.toLowerCase()).join(" | ");
+  const isHighAcuity = HIGH_ACUITY_RULES.some((r) => r.match.test(cc));
 
   for (const rule of HIGH_ACUITY_RULES) {
     if (!rule.match.test(cc)) continue;
@@ -204,18 +400,35 @@ export function computeSafetyFlags(
     }
   }
 
-  // Impossible length-of-stay on high-acuity complaints
+  // Implausible length-of-stay. The underlying timestamps themselves
+  // (`patients.admission_time` / `discharge_time`) are real event times set
+  // at admission and at discharge respectively — there is no "wrong
+  // column" bug here — but a sub-hour full inpatient stay is clinically
+  // implausible regardless of chief complaint, and silently printing a
+  // "0h 11m" length of stay without comment is exactly how this went
+  // unnoticed (C4). Flag it so a human looks at the admission/discharge
+  // timestamps before the summary is finalized.
   if (patient.admission_time && patient.discharge_time) {
     const losMin =
       (new Date(patient.discharge_time).getTime() - new Date(patient.admission_time).getTime()) /
       60_000;
-    if (losMin >= 0 && losMin < 60 && HIGH_ACUITY_RULES.some((r) => r.match.test(cc))) {
+    if (losMin >= 0 && losMin < 60 && isHighAcuity) {
       flags.push({
         severity: "critical",
         message: `Length of stay ${Math.round(losMin)} min is implausibly short for a high-acuity presentation. Flagged for manual review.`,
       });
+    } else if (losMin >= 0 && losMin < 60) {
+      flags.push({
+        severity: "warning",
+        message: `Length of stay ${Math.round(losMin)} min is unusually short for a full inpatient admission. Verify the admission/discharge timestamps and clinical course before finalizing this summary.`,
+      });
     }
   }
+
+  // Discharge medication vs. documented allergy — hard, visible flag (C3).
+  // Checked against the FINAL discharge medication list, not the full order
+  // history, and reuses Safety Alerts Engine's own Rule 1 matching helpers.
+  flags.push(...checkDischargeMedAllergyConflicts(dischargeMeds, allergies, publishedValueSets));
 
   return flags;
 }
@@ -336,6 +549,18 @@ export function buildDischargeMarkdown(
   allergies: NarrativeAllergy[] = [],
   imaging: NarrativeImaging[] = [],
   procedures: NarrativeProcedure[] = [],
+  /**
+   * Free text the discharging/admitting clinician actually typed in the
+   * "Confirm Discharge" dialog (H7). This must be rendered verbatim — never
+   * discarded in favor of a rebuilt narrative, and never silently replaced
+   * by it either; the structured sections below (real meds/labs/procedures)
+   * still come from the chart regardless of whether this is present.
+   */
+  clinicianNote?: string | null,
+  /** Last recorded `vitals` row — the only real signal the exam section may cite. */
+  vitals?: NarrativeVitals | null,
+  /** Published `custom_value_sets` rows, for the Rule-1-style allergy check. */
+  publishedValueSets: MatchableValueSet[] = [],
 ): string {
   const intro = clinicalIntro(patient.age, patient.gender, patient.chief_complaint);
   // Final diagnosis comes from Auto Doc's clinical deduction. Fall back to
@@ -376,12 +601,38 @@ export function buildDischargeMarkdown(
   const reportedImaging = pickReportedImaging(imaging);
   const completedProcedures = pickCompletedProcedures(procedures);
   // Real, working sanity checks (missing expected meds/labs for a
-  // high-acuity complaint, implausible length-of-stay, ...) computed from
-  // the SAME meds/labs already gathered above — surfaced here so gaps are
-  // visible to the reviewing clinician instead of being silently dropped.
-  const safetyFlags = computeSafetyFlags(patient, meds, labs);
+  // high-acuity complaint, implausible length-of-stay, discharge-med vs.
+  // allergy conflicts, ...) computed from the SAME meds/labs/allergies
+  // already gathered here — surfaced below so gaps are visible to the
+  // reviewing clinician instead of being silently dropped (checked against
+  // `administered`, the actual final discharge medication list, not the
+  // full order history).
+  const safetyFlags = computeSafetyFlags(
+    patient,
+    meds,
+    labs,
+    allergies,
+    administered,
+    publishedValueSets,
+  );
+  const medReconciliation = reconcileDischargeMedications(
+    administered,
+    allergies,
+    publishedValueSets,
+  );
 
   const lines: string[] = [];
+
+  // Honest provenance disclaimer wherever this narrative is surfaced
+  // (clinical_notes content, patients.discharge_summary, printed PDF, ...).
+  // Nobody actually verifies this text today, so it must never claim
+  // otherwise (the "Electronically generated and verified by S.P.E.H.R. AI
+  // Core" footer bug) — this line is the honest replacement, inline in the
+  // narrative itself rather than relying on each UI surface to say it.
+  lines.push(
+    "_AI-generated draft, compiled from the structured chart — pending clinician verification before this becomes the official discharge record._",
+  );
+  lines.push("");
 
   lines.push("**Clinical Completeness Check**");
   if (safetyFlags.length === 0) {
@@ -403,10 +654,28 @@ export function buildDischargeMarkdown(
   // regardless of actual outcome. The dedicated "Condition at Discharge"
   // line below already covers this in general terms.
   lines.push(`- **Discharge Diagnosis:** ${dx}`);
+  // Never assert a condition-at-discharge ("ambulating independently",
+  // "pain controlled", ...) this system did not actually observe (C4). The
+  // discharging clinician's own note — rendered verbatim below when present
+  // — is the authoritative source for condition at discharge; absent that,
+  // say so plainly rather than inventing a plausible-sounding default.
   lines.push(
-    `- **Condition at Discharge:** Stable, hemodynamically appropriate, tolerating oral intake, ambulating without assistance.`,
+    clinicianNote && clinicianNote.trim()
+      ? "- **Condition at Discharge:** Per the discharging clinician's note below."
+      : "- **Condition at Discharge:** Not independently documented by this system — see the attending physician's discharge note.",
   );
   lines.push("");
+
+  if (clinicianNote && clinicianNote.trim()) {
+    lines.push("**Clinician's Discharge Note**");
+    for (const noteLine of clinicianNote.trim().split("\n")) {
+      lines.push(`> ${noteLine}`);
+    }
+    lines.push(
+      "_Entered verbatim by the discharging clinician at the time of discharge — this is the clinician's own documentation, not AI-generated text._",
+    );
+    lines.push("");
+  }
 
   lines.push("**Chief Complaint**");
   lines.push(`${patient.chief_complaint ?? "Clinical evaluation"}.`);
@@ -468,20 +737,34 @@ export function buildDischargeMarkdown(
   }
   lines.push("");
 
+  // There is no structured "physical exam" table in this schema — the only
+  // real signal here is the last recorded `vitals` row. NEVER synthesize
+  // organ-system findings ("Pulmonary: Clear to auscultation bilaterally")
+  // that no one actually examined and documented (C4): cite the real
+  // vitals when present, otherwise say plainly that nothing is documented.
   lines.push("**Physical Examination on Admission**");
-  lines.push("- **General:** Alert, oriented, and in no acute distress at the time of evaluation.");
-  lines.push(
-    "- **Cardiovascular:** Regular rate and rhythm; no murmurs, rubs, or gallops appreciated.",
-  );
-  lines.push("- **Pulmonary:** Clear to auscultation bilaterally with adequate air movement.");
-  lines.push("- **Abdomen:** Soft, non-distended, with appropriate bowel sounds.");
-  lines.push("- **Neurologic:** Grossly intact, no focal deficits identified.");
+  const vitalBits = formatVitalsOnly(vitals);
+  if (vitalBits.length > 0) {
+    lines.push(
+      `- Vital signs on file${vitals?.recorded_at ? ` (recorded ${admitDate(vitals.recorded_at)})` : ""}: ${vitalBits.join(", ")}.`,
+    );
+    lines.push(
+      "- No structured organ-system exam findings (cardiovascular, pulmonary, abdominal, neurologic, ...) are documented in the chart beyond these vitals; see the attending clinician's note for exam findings.",
+    );
+  } else {
+    lines.push(
+      "- No admission vital signs or physical-examination findings are documented in the structured chart for this encounter.",
+    );
+  }
   lines.push("");
 
   lines.push("**Hospital Course**");
   if (administered.length === 0 && resulted.length === 0) {
+    // Nothing real to report — say so plainly rather than inventing a
+    // reassuring clinical narrative (C4: "afebrile, pain controlled,
+    // ambulating independently" was previously asserted unconditionally).
     lines.push(
-      "The patient was admitted to the inpatient unit and managed conservatively with close clinical observation, intravenous access, and supportive care. Vital signs were monitored on a routine schedule throughout the admission. The patient remained clinically stable without acute decompensation, and no escalation of care was required. Nursing assessments each shift were reassuring, and the patient tolerated the admission well, meeting all standard discharge criteria.",
+      "Limited structured clinical data (administered medications, resulted labs) is on file for this admission. Refer to the clinician's documented notes for the clinical course and condition during this stay.",
     );
   } else {
     const courseBits: string[] = [];
@@ -502,7 +785,7 @@ export function buildDischargeMarkdown(
       );
     }
     courseBits.push(
-      "The patient remained hemodynamically stable, afebrile, and tolerated all interventions without acute complication. Pain was well controlled, oral intake was adequate, and the patient was ambulating independently prior to discharge. The multidisciplinary team agreed the patient met all clinical and functional discharge criteria.",
+      "No further hospital-course detail beyond the medications and diagnostics above is captured in the structured chart; refer to the clinician's documented notes (including the discharge note above, when present) for additional narrative on the patient's clinical trajectory.",
     );
     lines.push(courseBits.join(" "));
   }
@@ -533,7 +816,12 @@ export function buildDischargeMarkdown(
         const name = l.display_name ?? l.test_type ?? "Observation";
         const loinc = l.loinc_code ? ` _(LOINC ${l.loinc_code})_` : "";
         const flag = l.abnormal_flag && l.abnormal_flag !== "N" ? ` [${l.abnormal_flag}]` : "";
-        lines.push(`- **${name}**${loinc}: ${l.result_value ?? "Pending"}${flag}`);
+        // L19: `result_value` can already embed its own test-name prefix
+        // (e.g. "Hemoglobin: 14.6 g/dL" from a manually-finalized row) —
+        // strip it before printing next to the already-bolded `name` label,
+        // or it doubles up ("Hemoglobin: Hemoglobin: 14.6 g/dL").
+        const value = stripDuplicateLabel(name, l.result_value ?? "") || "Pending";
+        lines.push(`- **${name}**${loinc}: ${value}${flag}`);
       }
     }
     if (reportedImaging.length > 0) {
@@ -553,11 +841,25 @@ export function buildDischargeMarkdown(
   if (administered.length === 0) {
     lines.push("- Continue home medication regimen as previously prescribed.");
   } else {
-    for (const m of administered) {
+    // C3: every discharge medication carries an explicit CONTINUE/STOP
+    // decision rather than being auto-republished unchanged — STOP is
+    // forced whenever `reconcileDischargeMedications` finds a documented
+    // allergy conflict (reusing Safety Alerts Engine's Rule 1 matching, see
+    // above), which is also surfaced as a hard flag in the Clinical
+    // Completeness Check section.
+    for (const { med: m, decision, reason } of medReconciliation) {
       const name = m.display_name ?? m.medication_name ?? m.drug_name ?? "Medication";
       const dose = [m.dose, m.route, m.frequency].filter(Boolean).join(" ");
       const rx = m.rxnorm_code ? ` _(RxNorm ${m.rxnorm_code})_` : "";
-      lines.push(`- **${name}**${rx}${dose ? ` — ${dose}` : ""} — ${indicationFor(name)}.`);
+      if (decision === "STOP") {
+        lines.push(
+          `- **${name}**${rx}${dose ? ` — ${dose}` : ""} — **Decision: STOP ⚠** — ${reason}`,
+        );
+      } else {
+        lines.push(
+          `- **${name}**${rx}${dose ? ` — ${dose}` : ""} — **Decision: CONTINUE** — ${indicationFor(name)}.`,
+        );
+      }
     }
   }
   lines.push("");

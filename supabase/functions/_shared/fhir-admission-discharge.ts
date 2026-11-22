@@ -15,7 +15,15 @@
  *
  * Both bundles are FHIR R4 `transaction` Bundles ready to POST to the
  * Medblocks FHIR endpoint.
+ *
+ * C4 fabrication fix: this schema has no structured physical-exam table, so
+ * the Composition's "Physical Examination on Admission" section must only
+ * ever cite real recorded vitals (or omit itself) — never a caller-supplied
+ * organ-system narrative. `opts.physicalExam` has therefore been removed;
+ * see `buildDischargeTransactionBundle` below.
  */
+
+import { stripDuplicateLabel } from "./discharge-narrative.ts";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -843,7 +851,9 @@ function composeHospitalCourse(
     );
     parts.push(`Diagnostic workup: ${labNames.join(", ")}.`);
   }
-  parts.push("Patient clinically stable at discharge with appropriate follow-up planned.");
+  // C4: do NOT append an unconditional "clinically stable at discharge"
+  // claim — this system never actually observed that. Real facts (dx, meds
+  // given, labs drawn) are asserted above; nothing further is invented.
   return parts.join(" ");
 }
 
@@ -853,13 +863,6 @@ export function buildDischargeTransactionBundle(opts: {
   dischargeMeds?: DischargeMed[];
   vitals?: DischargeVitals | null;
   hospitalCourse?: string;
-  physicalExam?: {
-    general?: string;
-    cardiovascular?: string;
-    pulmonary?: string;
-    abdomen?: string;
-    neurologic?: string;
-  };
   procedures?: string[];
   diet?: string;
   activity?: string;
@@ -869,6 +872,13 @@ export function buildDischargeTransactionBundle(opts: {
   admittingDiagnosis?: string;
   dischargeDiagnosis?: string;
   conditionAtDischarge?: string;
+  /**
+   * Free text the discharging clinician actually typed in the "Confirm
+   * Discharge" dialog (H7) — rendered verbatim as its own Composition
+   * section, never discarded and never silently replacing the structured
+   * sections built from real chart data below.
+   */
+  clinicianNote?: string | null;
   /** Phase D: when present, a real recall/follow-up Appointment is added to
    * this same transaction bundle (PUT-upsert) and referenced from the
    * Follow-Up Care narrative section. Optional — omitting it leaves prior
@@ -919,16 +929,27 @@ export function buildDischargeTransactionBundle(opts: {
     ? buildVitalSignObservations(p, patientId, encounterId, opts.vitals)
     : [];
 
-  const exam = opts.physicalExam ?? {};
-  const examText = [
-    exam.general && `General: ${exam.general}`,
-    exam.cardiovascular && `Cardiovascular: ${exam.cardiovascular}`,
-    exam.pulmonary && `Pulmonary: ${exam.pulmonary}`,
-    exam.abdomen && `Abdomen: ${exam.abdomen}`,
-    exam.neurologic && `Neurologic: ${exam.neurologic}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  // C4: there is no structured physical-exam table in this schema — this
+  // section must only ever cite real recorded vitals (never a caller-
+  // supplied organ-system narrative like "Pulmonary: Clear to auscultation
+  // bilaterally" that no one actually examined). `narrativeSection` below
+  // omits the section entirely when `examText` is empty, which is correct
+  // when there are no vitals on file either.
+  const v = opts.vitals;
+  const examText = v
+    ? [
+        v.hr != null && `Heart rate: ${v.hr} /min`,
+        v.bp_systolic != null &&
+          v.bp_diastolic != null &&
+          `Blood pressure: ${v.bp_systolic}/${v.bp_diastolic} mmHg`,
+        v.spo2 != null && `SpO2: ${v.spo2}%`,
+        v.temp_c != null && `Temperature: ${v.temp_c}°C`,
+        v.rr != null && `Respiratory rate: ${v.rr} /min`,
+      ]
+        .filter(Boolean)
+        .map((line) => `Vital sign on file — ${line}`)
+        .join("\n")
+    : "";
 
   const hpiText = [
     p.chief_complaint && `Chief complaint: ${p.chief_complaint}.`,
@@ -1022,7 +1043,10 @@ export function buildDischargeTransactionBundle(opts: {
                 .map((l) => {
                   const name = l.test_name ?? l.test_type ?? "Observation";
                   const code = l.loinc ? ` [LOINC ${l.loinc}]` : "";
-                  const val = l.result_value ?? "Pending";
+                  // L19: strip a leading test-name prefix already baked
+                  // into `result_value` so it doesn't double up against the
+                  // `name` label right before it.
+                  const val = stripDuplicateLabel(name, l.result_value ?? "") || "Pending";
                   const flag = l.flag ? ` (${l.flag})` : "";
                   return `• ${name}${code}: ${val}${flag}`;
                 })
@@ -1067,7 +1091,17 @@ export function buildDischargeTransactionBundle(opts: {
         "Patient Education",
         opts.patientEducation ?? "Educated on diagnosis, medication adherence, and follow-up plan.",
       ),
-      narrativeSection("Condition at Discharge", opts.conditionAtDischarge ?? "Stable, improved."),
+      // C4: never assert an unverified condition ("Stable, improved.") —
+      // the discharging clinician's own note is the authoritative source;
+      // absent one, say plainly that this wasn't independently documented.
+      narrativeSection(
+        "Condition at Discharge",
+        opts.conditionAtDischarge ??
+          (opts.clinicianNote
+            ? "Per the discharging clinician's note (see Clinician's Discharge Note section)."
+            : "Not independently documented by this system — see the attending physician's discharge note."),
+      ),
+      narrativeSection("Clinician's Discharge Note", opts.clinicianNote ?? ""),
     ].filter(Boolean) as AnyRecord[],
   };
 

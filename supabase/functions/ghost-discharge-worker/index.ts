@@ -38,12 +38,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
   buildDischargeMarkdown,
+  pickCompletedProcedures,
+  type MatchableValueSet,
   type NarrativeAllergy,
   type NarrativeImaging,
   type NarrativeLab,
   type NarrativeMed,
   type NarrativePatient,
   type NarrativeProcedure,
+  type NarrativeVitals,
 } from "../_shared/discharge-narrative.ts";
 import {
   buildDischargeTransactionBundle,
@@ -62,6 +65,21 @@ const SPEHR_APP_URL = (Deno.env.get("SPEHR_APP_URL") ?? "https://www.spehr.live"
   /\/+$/,
   "",
 );
+
+/**
+ * Published value sets (same table Safety Alerts Engine's Rule 1 reads) —
+ * fetched once per discharge so the discharge-medication / allergy
+ * reconciliation check (C3) can reuse the exact same matching logic as the
+ * live Drug-Allergy Conflict alert instead of forking it.
+ */
+async function fetchPublishedValueSets(admin: any): Promise<MatchableValueSet[]> {
+  const { data, error } = await admin
+    .from("custom_value_sets")
+    .select("name, codes")
+    .eq("status", "published");
+  if (error || !data) return [];
+  return data as MatchableValueSet[];
+}
 
 // Phase D: recall/follow-up appointment settings, read fresh per discharge
 // (cheap single-row lookup) rather than cached, since an operator may flip
@@ -409,10 +427,25 @@ async function fetchClinicalContext(
 async function buildSummaryForMrn(
   admin: any,
   mrn: string,
+  opts: { clinicianNote?: string | null; publishedValueSets?: MatchableValueSet[] } = {},
 ): Promise<{
   summary: string | null;
   patient: any | null;
+  meds: NarrativeMed[];
+  labs: NarrativeLab[];
+  allergies: NarrativeAllergy[];
+  imaging: NarrativeImaging[];
+  procedures: NarrativeProcedure[];
+  vitals: NarrativeVitals | null;
 }> {
+  const empty = {
+    meds: [] as NarrativeMed[],
+    labs: [] as NarrativeLab[],
+    allergies: [] as NarrativeAllergy[],
+    imaging: [] as NarrativeImaging[],
+    procedures: [] as NarrativeProcedure[],
+    vitals: null as NarrativeVitals | null,
+  };
   const {
     patient,
     meds: rawMeds,
@@ -420,8 +453,9 @@ async function buildSummaryForMrn(
     allergies: rawAllergies,
     imaging: rawImaging,
     procedures: rawProcedures,
+    vitals: rawVitals,
   } = await fetchClinicalContext(admin, mrn);
-  if (!patient) return { summary: null, patient: null };
+  if (!patient) return { summary: null, patient: null, ...empty };
 
   const meds: NarrativeMed[] = rawMeds.map((m: any) => ({
     medication_name: m.medication_name ?? m.drug_name ?? null,
@@ -476,6 +510,18 @@ async function buildSummaryForMrn(
     performed_by: p.performed_by ?? null,
   }));
 
+  const vitals: NarrativeVitals | null = rawVitals
+    ? {
+        hr: rawVitals.hr ?? null,
+        bp_systolic: rawVitals.bp_systolic ?? null,
+        bp_diastolic: rawVitals.bp_diastolic ?? null,
+        spo2: rawVitals.spo2 ?? null,
+        temp_c: rawVitals.temp_c ?? null,
+        rr: rawVitals.rr ?? null,
+        recorded_at: rawVitals.recorded_at ?? null,
+      }
+    : null;
+
   const narrativePatient: NarrativePatient = {
     first_name: patient.first_name ?? null,
     last_name: patient.last_name ?? null,
@@ -494,6 +540,9 @@ async function buildSummaryForMrn(
     primary_care_physician: patient.primary_care_physician ?? null,
   };
 
+  // H7: the clinician's own typed discharge note (when present) is woven
+  // into the narrative as its own section — never discarded, and never
+  // substituted wholesale for the real structured sections below it.
   const summary = buildDischargeMarkdown(
     narrativePatient,
     meds,
@@ -501,8 +550,11 @@ async function buildSummaryForMrn(
     allergies,
     imaging,
     procedures,
+    opts.clinicianNote ?? null,
+    vitals,
+    opts.publishedValueSets ?? [],
   );
-  return { summary, patient };
+  return { summary, patient, meds, labs, allergies, imaging, procedures, vitals };
 }
 
 async function processMrn(
@@ -516,19 +568,33 @@ async function processMrn(
   note_id?: string;
   summary_len?: number;
 }> {
-  const { summary: autoSummary, patient } = await buildSummaryForMrn(admin, mrn);
+  // A UI path can pass a clinician-authored discharge note (the free text
+  // typed in the patient-chart "Confirm Discharge" dialog). H7 fix: that
+  // text used to wholesale REPLACE the generated narrative (discarding the
+  // real meds/labs/procedures/safety-flags sections) whenever it was left
+  // empty of the exact placeholder check client-side, and the physician's
+  // own note was simply never reachable from the summary otherwise. It is
+  // now threaded INTO `buildDischargeMarkdown` as its own verbatim section
+  // — never discarded, and never silently replacing the structured, real
+  // chart data sections around it.
+  const override =
+    typeof (opts as any).override === "string" ? String((opts as any).override).trim() : "";
+  const publishedValueSets = await fetchPublishedValueSets(admin);
+  const {
+    summary: autoSummary,
+    patient,
+    meds,
+    labs,
+    procedures,
+    vitals,
+  } = await buildSummaryForMrn(admin, mrn, {
+    clinicianNote: override.length > 0 ? override : null,
+    publishedValueSets,
+  });
   if (!patient) return { mrn, ok: false, reason: "no_patient_row" };
   if (!autoSummary) return { mrn, ok: false, reason: "summary_build_failed" };
 
-  // A UI path can pass a clinician-authored discharge summary (e.g. the free
-  // text typed in the patient-chart DischargeDialog). When present, that
-  // text becomes the DISCHARGE_SUMMARY note + patients.discharge_summary
-  // (what the clinician wrote wins on the narrative surface). The FHIR
-  // Composition below is ALWAYS rebuilt from real DB rows regardless, so
-  // structured meds/labs/diagnoses remain accurate.
-  const override =
-    typeof (opts as any).override === "string" ? String((opts as any).override).trim() : "";
-  const summary = override.length > 0 ? override : autoSummary;
+  const summary = autoSummary;
   const noteAuthor =
     override.length > 0 ? "Clinician - Manual Discharge" : "Ghost AI - Auto Discharge";
 
@@ -607,17 +673,14 @@ async function processMrn(
   // and push it to Medblocks. Fixes the admission-time Composition that
   // hallucinated drug names from a per-diagnosis template and reported
   // "No laboratory observations / No discharge medications" because it ran
-  // before any orders existed.
+  // before any orders existed. Reuses the SAME meds/labs/vitals/procedures
+  // already fetched above for the markdown narrative (no second DB round
+  // trip, and the two discharge-summary surfaces can no longer drift apart
+  // on which real data they cite) — `patient` already came from a `select
+  // ("*")`, so it already carries every patient field a second fetch would.
   let composition_push: { ok: boolean; status: number } | undefined;
   try {
-    const {
-      patient: freshPatient,
-      meds: rawMeds,
-      labs: rawLabs,
-      vitals: rawVitals,
-    } = await fetchClinicalContext(admin, mrn);
-    const fhirMeds: FhirDischargeMed[] = rawMeds.map((m: any) => ({
-      id: m.id,
+    const fhirMeds: FhirDischargeMed[] = meds.map((m) => ({
       drug: m.medication_name ?? m.drug_name ?? "medication",
       drug_name: m.drug_name ?? undefined,
       medication_name: m.medication_name ?? undefined,
@@ -626,52 +689,61 @@ async function processMrn(
       frequency: m.frequency ?? undefined,
       rxnorm: m.rxnorm_code ?? undefined,
       status: m.status ?? undefined,
-      ordering_physician: m.ordering_physician ?? m.ordered_by ?? undefined,
+      ordering_physician: m.ordered_by ?? undefined,
     }));
-    const fhirLabs: FhirDischargeLab[] = rawLabs.map((l: any) => ({
-      test_name: l.test_name ?? l.test_type ?? "Lab",
+    const fhirLabs: FhirDischargeLab[] = labs.map((l) => ({
+      test_name: l.display_name ?? l.test_type ?? "Lab",
       test_type: l.test_type ?? undefined,
       result_value: l.result_value ?? undefined,
       unit: l.unit ?? undefined,
       loinc: l.loinc_code ?? undefined,
-      flag: l.flag ?? undefined,
+      flag: l.abnormal_flag ?? undefined,
       collected_at: l.collected_at ?? undefined,
       performing_lab: "SPEHR Central Laboratory",
     }));
+    // Real procedures (C4 gap fix: this was never passed to the FHIR
+    // Composition before, so "Procedures Performed" silently omitted itself
+    // there even when the markdown narrative correctly showed a real one).
+    // `pickCompletedProcedures` is the same real/completed filter the
+    // markdown narrative above already applied — reused, not forked.
+    const fhirProcedures: string[] = pickCompletedProcedures(procedures).map((p) => {
+      const name = (p.display_text ?? p.cpt_display ?? p.snomed_display ?? "Procedure").trim();
+      return p.cpt_code ? `${name} (CPT ${p.cpt_code})` : name;
+    });
     const admissionPatient: AdmissionPatient = {
       mrn,
-      first_name: freshPatient.first_name ?? null,
-      last_name: freshPatient.last_name ?? null,
-      name: freshPatient.name ?? null,
-      dob: freshPatient.dob ?? null,
-      age: freshPatient.age ?? null,
-      gender: freshPatient.gender ?? freshPatient.biological_sex ?? null,
-      admission_time: freshPatient.admission_time ?? null,
+      first_name: patient.first_name ?? null,
+      last_name: patient.last_name ?? null,
+      name: patient.name ?? null,
+      dob: patient.dob ?? null,
+      age: patient.age ?? null,
+      gender: patient.gender ?? patient.biological_sex ?? null,
+      admission_time: patient.admission_time ?? null,
       discharge_time:
-        freshPatient.discharge_time ??
         (patientUpdate.discharge_time as string) ??
+        patient.discharge_time ??
         new Date().toISOString(),
       status: "Discharged",
-      chief_complaint: freshPatient.chief_complaint ?? null,
-      diagnosis: freshPatient.diagnosis ?? null,
-      past_medical_history: freshPatient.past_medical_history ?? null,
-      past_surgical_history: freshPatient.past_surgical_history ?? null,
-      allergies: freshPatient.allergies ?? null,
-      environmental_allergies: freshPatient.environmental_allergies ?? null,
-      primary_care_physician: freshPatient.primary_care_physician ?? null,
-      room: freshPatient.room ?? null,
-      assigned_department: freshPatient.assigned_department ?? null,
+      chief_complaint: patient.chief_complaint ?? null,
+      diagnosis: patient.diagnosis ?? null,
+      past_medical_history: patient.past_medical_history ?? null,
+      past_surgical_history: patient.past_surgical_history ?? null,
+      allergies: patient.allergies ?? null,
+      environmental_allergies: patient.environmental_allergies ?? null,
+      primary_care_physician: patient.primary_care_physician ?? null,
+      room: patient.room ?? null,
+      assigned_department: patient.assigned_department ?? null,
       discharge_summary: summary,
     };
-    const fhirVitals: FhirDischargeVitals | null = rawVitals
+    const fhirVitals: FhirDischargeVitals | null = vitals
       ? {
-          hr: rawVitals.hr ?? null,
-          bp_systolic: rawVitals.bp_systolic ?? null,
-          bp_diastolic: rawVitals.bp_diastolic ?? null,
-          spo2: rawVitals.spo2 ?? null,
-          temp_c: rawVitals.temp_c ?? null,
-          rr: rawVitals.rr ?? null,
-          recorded_at: rawVitals.recorded_at ?? null,
+          hr: vitals.hr ?? null,
+          bp_systolic: vitals.bp_systolic ?? null,
+          bp_diastolic: vitals.bp_diastolic ?? null,
+          spo2: vitals.spo2 ?? null,
+          temp_c: vitals.temp_c ?? null,
+          rr: vitals.rr ?? null,
+          recorded_at: vitals.recorded_at ?? null,
         }
       : null;
     // Phase D: compressed-timeline follow-up text. Default stays "within 2
@@ -697,19 +769,20 @@ async function processMrn(
       labs: fhirLabs,
       dischargeMeds: fhirMeds,
       vitals: fhirVitals,
-      admittingDiagnosis: freshPatient.chief_complaint ?? undefined,
-      dischargeDiagnosis: freshPatient.diagnosis ?? freshPatient.chief_complaint ?? undefined,
-      conditionAtDischarge: "Stable, improved.",
+      procedures: fhirProcedures,
+      admittingDiagnosis: patient.chief_complaint ?? undefined,
+      dischargeDiagnosis: patient.diagnosis ?? patient.chief_complaint ?? undefined,
+      // C4: no more fabricated "Stable, improved." / hardcoded organ-system
+      // exam findings ("Clear to auscultation bilaterally", etc.) that no
+      // one actually examined — `buildDischargeTransactionBundle` now
+      // derives the exam section strictly from `vitals` above, and
+      // `conditionAtDischarge` is left undefined so it falls back to an
+      // honest "not independently documented" (or defers to the clinician
+      // note, when present) inside the builder itself.
+      clinicianNote: override.length > 0 ? override : undefined,
       diet: "Regular as tolerated",
       activity: "Activity as tolerated",
       followUp: followUpText,
-      physicalExam: {
-        general: "Awake, alert, in no acute distress on admission.",
-        cardiovascular: "Regular rate and rhythm, no murmurs.",
-        pulmonary: "Clear to auscultation bilaterally.",
-        abdomen: "Soft, non-tender, non-distended.",
-        neurologic: "Alert and oriented x3, no focal deficits.",
-      },
       followUpAppointment: recallAppt ?? undefined,
     });
     composition_push = await pushDischargeBundleToFhir(bundle);

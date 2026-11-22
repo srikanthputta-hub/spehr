@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Printer, FileText, Brain } from "lucide-react";
 import {
   buildDischargeMarkdown,
+  type MatchableValueSet,
   type NarrativeImaging,
   type NarrativeProcedure,
+  type NarrativeVitals,
 } from "@/lib/discharge-narrative";
 import { InfoHint } from "@/components/ui/info-hint";
 
@@ -128,23 +130,24 @@ function DischargeSummaryModal({
   facility: string;
   onClose: () => void;
 }) {
-  // Prefer the summary written directly on the patient row. Fall back to
-  // clinical_notes only for legacy encounters that don't carry the field.
+  // H7 fix: the discharging clinician's own free-text note has to be read
+  // back from here so it can be woven into the rendered narrative below
+  // (never discarded) — so the latest DISCHARGE_SUMMARY note is now always
+  // fetched (not skipped just because `patients.discharge_summary` is set;
+  // that field holds the SAME text, this is just how we learn who authored
+  // it and can tell a clinician-typed note apart from an auto-generated one).
   const [note, setNote] = useState<DischargeNote | null>(null);
-  const [loading, setLoading] = useState(!patient.discharge_summary);
+  const [loading, setLoading] = useState(true);
   const [meds, setMeds] = useState<MedAdminRow[]>([]);
   const [labs, setLabs] = useState<LabResultRow[]>([]);
   const [allergies, setAllergies] = useState<AllergyRow[]>([]);
   const [imaging, setImaging] = useState<RadiologyOrderRow[]>([]);
   const [procedures, setProcedures] = useState<ProcedureRow[]>([]);
+  const [vitals, setVitals] = useState<NarrativeVitals | null>(null);
+  const [valueSets, setValueSets] = useState<MatchableValueSet[]>([]);
   const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
-    if (patient.discharge_summary) {
-      setNote(null);
-      setLoading(false);
-      return;
-    }
     let cancelled = false;
     setLoading(true);
     (async () => {
@@ -162,7 +165,7 @@ function DischargeSummaryModal({
     return () => {
       cancelled = true;
     };
-  }, [patient.mrn, patient.discharge_summary]);
+  }, [patient.mrn]);
 
   useEffect(() => {
     if (!patient.mrn) {
@@ -185,6 +188,8 @@ function DischargeSummaryModal({
         allergiesRes,
         radiologyRes,
         proceduresRes,
+        vitalsRes,
+        valueSetsRes,
       ] = await Promise.all([
         supabase
           .from("observations")
@@ -234,6 +239,20 @@ function DischargeSummaryModal({
           )
           .eq("mrn", mrn)
           .order("performed_at", { ascending: true }),
+        // C4: the only real signal "Physical Examination on Admission" may
+        // cite — this table was never queried here before, so that section
+        // fell back to a fully hardcoded (fabricated) organ-system exam.
+        supabase
+          .from("vitals")
+          .select("hr, bp_systolic, bp_diastolic, spo2, temp_c, rr, recorded_at")
+          .eq("mrn", mrn)
+          .order("recorded_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        // C3: published value sets, for the Rule-1-style discharge
+        // medication vs. documented allergy conflict check (reuses Safety
+        // Alerts Engine's own matching helpers, never reimplemented).
+        supabase.from("custom_value_sets").select("name, codes").eq("status", "published"),
       ]);
       if (cancelled) return;
 
@@ -300,6 +319,8 @@ function DischargeSummaryModal({
       setAllergies((allergiesRes.data ?? []) as AllergyRow[]);
       setImaging((radiologyRes.data ?? []) as RadiologyOrderRow[]);
       setProcedures((proceduresRes.data ?? []) as ProcedureRow[]);
+      setVitals((vitalsRes.data ?? null) as NarrativeVitals | null);
+      setValueSets((valueSetsRes.data ?? []) as MatchableValueSet[]);
       setChartLoading(false);
     })();
     return () => {
@@ -307,11 +328,19 @@ function DischargeSummaryModal({
     };
   }, [patient.mrn]);
 
-  // Surface that a persisted text summary exists (legacy field) but the
-  // rendered narrative below is rebuilt fresh from the structured chart.
-  void patient.discharge_summary;
-  void note;
-  const summaryAuthor = "Ghost AI - Clinical Narrative";
+  // H7 fix: this used to `void note` and rebuild the narrative purely from
+  // the structured chart, which silently threw away whatever the
+  // discharging clinician actually typed in the "Confirm Discharge" dialog
+  // — the note was persisted to `clinical_notes` / `patients.discharge_summary`
+  // by the worker, but never read back here. It is now passed into
+  // `buildDischargeMarkdown` as its own verbatim "Clinician's Discharge
+  // Note" section instead (never silently replacing the real structured
+  // sections built from the chart below it).
+  const clinicianNote =
+    note?.author === "Clinician - Manual Discharge" ? (note.content ?? null) : null;
+  const summaryAuthor = clinicianNote
+    ? "Clinician-Authored + AI-Compiled Chart Data"
+    : "AI-Generated Draft";
   const los = durationHrs(patient.admission_time, patient.discharge_time);
   const isDischarged = !!patient.discharge_time;
 
@@ -416,6 +445,9 @@ function DischargeSummaryModal({
                 allergies={allergies}
                 imaging={imaging}
                 procedures={procedures}
+                vitals={vitals}
+                valueSets={valueSets}
+                clinicianNote={clinicianNote}
                 isDischarged={isDischarged}
                 los={los}
               />
@@ -424,10 +456,10 @@ function DischargeSummaryModal({
 
           {/* Footer */}
           <div className="mt-10 pt-4 border-t border-slate-300 text-center text-[11px] text-slate-500">
-            <p className="font-medium">
-              Electronically generated and verified by S.P.E.H.R. AI Core
-            </p>
-            <p className="font-mono mt-1">{fmtTs(new Date().toISOString())}</p>
+            {/* C4 fix: nobody actually verifies this document today — it must
+                never claim otherwise. */}
+            <p className="font-medium">AI-generated draft — pending clinician verification</p>
+            <p className="font-mono mt-1">Compiled {fmtTs(new Date().toISOString())}</p>
           </div>
         </div>
       </DialogContent>
@@ -572,6 +604,9 @@ function ClinicalNarrative({
   allergies,
   imaging,
   procedures,
+  vitals,
+  valueSets,
+  clinicianNote,
   isDischarged,
   los,
 }: {
@@ -581,6 +616,9 @@ function ClinicalNarrative({
   allergies: AllergyRow[];
   imaging: RadiologyOrderRow[];
   procedures: ProcedureRow[];
+  vitals: NarrativeVitals | null;
+  valueSets: MatchableValueSet[];
+  clinicianNote: string | null;
   isDischarged: boolean;
   los: string;
 }) {
@@ -619,7 +657,20 @@ function ClinicalNarrative({
       snomed_display: p.snomed_display,
       performed_by: p.performed_by,
     })),
+    clinicianNote,
+    vitals,
+    valueSets,
   );
+  // Real data for the signature block — never a fabricated name, but not a
+  // blank unlabeled line either: the most recent ordering clinician on
+  // record is who should actually be signing this.
+  const physicianOfRecord =
+    [...meds]
+      .reverse()
+      .map((m) => m.ordered_by)
+      .find((v) => v && v.trim() && v.trim().toLowerCase() !== "auto doc") ??
+    patient.primary_care_physician ??
+    null;
   return (
     <div
       className="rounded-sm border border-slate-300 bg-white px-10 py-8"
@@ -630,7 +681,7 @@ function ClinicalNarrative({
         Disposition:{" "}
         {isDischarged ? (
           <>
-            Discharged in stable condition · Length of stay <span className="font-mono">{los}</span>
+            Discharged · Length of stay <span className="font-mono">{los}</span>
           </>
         ) : (
           <>Active inpatient — disposition pending clinical reassessment.</>
@@ -638,11 +689,13 @@ function ClinicalNarrative({
       </div>
       <div className="mt-8 grid grid-cols-2 gap-8 text-[12.5px] text-slate-700">
         <div>
+          <div className="pt-1">{physicianOfRecord ?? "Attending physician not on file"}</div>
           <div className="border-t border-slate-400 pt-1 mt-10">
             Attending Physician — Signature &amp; Date
           </div>
         </div>
         <div>
+          <div className="pt-1">{fullName(patient)}</div>
           <div className="border-t border-slate-400 pt-1 mt-10">
             Patient / Authorized Representative — Signature &amp; Date
           </div>

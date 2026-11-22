@@ -17,11 +17,16 @@ import { supabase } from "@/integrations/supabase/client";
 export interface DischargePatientOptions {
   mrn: string;
   /**
-   * Optional clinician-authored discharge summary text (e.g. from a chart
-   * dialog textarea). When provided AND non-empty, it becomes the
-   * DISCHARGE_SUMMARY note content + patients.discharge_summary — the FHIR
-   * Composition still comes from real DB rows. When omitted, the worker
-   * auto-generates a full narrative from real meds/labs/allergies.
+   * Optional clinician-authored discharge note text (e.g. from the
+   * "Confirm Discharge" dialog textarea). When provided AND non-empty, it
+   * is woven into the generated narrative as its own verbatim "Clinician's
+   * Discharge Note" section — in both the DISCHARGE_SUMMARY note content /
+   * patients.discharge_summary AND the FHIR Composition (H7). It is never
+   * discarded, and it never wholesale replaces the real structured
+   * sections (meds/labs/procedures/safety flags) built from the chart —
+   * both still come from real DB rows regardless. When omitted, the worker
+   * auto-generates the full narrative from real meds/labs/allergies with
+   * no clinician-note section.
    */
   clinicianSummary?: string | null;
 }
