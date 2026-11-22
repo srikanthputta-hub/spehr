@@ -1573,7 +1573,21 @@ function UserDirectory() {
                         </div>
                       </div>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      // L12: this always read "—" for every staff member —
+                      // not a display bug, `assigned_patients`/
+                      // `max_capacity` are NULL on every row. There's no
+                      // FK-based link from `patients` to `hospital_staff`
+                      // anywhere in the schema to compute a real live
+                      // caseload, so rather than fabricate numbers for a
+                      // metric that's supposed to be live, say plainly
+                      // that it isn't tracked yet instead of a bare dash
+                      // that reads like missing/broken data.
+                      <span
+                        className="text-[11px] text-slate-400 italic"
+                        title="No per-staff patient assignment is tracked anywhere in the system yet — this isn't wired up, not missing data for this one person"
+                      >
+                        Not tracked
+                      </span>
                     )}
                   </td>
                   <td className="px-5 py-3 text-slate-700 font-mono text-xs">
@@ -1640,6 +1654,15 @@ function UserDirectory() {
                         "Clinical Lab Tech",
                         "System Administrator",
                         "Corporate Finance & Accounts",
+                        // L12: these two roles exist in the live directory
+                        // (Radiologist, Admissions / Reception) but were
+                        // missing here — opening Edit Access for one of
+                        // those staff showed an unmatched/blank Select,
+                        // and saving without first touching the dropdown
+                        // would have silently overwritten their real role
+                        // with whatever the Select fell back to.
+                        "Radiologist",
+                        "Admissions / Reception",
                       ].map((r) => (
                         <SelectItem key={r} value={r}>
                           {r}

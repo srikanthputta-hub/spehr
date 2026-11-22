@@ -50,6 +50,7 @@ import {
   formatDependencyLinkedMessages,
   summarizeLinkedDependenciesForToast,
   requestTerminologyUpdate,
+  isValidVsacOid,
 } from "@/lib/value-set-registry";
 
 type ValueSet = {
@@ -127,6 +128,14 @@ export function ValueSetLibrary() {
   } | null>(null);
   const [vsacName, setVsacName] = useState("");
   const [vsacImporting, setVsacImporting] = useState(false);
+  // H16: "Import as Draft" used to insert unconditionally, so importing an
+  // OID that already has a local value set either created a confusing
+  // duplicate row or — once a human importer wires Ctrl/Cmd-double-clicked
+  // it mid-insert — just looked like nothing happened, since no in-dialog
+  // message ever explained why. Surface the conflicting row explicitly and
+  // let the user choose what to do, instead of silently no-op'ing or
+  // silently duplicating.
+  const [vsacDuplicate, setVsacDuplicate] = useState<ValueSet | null>(null);
   const [log, setLog] = useState<
     Array<{ id: string; created_at: string; actor: string; message: string }>
   >([]);
@@ -247,6 +256,16 @@ export function ValueSetLibrary() {
   const handleVsacFetch = async () => {
     const oid = vsacOid.trim();
     if (!oid) return;
+    setVsacDuplicate(null);
+    // H16: reject an obviously-malformed OID (e.g. "not-a-valid-oid")
+    // before spending 8-12s on a round trip to VSAC that can only ever
+    // fail — same validation "Link VSAC OID" now applies.
+    if (!isValidVsacOid(oid)) {
+      setVsacError(
+        `"${oid}" doesn't look like a VSAC OID — expected dot-separated numbers, e.g. 2.16.840.1.113883.3.464.1003.103.12.1001`,
+      );
+      return;
+    }
     setVsacLoading(true);
     setVsacError(null);
     setVsacResult(null);
@@ -293,8 +312,24 @@ export function ValueSetLibrary() {
     }
   };
 
-  const handleVsacImport = async () => {
+  const handleVsacImport = async (force = false) => {
     if (!vsacResult) return;
+    // H16: a local value set already existing under this exact OID used to
+    // go completely unmentioned — the insert either silently created a
+    // confusing second row for the same real-world VSAC value set, or (if
+    // this ran twice in quick succession, e.g. a double-click) the second
+    // call's result could look like nothing happened at all. Either way,
+    // the person importing never found out a value set for this OID
+    // already exists. Surface it and let them choose, rather than
+    // guessing on their behalf.
+    if (!force) {
+      const existing = rows.find((r) => r.oid === vsacResult.oid) ?? null;
+      if (existing) {
+        setVsacDuplicate(existing);
+        return;
+      }
+    }
+    setVsacDuplicate(null);
     const name = vsacName.trim() || `VSAC ${vsacResult.oid}`;
     setVsacImporting(true);
     try {
@@ -340,6 +375,7 @@ export function ValueSetLibrary() {
       setVsacResult(null);
       setVsacName("");
       setVsacError(null);
+      setVsacDuplicate(null);
       await refreshRows();
     } finally {
       setVsacImporting(false);
@@ -480,13 +516,20 @@ export function ValueSetLibrary() {
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
     if (!q) return statusFilteredRows;
-    return statusFilteredRows.filter(
+    // L14: a search used to only ever match within whatever status tab
+    // happened to be active, so searching for a value set that's actually
+    // in "draft" while the "published" tab was selected looked exactly
+    // like zero results — nothing told the user their own tab was hiding
+    // the match. Search across every status once there's a real query;
+    // the Status column (see StatusBadge above) now always shows each
+    // matched row's real status, so mixed-status results stay legible.
+    return rows.filter(
       (r) =>
         r.name.toLowerCase().includes(q) ||
         (r.oid ?? "").toLowerCase().includes(q) ||
         (r.vocabulary ?? "").toLowerCase().includes(q),
     );
-  }, [statusFilteredRows, query]);
+  }, [statusFilteredRows, rows, query]);
 
   const transitionStatus = async (
     row: ValueSet,
@@ -650,6 +693,7 @@ export function ValueSetLibrary() {
                 setVsacOpen(true);
                 setVsacError(null);
                 setVsacResult(null);
+                setVsacDuplicate(null);
               }}
             >
               <Upload className="h-3.5 w-3.5" /> Import from VSAC
@@ -692,6 +736,11 @@ export function ValueSetLibrary() {
               </button>
             );
           })}
+          {query.trim() && (
+            <span className="text-[11px] text-slate-500 italic">
+              Searching all statuses — tab selection ignored while a search is active
+            </span>
+          )}
         </div>
 
         <div className="scroll-feed rounded border border-slate-200">
@@ -729,8 +778,21 @@ export function ValueSetLibrary() {
                   className="hover:bg-slate-50 cursor-pointer"
                   onClick={() => setSelected(r)}
                 >
-                  <td className="px-3 py-2 font-semibold text-slate-900">
-                    {r.name}
+                  <td className="px-3 py-2 font-semibold text-slate-900 max-w-[260px]">
+                    {/*
+                      L14: with no width/overflow constraint here, a long
+                      value set name wrapped across whatever width the
+                      browser's table auto-layout happened to leave this
+                      column once the other 7 (mostly narrow, monospace or
+                      badge) columns claimed their share — 5-6 lines for a
+                      genuinely long name, blowing out every row's height.
+                      Clamp to 2 lines with the full name always available
+                      via `title` on hover, instead of letting it wrap
+                      indefinitely.
+                    */}
+                    <span className="line-clamp-2 break-words" title={r.name}>
+                      {r.name}
+                    </span>
                     {r.steward && (
                       <span
                         className="ml-1.5 inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 align-middle"
@@ -862,8 +924,23 @@ export function ValueSetLibrary() {
           <ul className="font-mono text-slate-700 space-y-0.5 max-h-40 overflow-y-auto">
             {log.map((e) => (
               <li key={e.id}>
-                <span className="text-slate-400">
-                  {new Date(e.created_at).toLocaleTimeString()}
+                {/*
+                  L15: time-only ("09:52") with no date made every entry
+                  look like it happened today, no matter how old it
+                  actually was — e.g. a batch of now-impossible "merged 0
+                  new code(s) into existing draft value set" entries from
+                  before the auto-drafting cycle was removed (commit
+                  2d83aef, 2026-11-12) reads as an ongoing bug rather than
+                  dead history, because nothing here says *when* they're
+                  from. Full date + time, title has the exact instant.
+                */}
+                <span className="text-slate-400" title={new Date(e.created_at).toLocaleString()}>
+                  {new Date(e.created_at).toLocaleString([], {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </span>
                 {" · "}
                 <span className="text-slate-500">{e.actor}</span>
@@ -1000,6 +1077,7 @@ export function ValueSetLibrary() {
           if (!o) {
             setVsacOpen(false);
             setVsacError(null);
+            setVsacDuplicate(null);
           }
         }}
       >
@@ -1036,6 +1114,58 @@ export function ValueSetLibrary() {
             {vsacError && (
               <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
                 {vsacError}
+              </div>
+            )}
+
+            {/* H16: previously, importing an OID that already has a local
+                value set either silently created a confusing duplicate or
+                looked like the click did nothing. Name the conflict and
+                give the user a real choice instead. */}
+            {vsacDuplicate && (
+              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 space-y-2">
+                <div>
+                  A value set already exists for this OID:{" "}
+                  <span className="font-semibold">{vsacDuplicate.name}</span> (
+                  {vsacDuplicate.status},{" "}
+                  {Array.isArray(vsacDuplicate.codes) ? vsacDuplicate.codes.length : 0} codes).
+                  Importing again would create a confusing duplicate — choose one:
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px]"
+                    onClick={() => {
+                      const existing = vsacDuplicate;
+                      setVsacOpen(false);
+                      setVsacDuplicate(null);
+                      setSelected(existing);
+                    }}
+                  >
+                    View it
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px]"
+                    onClick={() => {
+                      const existing = vsacDuplicate;
+                      setVsacOpen(false);
+                      setVsacDuplicate(null);
+                      void openResync(existing);
+                    }}
+                  >
+                    Re-sync it
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-7 text-[11px] bg-amber-700 hover:bg-amber-800 text-white"
+                    onClick={() => void handleVsacImport(true)}
+                    disabled={vsacImporting}
+                  >
+                    Import as a new version anyway
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -1101,12 +1231,22 @@ export function ValueSetLibrary() {
           </div>
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setVsacOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setVsacOpen(false);
+                setVsacDuplicate(null);
+              }}
+            >
               Cancel
             </Button>
             <Button
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              onClick={handleVsacImport}
+              // Explicit no-arg call: a bare `onClick={handleVsacImport}`
+              // would pass the click SyntheticEvent as `force`, which is
+              // truthy and would silently skip the H16 duplicate-OID check
+              // below every time this button is clicked.
+              onClick={() => void handleVsacImport()}
               disabled={!vsacResult || vsacImporting || !vsacName.trim()}
             >
               {vsacImporting ? (
@@ -1280,53 +1420,61 @@ function StatusBadge({
   onOpenPublish: () => void;
   onOpenDeprecate: () => void;
 }) {
-  // Labels show the next action rather than repeating the status word —
-  // the active filter chip above the table already says what status this
-  // row is, so the badge doesn't need to say it again.
-  const cls = `inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize cursor-pointer ${STATUS_STYLES[row.status] ?? ""}`;
-  if (row.status === "draft") {
-    return (
-      <button
-        className={`${cls} hover:ring-2 hover:ring-slate-300`}
-        onClick={(e) => {
-          e.stopPropagation();
-          onSubmit();
-        }}
-        title="Submit for review"
-      >
-        Submit ▸
-      </button>
-    );
-  }
-  if (row.status === "review") {
-    return (
-      <button
-        className={`${cls} hover:ring-2 hover:ring-amber-300`}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenPublish();
-        }}
-        title="Approve & publish or request changes"
-      >
-        Decide ▸
-      </button>
-    );
-  }
-  if (row.status === "published") {
-    return (
-      <button
-        className={`${cls} hover:ring-2 hover:ring-rose-300`}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenDeprecate();
-        }}
-        title="Request deprecation of this value set — files a governed request for a steward to review, same as authoring a new one"
-      >
-        Request Deprecation ▸
-      </button>
-    );
-  }
-  return <span className={cls}>{row.status}</span>;
+  // L14: this used to render ONLY an action label ("Submit ▸" / "Decide ▸"
+  // / "Request Deprecation ▸") in place of the actual status word, on the
+  // assumption that "the active filter chip above the table already says
+  // what status this row is" — true only when every visible row shares
+  // one status. That assumption breaks the moment rows of mixed status
+  // are shown together (e.g. a cross-tab search match, see the `filtered`
+  // memo above), and even within one tab, "Request Deprecation ▸" reads
+  // like a status ("pending deprecation") rather than a button that
+  // FILES one for a published row — exactly the QA-reported confusion.
+  // Always show the real status text; the action is now a small
+  // secondary affordance next to it, not a replacement for it.
+  const cls = `inline-block px-2 py-0.5 rounded border text-[10px] font-semibold capitalize ${STATUS_STYLES[row.status] ?? ""}`;
+  const actionBtnCls =
+    "inline-flex items-center rounded border border-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-700";
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={cls}>{row.status}</span>
+      {row.status === "draft" && (
+        <button
+          className={actionBtnCls}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSubmit();
+          }}
+          title="Submit for review"
+        >
+          Submit ▸
+        </button>
+      )}
+      {row.status === "review" && (
+        <button
+          className={actionBtnCls}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenPublish();
+          }}
+          title="Approve & publish or request changes"
+        >
+          Decide ▸
+        </button>
+      )}
+      {row.status === "published" && (
+        <button
+          className={actionBtnCls}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenDeprecate();
+          }}
+          title="Request deprecation of this value set — files a governed request for a steward to review, same as authoring a new one"
+        >
+          Request Deprecation ▸
+        </button>
+      )}
+    </span>
+  );
 }
 
 function exportBundle(rows: ValueSet[]) {

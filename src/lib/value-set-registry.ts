@@ -47,6 +47,7 @@ import {
 export {
   suggestedRootConceptForStorage,
   buildVsacImportInsert,
+  isValidVsacOid,
 } from "../../supabase/functions/_shared/value-set-registry";
 export type {
   MinimalUmlsClient,

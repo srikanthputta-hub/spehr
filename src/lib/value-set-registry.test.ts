@@ -6,8 +6,39 @@ import {
   describeLinkedDependency,
   formatDependencyLinkedMessages,
   summarizeLinkedDependenciesForToast,
+  isValidVsacOid,
   type LinkedDependency,
 } from "./value-set-registry";
+
+/**
+ * H16: "Link VSAC OID" / "Import from VSAC" used to accept any non-empty
+ * string with no format validation at all.
+ */
+describe("isValidVsacOid — H16 OID format validation", () => {
+  it("accepts a real, dot-separated numeric VSAC OID", () => {
+    expect(isValidVsacOid("2.16.840.1.113883.3.464.1003.103.12.1001")).toBe(true);
+    expect(isValidVsacOid("2.16.1")).toBe(true);
+  });
+
+  it("rejects the exact junk string QA reported", () => {
+    expect(isValidVsacOid("not-a-valid-oid")).toBe(false);
+  });
+
+  it("rejects empty, whitespace-only, single-segment, and malformed input", () => {
+    expect(isValidVsacOid("")).toBe(false);
+    expect(isValidVsacOid("   ")).toBe(false);
+    expect(isValidVsacOid("12345")).toBe(false); // a single arc isn't a real OID
+    expect(isValidVsacOid("2.16..1")).toBe(false); // empty segment
+    expect(isValidVsacOid("2.16.1.")).toBe(false); // trailing dot
+    expect(isValidVsacOid(".2.16.1")).toBe(false); // leading dot
+    expect(isValidVsacOid("2.16.1a")).toBe(false); // non-numeric segment
+    expect(isValidVsacOid("2.16.01.1")).toBe(false); // leading zero on a multi-digit arc
+  });
+
+  it("tolerates surrounding whitespace", () => {
+    expect(isValidVsacOid("  2.16.1  ")).toBe(true);
+  });
+});
 
 /**
  * Tests for the 4 capabilities layered onto recommendDefinitionType():
