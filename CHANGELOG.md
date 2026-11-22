@@ -8,6 +8,38 @@ Earlier project history predates this changelog and is not reconstructed here �
 
 ## [Unreleased]
 
+### Fixed
+
+- Discharge summary fabrication (C4): the "Physical Examination on Admission" section no longer
+  invents organ-system exam findings ("Pulmonary: Clear to auscultation bilaterally") that were never
+  documented — it now cites only the real last-recorded `vitals` row, or says plainly that nothing is
+  documented. "Condition at Discharge" and "Hospital Course" no longer assert unobserved claims
+  ("afebrile, pain controlled, ambulating independently") when there is no real vitals/data to back
+  them. The discharge footer's "Electronically generated and verified by S.P.E.H.R. AI Core" claim
+  (nobody verifies it) is replaced with an honest "AI-generated draft — pending clinician verification."
+  The signature block now prints the real ordering-physician-of-record and patient name instead of
+  being blank. The FHIR Composition pushed to Medblocks (`buildDischargeTransactionBundle`) had the
+  exact same fabricated exam/condition hardcoded independently of the markdown narrative — fixed there
+  too, and real completed `procedures` are now passed into it (previously omitted entirely). The
+  "Clinical Completeness Check" length-of-stay flag is no longer limited to a handful of high-acuity
+  chief-complaint regexes — any sub-hour full inpatient stay now raises at least a warning.
+- Discharge medication / allergy reconciliation (C3): the discharge medication list is now checked
+  against documented allergies using Safety Alerts Engine's own Rule 1 matching helpers
+  (`safety-alerts-matching.ts`, reused — not reimplemented). A conflict (e.g. Amoxicillin discharged to
+  a documented Penicillin-anaphylaxis patient) raises a hard, visible CRITICAL flag in the "Clinical
+  Completeness Check" section and forces that medication's reconciliation decision to `STOP`. Every
+  discharge medication now carries an explicit `CONTINUE`/`STOP` decision instead of being
+  auto-republished unchanged.
+- Discharging clinician's note discarded (H7): the free text typed in the "Confirm Discharge" dialog
+  is now woven into the generated discharge summary (and the FHIR Composition) as its own verbatim
+  "Clinician's Discharge Note" section — previously it either replaced the entire generated narrative
+  wholesale (discarding the real meds/labs/procedures/safety-flag sections) or, in the physician-board
+  "View Summary" print view, was read from the database and then explicitly discarded (`void note`)
+  in favor of a narrative rebuilt purely from the structured chart.
+- Doubled lab label (L19): a `result_value` that already embeds its own test-name prefix (e.g.
+  "Hemoglobin: 14.6 g/dL" from a manually-finalized lab row) no longer doubles up against the bolded
+  label printed next to it ("Hemoglobin: Hemoglobin: 14.6 g/dL").
+
 ### Removed
 
 - Lovable dependency fully removed from the codebase: no `@lovable.dev/*` packages, no `.lovable/`

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDischargeMarkdown,
+  checkDischargeMedAllergyConflicts,
   computeSafetyFlags,
   parseFollowUpDays,
+  reconcileDischargeMedications,
+  stripDuplicateLabel,
+  type MatchableValueSet,
 } from "./discharge-narrative";
 
 /**
@@ -14,7 +18,22 @@ import {
  *   3. `computeSafetyFlags()` is wired into the generated narrative as a
  *      "Clinical Completeness Check" section instead of being computed
  *      and silently discarded.
+ *   4. (C4) The exam/condition/hospital-course sections never assert a
+ *      finding this system didn't actually observe, and only cite real
+ *      vitals when present.
+ *   5. (C3) Discharge medications are reconciled against documented
+ *      allergies (reusing Safety Alerts Engine's Rule 1 matching helpers)
+ *      and carry an explicit CONTINUE/STOP decision.
+ *   6. (H7) A clinician-authored discharge note is rendered verbatim,
+ *      never discarded.
+ *   7. (L19) A `result_value` that already embeds its own test-name
+ *      prefix doesn't double up against the bolded label next to it.
  */
+
+const PENICILLIN_ALLERGY_VS: MatchableValueSet = {
+  name: "Penicillin Allergy RXNORM(optum)",
+  codes: [{ code: "723", display: "Amoxicillin" }],
+};
 
 const basePatient = {
   first_name: "William",
@@ -131,6 +150,158 @@ describe("buildDischargeMarkdown — Clinical Completeness Check (safety flags w
     expect(md).toContain("Clinical Completeness Check");
     expect(md).toContain("no missing-workup or length-of-stay flags identified");
   });
+
+  it("flags (warning) any implausibly short inpatient length-of-stay, not just high-acuity complaints", () => {
+    const flags = computeSafetyFlags(
+      {
+        ...basePatient,
+        chief_complaint: "fever and cough",
+        admission_time: "2026-11-21T10:00:00Z",
+        discharge_time: "2026-11-21T10:11:00Z", // 11 min — the C4 "0h 11m" case
+      },
+      [],
+      [],
+    );
+    expect(flags.some((f) => /unusually short|implausibly short/.test(f.message))).toBe(true);
+  });
+});
+
+describe("buildDischargeMarkdown — C4 fabrication fixes", () => {
+  it("never invents organ-system exam findings; cites only real vitals", () => {
+    const withVitals = buildDischargeMarkdown(basePatient, [], [], [], [], [], null, {
+      hr: 98,
+      bp_systolic: 122,
+      bp_diastolic: 78,
+      spo2: 97,
+      temp_c: 37.1,
+      rr: 16,
+    });
+    expect(withVitals).toContain("HR 98/min");
+    expect(withVitals).not.toContain("Clear to auscultation bilaterally");
+    expect(withVitals).not.toContain("Regular rate and rhythm; no murmurs");
+
+    const withoutVitals = buildDischargeMarkdown(basePatient, [], [], [], [], []);
+    expect(withoutVitals).toContain(
+      "No admission vital signs or physical-examination findings are documented",
+    );
+    expect(withoutVitals).not.toContain("Clear to auscultation bilaterally");
+  });
+
+  it("never asserts an unobserved condition-at-discharge or hospital-course narrative", () => {
+    const md = buildDischargeMarkdown(basePatient, [], [], [], [], []);
+    expect(md).not.toContain("ambulating independently");
+    expect(md).not.toContain("pain controlled");
+    expect(md).not.toContain("afebrile");
+    expect(md).toContain("Not independently documented by this system");
+  });
+});
+
+describe("buildDischargeMarkdown — H7 clinician note wiring", () => {
+  it("renders the clinician's typed discharge note verbatim instead of discarding it", () => {
+    const md = buildDischargeMarkdown(
+      basePatient,
+      [],
+      [],
+      [],
+      [],
+      [],
+      "Patient tolerated admission well. Discussed wound care in detail with daughter present.",
+    );
+    expect(md).toContain("Clinician's Discharge Note");
+    expect(md).toContain("Discussed wound care in detail with daughter present");
+    expect(md).toContain("Per the discharging clinician's note below");
+  });
+});
+
+describe("C3 — discharge medication vs. allergy reconciliation", () => {
+  const penicillinAllergicPatient = { ...basePatient, chief_complaint: "fever and cough" };
+  const amoxicillin = {
+    medication_name: "Amoxicillin",
+    display_name: "Amoxicillin",
+    rxnorm_code: "723",
+    status: "administered",
+    dose: "500 mg",
+  };
+  const allergies = [{ substance: "Penicillin", reaction: "anaphylaxis", severity: "severe" }];
+
+  it("reconcileDischargeMedications forces STOP on a documented allergy conflict", () => {
+    const [result] = reconcileDischargeMedications([amoxicillin], allergies, [
+      PENICILLIN_ALLERGY_VS,
+    ]);
+    expect(result.decision).toBe("STOP");
+    expect(result.reason).toContain("Penicillin");
+  });
+
+  it("defaults to CONTINUE when there is no documented conflict", () => {
+    const [result] = reconcileDischargeMedications([amoxicillin], [], [PENICILLIN_ALLERGY_VS]);
+    expect(result.decision).toBe("CONTINUE");
+  });
+
+  it("checkDischargeMedAllergyConflicts raises a hard, visible flag", () => {
+    const flags = checkDischargeMedAllergyConflicts([amoxicillin], allergies, [
+      PENICILLIN_ALLERGY_VS,
+    ]);
+    expect(flags).toHaveLength(1);
+    expect(flags[0].severity).toBe("critical");
+    expect(flags[0].message).toContain("Amoxicillin");
+    expect(flags[0].message).toContain("Penicillin");
+  });
+
+  it("surfaces the conflict as a hard flag AND an explicit STOP decision in the rendered summary", () => {
+    const md = buildDischargeMarkdown(
+      penicillinAllergicPatient,
+      [amoxicillin],
+      [],
+      allergies,
+      [],
+      [],
+      null,
+      null,
+      [PENICILLIN_ALLERGY_VS],
+    );
+    expect(md).toContain("CRITICAL");
+    expect(md).toContain("Discharge Medication Allergy Conflict");
+    expect(md).toContain("Decision: STOP");
+  });
+
+  it("does not false-positive a safe medication with no documented allergy", () => {
+    const flags = checkDischargeMedAllergyConflicts(
+      [{ medication_name: "Acetaminophen", rxnorm_code: "161", status: "administered" }],
+      allergies,
+      [PENICILLIN_ALLERGY_VS],
+    );
+    expect(flags).toHaveLength(0);
+  });
+});
+
+describe("L19 — doubled lab label fix", () => {
+  it("stripDuplicateLabel removes a label already baked into the value", () => {
+    expect(stripDuplicateLabel("Hemoglobin", "Hemoglobin: 14.6 g/dL")).toBe("14.6 g/dL");
+    expect(stripDuplicateLabel("Hemoglobin", "14.6 g/dL")).toBe("14.6 g/dL");
+    expect(stripDuplicateLabel("WBC", "wbc - 7.2 K/uL")).toBe("7.2 K/uL");
+  });
+
+  it("the rendered summary never doubles the lab label against its own value", () => {
+    const md = buildDischargeMarkdown(basePatient, [], [], [], [], [], null, null, []);
+    expect(md).not.toMatch(/Hemoglobin: Hemoglobin:/);
+  });
+
+  it("strips the duplicate label end-to-end for a lab row stored with an embedded test name", () => {
+    const md = buildDischargeMarkdown(
+      basePatient,
+      [],
+      [
+        {
+          test_type: "Hemoglobin",
+          display_name: "Hemoglobin",
+          status: "Resulted",
+          result_value: "Hemoglobin: 14.6 g/dL",
+        },
+      ],
+    );
+    expect(md).toContain("**Hemoglobin**: 14.6 g/dL");
+    expect(md).not.toContain("Hemoglobin: Hemoglobin: 14.6 g/dL");
+  });
 });
 
 describe("buildDischargeMarkdown — Follow-Up Care interval (H12 fix)", () => {
@@ -140,7 +311,9 @@ describe("buildDischargeMarkdown — Follow-Up Care interval (H12 fix)", () => {
   });
 
   it("quotes the explicit followUpDays value instead of the old hardcoded 7", () => {
-    const md = buildDischargeMarkdown(basePatient, [], [], [], [], [], 14);
+    // followUpDays is now the 10th positional arg (clinicianNote/vitals/
+    // publishedValueSets were inserted before it for the C4/C3/H7 fixes).
+    const md = buildDischargeMarkdown(basePatient, [], [], [], [], [], null, null, [], 14);
     expect(md).toContain("within 14 days");
     expect(md).not.toContain("within 7 days");
   });
@@ -152,6 +325,9 @@ describe("buildDischargeMarkdown — Follow-Up Care interval (H12 fix)", () => {
       [],
       [],
       [],
+      [],
+      null,
+      null,
       [],
       10,
     );
@@ -186,5 +362,31 @@ describe("parseFollowUpDays (H12 fix)", () => {
     expect(parseFollowUpDays("")).toBeNull();
     expect(parseFollowUpDays(null)).toBeNull();
     expect(parseFollowUpDays(undefined)).toBeNull();
+  });
+});
+
+describe("H7 + H12 coexistence — clinician note and follow-up-days both land in one summary", () => {
+  it("renders the clinician's verbatim note AND quotes the follow-up interval parsed from that same text", () => {
+    const clinicianText =
+      "Patient tolerated admission well. Follow up with PCP in 14 days for suture removal.";
+    const followUpDays = parseFollowUpDays(clinicianText) ?? 7;
+    const md = buildDischargeMarkdown(
+      basePatient,
+      [],
+      [],
+      [],
+      [],
+      [],
+      clinicianText,
+      null,
+      [],
+      followUpDays,
+    );
+    // H7: the clinician's own text is never discarded or replaced.
+    expect(md).toContain("Clinician's Discharge Note");
+    expect(md).toContain("Follow up with PCP in 14 days for suture removal");
+    // H12: the SAME stated interval drives the Follow-Up Care section's wording.
+    expect(md).toContain("within 14 days");
+    expect(md).not.toContain("within 7 days");
   });
 });
