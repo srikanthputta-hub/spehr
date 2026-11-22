@@ -341,6 +341,25 @@ const CATALOG: Partial<Record<Department, ConditionTemplate>> = {
           return { value: v, flag: critical(v, 0.5, 2.2) };
         },
       },
+      // Procalcitonin — infection-severity biomarker ordered as part of the
+      // sepsis workup. Previously had no entry in this catalog at all, so
+      // any order for it fell through to the generic "<test>: resulted"
+      // fallback in useAIAutomation.ts (literal placeholder text, no unit,
+      // no reference range — see H5). Values here skew elevated since this
+      // is always generated for a patient already being worked up for
+      // sepsis: most results land in the "likely systemic infection" band
+      // (0.5–2 H) with occasional "septic shock likely" critical values
+      // (>2 C), matching real-world PCT distributions in ICU sepsis cohorts.
+      {
+        loinc: "33959-8",
+        name: "Procalcitonin",
+        unit: "ng/mL",
+        ref: "<0.10",
+        gen: () => {
+          const v = rand(0.12, 12, 2);
+          return { value: v, flag: v < 0.1 ? "N" : v < 0.5 ? "H" : "C" };
+        },
+      },
     ],
   },
   "Emergency Department": {

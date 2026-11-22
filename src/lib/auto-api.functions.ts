@@ -12,7 +12,30 @@ import type { Database } from "@/integrations/supabase/types";
  */
 
 function client() {
-  return createClient<Database>(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
+  // Every other Supabase client constructor in the codebase (client.ts,
+  // client.server.ts, auth-middleware.ts) checks these env vars before
+  // calling createClient() and throws a descriptive error if either is
+  // missing. This one used non-null assertions (`!`) instead and skipped
+  // the check entirely, so whenever process.env.SUPABASE_URL /
+  // SUPABASE_PUBLISHABLE_KEY weren't populated yet for this request (e.g.
+  // a race on initial load before the Worker's runtime env is bridged into
+  // process.env), supabase-js's own constructor threw the raw, unhelpful
+  // "Error: supabaseKey is required." straight out of every server
+  // function in this file (listValueSets/logCdsOverride/getAutoApiLoopStatus
+  // etc. — several of which the physician board and patient chart call on
+  // mount) instead of a clear, catchable error (H18). Guard it the same way.
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    const missing = [
+      ...(!SUPABASE_URL ? ["SUPABASE_URL"] : []),
+      ...(!SUPABASE_PUBLISHABLE_KEY ? ["SUPABASE_PUBLISHABLE_KEY"] : []),
+    ];
+    const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Set SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY.`;
+    console.error(`[Supabase] ${message}`);
+    throw new Error(message);
+  }
+  return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     auth: {
       storage: undefined,
       persistSession: false,
