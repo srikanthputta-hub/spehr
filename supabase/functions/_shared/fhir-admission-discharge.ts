@@ -757,7 +757,12 @@ function buildFollowUpAppointment(
     participant.push({ actor: { display: appt.practitioner }, status: "accepted" });
   }
   if (appt.facility) {
-    participant.push({ actor: { display: appt.facility }, status: "accepted" });
+    // `type: "Location"` is a display-only actor's only way to mark itself
+    // as not-a-practitioner (it has no `reference` to prefix-match) — see
+    // findProviderParticipant()/isLocationParticipant() in fhir-ingest.ts,
+    // which checks this field precisely so this facility entry is never
+    // mistaken for the practitioner participant.
+    participant.push({ actor: { type: "Location", display: appt.facility }, status: "accepted" });
   }
   return {
     resourceType: "Appointment",

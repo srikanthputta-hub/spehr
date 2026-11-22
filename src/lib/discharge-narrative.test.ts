@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildDischargeMarkdown, computeSafetyFlags } from "./discharge-narrative";
+import {
+  buildDischargeMarkdown,
+  computeSafetyFlags,
+  parseFollowUpDays,
+} from "./discharge-narrative";
 
 /**
  * Tests for the discharge-summary accuracy fixes:
@@ -126,5 +130,61 @@ describe("buildDischargeMarkdown — Clinical Completeness Check (safety flags w
     const md = buildDischargeMarkdown(basePatient, [], [], [], [], []);
     expect(md).toContain("Clinical Completeness Check");
     expect(md).toContain("no missing-workup or length-of-stay flags identified");
+  });
+});
+
+describe("buildDischargeMarkdown — Follow-Up Care interval (H12 fix)", () => {
+  it("defaults to 7 days when no followUpDays is passed, unchanged from before", () => {
+    const md = buildDischargeMarkdown(basePatient, [], [], [], [], []);
+    expect(md).toContain("within 7 days");
+  });
+
+  it("quotes the explicit followUpDays value instead of the old hardcoded 7", () => {
+    const md = buildDischargeMarkdown(basePatient, [], [], [], [], [], 14);
+    expect(md).toContain("within 14 days");
+    expect(md).not.toContain("within 7 days");
+  });
+
+  it("names the PCP when one is on file", () => {
+    const md = buildDischargeMarkdown(
+      { ...basePatient, primary_care_physician: "Dr. Alan Reyes, MD" },
+      [],
+      [],
+      [],
+      [],
+      [],
+      10,
+    );
+    expect(md).toContain("Schedule follow-up with **Dr. Alan Reyes, MD** within 10 days");
+  });
+});
+
+describe("parseFollowUpDays (H12 fix)", () => {
+  it("parses the DischargeDialog's own default text", () => {
+    expect(parseFollowUpDays("Patient stable for discharge. Follow up with PCP in 7 days.")).toBe(
+      7,
+    );
+  });
+
+  it("parses a clinician edit to a different day count", () => {
+    expect(parseFollowUpDays("Follow up with PCP in 14 days.")).toBe(14);
+  });
+
+  it("converts a stated week count to days", () => {
+    expect(parseFollowUpDays("Discharged with surgical follow-up in 2 weeks.")).toBe(14);
+  });
+
+  it("converts a stated hour count to (rounded-up) days", () => {
+    expect(parseFollowUpDays("Discharged with OB follow-up in 48 hours.")).toBe(2);
+  });
+
+  it("returns null when no follow-up interval is stated", () => {
+    expect(parseFollowUpDays("Patient tolerating diet, ambulating without difficulty.")).toBeNull();
+  });
+
+  it("returns null for empty/missing text", () => {
+    expect(parseFollowUpDays("")).toBeNull();
+    expect(parseFollowUpDays(null)).toBeNull();
+    expect(parseFollowUpDays(undefined)).toBeNull();
   });
 });
