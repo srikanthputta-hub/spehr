@@ -364,3 +364,29 @@ describe("parseFollowUpDays (H12 fix)", () => {
     expect(parseFollowUpDays(undefined)).toBeNull();
   });
 });
+
+describe("H7 + H12 coexistence — clinician note and follow-up-days both land in one summary", () => {
+  it("renders the clinician's verbatim note AND quotes the follow-up interval parsed from that same text", () => {
+    const clinicianText =
+      "Patient tolerated admission well. Follow up with PCP in 14 days for suture removal.";
+    const followUpDays = parseFollowUpDays(clinicianText) ?? 7;
+    const md = buildDischargeMarkdown(
+      basePatient,
+      [],
+      [],
+      [],
+      [],
+      [],
+      clinicianText,
+      null,
+      [],
+      followUpDays,
+    );
+    // H7: the clinician's own text is never discarded or replaced.
+    expect(md).toContain("Clinician's Discharge Note");
+    expect(md).toContain("Follow up with PCP in 14 days for suture removal");
+    // H12: the SAME stated interval drives the Follow-Up Care section's wording.
+    expect(md).toContain("within 14 days");
+    expect(md).not.toContain("within 7 days");
+  });
+});
