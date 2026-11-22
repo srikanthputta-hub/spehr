@@ -257,7 +257,12 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
             reaction: (a.reaction ?? "").trim() || null,
             type: "drug",
             substance_rxcui: a.code?.code ?? null,
-            substance_snomed: a.code ? (lookupAllergenSnomed(substance)?.snomed ?? null) : null,
+            // Try the static allergen-class map regardless of whether a
+            // code was picked — it's a free, synchronous lookup (same one
+            // writeConfirmedAdmissionCodes() now runs for every drug
+            // allergy, coded or not), not conditional on the terminology
+            // picker having been used.
+            substance_snomed: substance ? (lookupAllergenSnomed(substance)?.snomed ?? null) : null,
           };
         })
         .filter((a) => a.substance),
@@ -351,11 +356,25 @@ async function writeConfirmedAdmissionCodes(args: {
     }),
   );
 
-  // Drug allergies picked via TerminologyCombobox (RxNorm).
+  // Drug allergies — TerminologyCombobox is a type-ahead that "falls back to
+  // plain text entry when the proxy call fails — submission is never
+  // blocked" (its own module doc), so a clinician can submit the admission
+  // form having typed a substance name without ever picking a suggestion,
+  // leaving `a.code` unset (QA finding H19). Previously this loop `continue`d
+  // entirely in that case, so the allergy never reached the normalized
+  // `allergies` table until the fire-and-forget six-stream pipeline's own
+  // Stream D got around to parsing it back out of the free-text chart field
+  // — an unbounded race against a patient getting a conflicting order right
+  // after admission. Rule 1 (Safety Alerts Engine) matches on the free-text
+  // `substance` column itself, not a code (see the Rule 1 doc in
+  // safety-alerts-engine.ts), so what actually has to land synchronously
+  // here is the substance text — the RxNorm/SNOMED code is attached
+  // whenever it's available (picked, or resolvable from the static
+  // allergen-class map) but is not a precondition for writing the row.
   for (const a of intake.drugAllergies ?? []) {
     const name = (a.name ?? "").trim();
-    if (!name || !a.code) continue;
-    const substance = a.code.display || name;
+    if (!name) continue;
+    const substance = a.code?.display || name;
     // Also attach the drug-CLASS SNOMED code (e.g. "Penicillin" for a
     // picked RxNorm concept like amoxicillin) when the static allergen map
     // recognizes it — same cross-reactivity-family mapping the six-stream
@@ -367,7 +386,7 @@ async function writeConfirmedAdmissionCodes(args: {
       mrn,
       substance,
       reaction: (a.reaction ?? "").trim() || null,
-      substanceRxcui: a.code.code,
+      substanceRxcui: a.code?.code ?? null,
       substanceSnomed: classHit?.snomed ?? null,
     });
   }
@@ -427,7 +446,14 @@ async function upsertAllergyCode(args: {
       substance_rxcui: args.substanceRxcui,
       substance_snomed: args.substanceSnomed,
       status: "active",
-      coding_source: "admission-intake-picker",
+      // Only honestly "admission-intake-picker" when a code actually came
+      // from the TerminologyCombobox pick (RxNorm) or the static
+      // allergen-class map (SNOMED); otherwise this landed as free text at
+      // admission and coding is still pending the async pipeline.
+      coding_source:
+        args.substanceRxcui || args.substanceSnomed
+          ? "admission-intake-picker"
+          : "admission-intake-free-text",
       coded_at: new Date().toISOString(),
       created_by_type: "human",
     };

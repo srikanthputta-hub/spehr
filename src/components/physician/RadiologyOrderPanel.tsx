@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Loader2, Send, ChevronDown, Scan } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { InfoHint } from "@/components/ui/info-hint";
 import { resolveConcept, type ResolvedConcept } from "@/lib/terminology-resolver";
+import { confirmDuplicateOrder, findRecentDuplicateOrder } from "@/lib/duplicate-order-guard";
 
 interface Props {
   mrn: string;
@@ -100,8 +101,16 @@ export function RadiologyOrderPanel({
   const [examIdx, setExamIdx] = useState(0);
   const [indication, setIndication] = useState(diagnosis ?? "");
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy lock — a `useRef` rather than the `submitting`
+  // state above. React batches/defers state updates, so a second click
+  // fired before the re-render that disables the button would still read
+  // the stale `submitting === false` closure value; a ref is set
+  // immediately, in the same tick as the first click, so a near-simultaneous
+  // second click is rejected even before the button visually disables.
+  const submitLockRef = useRef(false);
 
   const submit = async () => {
+    if (submitLockRef.current) return;
     const trimmed = indication.trim();
     if (!trimmed) {
       toast.error("Clinical indication required", {
@@ -110,8 +119,20 @@ export function RadiologyOrderPanel({
       return;
     }
     const chosen = RADIOLOGY_CATALOG[examIdx];
+    submitLockRef.current = true;
     setSubmitting(true);
     try {
+      // Duplicate-order guard: same patient + same exam type within a
+      // short window almost certainly means a double-click/double-submit,
+      // not two genuinely separate orders.
+      const dup = await findRecentDuplicateOrder({
+        mrn,
+        table: "radiology_orders",
+        matchColumns: { exam_type: chosen.exam },
+      });
+      if (dup.isDuplicate && !confirmDuplicateOrder(dup.ageSeconds ?? 0)) {
+        return;
+      }
       const { data, error } = await supabase
         .from("radiology_orders")
         .insert({
@@ -235,6 +256,7 @@ export function RadiologyOrderPanel({
         description: e instanceof Error ? e.message : undefined,
       });
     } finally {
+      submitLockRef.current = false;
       setSubmitting(false);
     }
   };

@@ -10,6 +10,7 @@ import { lookupLabLoinc } from "@/lib/lab-loinc-map";
 import { runAutoDoc } from "@/lib/auto-doc.functions";
 import { autoCodeMedication } from "@/lib/auto-code";
 import { runMedicationOrderRules } from "@/lib/safety-alerts-engine";
+import { resolveConcept } from "@/lib/terminology-resolver";
 
 /* ------------------------------------------------------------------ */
 /* Admission Randomizer — Staged Cascade                              */
@@ -44,6 +45,10 @@ interface InsertedOrder {
   patient_mrn?: string | null;
   mrn?: string | null;
   test_type?: string | null;
+  medication_name?: string | null;
+  drug_name?: string | null;
+  rxnorm_code?: string | null;
+  rxnorm_display?: string | null;
 }
 
 // Auto Doc staged admission cascade — matches the legacy timeline:
@@ -465,9 +470,19 @@ async function cascadeMed(mrn: string, orderId: string) {
   await trackedDelay(mrn, TRANSITION_GAP_MS);
   if (await isHeld()) return;
   const approvedAt = new Date().toISOString();
+  // Real, honestly-labeled verification record — this is the automation's
+  // own sign-off, not a human pharmacist, and must never be presented as
+  // one. It is only reached once the caller has run (and seen pass) the
+  // same Safety Alerts Engine Rule 1/2 check a manually-verified order
+  // goes through — see callers of cascadeMed, which await
+  // runMedicationOrderRules() and check for HELD_SAFETY_REVIEW first.
   await supabase
     .from("medication_orders")
-    .update({ status: "Pending Verification", approved_at: approvedAt })
+    .update({
+      status: "Pending Verification",
+      approved_at: approvedAt,
+      verified_by: "Automated Verification — Safety Alerts Engine (Rule 1/2 clear)",
+    } as any)
     .eq("id", orderId);
   await trackedDelay(mrn, TRANSITION_GAP_MS);
   if (await isHeld()) return;
@@ -1024,7 +1039,85 @@ export function useAIAutomation() {
             source.includes("auto doc")
           )
             return;
-          cascadeMed(mrn, o.id).catch((e) => console.warn("[order-cascadeMed] failed", e));
+          (async () => {
+            // Safety-critical: this IS the "Automation ON" auto-approval
+            // decision point for orders inserted straight to "Ordered"
+            // (e.g. the bedside Write Orders dialog). It must run the same
+            // allergy-conflict check (Safety Alerts Engine Rule 1/2) that a
+            // manually-verified order goes through — never assume the
+            // independent useSafetyAlertsWatcher realtime subscriber, or
+            // the inserting page's own fire-and-forget autoCodeMedication
+            // call, will win a race against this cascade. Await it
+            // directly so the check is guaranteed to run before this
+            // order is ever allowed to auto-dispense.
+            let rxnormCode = o.rxnorm_code ?? null;
+            let rxnormDisplay = o.rxnorm_display ?? null;
+            if (!rxnormCode) {
+              // The order was inserted without a resolved RxNorm code
+              // (e.g. a plain-text drug name picked without a terminology
+              // suggestion). Resolve it here, synchronously, rather than
+              // letting this gate wave the order through uncoded — an
+              // uncoded order can never be checked against the allergy
+              // value sets, so it must never be treated as "checked, no
+              // conflict found".
+              try {
+                const resolved = await resolveConcept(
+                  o.medication_name ?? o.drug_name ?? "",
+                  "RXNORM",
+                  {
+                    resourceType: "medication_orders",
+                    resourceId: o.id,
+                    mrn,
+                    resolver: "order-cascade-gate",
+                  },
+                );
+                if (resolved) {
+                  rxnormCode = resolved.code;
+                  rxnormDisplay = resolved.display;
+                  await supabase
+                    .from("medication_orders")
+                    .update({
+                      rxnorm_code: resolved.code,
+                      rxnorm_display: resolved.display,
+                      coding_source: resolved.source,
+                      coded_at: new Date().toISOString(),
+                    } as any)
+                    .eq("id", o.id);
+                }
+              } catch (e) {
+                console.warn("[order-cascadeMed] rxnorm resolution failed", e);
+              }
+            }
+            try {
+              await runMedicationOrderRules({
+                mrn,
+                rxnorm_code: rxnormCode,
+                rxnorm_display: rxnormDisplay,
+                medication_name: o.medication_name,
+                drug_name: o.drug_name,
+                medication_order_id: o.id,
+              });
+            } catch (e) {
+              console.warn("[order-cascadeMed] safety-alert check failed", e);
+            }
+            const { data: freshRow } = await supabase
+              .from("medication_orders")
+              .select("status")
+              .eq("id", o.id)
+              .maybeSingle();
+            const freshStatus = String((freshRow as any)?.status ?? "").toUpperCase();
+            if (
+              freshStatus === "HELD_SAFETY_REVIEW" ||
+              freshStatus === "REJECTED" ||
+              freshStatus === "CANCELLED"
+            ) {
+              // Conflict found — order is held for pharmacist verification
+              // exactly as a manual-verification order would be. Do NOT
+              // auto-dispense.
+              return;
+            }
+            await cascadeMed(mrn, o.id);
+          })().catch((e) => console.warn("[order-cascadeMed] failed", e));
         },
       )
       .on(

@@ -1781,6 +1781,7 @@ export type Database = {
           term_status: string | null;
           umls_cui: string | null;
           updated_at: string | null;
+          verified_by: string | null;
         };
         Insert: {
           administered_at?: string | null;
@@ -1816,6 +1817,7 @@ export type Database = {
           term_status?: string | null;
           umls_cui?: string | null;
           updated_at?: string | null;
+          verified_by?: string | null;
         };
         Update: {
           administered_at?: string | null;
@@ -1851,6 +1853,7 @@ export type Database = {
           term_status?: string | null;
           umls_cui?: string | null;
           updated_at?: string | null;
+          verified_by?: string | null;
         };
         Relationships: [];
       };
