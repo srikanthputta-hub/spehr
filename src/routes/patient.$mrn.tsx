@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { autoCodeLab, autoCodeMedication } from "@/lib/auto-code";
+import { confirmDuplicateOrder, findRecentDuplicateOrder } from "@/lib/duplicate-order-guard";
 import { getMockAiNote } from "@/lib/mockAiNotes";
 import {
   ArrowLeft,
@@ -2842,12 +2843,28 @@ function OrdersDialog({
   const [testType, setTestType] = useState("");
   const [drug, setDrug] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous re-entrancy lock (H2 QA fix) — a ref, not the `submitting`
+  // state, so a near-simultaneous second click can't slip through before
+  // React re-renders the disabled button.
+  const submitLockRef = useRef(false);
   const patientName = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim() || "Unknown";
 
   const submit = async () => {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setSubmitting(true);
     try {
       if (kind === "lab") {
+        // Duplicate-order guard (H2 QA fix): same patient + same test type
+        // within a short window almost certainly means a double-submit.
+        const dup = await findRecentDuplicateOrder({
+          mrn: patient.mrn,
+          table: "lab_orders",
+          matchColumns: { test_type: testType },
+        });
+        if (dup.isDuplicate && !confirmDuplicateOrder(dup.ageSeconds ?? 0)) {
+          return;
+        }
         const { data: inserted, error } = await supabase
           .from("lab_orders")
           .insert({
@@ -2874,6 +2891,18 @@ function OrdersDialog({
         toast.success(`Lab ordered: ${testType} (sent to live lab queue)`);
       } else {
         const [name, ...rest] = drug.split(" ");
+        const dose = rest.slice(0, 2).join(" ");
+        // Duplicate-order guard (H2 QA fix): same patient + same drug/dose/
+        // route/frequency within a short window almost certainly means a
+        // double-submit, not two genuinely separate orders.
+        const dup = await findRecentDuplicateOrder({
+          mrn: patient.mrn,
+          table: "medication_orders",
+          matchColumns: { drug_name: name, dose, route: "PO", frequency: "Q6H PRN" },
+        });
+        if (dup.isDuplicate && !confirmDuplicateOrder(dup.ageSeconds ?? 0)) {
+          return;
+        }
         const { data: inserted, error } = await supabase
           .from("medication_orders")
           .insert({
@@ -2886,7 +2915,7 @@ function OrdersDialog({
             medication: drug,
             medication_name: drug,
             name: drug,
-            dose: rest.slice(0, 2).join(" "),
+            dose,
             route: "PO",
             frequency: "Q6H PRN",
             status: "Ordered",
@@ -2910,6 +2939,7 @@ function OrdersDialog({
     } catch (e: any) {
       toast.error(e.message ?? "Failed to submit order");
     } finally {
+      submitLockRef.current = false;
       setSubmitting(false);
     }
   };
@@ -2970,7 +3000,7 @@ function OrdersDialog({
             className={`text-[11px] rounded px-2 py-1.5 border ${automationEnabled ? "bg-success-soft border-success/30 text-success" : "bg-warning-soft border-warning/30 text-warning"}`}
           >
             {automationEnabled
-              ? "Automation ON — order will be auto-approved."
+              ? "Automation ON — order runs the allergy/interaction safety check and auto-approves only if it's clear; a conflict holds it for pharmacist verification."
               : "Manual mode — order will go to verification queue."}
           </div>
         </div>
