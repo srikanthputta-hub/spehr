@@ -119,6 +119,45 @@ export interface DischargeMed {
   ordering_physician?: string | null;
 }
 
+/**
+ * Already-coded rows pulled from the `conditions` / `medication_orders` /
+ * `allergies` tables (see e.g. `ensure-terminology.ts` / the Auto
+ * Terminologist pipeline that writes them) — these carry the real
+ * SNOMED/ICD-10/RxNorm codes already resolved for this patient. The
+ * admission/discharge builders below match each legacy free-text blob item
+ * (`past_medical_history`, `current_medications`, `allergies` strings typed
+ * into the Admission Case History form) against these rows and only attach
+ * a coding when the text matches exactly — never a fabricated or guessed
+ * code for an item that doesn't have one on file.
+ */
+export interface CodedConditionLookup {
+  display_text?: string | null;
+  snomed_code?: string | null;
+  snomed_display?: string | null;
+  icd10_code?: string | null;
+  icd10_display?: string | null;
+}
+
+export interface CodedMedicationLookup {
+  drug?: string | null;
+  drug_name?: string | null;
+  medication_name?: string | null;
+  rxnorm_code?: string | null;
+  rxnorm_display?: string | null;
+}
+
+export interface CodedAllergyLookup {
+  substance?: string | null;
+  substance_rxcui?: string | null;
+  substance_snomed?: string | null;
+}
+
+export interface AdmissionCodedLookups {
+  conditions?: CodedConditionLookup[];
+  medications?: CodedMedicationLookup[];
+  allergies?: CodedAllergyLookup[];
+}
+
 /* ------------------------------ helpers ------------------------------ */
 
 const HL7 = {
@@ -191,6 +230,47 @@ function splitList(value?: string | null): string[] {
     .split(/[,;\n]/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function normalizeForMatch(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Exact (post-normalization) text match against an already-coded row.
+ * Deliberately NOT a fuzzy/substring match for conditions and allergies —
+ * a near-miss must never attach the wrong SNOMED/ICD-10 code to the wrong
+ * problem-list item or allergen.
+ */
+function findExactTextMatch<T>(
+  item: string,
+  rows: T[],
+  textOf: (row: T) => string | null | undefined,
+): T | undefined {
+  const target = normalizeForMatch(item);
+  if (!target) return undefined;
+  return rows.find((r) => normalizeForMatch(textOf(r)) === target);
+}
+
+/**
+ * Medication free-text items are stored as "{Drug} {dose} {route}
+ * {frequency}" (e.g. "Lisinopril 10 mg PO Daily"), so an exact match
+ * against the bare drug name on `medication_orders` would never hit.
+ * Matching on "the free-text item starts with the coded drug name" is
+ * safe here because that's exactly the convention this schema's free-text
+ * medication fields follow; a short/ambiguous drug name (<3 chars) is
+ * skipped rather than risk a wrong match.
+ */
+function findMedicationMatch(
+  item: string,
+  rows: CodedMedicationLookup[],
+): CodedMedicationLookup | undefined {
+  const target = normalizeForMatch(item);
+  if (!target) return undefined;
+  return rows.find((r) => {
+    const name = normalizeForMatch(r.drug_name ?? r.medication_name ?? r.drug);
+    return name.length >= 3 && target.startsWith(name);
+  });
 }
 
 function codeStatusToCoding(status?: string | null) {
@@ -367,11 +447,31 @@ function buildEncounter(p: AdmissionPatient, patientId: string, id: string) {
   };
 }
 
+/** Build a {coding, text} CodeableConcept from a matched coded row, or a
+ * text-only one when nothing matched — never a fabricated code. */
+function conditionCodeableConcept(text: string, matched: CodedConditionLookup | undefined) {
+  const coding: Array<{ system: string; code: string; display?: string }> = [];
+  if (matched?.snomed_code)
+    coding.push({
+      system: SNOMED,
+      code: matched.snomed_code,
+      display: matched.snomed_display ?? text,
+    });
+  if (matched?.icd10_code)
+    coding.push({
+      system: ICD10,
+      code: matched.icd10_code,
+      display: matched.icd10_display ?? text,
+    });
+  return coding.length > 0 ? { coding, text } : { text };
+}
+
 function buildHpiCondition(
   p: AdmissionPatient,
   patientId: string,
   encounterId: string,
   id: string,
+  codedConditions: CodedConditionLookup[] = [],
 ) {
   if (!p.chief_complaint) return null;
   const hpiBits = [
@@ -385,6 +485,7 @@ function buildHpiCondition(
   ]
     .filter(Boolean)
     .join("; ");
+  const matched = findExactTextMatch(p.chief_complaint, codedConditions, (c) => c.display_text);
   return {
     resourceType: "Condition",
     id,
@@ -401,7 +502,7 @@ function buildHpiCondition(
         ],
       },
     ],
-    code: { text: p.chief_complaint },
+    code: conditionCodeableConcept(p.chief_complaint, matched),
     subject: { reference: urn(patientId) },
     encounter: { reference: urn(encounterId) },
     onsetString: p.hpi_onset ?? undefined,
@@ -412,7 +513,11 @@ function buildHpiCondition(
   };
 }
 
-function buildPmhConditions(p: AdmissionPatient, patientId: string) {
+function buildPmhConditions(
+  p: AdmissionPatient,
+  patientId: string,
+  codedConditions: CodedConditionLookup[] = [],
+) {
   type PmhItem = {
     text: string;
     kind: "problem-list-item" | "encounter-diagnosis";
@@ -440,6 +545,7 @@ function buildPmhConditions(p: AdmissionPatient, patientId: string) {
   ];
   return items.map((item) => {
     const cid = stableId("cond", p.mrn, item.kind, item.text);
+    const matched = findExactTextMatch(item.text, codedConditions, (c) => c.display_text);
     return {
       id: cid,
       resource: {
@@ -448,7 +554,7 @@ function buildPmhConditions(p: AdmissionPatient, patientId: string) {
         clinicalStatus: { coding: [{ system: HL7.CONDITION_CLINICAL, code: item.status }] },
         verificationStatus: { coding: [{ system: HL7.CONDITION_VERIFICATION, code: "confirmed" }] },
         category: [{ coding: [{ system: HL7.CONDITION_CATEGORY, code: item.kind }] }],
-        code: { text: item.text },
+        code: conditionCodeableConcept(item.text, matched),
         subject: { reference: urn(patientId) },
         note: item.note ? [{ text: item.note }] : undefined,
       } as AnyRecord,
@@ -456,11 +562,25 @@ function buildPmhConditions(p: AdmissionPatient, patientId: string) {
   });
 }
 
-function buildAllergies(p: AdmissionPatient, patientId: string) {
+function buildAllergies(
+  p: AdmissionPatient,
+  patientId: string,
+  codedAllergies: CodedAllergyLookup[] = [],
+) {
   const drug = splitList(p.allergies).filter((s) => s.toUpperCase() !== "NKDA");
   const env = splitList(p.environmental_allergies);
   const make = (text: string, category: "medication" | "environment") => {
     const aid = stableId("allergy", p.mrn, category, text);
+    // Strip the trailing "(reaction)" parenthetical before both the
+    // display text AND the coded-row match, since `allergies.substance`
+    // stores the bare substance name (e.g. "Sulfa", not "Sulfa (Hives)").
+    const substanceText = text.replace(/\s*\(.*?\)\s*$/, "");
+    const matched = findExactTextMatch(substanceText, codedAllergies, (a) => a.substance);
+    const coding: Array<{ system: string; code: string; display?: string }> = [];
+    if (matched?.substance_snomed)
+      coding.push({ system: SNOMED, code: matched.substance_snomed, display: substanceText });
+    else if (matched?.substance_rxcui)
+      coding.push({ system: RXNORM, code: matched.substance_rxcui, display: substanceText });
     return {
       id: aid,
       resource: {
@@ -470,7 +590,7 @@ function buildAllergies(p: AdmissionPatient, patientId: string) {
         type: "allergy",
         category: [category],
         criticality: "high",
-        code: { text: text.replace(/\s*\(.*?\)\s*$/, "") }, // strip parenthetical reaction
+        code: coding.length > 0 ? { coding, text: substanceText } : { text: substanceText },
         patient: { reference: urn(patientId) },
         reaction: /\(.*?\)/.test(text)
           ? [{ manifestation: [{ text: (text.match(/\((.*?)\)/) ?? [, ""])[1]! }] }]
@@ -481,16 +601,29 @@ function buildAllergies(p: AdmissionPatient, patientId: string) {
   return [...drug.map((d) => make(d, "medication")), ...env.map((e) => make(e, "environment"))];
 }
 
-function buildMedicationStatements(p: AdmissionPatient, patientId: string) {
+function buildMedicationStatements(
+  p: AdmissionPatient,
+  patientId: string,
+  codedMedications: CodedMedicationLookup[] = [],
+) {
   return splitList(p.current_medications).map((med) => {
     const mid = stableId("medstmt", p.mrn, med);
+    const matched = findMedicationMatch(med, codedMedications);
+    const medicationCodeableConcept = matched?.rxnorm_code
+      ? {
+          coding: [
+            { system: RXNORM, code: matched.rxnorm_code, display: matched.rxnorm_display ?? med },
+          ],
+          text: med,
+        }
+      : { text: med };
     return {
       id: mid,
       resource: {
         resourceType: "MedicationStatement",
         id: mid,
         status: "active",
-        medicationCodeableConcept: { text: med },
+        medicationCodeableConcept,
         subject: { reference: urn(patientId) },
         effectiveDateTime: p.admission_time ?? undefined,
         dosage: [{ text: med }],
@@ -538,7 +671,10 @@ function entryFor(fullUrl: string, resource: AnyRecord) {
   return { fullUrl, resource, request };
 }
 
-export function buildAdmissionTransactionBundle(p: AdmissionPatient) {
+export function buildAdmissionTransactionBundle(
+  p: AdmissionPatient,
+  coded: AdmissionCodedLookups = {},
+) {
   // Unified ID convention: Patient = the MRN itself (already begins with
   // "MRN-"); Encounter = "enc-<mrn>". Matches enc-${mrn} used by billing
   // and the legacy `Patient/<mrn>` references in DB SQL helpers.
@@ -558,10 +694,16 @@ export function buildAdmissionTransactionBundle(p: AdmissionPatient) {
     patientId,
     stableId("consent", patientId, "codestatus"),
   );
-  const hpi = buildHpiCondition(p, patientId, encounterId, stableId("cond", patientId, "hpi"));
-  const pmh = buildPmhConditions(p, patientId);
-  const allergies = buildAllergies(p, patientId);
-  const meds = buildMedicationStatements(p, patientId);
+  const hpi = buildHpiCondition(
+    p,
+    patientId,
+    encounterId,
+    stableId("cond", patientId, "hpi"),
+    coded.conditions ?? [],
+  );
+  const pmh = buildPmhConditions(p, patientId, coded.conditions ?? []);
+  const allergies = buildAllergies(p, patientId, coded.allergies ?? []);
+  const meds = buildMedicationStatements(p, patientId, coded.medications ?? []);
   const family = buildFamilyHistory(p, patientId);
 
   const entries: AnyRecord[] = [
@@ -862,6 +1004,78 @@ function composeHospitalCourse(
   return parts.join(" ");
 }
 
+/**
+ * Discrete Condition resource for the discharge/admitting diagnosis. Before
+ * this, the diagnosis only ever appeared as free text inside the
+ * Composition's `event[].code.text` — no Condition resource was emitted at
+ * all, so a FHIR consumer (or spehr's own Safety Alerts / value-set
+ * matching) had no coded Condition to evaluate for this encounter's actual
+ * diagnosis.
+ *
+ * The diagnosis text is matched (exact, post-normalization) against the
+ * patient's already-coded `conditions` rows. The admitting diagnosis is
+ * usually the literal chief-complaint text that the admission pipeline
+ * already resolved a SNOMED/ICD-10 code for, so that is tried first; if the
+ * discharge diagnosis text itself doesn't match any coded row, this falls
+ * back to the best coded condition on file for the same encounter (same
+ * fallback already used for the discharge Condition in the client-side
+ * `encounterConditions()` builder in `fhir-bundle.ts` — reusing a real,
+ * already-resolved code for the same clinical episode, never inventing
+ * one).
+ */
+function buildDischargeDiagnosisCondition(
+  p: AdmissionPatient,
+  patientId: string,
+  encounterId: string,
+  opts: {
+    admittingDiagnosis?: string;
+    dischargeDiagnosis?: string;
+    codedConditions: CodedConditionLookup[];
+  },
+) {
+  const dxText = (
+    opts.dischargeDiagnosis ??
+    opts.admittingDiagnosis ??
+    p.diagnosis ??
+    p.chief_complaint ??
+    ""
+  ).trim();
+  if (!dxText) return null;
+  const coded = opts.codedConditions;
+  const exactMatch =
+    findExactTextMatch(dxText, coded, (c) => c.display_text) ??
+    (opts.admittingDiagnosis
+      ? findExactTextMatch(opts.admittingDiagnosis, coded, (c) => c.display_text)
+      : undefined);
+  const primaryCoded = coded.find((c) => c.snomed_code || c.icd10_code);
+  const matched = exactMatch ?? primaryCoded;
+  const id = stableId("cond", p.mrn, "discharge-diagnosis");
+  return {
+    id,
+    resource: {
+      resourceType: "Condition",
+      id,
+      clinicalStatus: { coding: [{ system: HL7.CONDITION_CLINICAL, code: "active" }] },
+      verificationStatus: { coding: [{ system: HL7.CONDITION_VERIFICATION, code: "confirmed" }] },
+      category: [
+        {
+          coding: [
+            {
+              system: HL7.CONDITION_CATEGORY,
+              code: "encounter-diagnosis",
+              display: "Encounter Diagnosis",
+            },
+          ],
+        },
+      ],
+      code: conditionCodeableConcept(dxText, matched),
+      subject: { reference: urn(patientId) },
+      encounter: { reference: urn(encounterId) },
+      recordedDate: p.discharge_time ?? new Date().toISOString(),
+    } as AnyRecord,
+  };
+}
+
 export function buildDischargeTransactionBundle(opts: {
   patient: AdmissionPatient;
   labs?: DischargeLab[];
@@ -877,6 +1091,14 @@ export function buildDischargeTransactionBundle(opts: {
   admittingDiagnosis?: string;
   dischargeDiagnosis?: string;
   conditionAtDischarge?: string;
+  /**
+   * Already-coded `conditions` table rows for this patient (SNOMED/ICD-10
+   * already resolved e.g. at admission). When `admittingDiagnosis` or
+   * `dischargeDiagnosis` text matches one of these exactly, the discharge
+   * Condition resource below carries that real coding; otherwise it is
+   * exported text-only rather than guessing a code.
+   */
+  codedConditions?: CodedConditionLookup[];
   /**
    * Free text the discharging clinician actually typed in the "Confirm
    * Discharge" dialog (H7) — rendered verbatim as its own Composition
@@ -914,6 +1136,11 @@ export function buildDischargeTransactionBundle(opts: {
   const medEntriesAll = (opts.dischargeMeds ?? []).map((m) =>
     buildDischargeMedRequest(patientId, encounterId, m),
   );
+  const diagnosisCondition = buildDischargeDiagnosisCondition(p, patientId, encounterId, {
+    admittingDiagnosis: opts.admittingDiagnosis,
+    dischargeDiagnosis: opts.dischargeDiagnosis,
+    codedConditions: opts.codedConditions ?? [],
+  });
   // Dedupe by stable resource id: lab_orders + lab_results can each carry
   // the same test (e.g. "WBC") for one encounter, and multiple medication
   // orders for the same drug also collide. Keep the first occurrence so
@@ -1007,6 +1234,13 @@ export function buildDischargeTransactionBundle(opts: {
       narrativeSection(
         "Chief Complaint & History of Present Illness",
         hpiText || p.chief_complaint || "",
+      ),
+      narrativeSection(
+        "Final Diagnosis",
+        diagnosisCondition
+          ? `Admitting: ${opts.admittingDiagnosis ?? "—"}; Discharge: ${opts.dischargeDiagnosis ?? p.diagnosis ?? "—"}`
+          : "",
+        diagnosisCondition ? [{ reference: urn(diagnosisCondition.id) }] : [],
       ),
       narrativeSection("Past Medical History & Allergies", pmhText),
       narrativeSection("Physical Examination on Admission", examText),
@@ -1114,6 +1348,9 @@ export function buildDischargeTransactionBundle(opts: {
     entryFor(urn(compositionId), composition),
     entryFor(urn(patientId), patient),
     entryFor(urn(encounterId), encounter),
+    ...(diagnosisCondition
+      ? [entryFor(urn(diagnosisCondition.id), diagnosisCondition.resource)]
+      : []),
     ...labEntries.map((l) => entryFor(urn(l.id), l.resource)),
     ...medEntries.map((m) => entryFor(urn(m.id), m.resource)),
     ...vitalEntries.map((v) => entryFor(urn(v.id), v.resource)),

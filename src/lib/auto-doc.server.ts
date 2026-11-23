@@ -532,7 +532,27 @@ export async function runAutoDocPipeline(mrn: string) {
   // STAGE: fhir (recorded; existing FHIR sync pipeline picks up the rows)
   await setRunStage(mrn, "fhir");
   try {
-    const admission = buildAdmissionTransactionBundle(p as AdmissionPatient);
+    // Already-coded rows for this patient (real SNOMED/ICD-10/RxNorm codes
+    // the Auto Terminologist / admission coding pipeline already resolved)
+    // so the admission Condition/MedicationStatement/AllergyIntolerance
+    // resources below can carry a real `coding`, not just free text, for
+    // every PMH/medication/allergy item that already has one on file.
+    const [codedConditionsRes, codedMedicationsRes, codedAllergiesRes] = await Promise.all([
+      sb
+        .from("conditions")
+        .select("display_text, snomed_code, snomed_display, icd10_code, icd10_display")
+        .eq("mrn", mrn),
+      sb
+        .from("medication_orders")
+        .select("drug, drug_name, medication_name, rxnorm_code, rxnorm_display")
+        .eq("patient_mrn", mrn),
+      sb.from("allergies").select("substance, substance_rxcui, substance_snomed").eq("mrn", mrn),
+    ]);
+    const admission = buildAdmissionTransactionBundle(p as AdmissionPatient, {
+      conditions: (codedConditionsRes.data ?? []) as never,
+      medications: (codedMedicationsRes.data ?? []) as never,
+      allergies: (codedAllergiesRes.data ?? []) as never,
+    });
     await sb.rpc(
       "persist_fhir_resource" as never,
       {
