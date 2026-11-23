@@ -798,6 +798,15 @@ async function processMrn(
         })()
       : `Follow up with ${pcpText} within 2 days.`;
 
+    // Already-coded `conditions` rows for this patient (real SNOMED/ICD-10
+    // resolved earlier in the stay) so the discharge diagnosis Condition
+    // built below carries a real coding when the admitting/discharge
+    // diagnosis text matches one of them, instead of exporting text-only.
+    const { data: codedConditionsData } = await admin
+      .from("conditions")
+      .select("display_text, snomed_code, snomed_display, icd10_code, icd10_display")
+      .eq("mrn", mrn);
+
     const { bundle, compositionId: pushedCompositionId } = buildDischargeTransactionBundle({
       patient: admissionPatient,
       labs: fhirLabs,
@@ -806,6 +815,7 @@ async function processMrn(
       procedures: fhirProcedures,
       admittingDiagnosis: patient.chief_complaint ?? undefined,
       dischargeDiagnosis: patient.diagnosis ?? patient.chief_complaint ?? undefined,
+      codedConditions: (codedConditionsData ?? []) as never,
       // C4: no more fabricated "Stable, improved." / hardcoded organ-system
       // exam findings ("Clear to auscultation bilaterally", etc.) that no
       // one actually examined — `buildDischargeTransactionBundle` now
