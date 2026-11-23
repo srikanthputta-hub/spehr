@@ -1420,6 +1420,43 @@ export function isValidVsacOid(oid: string): boolean {
   return trimmed.split(".").every((seg) => seg === "0" || !seg.startsWith("0"));
 }
 
+// spehr's own self-assigned root for OIDs it mints itself, for its own
+// locally-authored content — NEVER a registered/official OID authority
+// (not VSAC's, not CMS's, not HL7's, not anyone else's arc). `2.25` is the
+// ISO/IEC 9834-8 arc reserved internationally for exactly this: anyone can
+// generate a globally-unique OID arc from a UUID with no registration
+// step, which is also why it can't be mistaken for a plausible "official"
+// small-integer authority arc the way `2.16.840.1.113883.3.<made-up>` can.
+// See the migration `fix_custom_value_set_oids_to_local_root` for the
+// incident this fixed (10 published/retired `custom_value_sets` rows that
+// carried either a non-numeric fake-VSAC OID or a real VSAC OID borrowed
+// from a completely unrelated value set) and its old→new OID mapping.
+export const SPEHR_LOCAL_OID_ROOT = "2.25.111443151077358796495519981874781396693";
+
+// Prefixes that mark an OID as spehr's own local authoring, never a value
+// set actually published/resolvable in real VSAC:
+//  - `${SPEHR_LOCAL_OID_ROOT}.<n>` — the permanent per-value-set OIDs the
+//    migration above assigned to spehr's own custom_value_sets rows.
+//  - `2.16.840.1.113883.3.spehr.<timestamp>` — the pre-existing, unrelated
+//    placeholder the Auto Terminologist stamps on its own drafts before a
+//    human has authored (and linked) the real VSAC OID for them.
+const SPEHR_LOCAL_OID_PREFIXES = [
+  `${SPEHR_LOCAL_OID_ROOT}.`,
+  "2.16.840.1.113883.3.spehr.",
+] as const;
+
+/**
+ * True when `oid` is one of spehr's own locally-minted identifiers rather
+ * than a real VSAC-assigned OID — used anywhere the UI would otherwise
+ * imply "this came from VSAC" (re-sync from VSAC, steward-of-record
+ * tooltips, …) for a row that didn't.
+ */
+export function isSpehrLocalOid(oid: string | null | undefined): boolean {
+  if (!oid) return false;
+  const trimmed = oid.trim();
+  return SPEHR_LOCAL_OID_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}
+
 /**
  * Builds the `custom_value_sets` insert payload for importing a VSAC
  * $expand result as a new draft — identical to what ValueSetLibrary.tsx's

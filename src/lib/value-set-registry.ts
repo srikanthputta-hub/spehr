@@ -48,6 +48,8 @@ export {
   suggestedRootConceptForStorage,
   buildVsacImportInsert,
   isValidVsacOid,
+  isSpehrLocalOid,
+  SPEHR_LOCAL_OID_ROOT,
 } from "../../supabase/functions/_shared/value-set-registry";
 export type {
   MinimalUmlsClient,

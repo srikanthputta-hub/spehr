@@ -51,6 +51,7 @@ import {
   summarizeLinkedDependenciesForToast,
   requestTerminologyUpdate,
   isValidVsacOid,
+  isSpehrLocalOid,
 } from "@/lib/value-set-registry";
 
 type ValueSet = {
@@ -384,13 +385,17 @@ export function ValueSetLibrary() {
 
   // Re-sync is only offered for rows whose OID was actually assigned by
   // real VSAC (via "Import from VSAC" above) — never for locally-authored
-  // rows, which carry a self-assigned placeholder OID in this
-  // `2.16.840.1.113883.3.spehr.<timestamp>` namespace (the Auto
-  // Terminologist's own drafts) until a human authors the real thing in
-  // VSAC and imports it by OID.
-  const SPEHR_PLACEHOLDER_OID_PREFIX = "2.16.840.1.113883.3.spehr.";
-  const isRealVsacOid = (oid: string | null): boolean =>
-    !!oid && !oid.startsWith(SPEHR_PLACEHOLDER_OID_PREFIX);
+  // rows. That now covers two distinct cases, both handled by the shared
+  // `isSpehrLocalOid()`: the Auto Terminologist's own
+  // `2.16.840.1.113883.3.spehr.<timestamp>` draft placeholders, and spehr's
+  // own permanent local-authoring root (see the
+  // `fix_custom_value_set_oids_to_local_root` migration) that the 10
+  // pre-existing custom value sets were moved onto after an audit found
+  // them carrying fake or borrowed VSAC-looking OIDs. Without this, this
+  // button used to call VSAC with those fake/borrowed OIDs and could have
+  // silently overwritten a locally-authored value set's codes with an
+  // unrelated real VSAC set's content.
+  const isRealVsacOid = (oid: string | null): boolean => !!oid && !isSpehrLocalOid(oid);
 
   const openResync = async (row: ValueSet) => {
     if (!row.oid) return;
@@ -796,7 +801,11 @@ export function ValueSetLibrary() {
                     {r.steward && (
                       <span
                         className="ml-1.5 inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 align-middle"
-                        title="Steward of record, per VSAC's own publisher metadata"
+                        title={
+                          isSpehrLocalOid(r.oid)
+                            ? "Steward of record — locally authored by spehr under its own self-assigned OID root, not sourced from VSAC"
+                            : "Steward of record, per VSAC's own publisher metadata"
+                        }
                       >
                         Steward: {r.steward}
                       </span>
@@ -1835,8 +1844,11 @@ function ValueSetDrawer({
             </span>
           </SheetTitle>
           <SheetDescription className="font-mono text-[10px]">
-            OID {vs.oid} · v{vs.version ?? "1.0.0"} · updated{" "}
-            {new Date(vs.updated_at).toLocaleString()}
+            OID {vs.oid}
+            {isSpehrLocalOid(vs.oid) && (
+              <span className="italic text-slate-400"> (spehr local — not VSAC-registered)</span>
+            )}{" "}
+            · v{vs.version ?? "1.0.0"} · updated {new Date(vs.updated_at).toLocaleString()}
           </SheetDescription>
         </SheetHeader>
 
