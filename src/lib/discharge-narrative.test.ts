@@ -272,6 +272,67 @@ describe("C3 — discharge medication vs. allergy reconciliation", () => {
     );
     expect(flags).toHaveLength(0);
   });
+
+  // Regression guard (the single most important check for the VSAC
+  // allergy-value-set integration): spehr's own most common real allergy is
+  // penicillin, coded SNOMED 764146007 on 27 real allergy records — a code
+  // that neither real, published VSAC "Penicillin Allergy" value set
+  // extensionally enumerates (RXNORM lacks the penicillin G ingredient
+  // itself; SCT is built from allergy FINDING codes, not the substance
+  // code). This must keep firing on the free-text path regardless of the
+  // allergy's own code or whether that code happens to sit in the VS.
+  it("still flags amoxicillin against a penicillin allergy coded as SNOMED 764146007 (penicillin G) — free-text path unaffected by membership matching", () => {
+    const penicillinGAllergy = [
+      {
+        substance: "Penicillin",
+        reaction: "anaphylaxis",
+        severity: "severe",
+        substance_snomed: "764146007", // not a member of PENICILLIN_ALLERGY_VS's codes
+      },
+    ];
+    const [result] = reconcileDischargeMedications([amoxicillin], penicillinGAllergy, [
+      PENICILLIN_ALLERGY_VS,
+    ]);
+    expect(result.decision).toBe("STOP");
+    expect(result.reason).toContain("Penicillin");
+
+    const flags = checkDischargeMedAllergyConflicts([amoxicillin], penicillinGAllergy, [
+      PENICILLIN_ALLERGY_VS,
+    ]);
+    expect(flags).toHaveLength(1);
+    expect(flags[0].severity).toBe("critical");
+  });
+
+  // NEW — the additive membership signal: an allergy documented with a
+  // substance string that carries none of the value set's name-derived
+  // class tokens (so the original free-text path alone would miss it), but
+  // whose own coded substance (substance_rxcui) IS a real extensional
+  // member of the value set. The union must still catch this.
+  it("flags amoxicillin against an allergy documented with an unusual substance string but a code that is a real value-set member", () => {
+    const unusualStringAllergy = [
+      {
+        substance: "AMX sensitivity (pt-reported)", // no "penicillin" token anywhere
+        reaction: "rash",
+        severity: "moderate",
+        substance_rxcui: "723", // Amoxicillin RxCUI — IS a member of PENICILLIN_ALLERGY_VS
+      },
+    ];
+    const [result] = reconcileDischargeMedications([amoxicillin], unusualStringAllergy, [
+      PENICILLIN_ALLERGY_VS,
+    ]);
+    expect(result.decision).toBe("STOP");
+    expect(result.reason).toContain("AMX sensitivity");
+  });
+
+  it("does NOT flag when neither the free-text nor the membership path matches", () => {
+    const unrelatedAllergy = [
+      { substance: "Shellfish", reaction: "hives", severity: "mild", substance_rxcui: "9999999" },
+    ];
+    const flags = checkDischargeMedAllergyConflicts([amoxicillin], unrelatedAllergy, [
+      PENICILLIN_ALLERGY_VS,
+    ]);
+    expect(flags).toHaveLength(0);
+  });
 });
 
 describe("L19 — doubled lab label fix", () => {
