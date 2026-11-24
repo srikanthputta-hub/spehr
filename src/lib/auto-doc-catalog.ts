@@ -226,9 +226,9 @@ const CATALOG: Partial<Record<Department, ConditionTemplate>> = {
     discharge:
       "Pneumonia treated with course of ceftriaxone/azithromycin transitioning to oral amoxicillin-clavulanate. Symptomatic improvement. Discharged with PCP follow-up in 5 days.",
     meds: [
-      { rxnorm: "2193", name: "Azithromycin", dose: "500 mg", route: "PO", frequency: "Daily" },
+      { rxnorm: "18631", name: "Azithromycin", dose: "500 mg", route: "PO", frequency: "Daily" },
       {
-        rxnorm: "2191",
+        rxnorm: "562508",
         name: "Amoxicillin-Clavulanate",
         dose: "875/125 mg",
         route: "PO",
@@ -387,7 +387,7 @@ const CATALOG: Partial<Record<Department, ConditionTemplate>> = {
     discharge:
       "Trauma evaluation complete; no operative injuries identified. Pain controlled. Discharged with trauma clinic follow-up.",
     meds: [
-      { rxnorm: "1819", name: "Morphine", dose: "4 mg", route: "IV", frequency: "Q4H PRN pain" },
+      { rxnorm: "7052", name: "Morphine", dose: "4 mg", route: "IV", frequency: "Q4H PRN pain" },
       { rxnorm: "161", name: "Acetaminophen", dose: "1 g", route: "PO", frequency: "Q6H" },
     ],
     labs: [...CBC, ...BMP],
