@@ -434,10 +434,11 @@ export interface BuildChargesInput {
   }>;
   /**
    * Imaging studies ordered for this admission. One ChargeItem is emitted
-   * per row with a real CPT code (falls back to the standard CPT map below
-   * when the Charge Master value set doesn't carry an imaging entry).
-   * CT/MRI studies are tagged category "advanced_imaging" so downstream
-   * Prior-Auth panels can filter them out of the noise.
+   * per row with a real CPT code (prefers a governed VSAC value set via
+   * `radiologyValueSets` below; falls back to the standard CPT map when
+   * no published value set covers the exam). CT/MRI studies are tagged
+   * category "advanced_imaging" so downstream Prior-Auth panels can
+   * filter them out of the noise.
    */
   imagingOrders?: Array<{
     snomed?: string | null;
@@ -447,6 +448,20 @@ export interface BuildChargesInput {
     ordered_at?: string | null;
     indication_icd10_code?: string | null;
     indication_icd10_display?: string | null;
+  }>;
+  /**
+   * Published VSAC value sets covering specific imaging exams (e.g. "CT
+   * Abdomen and Pelvis", OID 2.16.840.1.113762.1.4.1078.1244), wired via
+   * `value_set_dependencies` (consumer "Auto Admin — Invoice Imaging
+   * Charges") and loaded with `loadPublishedValueSetsForConsumer`. When an
+   * imaging order's exam is covered by one of these, its real governed CPT
+   * code is used instead of the static `IMAGING_CPT_BY_SNOMED` /
+   * `IMAGING_CPT_BY_EXAM` literals below. Exam types with no published
+   * value set yet keep using those static maps unchanged.
+   */
+  radiologyValueSets?: Array<{
+    name: string;
+    codes: Array<{ code?: string; display?: string; system?: string }>;
   }>;
 }
 
@@ -503,12 +518,58 @@ const IMAGING_CPT_BY_EXAM: Array<
   [/knee\s*x[- ]?ray/i, { cpt: "73560", description: "Knee X-ray, 2 views", advanced: false }],
 ];
 
+/**
+ * Which static `IMAGING_CPT_BY_SNOMED` entry a governed VSAC value set is
+ * authoritative for, keyed by that entry's own SNOMED code. Extend this
+ * when another imaging exam gets its own published value set — until
+ * then, every other exam keeps resolving from the static maps below
+ * exactly as before.
+ */
+const GOVERNED_IMAGING_VALUE_SET_BY_SNOMED: Record<string, string> = {
+  // "CT Abdomen/Pelvis" (RADIOLOGY_CATALOG) — governed by the real,
+  // published VSAC value set "CT Abdomen and Pelvis"
+  // (OID 2.16.840.1.113762.1.4.1078.1244), 44 codes, Optum.
+  "169071000": "CT Abdomen and Pelvis",
+};
+
+/**
+ * Resolve an imaging exam's CPT code from a published VSAC value set
+ * instead of the static maps below, when one is wired for that exam
+ * (`GOVERNED_IMAGING_VALUE_SET_BY_SNOMED`). Picks the CPT-system code
+ * whose display says "without contrast", matching the existing static
+ * default (`radiology-board`'s SNOMED is contrast-agnostic, so without a
+ * recorded contrast flag on the order, "without contrast" stays the
+ * conservative default) — same code value the static map already had,
+ * just sourced from governed terminology instead of a bare literal.
+ */
+function resolveGovernedImagingCpt(
+  snomed: string,
+  valueSets: BuildChargesInput["radiologyValueSets"] | undefined,
+): { cpt: string; description: string } | null {
+  const vsName = GOVERNED_IMAGING_VALUE_SET_BY_SNOMED[snomed];
+  if (!vsName || !valueSets?.length) return null;
+  const vs = valueSets.find((v) => String(v?.name ?? "").trim() === vsName);
+  const codes = Array.isArray(vs?.codes) ? vs!.codes : [];
+  const hit = codes.find(
+    (c) =>
+      /cpt/i.test(String(c?.system ?? "")) && /without contrast/i.test(String(c?.display ?? "")),
+  );
+  if (!hit?.code) return null;
+  return { cpt: String(hit.code), description: String(hit.display ?? "") };
+}
+
 function lookupImagingCpt(
   snomed?: string | null,
   examType?: string | null,
+  radiologyValueSets?: BuildChargesInput["radiologyValueSets"],
 ): { cpt: string; description: string; advanced: boolean } | null {
   const s = String(snomed ?? "").trim();
-  if (s && IMAGING_CPT_BY_SNOMED[s]) return IMAGING_CPT_BY_SNOMED[s];
+  if (s && IMAGING_CPT_BY_SNOMED[s]) {
+    const governed = resolveGovernedImagingCpt(s, radiologyValueSets);
+    return governed
+      ? { ...IMAGING_CPT_BY_SNOMED[s], cpt: governed.cpt, description: governed.description }
+      : IMAGING_CPT_BY_SNOMED[s];
+  }
   const e = String(examType ?? "");
   if (e) for (const [re, hit] of IMAGING_CPT_BY_EXAM) if (re.test(e)) return hit;
   return null;
@@ -761,7 +822,7 @@ export function composeCharges(input: BuildChargesInput): PricedCharge[] {
   // Imaging — one ChargeItem per radiology_orders row. Uses real CPT
   // codes so payer-side adjudication and prior-auth analytics can match.
   for (const r of input.imagingOrders ?? []) {
-    const hit = lookupImagingCpt(r.snomed, r.exam_type);
+    const hit = lookupImagingCpt(r.snomed, r.exam_type, input.radiologyValueSets);
     if (!hit) continue;
     const unit = IMAGING_PRICE_BY_CPT[hit.cpt] ?? 350;
     out.push({

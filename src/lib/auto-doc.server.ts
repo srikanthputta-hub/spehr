@@ -4,7 +4,11 @@
  */
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/value-set-registry";
+import {
+  recommendDefinitionType,
+  suggestedRootConceptForStorage,
+  loadPublishedValueSetsForConsumer,
+} from "@/lib/value-set-registry";
 import { templateForDepartment, type ConditionTemplate } from "./auto-doc-catalog";
 import { routeDepartment, type Department } from "./chief-complaints";
 import { buildAdmissionTransactionBundle, type AdmissionPatient } from "./fhir-admission-discharge";
@@ -1344,17 +1348,19 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     };
   }
 
-  // Pull clinical course. These five reads are independent of one another
-  // (meds/labs/rad orders, conditions, and the Billing value sets), so they
-  // run concurrently instead of one sequential round-trip after another —
-  // at ~492 discharges in the backfill queue, every serialized round-trip
-  // here multiplies straight into total batch wall time.
+  // Pull clinical course. These six reads are independent of one another
+  // (meds/labs/rad orders, conditions, the Billing value sets, and the
+  // governed imaging value sets), so they run concurrently instead of one
+  // sequential round-trip after another — at ~492 discharges in the
+  // backfill queue, every serialized round-trip here multiplies straight
+  // into total batch wall time.
   const [
     { data: medRows },
     { data: labRows },
     { data: radRows },
     { data: condRows },
     { data: billingVs },
+    radiologyVsHits,
   ] = await Promise.all([
     sb
       .from("medication_orders")
@@ -1378,7 +1384,22 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
       .select("name, codes, clinical_application, status")
       .eq("status", "published")
       .eq("clinical_application", "Billing"),
+    // Governed imaging value sets — e.g. the real, published VSAC "CT
+    // Abdomen and Pelvis" value set — wired via value_set_dependencies
+    // (consumer "Auto Admin — Invoice Imaging Charges") rather than
+    // `clinical_application = 'Billing'` above, since VSAC-imported
+    // clinical value sets aren't tagged with a billing clinical_application.
+    // See billing-pricing.ts's `radiologyValueSets` / `lookupImagingCpt`.
+    loadPublishedValueSetsForConsumer(
+      { consumer: "Auto Admin — Invoice Imaging Charges" },
+      "name, codes, status",
+      sb,
+    ),
   ]);
+  const radiologyValueSets = radiologyVsHits.map((h) => ({
+    name: h.value_set_name,
+    codes: Array.isArray(h.row?.codes) ? h.row.codes : [],
+  }));
 
   const meds = (medRows ?? [])
     .filter((m: any) => String(m.status ?? "").toLowerCase() === "administered")
@@ -1587,6 +1608,7 @@ export async function generateInvoiceForPatient(mrn: string): Promise<{
     billingMatches,
     chargeMaster,
     imagingOrders,
+    radiologyValueSets,
   };
   const charges = composeCharges(input);
   const { subtotal, tax, total } = summarizeCharges(charges);
