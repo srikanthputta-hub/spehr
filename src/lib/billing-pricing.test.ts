@@ -104,3 +104,94 @@ describe("billing-pricing — L17 regressions", () => {
     expect(priceForLab(null)).toBe(95);
   });
 });
+
+describe("billing-pricing — governed radiology value sets", () => {
+  // Real, published VSAC "CT Abdomen and Pelvis" value set content
+  // (OID 2.16.840.1.113762.1.4.1078.1244), confirmed live before writing
+  // this test — not a fabricated fixture.
+  const CT_ABD_PELVIS_VALUE_SET = {
+    name: "CT Abdomen and Pelvis",
+    codes: [
+      {
+        code: "419394006",
+        system: "SNOMED CT",
+        display: "Computed tomography of abdomen and pelvis (procedure)",
+      },
+      {
+        code: "74176",
+        system: "CPT",
+        display: "Computed tomography, abdomen and pelvis; without contrast material",
+      },
+      {
+        code: "74177",
+        system: "CPT",
+        display: "Computed tomography, abdomen and pelvis; with contrast material(s)",
+      },
+    ],
+  };
+
+  const baseInput = {
+    admissionTime: "2026-01-01T00:00:00Z",
+    dischargeTime: "2026-01-02T00:00:00Z",
+    room: "204",
+    meds: [],
+    labs: [],
+  } satisfies Omit<BuildChargesInput, "imagingOrders" | "radiologyValueSets">;
+
+  it("resolves the CT Abdomen/Pelvis imaging CPT from the published value set when wired", () => {
+    const input: BuildChargesInput = {
+      ...baseInput,
+      imagingOrders: [
+        {
+          snomed: "169071000",
+          exam_type: "CT Abdomen/Pelvis",
+          modality: "CT",
+          body_part: "Abdomen/Pelvis",
+        },
+      ],
+      radiologyValueSets: [CT_ABD_PELVIS_VALUE_SET],
+    };
+    const charges = composeCharges(input);
+    const imaging = charges.find((c) => c.category === "advanced_imaging");
+    expect(imaging?.codeSystem).toBe("CPT");
+    // Same code the static fallback already used — now sourced from the
+    // real governed value set instead of a bare literal.
+    expect(imaging?.code).toBe("74176");
+    expect(imaging?.description).toContain(
+      "Computed tomography, abdomen and pelvis; without contrast material",
+    );
+  });
+
+  it("still falls back to the static CPT map when no governed value set is wired (no regression)", () => {
+    const input: BuildChargesInput = {
+      ...baseInput,
+      imagingOrders: [
+        {
+          snomed: "169071000",
+          exam_type: "CT Abdomen/Pelvis",
+          modality: "CT",
+          body_part: "Abdomen/Pelvis",
+        },
+      ],
+      // radiologyValueSets intentionally omitted.
+    };
+    const charges = composeCharges(input);
+    const imaging = charges.find((c) => c.category === "advanced_imaging");
+    expect(imaging?.codeSystem).toBe("CPT");
+    expect(imaging?.code).toBe("74176");
+  });
+
+  it("leaves other exam types untouched by the governed value set", () => {
+    const input: BuildChargesInput = {
+      ...baseInput,
+      imagingOrders: [
+        { snomed: "399208008", exam_type: "Chest X-ray", modality: "XR", body_part: "Chest" },
+      ],
+      radiologyValueSets: [CT_ABD_PELVIS_VALUE_SET],
+    };
+    const charges = composeCharges(input);
+    const imaging = charges.find((c) => c.category === "imaging");
+    expect(imaging?.code).toBe("71046");
+    expect(imaging?.codeSystem).toBe("CPT");
+  });
+});
