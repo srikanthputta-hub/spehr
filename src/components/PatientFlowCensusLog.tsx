@@ -77,6 +77,8 @@ interface AllergyRow {
   severity: string | null;
   status: string | null;
   category?: string | null;
+  substance_rxcui?: string | null;
+  substance_snomed?: string | null;
 }
 
 interface RadiologyOrderRow {
@@ -219,7 +221,10 @@ function DischargeSummaryModal({
           )
           .eq("patient_mrn", mrn)
           .order("collected_at", { ascending: true }),
-        supabase.from("allergies").select("substance, reaction, severity, status").eq("mrn", mrn),
+        supabase
+          .from("allergies")
+          .select("substance, reaction, severity, status, substance_rxcui, substance_snomed")
+          .eq("mrn", mrn),
         // Reported imaging (radiology_orders) — real on-file studies for
         // this patient must be able to show up in "Laboratory & Imaging
         // Findings"; this table was never queried here before.
@@ -636,6 +641,8 @@ function ClinicalNarrative({
       reaction: a.reaction,
       severity: a.severity,
       category: null,
+      substance_rxcui: a.substance_rxcui ?? null,
+      substance_snomed: a.substance_snomed ?? null,
     })),
     imaging.map((i): NarrativeImaging => ({
       exam_type: i.exam_type,

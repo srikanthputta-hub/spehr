@@ -20,9 +20,10 @@ import {
   requestTerminologyUpdate,
 } from "@/lib/value-set-registry";
 import {
+  allergyMatchesValueSet,
   classTokens,
   extensionalContains,
-  substanceMatchesClass,
+  type CodedAllergy,
 } from "../../supabase/functions/_shared/safety-alerts-matching";
 
 /* ------------------------------------------------------------------ */
@@ -406,8 +407,17 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
    *
    * A single scan over every published value set. A value set fires when:
    *   (a) it contains the ordered drug's RxNorm code, AND
-   *   (b) its name (minus stopwords/vocabulary tags) shares a token with
-   *       any active allergy substance on the chart.
+   *   (b) EITHER its name (minus stopwords/vocabulary tags) shares a token
+   *       with any active allergy substance string on the chart (the
+   *       original, deliberately forgiving free-text match — kept exactly
+   *       as-is: it's the safety net that catches spehr's own most common
+   *       real allergy, penicillin coded as SNOMED 764146007, against VSAC
+   *       value sets that don't extensionally enumerate that exact code)
+   *       OR the allergy's own coded substance (RxNorm/SNOMED) is a real
+   *       extensional member of the same value set (NEW — an additional,
+   *       independent signal via `allergyMatchesValueSet`, for allergies
+   *       documented with an unusual substance string but a correct code;
+   *       union with (b)'s free-text path, never a replacement of it).
    *
    * The value set IS the safety rule — no pair registry, no synthetic
    * allergen value sets required. `Penicillin Allergy RXNORM(optum)` fires
@@ -417,12 +427,22 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
   if (code) {
     const { data: allergyRows } = await supabase
       .from("allergies")
-      .select("substance")
+      .select("substance, substance_rxcui, substance_snomed")
       .eq("mrn", mrn)
       .eq("status", "active");
-    const chartAllergies = ((allergyRows ?? []) as Array<{ substance: string | null }>)
-      .map((r) => String(r?.substance ?? "").trim())
-      .filter(Boolean);
+    const chartAllergies = (
+      (allergyRows ?? []) as Array<{
+        substance: string | null;
+        substance_rxcui: string | null;
+        substance_snomed: string | null;
+      }>
+    )
+      .map((r): CodedAllergy => ({
+        substance: String(r?.substance ?? "").trim(),
+        rxcui: r?.substance_rxcui ? String(r.substance_rxcui).trim() : null,
+        snomed: r?.substance_snomed ? String(r.substance_snomed).trim() : null,
+      }))
+      .filter((a) => Boolean(a.substance));
 
     if (chartAllergies.length > 0) {
       type Match = {
@@ -435,11 +455,11 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
         if (!extensionalContains(vsRow, code)) continue;
         const tokens = classTokens(vsRow.name);
         if (tokens.length === 0) continue;
-        const hit = chartAllergies.find((s) => substanceMatchesClass(s, tokens));
+        const hit = chartAllergies.find((a) => allergyMatchesValueSet(a, vsRow, tokens));
         if (!hit) continue;
         matches.push({
           vs: vsRow,
-          allergyName: hit,
+          allergyName: hit.substance,
           specificity: Array.isArray(vsRow.codes) ? vsRow.codes.length : Number.MAX_SAFE_INTEGER,
         });
       }
@@ -478,8 +498,8 @@ export async function runMedicationOrderRules(evt: MedOrderEvent): Promise<void>
         if (!anyDrugVsHasCode && name) {
           await requestTerminologyUpdate({
             requesting_consumer: "Safety Alerts Engine",
-            requested_name: `Drug-Allergy coverage for "${chartAllergies[0]}"`,
-            justification: `Order "${name}" (RxNorm ${code}) could not be cross-checked against allergy "${chartAllergies[0]}" — no published value set contains this drug and names the allergy class.`,
+            requested_name: `Drug-Allergy coverage for "${chartAllergies[0].substance}"`,
+            justification: `Order "${name}" (RxNorm ${code}) could not be cross-checked against allergy "${chartAllergies[0].substance}" — no published value set contains this drug and names the allergy class or whose extensional code list includes the allergy's own coded substance.`,
             priority: "normal",
             vocabulary: "RxNorm",
             seed_codes: [{ code, display: name }],

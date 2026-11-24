@@ -368,7 +368,10 @@ async function fetchClinicalContext(
       .from("lab_results")
       .select("id, test_name, result_value, unit, flag, reference_range, created_at")
       .eq("mrn", mrn),
-    admin.from("allergies").select("substance, reaction, severity").eq("mrn", mrn),
+    admin
+      .from("allergies")
+      .select("substance, reaction, severity, substance_rxcui, substance_snomed")
+      .eq("mrn", mrn),
     // Last recorded vitals row at/before discharge — pushed as FHIR
     // Observations so myspehr's Monitoring page has a discharge-time
     // snapshot instead of showing nothing.
@@ -502,6 +505,8 @@ async function buildSummaryForMrn(
     reaction: a.reaction ?? null,
     severity: a.severity ?? null,
     category: null,
+    substance_rxcui: a.substance_rxcui ?? null,
+    substance_snomed: a.substance_snomed ?? null,
   }));
 
   const imaging: NarrativeImaging[] = rawImaging.map((i) => ({

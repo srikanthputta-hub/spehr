@@ -36,9 +36,10 @@
  */
 
 import {
+  allergyMatchesValueSet,
   classTokens,
   extensionalContains,
-  substanceMatchesClass,
+  type CodedAllergy,
   type MatchableValueSet,
 } from "./safety-alerts-matching.ts";
 
@@ -106,6 +107,13 @@ export interface NarrativeAllergy {
   reaction?: string | null;
   severity?: string | null;
   category?: string | null; // medication | environment | food
+  /** RxNorm code the allergy's substance was actually coded with, when any. */
+  substance_rxcui?: string | null;
+  /** SNOMED CT code the allergy's substance was actually coded with, when
+   * any — e.g. 764146007 for penicillin G, spehr's single most common real
+   * allergy, which VSAC's own "Penicillin Allergy" value sets don't
+   * extensionally enumerate (see `allergyMatchesValueSet`'s doc comment). */
+  substance_snomed?: string | null;
 }
 
 /**
@@ -265,9 +273,23 @@ export interface MedReconciliation {
   reason: string;
 }
 
+/** Narrows a raw `NarrativeAllergy[]` to the `substance` + coded-substance
+ * shape `findAllergyConflict`'s union match needs, dropping any row with no
+ * substance text (nothing to match on either path). Shared by both callers
+ * below so the two reconciliation functions can never drift on this. */
+function allergiesToCoded(allergies: NarrativeAllergy[]): CodedAllergy[] {
+  return allergies
+    .map((a) => ({
+      substance: (a.substance ?? "").trim(),
+      rxcui: a.substance_rxcui ? String(a.substance_rxcui).trim() : null,
+      snomed: a.substance_snomed ? String(a.substance_snomed).trim() : null,
+    }))
+    .filter((a) => a.substance.length > 0);
+}
+
 function findAllergyConflict(
   rxnormCode: string,
-  chartAllergies: string[],
+  chartAllergies: CodedAllergy[],
   publishedValueSets: MatchableValueSet[],
 ): { allergyName: string; valueSetName: string } | null {
   if (!rxnormCode || chartAllergies.length === 0 || publishedValueSets.length === 0) return null;
@@ -277,11 +299,16 @@ function findAllergyConflict(
     if (!extensionalContains(vs, rxnormCode)) continue;
     const tokens = classTokens(vs.name);
     if (tokens.length === 0) continue;
-    const hit = chartAllergies.find((s) => substanceMatchesClass(s, tokens));
+    // Union of the free-text class-token match (the original, deliberately
+    // forgiving safety net — e.g. penicillin coded as SNOMED 764146007
+    // against VSAC value sets that don't enumerate that exact code) AND
+    // the NEW membership match on the allergy's own coded substance. See
+    // `allergyMatchesValueSet`'s doc comment in safety-alerts-matching.ts.
+    const hit = chartAllergies.find((a) => allergyMatchesValueSet(a, vs, tokens));
     if (!hit) continue;
     matches.push({
       vs,
-      allergyName: hit,
+      allergyName: hit.substance,
       specificity: Array.isArray(vs.codes) ? vs.codes.length : Number.MAX_SAFE_INTEGER,
     });
   }
@@ -304,7 +331,7 @@ export function reconcileDischargeMedications(
   allergies: NarrativeAllergy[],
   publishedValueSets: MatchableValueSet[],
 ): MedReconciliation[] {
-  const chartAllergies = allergies.map((a) => (a.substance ?? "").trim()).filter(Boolean);
+  const chartAllergies = allergiesToCoded(allergies);
   return dischargeMeds.map((med) => {
     const code = (med.rxnorm_code ?? "").trim();
     const conflict = findAllergyConflict(code, chartAllergies, publishedValueSets);
@@ -335,7 +362,7 @@ export function checkDischargeMedAllergyConflicts(
   allergies: NarrativeAllergy[],
   publishedValueSets: MatchableValueSet[],
 ): SafetyFlag[] {
-  const chartAllergies = allergies.map((a) => (a.substance ?? "").trim()).filter(Boolean);
+  const chartAllergies = allergiesToCoded(allergies);
   if (chartAllergies.length === 0 || publishedValueSets.length === 0) return [];
   const flags: SafetyFlag[] = [];
   const seen = new Set<string>();
