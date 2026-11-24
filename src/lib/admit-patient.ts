@@ -11,6 +11,7 @@ import { runSixStreamPipeline, upsertCondition } from "@/lib/coding-pipeline";
 import { crosswalkSnomedToIcd10 } from "@/lib/umls-client";
 import { lookupAllergenSnomed } from "@/lib/allergen-map";
 import { recommendDefinitionType, suggestedRootConceptForStorage } from "@/lib/value-set-registry";
+import { matchAdmissionDiagnosisToPublishedValueSet } from "@/lib/diagnosis-value-set-map";
 import type { Database } from "@/integrations/supabase/types";
 
 export interface AdmitInput {
@@ -220,6 +221,27 @@ export async function admitPatient(facility: string, input: AdmitInput): Promise
     }
   }
 
+  // Admitting diagnosis is otherwise pure free text at entry — the only
+  // coding path for it is the fire-and-forget six-stream pipeline's Stream A
+  // below, a generic async UMLS search independent of the Value Set
+  // Library. When the typed diagnosis matches one of the Value Set
+  // Library's published diagnosis value sets by a known clinical synonym,
+  // attach that value set's own real, VSAC-sourced code synchronously here
+  // — see diagnosis-value-set-map.ts for why this never fabricates a code.
+  try {
+    const dxMatch = await matchAdmissionDiagnosisToPublishedValueSet(input.diagnosis);
+    if (dxMatch) {
+      await writeAdmissionDiagnosisValueSetMatch({
+        mrn,
+        patientName: data.name ?? null,
+        diagnosisText: input.diagnosis.trim(),
+        match: dxMatch,
+      });
+    }
+  } catch (e) {
+    console.warn("[admit] diagnosis value-set match failed", e);
+  }
+
   // Fire-and-forget six-stream coding pipeline. Never blocks admission.
   // Pass form-time snapshot so Streams C/D/E/F don't depend on empty tables.
   // Pre-coded entries above are echoed back in here (rxnorm_code /
@@ -421,6 +443,60 @@ async function writeConfirmedAdmissionCodes(args: {
       rxnormCode: m.code.code,
       rxnormDisplay: m.code.display,
     });
+  }
+}
+
+/**
+ * Idempotent (mrn + icd10_code) upsert for an admitting diagnosis matched
+ * against a published Value Set Library diagnosis value set (see
+ * diagnosis-value-set-map.ts). Writes directly to `conditions` rather than
+ * reusing coding-pipeline.ts's `upsertCondition()` — that helper keys its
+ * idempotency on a required `snomed_code`, but these five value sets are
+ * matched on their ICD-10-CM entry and `conditions.snomed_code` is
+ * nullable, so a SNOMED-keyed upsert doesn't fit here. `display_text` is
+ * deliberately the verbatim admitting-diagnosis text (not the value set's
+ * own code display) so it lines up exactly with `patients.chief_complaint`
+ * — the same field `fhir-bundle.ts`'s admission/discharge Condition
+ * builders (PR #82) read and text-match against.
+ */
+async function writeAdmissionDiagnosisValueSetMatch(args: {
+  mrn: string;
+  patientName: string | null;
+  diagnosisText: string;
+  match: { valueSetName: string; oid: string | null; code: string; display: string };
+}): Promise<void> {
+  const { mrn, patientName, diagnosisText, match } = args;
+  try {
+    const { data: existing } = await supabase
+      .from("conditions")
+      .select("id")
+      .eq("mrn", mrn)
+      .eq("icd10_code", match.code)
+      .maybeSingle();
+    const payload = {
+      mrn,
+      patient_name: patientName,
+      display_text: diagnosisText,
+      icd10_code: match.code,
+      icd10_display: match.display,
+      category: "encounter-diagnosis",
+      clinical_status: "active",
+      verification_status: "provisional",
+      coding_source: "admission-diagnosis-value-set-match",
+      source_section: "chief_complaint",
+      coded_at: new Date().toISOString(),
+    };
+    if (existing?.id) {
+      await supabase.from("conditions").update(payload).eq("id", existing.id);
+    } else {
+      await supabase.from("conditions").insert({
+        ...payload,
+        onset_date: new Date().toISOString(),
+        created_by_type: "auto",
+      });
+    }
+  } catch (e) {
+    console.warn("[admit] failed to write diagnosis value-set match for", match.valueSetName, e);
   }
 }
 
