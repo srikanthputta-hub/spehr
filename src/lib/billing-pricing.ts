@@ -70,8 +70,14 @@ const MED_PRICE_BY_RXNORM: Record<string, number> = {
   "6809": 12, // Metformin
   "236991": 42, // Clopidogrel
   "161": 10, // Acetaminophen
-  "2191": 24, // Amoxicillin-Clavulanate
+  "562508": 24, // Amoxicillin-Clavulanate (was mis-keyed "2191", RxNav's real
+  // ceftazidime — fixed as part of the Nov 2026 RxNorm audit, see
+  // 20261123220000_fix_rxnorm_audit_mislabeled_codes.sql)
   "1298839": 30, // Azithromycin
+  "18631": 30, // Azithromycin (ingredient-level; was mis-commented
+  // "Ceftriaxone IV" here — 18631 is actually azithromycin on RxNav.
+  // Ceftriaxone's real code is 2193, added below.)
+  "2193": 88, // Ceftriaxone IV
   "203191": 16, // Metoprolol Tartrate
   "40790": 18, // Pantoprazole
   // Not seen in live medication_orders data as of this fix, but kept for
@@ -79,7 +85,6 @@ const MED_PRICE_BY_RXNORM: Record<string, number> = {
   // priced higher than oral meds above).
   "7052": 62, // Morphine
   "203150": 110, // Vancomycin IV
-  "18631": 88, // Ceftriaxone IV
   "7980": 64, // Piperacillin
   "3640": 26, // Furosemide
   "4815": 96, // Heparin

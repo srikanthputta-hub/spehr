@@ -43,7 +43,7 @@ const BY_CODE: Record<string, string> = {
   "243670": "An antibiotic in the penicillin family.",
   // RxNorm
   "1819": "Buprenorphine — a medicine used to treat pain or opioid dependence.",
-  "2193": "Captopril — a blood-pressure medicine (ACE inhibitor).",
+  "2193": "Ceftriaxone — an antibiotic used to treat serious bacterial infections.",
   "866514": "Metoprolol — a beta-blocker that helps control heart rate and blood pressure.",
   "5640": "Ibuprofen — an anti-inflammatory pain reliever.",
 };
