@@ -4,8 +4,10 @@ import { toast } from "sonner";
 import {
   BedDouble,
   CalendarClock,
+  CalendarDays,
   CheckCircle2,
   ClipboardList,
+  LayoutList,
   Loader2,
   Plus,
   RefreshCw,
@@ -29,6 +31,7 @@ import { InfoHint } from "@/components/ui/info-hint";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { EmptyState } from "@/components/common/EmptyState";
 import { TableSkeleton } from "@/components/common/LoadingSkeleton";
+import { Calendar, CalendarDayButton } from "@/components/ui/calendar";
 
 export const Route = createFileRoute("/admissions-board")({
   component: AdmissionsBoard,
@@ -377,6 +380,26 @@ function RosterTab({ facility }: { facility: string }) {
   );
 }
 
+// Local-calendar-day helpers for the Scheduling tab's date filtering. These
+// intentionally use the *viewer's* local clock (same as fmtTs below and the
+// "times are in your browser's timezone" disclaimer already on this tab) —
+// "today" means the viewer's today, not the facility's, since that's the
+// only timezone this page has ever actually used for display.
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function startOfLocalDay(d: Date): Date {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function isSameLocalDay(isoOrDate: string | Date, day: Date): boolean {
+  const d = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
+  return dayKey(d) === dayKey(day);
+}
+
 function fmtTs(ts: string | null | undefined): string {
   if (!ts) return "—";
   const d = new Date(ts);
@@ -431,6 +454,36 @@ function SchedulingTab({ facility }: { facility: string }) {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const initialLoadRef = useRef(true);
+
+  // Upcoming Appointments defaults to the viewer's "today" only, instead of
+  // every row the query returns. `null` means "show all upcoming" (the old
+  // behavior), restored via the "Show all" button below.
+  const [selectedDate, setSelectedDate] = useState<Date | null>(() => startOfLocalDay(new Date()));
+  const [scheduleView, setScheduleView] = useState<"list" | "calendar">("list");
+
+  const isToday = selectedDate !== null && isSameLocalDay(selectedDate, new Date());
+
+  // Client-side filter on the already-fetched upcoming rows, same pattern
+  // the rest of this component uses (no new fetching paradigm) — the
+  // upcoming query itself stays a single "next ~200 open appointments"
+  // fetch; this just narrows what's displayed by default.
+  const visibleUpcomingRows = useMemo(
+    () =>
+      selectedDate === null
+        ? upcomingRows
+        : upcomingRows.filter((r) => isSameLocalDay(r.start_time, selectedDate)),
+    [upcomingRows, selectedDate],
+  );
+
+  // Which local calendar days (within the loaded upcoming rows) have at
+  // least one open appointment, for the calendar view's "has appointments"
+  // dot.
+  const appointmentDayKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of upcomingRows) set.add(dayKey(new Date(r.start_time)));
+    return set;
+  }, [upcomingRows]);
+  const hasAppointmentsMatcher = (date: Date) => appointmentDayKeys.has(dayKey(date));
 
   const load = async () => {
     if (initialLoadRef.current) setLoading(true);
@@ -559,18 +612,104 @@ function SchedulingTab({ facility }: { facility: string }) {
         {viewerTz ? ` (${viewerTz})` : ""} — not necessarily {facility}'s own local time.
       </div>
       <section className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 h-12 border-b border-border bg-secondary/40">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-2 min-h-12 border-b border-border bg-secondary/40">
           <div className="flex items-center gap-2">
             <CalendarClock className="h-4 w-4 text-[var(--teal)]" />
             <h2 className="text-sm font-semibold">Upcoming Appointments</h2>
           </div>
-          <button
-            onClick={() => setOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold"
-          >
-            <Plus className="h-3.5 w-3.5" /> Book Appointment
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5">
+              <button
+                onClick={() => setScheduleView("list")}
+                className={`inline-flex items-center gap-1.5 rounded-[5px] px-2.5 h-7 text-[11px] font-semibold transition ${
+                  scheduleView === "list"
+                    ? "bg-[var(--teal)] text-white"
+                    : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <LayoutList className="h-3.5 w-3.5" /> List
+              </button>
+              <button
+                onClick={() => setScheduleView("calendar")}
+                className={`inline-flex items-center gap-1.5 rounded-[5px] px-2.5 h-7 text-[11px] font-semibold transition ${
+                  scheduleView === "calendar"
+                    ? "bg-[var(--teal)] text-white"
+                    : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <CalendarDays className="h-3.5 w-3.5" /> Calendar
+              </button>
+            </div>
+            <button
+              onClick={() => setOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] hover:bg-[var(--teal)]/90 text-white px-3 h-8 text-xs font-semibold"
+            >
+              <Plus className="h-3.5 w-3.5" /> Book Appointment
+            </button>
+          </div>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-border bg-white">
+          <span className="text-[11px] text-slate-600">
+            Showing:{" "}
+            <span className="font-semibold text-slate-900">
+              {selectedDate === null
+                ? "All upcoming"
+                : isToday
+                  ? "Today"
+                  : selectedDate.toLocaleDateString([], {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+            </span>
+          </span>
+          {!isToday && (
+            <button
+              onClick={() => setSelectedDate(startOfLocalDay(new Date()))}
+              className="rounded-md border border-slate-300 bg-white hover:bg-slate-50 px-2 h-6 text-[11px] font-semibold text-slate-700"
+            >
+              Today
+            </button>
+          )}
+          {selectedDate !== null && (
+            <button
+              onClick={() => setSelectedDate(null)}
+              className="rounded-md border border-slate-300 bg-white hover:bg-slate-50 px-2 h-6 text-[11px] font-semibold text-slate-700"
+            >
+              Show all upcoming
+            </button>
+          )}
+        </div>
+
+        {scheduleView === "calendar" && (
+          <div className="flex flex-col sm:flex-row sm:items-start gap-3 px-5 py-4 border-b border-border bg-white">
+            <Calendar
+              mode="single"
+              selected={selectedDate ?? undefined}
+              onSelect={(d) => d && setSelectedDate(startOfLocalDay(d))}
+              defaultMonth={selectedDate ?? new Date()}
+              modifiers={{ hasAppt: hasAppointmentsMatcher }}
+              components={{
+                DayButton: (dayButtonProps) => (
+                  <div className="relative h-full w-full">
+                    <CalendarDayButton {...dayButtonProps} />
+                    {dayButtonProps.modifiers.hasAppt && (
+                      <span className="pointer-events-none absolute bottom-0.5 left-1/2 -translate-x-1/2 h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
+                    )}
+                  </div>
+                ),
+              }}
+              className="rounded-md border border-border"
+            />
+            <p className="text-[11px] text-slate-500 sm:pt-2">
+              Dates with a teal dot have open appointments. Click a date to filter the list below to
+              just that day.
+            </p>
+          </div>
+        )}
+
         {/*
           L16: unpaginated — this list silently caps at 200 rows (see the
           query above) with nothing telling the user if there's more.
@@ -585,11 +724,18 @@ function SchedulingTab({ facility }: { facility: string }) {
           </div>
         )}
         <AppointmentTable
-          rows={upcomingRows}
+          rows={visibleUpcomingRows}
           loading={loading}
           onUpdateStatus={updateStatus}
           onReschedule={reschedule}
           showActions
+          emptyDescription={
+            selectedDate === null
+              ? "No appointments scheduled in this list."
+              : isToday
+                ? "No appointments scheduled for today."
+                : `No appointments scheduled for ${selectedDate.toLocaleDateString()}.`
+          }
         />
       </section>
 
@@ -655,12 +801,14 @@ function AppointmentTable({
   onUpdateStatus,
   onReschedule,
   showActions,
+  emptyDescription = "No appointments scheduled in this list.",
 }: {
   rows: AppointmentRow[];
   loading: boolean;
   onUpdateStatus: (id: string, status: string) => void;
   onReschedule: (id: string, start: string, end: string) => void | Promise<void>;
   showActions?: boolean;
+  emptyDescription?: string;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [editStart, setEditStart] = useState("");
@@ -695,7 +843,7 @@ function AppointmentTable({
           {!loading && rows.length === 0 && (
             <tr>
               <td colSpan={showActions ? 7 : 6} className="px-5 py-10">
-                <EmptyState description="No appointments scheduled in this list." />
+                <EmptyState description={emptyDescription} />
               </td>
             </tr>
           )}
