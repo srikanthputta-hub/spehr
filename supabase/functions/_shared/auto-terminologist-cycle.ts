@@ -30,7 +30,16 @@
  * never double-run a cycle — whichever claims the lease for a given
  * ~10-minute window runs it; the other is a no-op.
  *
- * What the cycle does — unchanged from the original design:
+ * What the cycle does:
+ *   0. NEW — VSAC discovery & retrieval (server-side only; needs the
+ *      injected `VsacGateway`, which only the edge function supplies — the
+ *      browser hook passes none and this step reports itself skipped). For
+ *      each pending request whose real seed codes no published value set
+ *      covers, looks in NLM VSAC for an existing governed value set that
+ *      contains them and stages the best match, with full provenance, as an
+ *      inert DRAFT. Runs BEFORE step 1 so "reuse before you create" wins:
+ *      a request satisfied here never reaches UMLS-first or self-authoring.
+ *      See `vsac-discovery.ts` / `vsac-client.ts`.
  *   1. Scans pending `terminology_requests` filed by consumer engines
  *      (Safety Alerts, Billing, Auto Doc, Auto Terminologist's own
  *      proactive sweep, etc.) — VSAC-style demand mode. UMLS-first for
@@ -58,10 +67,21 @@
  *      "deprecation-suggested" once filed, and only a human steward's
  *      explicit Approve (AutoTerminologistActivity.tsx) ever retires it.
  *
- * The engine NEVER drafts a value set, NEVER submits for review, and NEVER
- * publishes. Every `custom_value_sets` write still requires a human action
- * (the Authoring Workbench, or importing/re-syncing a real OID via the
- * Value Set Library).
+ * THE PUBLISH GATE (changed 2026-11-27 — read before editing anything here):
+ * the engine NEVER submits a value set for review and NEVER publishes. The
+ * one `custom_value_sets` row it may now CREATE is the VSAC discovery pass's
+ * inert `draft` (stamped `provenance.staged_by = 'auto-terminologist'`);
+ * before this change every `custom_value_sets` creation needed a human click.
+ * A draft is read by no clinical consumer (all filter `status = 'published'`);
+ * a steward reviews and publishes it in the Value Set Library, and a DB
+ * trigger refuses this engine's service-role credential from moving an
+ * auto-staged row to `review`/`published` (migration 20261127120000). The
+ * only other writes are the long-standing `deprecation-suggested` flag and
+ * `value_set_dependencies` linking, both unchanged. `VSAC_AUTO_STAGE_MODE`
+ * selects how far retrieval goes: unset / `preview` (the DEFAULT) stages the
+ * match on the request only and a human still clicks Import Now; `draft` is the
+ * explicit opt-in that lets this engine create the inert draft itself; `off`
+ * disables the step.
  */
 
 import {
@@ -71,6 +91,13 @@ import {
   type MinimalUmlsClient,
   type VsacExpansionResult,
 } from "./value-set-registry.ts";
+import {
+  parseStageMode,
+  runVsacDiscoveryPass,
+  type StageMode,
+  type VsacDiscoverySummary,
+} from "./vsac-discovery.ts";
+import type { VsacGateway } from "./vsac-client.ts";
 import {
   classTokens,
   extensionalContains,
@@ -1268,6 +1295,7 @@ export type CycleSummary = {
     scanned: number;
   };
   pairsLinked?: number;
+  vsacDiscovery?: VsacDiscoverySummary;
   vsacPoll?: { checked: number; readyToImport: number };
   proactiveSweep?: { patientsChecked: number; gapsFiled: number };
   staleness?: { checked: number; dueForReview: number };
@@ -1296,9 +1324,19 @@ async function isAutomationEnabled(client: MinimalUmlsClient): Promise<boolean> 
  * lease alive (`heartbeatLease` on a ~30s cadence) for as long as the
  * cycle takes, exactly as the original in-hook implementation did.
  */
+export type CycleDeps = {
+  /** Read-only VSAC access for the discovery pass. Server-side only: the
+   * edge function builds it from `UMLS_API_KEY`; the browser hook passes
+   * nothing and the pass reports itself skipped. */
+  vsac?: VsacGateway | null;
+  /** `draft` (default) | `preview` | `off` — see the publish-gate note above. */
+  vsacStageMode?: StageMode;
+};
+
 export async function runAutoTerminologistCycle(
   client: MinimalUmlsClient,
   holder: string,
+  deps: CycleDeps = {},
 ): Promise<CycleSummary> {
   const automationOn = await isAutomationEnabled(client);
 
@@ -1328,6 +1366,40 @@ export async function runAutoTerminologistCycle(
   }, 30_000);
 
   try {
+    // Discovery first: a request VSAC can satisfy leaves the pending queue
+    // here, so the demand pass below never UMLS-suggests or self-authors it.
+    let vsacDiscovery: VsacDiscoverySummary = {
+      skipped: "no-gateway",
+      scanned: 0,
+      attempted: 0,
+      staged: 0,
+      previewed: 0,
+      noMatch: 0,
+      alreadyInLibrary: 0,
+      reconciledResolved: 0,
+      reconciledWithdrawn: 0,
+      errors: 0,
+      stopped: null,
+      apiRequests: 0,
+    };
+    try {
+      vsacDiscovery = await runVsacDiscoveryPass(client, deps.vsac, {
+        mode: deps.vsacStageMode ?? parseStageMode(undefined),
+        log: async (e) => {
+          await logActivity(client, {
+            action: e.action,
+            message: e.message,
+            theme: e.theme ?? null,
+            value_set_id: e.value_set_id ?? null,
+            codes_count: e.codes_count ?? null,
+          });
+          if (e.bus) await logToBus(client, "library", e.action, e.message, e.value_set_id ?? null);
+        },
+      });
+    } catch (e) {
+      console.warn("[auto-term] vsac discovery pass failed", e);
+    }
+
     let demand = { recommended: 0, gated: 0, deprecationSuggested: 0, rejected: 0, scanned: 0 };
     try {
       demand = await processPendingTerminologyRequests(client);
@@ -1373,11 +1445,27 @@ export async function runAutoTerminologistCycle(
     }
 
     const totalActed =
-      demand.recommended + demand.gated + demand.deprecationSuggested + demand.rejected;
+      demand.recommended +
+      demand.gated +
+      demand.deprecationSuggested +
+      demand.rejected +
+      vsacDiscovery.staged +
+      vsacDiscovery.previewed +
+      vsacDiscovery.reconciledResolved +
+      vsacDiscovery.reconciledWithdrawn;
+    const reconcileNote =
+      vsacDiscovery.reconciledResolved || vsacDiscovery.reconciledWithdrawn
+        ? ` ${vsacDiscovery.reconciledResolved} staged request(s) resolved after publish, ${vsacDiscovery.reconciledWithdrawn} re-opened after the draft was deleted.`
+        : "";
+    const discoveryNote =
+      (vsacDiscovery.skipped
+        ? `VSAC discovery: skipped (${vsacDiscovery.skipped}).`
+        : `VSAC discovery: ${vsacDiscovery.attempted} request(s) worked — ${vsacDiscovery.staged} staged as draft, ${vsacDiscovery.previewed} previewed, ${vsacDiscovery.noMatch} no match${vsacDiscovery.stopped ? `, paused (${vsacDiscovery.stopped})` : ""} (${vsacDiscovery.apiRequests} API call(s)).`) +
+      reconcileNote;
     const timeLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     await logActivity(client, {
       action: totalActed === 0 ? "heartbeat" : "cycle_summary",
-      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.recommended} recommendation(s) stamped, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. Drug-Allergy pairs auto-linked: ${pairsLinked}. VSAC OIDs checked: ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import). Proactive sweep: ${proactiveSweep.patientsChecked} patient(s) checked, ${proactiveSweep.gapsFiled} gap(s) filed. Value sets due for review: ${staleness.dueForReview}/${staleness.checked}. Dormancy sweep: ${dormancy.dormancyFlagged} new deprecation request(s) filed (${dormancy.checked} published value set(s) checked).`,
+      message: `${timeLabel} — Scanned ${demand.scanned} pending request(s) — ${demand.recommended} recommendation(s) stamped, ${demand.gated} gated, ${demand.deprecationSuggested} deprecation(s) suggested, ${demand.rejected} rejected. ${discoveryNote} Drug-Allergy pairs auto-linked: ${pairsLinked}. VSAC OIDs checked: ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import). Proactive sweep: ${proactiveSweep.patientsChecked} patient(s) checked, ${proactiveSweep.gapsFiled} gap(s) filed. Value sets due for review: ${staleness.dueForReview}/${staleness.checked}. Dormancy sweep: ${dormancy.dormancyFlagged} new deprecation request(s) filed (${dormancy.checked} published value set(s) checked).`,
       codes_count: 0,
     });
 
@@ -1387,6 +1475,7 @@ export async function runAutoTerminologistCycle(
       requests_gated: demand.gated,
       deprecation_suggested: demand.deprecationSuggested,
       requests_rejected: demand.rejected,
+      vsac_discovery: vsacDiscovery,
       drug_allergy_pairs_linked: pairsLinked,
       vsac_oids_checked: vsacPoll.checked,
       vsac_newly_ready_to_import: vsacPoll.readyToImport,
@@ -1397,7 +1486,7 @@ export async function runAutoTerminologistCycle(
       dormancy_deprecation_requests_filed: dormancy.dormancyFlagged,
     };
     actions.push(
-      `auto_terminologist: demand queue — scanned ${demand.scanned}, recommendation(s) stamped ${demand.recommended}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; drug-allergy pairs linked ${pairsLinked}; vsac OIDs checked ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import); proactive sweep ${proactiveSweep.patientsChecked} patient(s)/${proactiveSweep.gapsFiled} gap(s); ${staleness.dueForReview} value set(s) due for review; dormancy sweep filed ${dormancy.dormancyFlagged} new deprecation request(s).`,
+      `auto_terminologist: demand queue — scanned ${demand.scanned}, recommendation(s) stamped ${demand.recommended}, gated ${demand.gated}, deprecation-suggested ${demand.deprecationSuggested}, rejected ${demand.rejected}; ${discoveryNote} drug-allergy pairs linked ${pairsLinked}; vsac OIDs checked ${vsacPoll.checked} (${vsacPoll.readyToImport} newly ready to import); proactive sweep ${proactiveSweep.patientsChecked} patient(s)/${proactiveSweep.gapsFiled} gap(s); ${staleness.dueForReview} value set(s) due for review; dormancy sweep filed ${dormancy.dormancyFlagged} new deprecation request(s).`,
     );
 
     await client.from("automation_watchdog_logs").insert({
@@ -1408,7 +1497,16 @@ export async function runAutoTerminologistCycle(
       healed_engines: [],
     });
 
-    return { ran: true, demand, pairsLinked, vsacPoll, proactiveSweep, staleness, dormancy };
+    return {
+      ran: true,
+      demand,
+      vsacDiscovery,
+      pairsLinked,
+      vsacPoll,
+      proactiveSweep,
+      staleness,
+      dormancy,
+    };
   } finally {
     clearInterval(heartbeatIntervalId);
   }

@@ -262,6 +262,29 @@ reads the same log.
 
 
 
+\## Auto Terminologist — autonomous VSAC discovery & retrieval (as of 2026-11-27)
+
+Added on branch \`feat/auto-terminologist-vsac-retrieval\`. \`docs/auto-terminologist-vsac-retrieval-design.md\` is the source of truth — read it before touching any of this. As of writing it was NOT yet committed, and its migration/function deploy had NOT been done: check \`supabase migration list\` / the function's deployed version before assuming it is live.
+
+What it does: step 0 of \`runAutoTerminologistCycle\`, BEFORE the demand pass, \`runVsacDiscoveryPass\` (\`\_shared/vsac-discovery.ts\`) takes pending \`create\` requests that have real coded \`seed\_codes\`, queries VSAC's authenticated FHIR API through \`\_shared/vsac-client.ts\` (HTTP Basic \`apikey:<UMLS key>\`; the key lives only in the edge function env as \`UMLS\_API\_KEY\` — same secret \`umls-proxy\` uses — and the browser never holds it), grades candidates DETERMINISTICALLY by seed-code overlap (a name-only match never stages; no LLM), and stages the best match as an INERT draft in \`custom\_value\_sets\` with provenance (real OID, VSAC version, expansion timestamp, retrieval time, sha256, \`provenance.staged\_by = 'auto-terminologist'\`). The request moves to \`status = 'vsac\_staged'\`. \`reconcileStagedRequests\`: draft published → request \`resolved\`; draft deleted → request back to \`pending\` with attempts maxed (never silently re-staged).
+
+INVARIANT CHANGE (deliberate, requested by the owner): the cycle may now CREATE \`custom\_value\_sets\` rows — DRAFTS ONLY. It must never set \`review\` or \`published\` on anything. A DB trigger (\`guard\_auto\_staged\_value\_set\`) blocks \`service\_role\` (by JWT claim or Postgres role) from doing so for auto-staged rows, and from changing their codes/OID once past draft. It deliberately does NOT refuse every service\_role non-draft insert, because spehrancillary.live/spehranalytics.live share this project. Publishing stays a human click. Do not weaken this and do not add engine code that promotes a row.
+
+Dial: env \`VSAC\_AUTO\_STAGE\_MODE\` = \`preview\` (the DEFAULT when unset: writes nothing to \`custom\_value\_sets\`; sets \`ready\_to\_import\` for the human Import Now button) | \`draft\` (explicit opt-in: the engine creates the inert draft) | \`off\`. Any other value, including empty, is treated as \`preview\`.
+
+Rate/limits: NLM allows 20 requests/sec per IP and recommends caching 12–24h. The client self-throttles to ~6.7 req/s, has a 40-request budget per invocation, and a circuit breaker that stops on auth failure / 429 / repeated 5xx. A transient VSAC failure is NEVER recorded as 'no match' and costs the request no attempt (it is parked 30 min, doubling to 6 h). The whole pass has a 40s wall-clock budget. A candidate is only staged if VSAC reports \`expansion.total\` and the retrieved set reaches it.
+
+Drafts must stay inert: every reader of \`custom\_value\_sets\` that ACTS on a value set's contents must filter on \`status = 'published'\`. Two readers were fixed (\`coding-pipeline.ts\` coverage; \`umls-validate-code.ts\`). Any NEW reader must do the same.
+
+UNVERIFIED against the live authenticated service as of 2026-11-27 (only the public \`/fhir/metadata\` was read): whether \`$expand\` honours \`offset\`/\`count\`, whether it reports \`expansion.total\` (the client REQUIRES it — without a total it refuses every expansion and nothing stages), and the \`name:contains\` search modifier. The client fails safe (it refuses to stage any expansion it cannot prove complete). Run the curl in the design doc section 9 once with the owner's own key, then update this line.
+
+Honest limit: there is no login on spehr.live, so the DB trigger separates 'the engine' from 'everyone else' — it cannot tell which person published. Real identity needs the auth-hardening plan (\`docs/edge-function-auth-hardening-plan.md\`).
+
+Rollout order: apply migration \`20261127120000\_vsac\_auto\_retrieval\_provenance.sql\` → (mode defaults to \`preview\`; nothing to set) → deploy \`auto-terminologist-cycle\` → merge the frontend. First live run in \`preview\`; set \`VSAC\_AUTO\_STAGE\_MODE=draft\` only once the matches look right.
+
+Diagnosing: \`auto\_terminologist\_log\` actions \`vsac\_auto\_staged\`, \`vsac\_auto\_previewed\`, \`vsac\_no\_match\`, \`vsac\_already\_in\_library\`, \`vsac\_staged\_resolved\`, \`vsac\_stage\_withdrawn\`, \`vsac\_error\`; a request whose VSAC calls flaked has \`vsac\_discovery\_result.outcome = 'transient\_error'\` (parked, no attempt used); \`terminology\_requests.vsac\_discovery\_result\` holds the per-request audit (every candidate considered and why it was accepted or rejected); \`custom\_value\_sets.provenance\` holds the retrieval record.
+
+
 \## Database
 
 Join to patients via mrn. patients uses facility\_name (not "facility"); status is 'Admitted'|'Discharged';

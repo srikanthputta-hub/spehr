@@ -819,6 +819,7 @@ export type Database = {
           name: string;
           oid: string | null;
           peer_reviewer: string | null;
+          provenance: Json | null;
           published_at: string | null;
           status: string;
           steward: string | null;
@@ -845,6 +846,7 @@ export type Database = {
           name: string;
           oid?: string | null;
           peer_reviewer?: string | null;
+          provenance?: Json | null;
           published_at?: string | null;
           status?: string;
           steward?: string | null;
@@ -871,6 +873,7 @@ export type Database = {
           name?: string;
           oid?: string | null;
           peer_reviewer?: string | null;
+          provenance?: Json | null;
           published_at?: string | null;
           status?: string;
           steward?: string | null;
@@ -3088,6 +3091,9 @@ export type Database = {
           updated_at: string | null;
           value_set_id: string | null;
           vocabulary: string | null;
+          vsac_discovery_at: string | null;
+          vsac_discovery_attempts: number;
+          vsac_discovery_result: Json | null;
           vsac_expansion_preview: Json | null;
         };
         Insert: {
@@ -3115,6 +3121,9 @@ export type Database = {
           updated_at?: string | null;
           value_set_id?: string | null;
           vocabulary?: string | null;
+          vsac_discovery_at?: string | null;
+          vsac_discovery_attempts?: number;
+          vsac_discovery_result?: Json | null;
           vsac_expansion_preview?: Json | null;
         };
         Update: {
@@ -3142,6 +3151,9 @@ export type Database = {
           updated_at?: string | null;
           value_set_id?: string | null;
           vocabulary?: string | null;
+          vsac_discovery_at?: string | null;
+          vsac_discovery_attempts?: number;
+          vsac_discovery_result?: Json | null;
           vsac_expansion_preview?: Json | null;
         };
         Relationships: [];

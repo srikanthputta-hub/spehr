@@ -17,6 +17,8 @@
  * Vite-alias (`@/...`) imports and is safe to load under Deno.
  */
 
+import type { VsacProvenance } from "./vsac-client.ts";
+
 /**
  * Minimal surface of a Supabase client this module needs — deliberately
  * NOT importing the `SupabaseClient` type from `@supabase/supabase-js`
@@ -649,7 +651,7 @@ const REQUEST_NAME_BOILERPLATE: RegExp[] = [
   /^value set needed for\s+/i,
 ];
 
-function cleanedSearchKeyword(requestedName: string): string {
+export function cleanedSearchKeyword(requestedName: string): string {
   let s = requestedName.trim();
   for (const re of REQUEST_NAME_BOILERPLATE) s = s.replace(re, "");
   s = s.trim();
@@ -1371,6 +1373,13 @@ export type VsacExpansionResult = {
   // carries this through from the umls-proxy response so
   // buildVsacImportInsert() below can record it as `steward`.
   publisher: string | null;
+  // Where this expansion came from and exactly what VSAC sent (version,
+  // expansion timestamp, retrieval time, content hash, ...). Present when
+  // the Auto Terminologist's autonomous retrieval pass produced it (see
+  // vsac-client.ts / vsac-discovery.ts); absent for the human-driven
+  // `vsacExpand` paths, which don't capture it. Optional on purpose so
+  // every existing caller and stored `vsac_expansion_preview` keeps working.
+  provenance?: VsacProvenance;
 };
 
 function slugifyValueSetName(name: string): string {
@@ -1400,6 +1409,12 @@ export type VsacImportInsert = {
   // `custom_value_sets.steward`, which every VSAC import path (this helper)
   // now wires up automatically.
   steward: string | null;
+  // Carried straight from `expansion.provenance` when present (never
+  // computed here): the VSAC ValueSet `version` and the full provenance
+  // record, so a human "Import Now" of an auto-retrieved preview keeps the
+  // same audit trail an auto-staged draft has.
+  version?: string | null;
+  provenance?: VsacProvenance;
 };
 
 // A VSAC/HL7 OID is a dot-separated sequence of non-negative integers with
@@ -1494,5 +1509,10 @@ export function buildVsacImportInsert(
       { at: now, actor: "S.P.E.H.R. Terminology Services", change: "Imported from VSAC" },
     ],
     steward: expansion.publisher ?? null,
+    // Only added when present, so an insert built from a provenance-less
+    // expansion is byte-for-byte what it has always been.
+    ...(expansion.provenance
+      ? { version: expansion.provenance.vsac_version, provenance: expansion.provenance }
+      : {}),
   };
 }

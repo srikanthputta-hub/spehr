@@ -33,9 +33,19 @@ import {
   heartbeatLease,
   runAutoTerminologistCycle,
 } from "../_shared/auto-terminologist-cycle.ts";
+import { createVsacClient } from "../_shared/vsac-client.ts";
+import { parseStageMode } from "../_shared/vsac-discovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+// The same UMLS key `umls-proxy` uses (Supabase secrets are project-wide).
+// Read HERE, server-side, so the VSAC discovery pass never needs a new
+// publicly-callable proxy action and the key never reaches a browser.
+const UMLS_API_KEY = Deno.env.get("UMLS_API_KEY") ?? "";
+// preview (default when unset) | draft | off — see the publish-gate note in
+// _shared/auto-terminologist-cycle.ts. `draft` is an explicit opt-in; unknown
+// values fail safe to preview.
+const VSAC_AUTO_STAGE_MODE = parseStageMode(Deno.env.get("VSAC_AUTO_STAGE_MODE"));
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -73,7 +83,16 @@ Deno.serve(async (req) => {
       action: "heartbeat",
     });
 
-    const summary = await runAutoTerminologistCycle(admin, holder);
+    // A fresh client per invocation: its request budget and circuit breaker
+    // are scoped to this one cycle.
+    const vsac =
+      UMLS_API_KEY && VSAC_AUTO_STAGE_MODE !== "off"
+        ? createVsacClient({ apiKey: UMLS_API_KEY })
+        : null;
+    const summary = await runAutoTerminologistCycle(admin, holder, {
+      vsac,
+      vsacStageMode: VSAC_AUTO_STAGE_MODE,
+    });
     return json({ ok: true, ...summary });
   } catch (e) {
     console.error("[auto-terminologist-cycle] cycle failed", e);
