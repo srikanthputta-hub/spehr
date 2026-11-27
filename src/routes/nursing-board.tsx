@@ -117,6 +117,10 @@ function computeClinicalAlert({
   }
 
   // Severity-ordered, vitals-driven alerts (override the diagnosis pill).
+  // Order matters: every "critical" branch is checked first, then every
+  // "warning" branch, then the non-urgent "info" reading — so an abnormal
+  // respiratory rate (warning) can never be hidden behind a merely-elevated
+  // BP reading (info), and vice versa.
   if ((typeof sys === "number" && sys > 180) || (typeof dia === "number" && dia > 120)) {
     return { label: "🆘 Hypertensive Crisis", status: "critical", severity: "critical" };
   }
@@ -126,20 +130,17 @@ function computeClinicalAlert({
   if (typeof temp === "number" && temp < 95.0) {
     return { label: "🥶 Hypothermia", status: "critical", severity: "critical" };
   }
-  if (typeof temp === "number" && temp > 100.4) {
-    return { label: "🌡️ Fever", status: "warning", severity: "warning" };
-  }
   if (typeof sys === "number" && sys < 90) {
     return { label: "📉 Hypotension", status: "critical", severity: "critical" };
+  }
+  if (typeof temp === "number" && temp > 100.4) {
+    return { label: "🌡️ Fever", status: "warning", severity: "warning" };
   }
   if (typeof hr === "number" && hr < 60) {
     return { label: "🐢 Bradycardia", status: "warning", severity: "warning" };
   }
   if (typeof hr === "number" && hr > 100) {
     return { label: "⚡ Tachycardia", status: "warning", severity: "warning" };
-  }
-  if ((typeof sys === "number" && sys > 130) || (typeof dia === "number" && dia > 80)) {
-    return { label: "🩺 Hypertension", status: "info", severity: "none" };
   }
   if (typeof rr === "number" && rr < 12) {
     return { label: "💨 Bradypnea", status: "warning", severity: "warning" };
@@ -149,6 +150,13 @@ function computeClinicalAlert({
   }
   if (typeof o2 === "number" && o2 < 95) {
     return { label: "🫁 Low SpO₂", status: "warning", severity: "warning" };
+  }
+  // AHA/ACC Stage 1+ elevated BP (≥130 systolic or ≥80 diastolic) that
+  // hasn't crossed into crisis territory. This is a live-reading
+  // observation, not a chronic diagnosis — labeled "Elevated BP" (not
+  // "Hypertension") so it can't be mistaken for a condition chip.
+  if ((typeof sys === "number" && sys >= 130) || (typeof dia === "number" && dia >= 80)) {
+    return { label: "🩺 Elevated BP", status: "info", severity: "none" };
   }
 
   // Fall back to diagnosis-driven pill when vitals are within range.
@@ -198,7 +206,7 @@ function LiveVitals({
   const dia = parseInt(diaStr, 10) || 0;
   const hrCritical = hr > 100 || hr < 60;
   const sysCritical = sys < 90 || sys > 180 || dia > 120;
-  const sysWarn = !sysCritical && (sys > 130 || dia > 80);
+  const sysWarn = !sysCritical && (sys >= 130 || dia >= 80);
   const spo2Critical = spo2 < 90;
   const spo2Warn = !spo2Critical && spo2 < 95;
   const rrAlert = rr < 12 || rr > 20;
@@ -335,6 +343,13 @@ function Dashboard() {
   const [patients, setPatients] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const initialLoadRef = useRef(true);
+  // Each patient's own clinically-seeded vitals (as last loaded from the
+  // `patients` table) — the anchor the live-vitals simulation below
+  // mean-reverts toward, so the simulated readings stay grounded in that
+  // patient's actual case instead of drifting off on an unbounded walk.
+  const vitalsBaselineRef = useRef<
+    Map<string, { hr: number; sys: number; dia: number; o2: number; rr: number; temp: number }>
+  >(new Map());
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [discharging, setDischarging] = useState<PatientRow | null>(null);
@@ -536,6 +551,18 @@ function Dashboard() {
         if (a.admittedAt && b.admittedAt) return b.admittedAt.localeCompare(a.admittedAt);
         return (a.room ?? "").localeCompare(b.room ?? "");
       });
+      for (const row of rows) {
+        if (row.hr <= 0) continue; // skip "Initializing…" placeholders — no real vitals yet
+        const [s, d] = row.bp.split("/").map((n) => parseInt(n, 10));
+        vitalsBaselineRef.current.set(row.mrn, {
+          hr: row.hr,
+          sys: isNaN(s) ? 120 : s,
+          dia: isNaN(d) ? 80 : d,
+          o2: row.o2,
+          rr: row.rr || 16,
+          temp: row.temp || 98.6,
+        });
+      }
       setPatients(rows);
       setLoading(false);
       initialLoadRef.current = false;
@@ -585,6 +612,14 @@ function Dashboard() {
         { event: "UPDATE", schema: "public", table: "patients" },
         (payload) => {
           const p = payload.new as Database["public"]["Tables"]["patients"]["Row"];
+          vitalsBaselineRef.current.set(p.mrn, {
+            hr: p.hr,
+            sys: p.bp_systolic,
+            dia: p.bp_diastolic,
+            o2: p.spo2,
+            rr: p.rr || 16,
+            temp: p.temp || 98.6,
+          });
           setPatients((prev) =>
             prev.map((row) =>
               row.mrn === p.mrn
@@ -636,23 +671,42 @@ function Dashboard() {
 
   useEffect(() => {
     if (!ready || !automationEnabled) return;
-    const jitter = (range: number) => Math.floor(Math.random() * (2 * range + 1)) - range;
+    // Mean-reverting random walk (Ornstein-Uhlenbeck style): each tick takes
+    // a small step and is pulled back 35% of the way toward that patient's
+    // own seeded baseline. This keeps the "live" feed physiologically
+    // plausible — a stroke patient's BP hovers near their actual crisis-range
+    // baseline instead of independently re-randomizing every tick and
+    // teleporting a back-pain patient from 128/88 to 80/81 in a minute.
+    const jitter = (range: number) => (Math.random() * 2 - 1) * range;
     const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+    const REVERT = 0.35;
     const id = setInterval(() => {
       setPatients((prev) =>
         prev.map((p) => {
+          const baseline = vitalsBaselineRef.current.get(p.mrn);
+          if (!baseline) return p; // no real vitals loaded yet — don't invent any
           const [sysStr, diaStr] = p.bp.split("/");
-          const sys = clamp((parseInt(sysStr, 10) || 120) + jitter(8), 80, 200);
-          const dia = clamp((parseInt(diaStr, 10) || 80) + jitter(6), 45, 130);
+          const curSys = parseInt(sysStr, 10) || baseline.sys;
+          const curDia = parseInt(diaStr, 10) || baseline.dia;
+          const nextHr = Math.round(p.hr + REVERT * (baseline.hr - p.hr) + jitter(2));
+          const nextSys = Math.round(curSys + REVERT * (baseline.sys - curSys) + jitter(2.5));
+          const nextDia = Math.round(curDia + REVERT * (baseline.dia - curDia) + jitter(1.5));
+          const nextO2 = Math.round(p.o2 + REVERT * (baseline.o2 - p.o2) + jitter(0.8));
+          const nextRr = Math.round(p.rr + REVERT * (baseline.rr - p.rr) + jitter(0.6));
+          const nextTemp = Number(
+            (p.temp + REVERT * (baseline.temp - p.temp) + jitter(0.08)).toFixed(1),
+          );
           return {
             ...p,
-            hr: clamp(p.hr + jitter(8), 45, 140),
-            bp: `${sys}/${dia}`,
-            o2: clamp(p.o2 + jitter(3), 85, 100),
+            hr: clamp(nextHr, 30, 180),
+            bp: `${clamp(nextSys, 60, 220)}/${clamp(nextDia, 35, 140)}`,
+            o2: clamp(nextO2, 70, 100),
+            rr: clamp(nextRr, 6, 40),
+            temp: clamp(nextTemp, 92, 106),
           };
         }),
       );
-    }, 2000);
+    }, 4000);
     return () => clearInterval(id);
   }, [ready, automationEnabled]);
 
@@ -675,6 +729,27 @@ function Dashboard() {
   const facilityPatients = useMemo(
     () => patients.filter((p) => p.facility === facility),
     [patients, facility],
+  );
+
+  // Single source of truth: count rows whose computed alert is the SAME
+  // "critical" severity shown in that row's own Clinical Alerts badge
+  // (hypertensive crisis, hypoxia <90%, hypothermia <95°F, hypotension <90
+  // systolic), instead of a separate ad hoc "HR > 115" rule that disagreed
+  // with the badges actually rendered below.
+  const criticalAlertCount = useMemo(
+    () =>
+      facilityPatients.filter(
+        (p) =>
+          computeClinicalAlert({
+            dx: p.diagnosis,
+            hr: p.hr,
+            o2: p.o2,
+            bp: p.bp,
+            rr: p.rr,
+            temp: p.temp,
+          }).severity === "critical",
+      ).length,
+    [facilityPatients],
   );
 
   if (!ready) {
@@ -741,10 +816,10 @@ function Dashboard() {
           <StatCard
             icon={AlertTriangle}
             label="Critical Alerts"
-            value={`${facilityPatients.filter((p) => p.o2 < 90 || p.hr > 115).length}`}
+            value={`${criticalAlertCount}`}
             tone="red"
-            sub="SpO₂ < 90% or HR > 115 bpm"
-            info="Currently defined as SpO₂ < 90% OR HR > 115 bpm only — blood pressure, temperature, and respiratory rate thresholds are NOT included in this tile today."
+            sub="Hypertensive crisis · Hypoxia <90% · Hypotension · Hypothermia"
+            info="Counts patients whose Clinical Alerts badge below is currently critical — SpO₂ < 90%, systolic BP > 180 or diastolic > 120 (hypertensive crisis), systolic BP < 90 (hypotension), or temp < 95°F (hypothermia). Same threshold logic that renders each row's badge, so this tile and the per-patient alerts always agree."
           />
           <CohortCountsStrip facilityName={facility} variant="card" />
           <StatCard
