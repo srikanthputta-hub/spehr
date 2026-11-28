@@ -192,6 +192,7 @@ function statusBadge(status: string | null): string {
   if (s === "umls-suggested") return "text-indigo-700 bg-indigo-50 border-indigo-200";
   if (s === "sent_to_vsac") return "text-violet-700 bg-violet-50 border-violet-200";
   if (s === "ready_to_import") return "text-teal-700 bg-teal-50 border-teal-200";
+  if (s === "vsac_staged") return "text-cyan-700 bg-cyan-50 border-cyan-200";
   if (s === "published" || s === "resolved")
     return "text-emerald-700 bg-emerald-50 border-emerald-200";
   if (s === "rejected") return "text-red-700 bg-red-50 border-red-200";
@@ -226,7 +227,9 @@ type RequestSection = "ready" | "review" | "awaiting" | "resolved";
  * auto-reject already disposed of it with no human action possible, e.g.
  * "target is a draft" or "target not found"; it's terminal, just under a
  * different status word than "resolved"); a ready-to-act VSAC signal —
- * either the background poll's staged `ready_to_import` preview, or a
+ * either the background poll's staged `ready_to_import` preview, a
+ * `vsac_staged` request (the Auto Terminologist already retrieved the set
+ * from VSAC and left it as an unpublished draft awaiting the steward), or a
  * Gap-1 known-catalog candidate hit — is the most actionable state and
  * comes next; a human-linked OID still awaiting VSAC's own publish cycle
  * is next; everything else — including a `pending` deprecate request not
@@ -241,7 +244,11 @@ function sectionOf(r: RequestRow): RequestSection {
   const isDeprecate = r.request_type === "deprecate";
   const hasKnownCandidates =
     !isDeprecate && Array.isArray(r.known_vsac_candidates) && r.known_vsac_candidates.length > 0;
-  if (!isDeprecate && (status === "ready_to_import" || hasKnownCandidates)) return "ready";
+  if (
+    !isDeprecate &&
+    (status === "ready_to_import" || status === "vsac_staged" || hasKnownCandidates)
+  )
+    return "ready";
   if (!isDeprecate && r.linked_vsac_oid) return "awaiting";
   return "review";
 }
@@ -1451,6 +1458,121 @@ function RequestSectionBlock<T>({
 }
 
 /**
+ * What the Auto Terminologist staged for a `vsac_staged` request: the real
+ * VSAC value set, retrieved over the authenticated API and left as an
+ * UNPUBLISHED draft. Read-only on purpose — the steward's only action is to
+ * review and publish the draft in the Value Set Library; the next cycle then
+ * resolves this request on its own.
+ *
+ * Provenance is read lazily from the draft row (not added to the list query
+ * above) so this panel keeps working on a database that hasn't had the
+ * `provenance` column migration applied yet — a `vsac_staged` row can only
+ * exist once it has been.
+ */
+/** The slice of `custom_value_sets.provenance` this card displays. */
+type StagedProvenance = {
+  vsac_version?: string | null;
+  vsac_publisher?: string | null;
+  codes_retrieved?: number | null;
+  retrieved_at?: string | null;
+  match?: { seed_matched?: number; seed_total?: number; coverage?: number };
+};
+
+type StagedDraftInfo = {
+  name: string;
+  status: string;
+  oid: string | null;
+  provenance: StagedProvenance | null;
+};
+
+function VsacStagedCard({ r }: { r: RequestRow }) {
+  const [info, setInfo] = useState<StagedDraftInfo | null | "missing">(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!r.value_set_id) {
+      setInfo("missing");
+      return;
+    }
+    void (async () => {
+      const { data, error } = await supabase
+        .from("custom_value_sets")
+        .select("name, status, oid, provenance")
+        .eq("id", r.value_set_id as string)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error || !data) {
+        setInfo("missing");
+        return;
+      }
+      setInfo({
+        name: String(data.name ?? ""),
+        status: String(data.status ?? "draft"),
+        oid: data.oid ?? null,
+        provenance:
+          data.provenance && typeof data.provenance === "object" && !Array.isArray(data.provenance)
+            ? (data.provenance as StagedProvenance)
+            : null,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [r.value_set_id]);
+
+  const prov = info && info !== "missing" ? info.provenance : null;
+  const match = prov?.match;
+  const retrievedAt = typeof prov?.retrieved_at === "string" ? prov.retrieved_at : null;
+
+  return (
+    <div className="ml-1 rounded-md border border-cyan-300 bg-cyan-50 px-3 py-2 text-[11px] text-cyan-900 space-y-1">
+      <div className="flex items-center gap-1.5 font-semibold">
+        <CheckCircle2 className="h-3 w-3" />
+        Retrieved from VSAC — staged as an unpublished draft
+      </div>
+      {info === null && <div className="text-cyan-700">Loading provenance…</div>}
+      {info === "missing" && (
+        <div className="text-amber-700">
+          The staged draft could not be found — it may have been deleted. The next cycle will
+          re-open this request.
+        </div>
+      )}
+      {info && info !== "missing" && (
+        <>
+          <div>
+            <span className="font-semibold">{info.name}</span>
+            {" · "}
+            <span className="capitalize">{info.status}</span>
+            {info.oid && (
+              <>
+                {" · OID "}
+                <span className="font-mono">{info.oid}</span>
+              </>
+            )}
+          </div>
+          {prov && (
+            <div className="text-cyan-800">
+              VSAC version {prov.vsac_version ?? "not reported"}
+              {prov.vsac_publisher ? ` · ${prov.vsac_publisher}` : ""}
+              {" · "}
+              {prov.codes_retrieved ?? "?"} codes
+              {retrievedAt ? ` · retrieved ${new Date(retrievedAt).toLocaleString()}` : ""}
+              {match && typeof match.seed_matched === "number"
+                ? ` · contains ${match.seed_matched}/${match.seed_total} of the codes that triggered this request`
+                : ""}
+            </div>
+          )}
+          <div className="text-cyan-800">
+            Nothing is live yet. Open <span className="font-semibold">Value Set Library</span>,
+            review this draft, and publish it — this request then resolves automatically.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
  * "Ready to Import" card — status === "ready_to_import" with a staged
  * preview, and/or a non-empty known_vsac_candidates hit (Gap 1). The point
  * of this section is "click to resolve this," so it skips the Brief
@@ -1476,7 +1598,12 @@ function ReadyToImportRow({
 }) {
   const { time, ago } = requestTimeLabel(r.requested_at);
   const hasPreview = r.status === "ready_to_import" && !!r.vsac_expansion_preview;
-  const candidates = Array.isArray(r.known_vsac_candidates) ? r.known_vsac_candidates : [];
+  const isStaged = r.status === "vsac_staged";
+  // A staged request already has its value set in the library (as an
+  // unpublished draft) — offering to import the catalog candidates again would
+  // only collide with it on OID, so the candidate list is hidden.
+  const candidates =
+    !isStaged && Array.isArray(r.known_vsac_candidates) ? r.known_vsac_candidates : [];
 
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
@@ -1493,6 +1620,8 @@ function ReadyToImportRow({
         </div>
         <DeleteRequestButton r={r} onDelete={onDelete} />
       </div>
+
+      {isStaged && <VsacStagedCard r={r} />}
 
       {hasPreview && r.vsac_expansion_preview && (
         <div className="ml-1 rounded-md border border-teal-300 bg-teal-50 px-3 py-2 text-[11px] text-teal-900">

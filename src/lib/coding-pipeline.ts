@@ -1290,7 +1290,14 @@ export async function approveMrnCoding(
   const snomedCodes = Array.from(new Set((conds ?? []).map((r) => r.snomed_code).filter(Boolean)));
   if (snomedCodes.length === 0) return;
 
-  const { data: vsets } = await supabase.from("custom_value_sets").select("codes");
+  // Coverage means a LIVE value set contains the code. Drafts and sets under
+  // review (including the inert drafts the Auto Terminologist stages from VSAC)
+  // are unreviewed and drive no consumer, so they must not hide a real gap —
+  // same `published` rule every other consumer of custom_value_sets applies.
+  const { data: vsets } = await supabase
+    .from("custom_value_sets")
+    .select("codes")
+    .eq("status", "published");
   const covered = new Set<string>();
   for (const vs of vsets ?? []) {
     const codes = Array.isArray(vs.codes) ? vs.codes : [];

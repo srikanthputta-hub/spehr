@@ -112,6 +112,11 @@ export const Route = createFileRoute("/api/public/umls-validate-code")({
           .from("custom_value_sets")
           .select("name, vocabulary, type, codes, intensional_rule")
           .eq("oid", oid)
+          // Never validate against an unreviewed value set: a draft/review row
+          // (e.g. one the Auto Terminologist auto-staged from VSAC) must not be
+          // able to vouch for a code until a steward has published it. Other
+          // statuses (published, deprecation-suggested, retired…) behave as before.
+          .not("status", "in", "(draft,review)")
           .maybeSingle();
         if (error)
           return json({ ok: false, error: `value set lookup failed: ${error.message}` }, 502, cors);
